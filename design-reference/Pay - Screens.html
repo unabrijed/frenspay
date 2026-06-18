@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pay — All screens</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;600;700;800&family=Inter:wght@400;500;600&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="pay.css">
+<style>
+  html,body{height:auto;overflow:auto;background:#eceeea;}
+  body{padding:56px 40px 100px;}
+  .ghead{max-width:1100px;margin:0 auto 8px;}
+  .ghead .kick{font-family:'Spline Sans Mono',monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#0E7A63;font-weight:600;}
+  .ghead h1{font-family:'Schibsted Grotesk',sans-serif;font-weight:700;font-size:30px;letter-spacing:-.02em;margin-top:10px;color:#16181C;}
+  .ghead p{color:#8A8E94;font-size:15px;line-height:1.5;margin-top:10px;max-width:620px;}
+  .ghead a{color:#0E7A63;font-weight:600;text-decoration:none;}
+  .sec{max-width:1180px;margin:46px auto 0;}
+  .sec > h2{font-family:'Schibsted Grotesk',sans-serif;font-weight:700;font-size:19px;color:#16181C;letter-spacing:-.01em;
+    margin:0 0 22px;padding-bottom:12px;border-bottom:1px solid #dcddd8;}
+  .grid{display:flex;flex-wrap:wrap;gap:30px 26px;}
+  --s:.6;
+  .cell{display:flex;flex-direction:column;align-items:center;gap:13px;}
+  .miniwrap{width:234px;height:506px;position:relative;}
+  .miniwrap > .phone{position:absolute;top:0;left:0;transform:scale(.6);transform-origin:top left;}
+  .cap{font-size:13px;color:#16181C;font-weight:500;text-align:center;}
+  .cap small{display:block;color:#9a948a;font-weight:400;font-size:12px;margin-top:2px;}
+  /* static gallery: no entrance motion */
+  *{animation:none !important;}
+  /* scrim a touch lighter so sheets read clearly in the grid */
+  .miniwrap .scrim{background:rgba(16,18,20,.34);}
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="ui.jsx"></script>
+<script type="text/babel" src="screens-core.jsx"></script>
+<script type="text/babel" src="screens-more.jsx"></script>
+<script type="text/babel" src="screens-onboarding.jsx"></script>
+<script type="text/babel">
+const { StatusBar, I } = window.UI;
+const { Home, Scan, Amount, Review, Success, Declined } = window.CORE;
+const { AddMoney, Activity, Detail, Send, SendAmount, Request, Settings } = window.MORE;
+const { Welcome, FaceID, Handle, FundFirst, Recovery, Verify } = window.ONB;
+
+const S = {
+  bal: 420, t: { rlc: 'A', homeCur: 'INR' },
+  open(){}, close(){}, setTab(){}, setMerchant(){}, setPayR(){}, setFriend(){},
+  doPay(){}, doSend(){}, doAdd(){}, openDetail(){},
+  onbNext(){}, onbBack(){}, onbFinish(){}, recoveryDone(){}, verifyDone(){},
+  payMerchant(){}, finishPay(){}, replayOnboarding(){}, pendingPay: false,
+  merchant: { name: 'Anjuna Beach Cafe' },
+  friend: { name: 'Neha R.', handle: '@neha', ini: 'N' },
+  payR: 500,
+  detail: { id: 1, type: 'pay', title: 'Anjuna Beach Cafe', time: 'Today · 09:24', usd: -5.71, rupees: 500 },
+  txns: [
+    { id: 1, type: 'pay', title: 'Anjuna Beach Cafe', time: 'Today · 09:24', usd: -5.71, rupees: 500 },
+    { id: 2, type: 'send', title: 'To @neha', time: 'Yesterday', usd: -12.0 },
+    { id: 3, type: 'add', title: 'Added money', time: '12 Jun', usd: 200.0 },
+  ],
+  lastSend: { u: 12, handle: '@neha' },
+};
+
+const Nav = ({ active }) => (
+  <div className="nav">
+    <button className={'it' + (active === 'home' ? ' on' : '')}>{I.home({ size: 22, color: active === 'home' ? 'var(--accent)' : 'var(--muted)' })}<span>Home</span></button>
+    <button className="pay"><span className="btn">{I.qrbig({ size: 26 })}</span><span>Pay</span></button>
+    <button className={'it' + (active === 'activity' ? ' on' : '')}>{I.activity({ size: 22, color: active === 'activity' ? 'var(--accent)' : 'var(--muted)' })}<span>Activity</span></button>
+  </div>
+);
+
+function Frame({ label, sub, kind, tall, children }) {
+  let inner;
+  if (kind === 'tab') {
+    inner = <React.Fragment><StatusBar /><div className="screen">{children}</div><Nav active={label.includes('Activity') ? 'activity' : 'home'} /></React.Fragment>;
+  } else if (kind === 'full') {
+    inner = <React.Fragment><StatusBar />{children}</React.Fragment>;
+  } else { // sheet
+    inner = (
+      <React.Fragment>
+        <StatusBar />
+        <div className="screen"><Home S={S} /></div>
+        <Nav active="home" />
+        <div className="scrim" />
+        <div className={'sheet' + (tall ? ' tall' : '')}>{children}</div>
+      </React.Fragment>
+    );
+  }
+  return (
+    <div className="cell">
+      <div className="miniwrap"><div className="phone">{inner}</div></div>
+      <div className="cap">{label}{sub && <small>{sub}</small>}</div>
+    </div>
+  );
+}
+
+function Gallery() {
+  return (
+    <React.Fragment>
+      <div className="ghead">
+        <div className="kick">Pay · every screen</div>
+        <h1>All screens, laid out flat</h1>
+        <p>Each frame below is a real screen from the prototype. These are static — open the <a href="Pay.html">live prototype</a> to tap through them, or toggle <b>Tweaks</b> there to compare directions.</p>
+      </div>
+
+      <div className="sec">
+        <h2>Onboarding — shortest path to first payment</h2>
+        <div className="grid">
+          <Frame label="Welcome" kind="full"><Welcome S={S} /></Frame>
+          <Frame label="Face ID" sub="passkey" kind="full"><FaceID S={S} /></Frame>
+          <Frame label="Choose handle" kind="full"><Handle S={S} /></Frame>
+          <Frame label="Add first dollars" sub="funded fast" kind="full"><FundFirst S={S} /></Frame>
+          <Frame label="Add a backup" sub="deferred · after 1st pay" kind="sheet" tall><Recovery S={S} /></Frame>
+          <Frame label="Verify identity" sub="just-in-time KYC" kind="sheet" tall><Verify S={S} /></Frame>
+        </div>
+      </div>
+
+      <div className="sec">
+        <h2>Home &amp; money</h2>
+        <div className="grid">
+          <Frame label="Home" sub="balance, tiles, recent" kind="tab"><Home S={S} /></Frame>
+          <Frame label="Add money" sub="top up / deposit" kind="sheet"><AddMoney S={S} /></Frame>
+          <Frame label="Activity" sub="full history" kind="tab"><Activity S={S} /></Frame>
+          <Frame label="Transaction detail" sub="receipt" kind="full"><Detail S={S} /></Frame>
+          <Frame label="Settings" sub="profile" kind="full"><Settings S={S} /></Frame>
+        </div>
+      </div>
+
+      <div className="sec">
+        <h2>Pay a merchant — the signature flow</h2>
+        <div className="grid">
+          <Frame label="Scan" sub="any UPI QR" kind="sheet" tall><Scan S={S} /></Frame>
+          <Frame label="Amount" sub="enter ₹" kind="sheet" tall><Amount S={S} /></Frame>
+          <Frame label="Review" sub="rate-lock card" kind="sheet" tall><Review S={S} /></Frame>
+          <Frame label="Success" sub="paid instantly" kind="sheet" tall><Success S={S} /></Frame>
+          <Frame label="Declined" sub="error state" kind="sheet" tall><Declined S={S} /></Frame>
+        </div>
+      </div>
+
+      <div className="sec">
+        <h2>Friends</h2>
+        <div className="grid">
+          <Frame label="Send · pick a friend" kind="sheet" tall><Send S={S} /></Frame>
+          <Frame label="Send · amount" kind="sheet" tall><SendAmount S={S} /></Frame>
+          <Frame label="Request money" kind="sheet" tall><Request S={S} /></Frame>
+        </div>
+      </div>
+    </React.Fragment>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Gallery />);
+</script>
+</head>
+<body>
+<div id="root"></div>
+</body>
+</html>

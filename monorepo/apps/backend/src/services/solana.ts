@@ -1,0 +1,132 @@
+// solana.ts — devnet USDC plumbing for Phase 1.
+// The user (token authority) signs the transfer; the backend fee-payer sponsors network
+// fees + any ATA-creation rent, so users never need SOL. Flow: prepare (build unsigned,
+// fee-payer set) → client signs → submit (fee-payer co-signs, broadcast).
+import {
+  createAssociatedTokenAccountInstruction,
+  createTransferCheckedInstruction,
+  getAccount,
+  getAssociatedTokenAddress,
+  getMint,
+  TokenAccountNotFoundError,
+} from '@solana/spl-token';
+import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
+
+import { config } from '../config';
+
+let _connection: Connection | null = null;
+export function connection(): Connection {
+  if (!_connection) _connection = new Connection(config.solanaRpcUrl, 'confirmed');
+  return _connection;
+}
+
+let _feePayer: Keypair | null = null;
+export function feePayer(): Keypair {
+  if (_feePayer) return _feePayer;
+  const raw = config.feePayerSecretKey.trim();
+  if (!raw) throw new Error('FEE_PAYER_SECRET_KEY is not set');
+  let bytes: Uint8Array;
+  if (raw.startsWith('[')) {
+    bytes = Uint8Array.from(JSON.parse(raw) as number[]);
+  } else {
+    // base58 — decode via PublicKey's bs58 dependency indirectly through Keypair? Use bs58.
+    throw new Error('FEE_PAYER_SECRET_KEY must be a JSON byte array (solana-keygen format)');
+  }
+  _feePayer = Keypair.fromSecretKey(bytes);
+  return _feePayer;
+}
+
+function usdcMint(): PublicKey {
+  if (!config.usdcMint) throw new Error('USDC_MINT is not set');
+  return new PublicKey(config.usdcMint);
+}
+
+let _decimals: number | null = null;
+async function decimals(): Promise<number> {
+  if (_decimals == null) _decimals = (await getMint(connection(), usdcMint())).decimals;
+  return _decimals;
+}
+
+function isValidPubkey(s: string): boolean {
+  try {
+    // eslint-disable-next-line no-new
+    new PublicKey(s);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function toBaseUnits(amountUsd: number, dec: number): bigint {
+  return BigInt(Math.round(amountUsd * 10 ** dec));
+}
+
+/** On-chain USDC balance (UI units) for a wallet owner. Returns 0 for unfunded/invalid. */
+export async function getUsdcBalance(owner: string): Promise<number> {
+  if (!config.usdcMint || !isValidPubkey(owner)) return 0;
+  const ownerPk = new PublicKey(owner);
+  const ata = await getAssociatedTokenAddress(usdcMint(), ownerPk);
+  try {
+    const acct = await getAccount(connection(), ata);
+    const dec = await decimals();
+    return Number(acct.amount) / 10 ** dec;
+  } catch (err) {
+    if (err instanceof TokenAccountNotFoundError) return 0;
+    throw err;
+  }
+}
+
+/** Build an unsigned, fee-payer-sponsored USDC transfer; returns base64 + fee-payer pubkey. */
+export async function buildUsdcTransfer(input: {
+  fromOwner: string;
+  toOwner: string;
+  amountUsd: number;
+}): Promise<{ unsignedTx: string; feePayer: string }> {
+  const fromPk = new PublicKey(input.fromOwner);
+  const toPk = new PublicKey(input.toOwner);
+  const mint = usdcMint();
+  const payer = feePayer();
+  const dec = await decimals();
+
+  const fromAta = await getAssociatedTokenAddress(mint, fromPk);
+  const toAta = await getAssociatedTokenAddress(mint, toPk);
+
+  const tx = new Transaction();
+
+  // Create the recipient's token account if it doesn't exist (fee-payer pays the rent).
+  try {
+    await getAccount(connection(), toAta);
+  } catch (err) {
+    if (err instanceof TokenAccountNotFoundError) {
+      tx.add(createAssociatedTokenAccountInstruction(payer.publicKey, toAta, toPk, mint));
+    } else {
+      throw err;
+    }
+  }
+
+  tx.add(
+    createTransferCheckedInstruction(fromAta, mint, toAta, fromPk, toBaseUnits(input.amountUsd, dec), dec),
+  );
+
+  tx.feePayer = payer.publicKey;
+  tx.recentBlockhash = (await connection().getLatestBlockhash()).blockhash;
+
+  // Fee-payer signs now; the client adds the user (token-authority) signature and broadcasts
+  // (Privy's Expo wallet only does signAndSendTransaction). "unsignedTx" = unsigned by the client.
+  tx.partialSign(payer);
+
+  const unsignedTx = tx
+    .serialize({ requireAllSignatures: false, verifySignatures: false })
+    .toString('base64');
+  return { unsignedTx, feePayer: payer.publicKey.toBase58() };
+}
+
+/** Poll on-chain status for a signature (used by M2 confirmation). */
+export async function getTransferStatus(signature: string): Promise<'pending' | 'confirmed' | 'failed'> {
+  const { value } = await connection().getSignatureStatuses([signature]);
+  const s = value[0];
+  if (!s) return 'pending';
+  if (s.err) return 'failed';
+  if (s.confirmationStatus === 'confirmed' || s.confirmationStatus === 'finalized') return 'confirmed';
+  return 'pending';
+}

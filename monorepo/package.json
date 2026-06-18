@@ -1,0 +1,16 @@
+{
+  "name": "pay-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "yarn@1.22.22",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "mobile": "yarn workspace @pay/mobile start",
+    "mobile:web": "yarn workspace @pay/mobile web",
+    "backend": "yarn workspace @pay/backend dev",
+    "typecheck": "yarn workspace @pay/shared tsc --noEmit && yarn workspace @pay/mobile tsc --noEmit && yarn workspace @pay/backend tsc --noEmit"
+  }
+}
