@@ -73,6 +73,23 @@ export const MockWalletProvider: WalletProvider = {
   depositAddress() {
     return USDC_DEPOSIT_ADDRESS;
   },
+  // Requests are tracked in the store in mock mode; these just fabricate/no-op.
+  async getRequests() {
+    return [];
+  },
+  async createRequest({ toHandle, amountUsd, note }) {
+    return {
+      id: String(Date.now()),
+      direction: 'outgoing',
+      counterpartyHandle: toHandle,
+      amountUsd,
+      note,
+      status: 'open',
+      createdAt: new Date().toISOString(),
+    };
+  },
+  async payRequest() {},
+  async cancelRequest() {},
 };
 
 /* ---- active providers (mock by default; real when EXPO_PUBLIC_USE_REAL_API=1) ---- */

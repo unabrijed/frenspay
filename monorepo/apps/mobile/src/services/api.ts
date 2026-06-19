@@ -49,6 +49,9 @@ export const api = {
   requests: () => req<RequestsResponse>('/requests'),
   createRequest: (body: CreateRequestRequest) =>
     req<ApiPaymentRequest>('/requests', { method: 'POST', body: JSON.stringify(body) }),
+  payRequest: (id: string, transferId: string) =>
+    req<{ ok: true }>(`/requests/${id}/pay`, { method: 'POST', body: JSON.stringify({ transferId }) }),
+  cancelRequest: (id: string) => req<{ ok: true }>(`/requests/${id}/cancel`, { method: 'POST' }),
   prepareTransfer: (body: PrepareTransferRequest) =>
     req<PrepareTransferResponse>('/transfer/prepare', { method: 'POST', body: JSON.stringify(body) }),
   submitTransfer: (body: SubmitTransferRequest) =>

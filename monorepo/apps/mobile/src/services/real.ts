@@ -1,6 +1,6 @@
 // real.ts — RealWalletProvider: the WalletProvider backed by the Railway API + active Signer.
 // transfer() = prepare (server builds + fee-payer-signs) → signAndSend (client) → submit (record).
-import type { Txn, WalletProvider } from '@pay/shared';
+import type { ApiPaymentRequest, CreateRequestRequest, Txn, WalletProvider } from '@pay/shared';
 
 import { api } from './api';
 import { DEV_SECRET_KEY, SOLANA_RPC_URL } from './env';
@@ -51,5 +51,21 @@ export class RealWalletProvider implements WalletProvider {
 
   depositAddress(): string {
     return ''; // real deposit address comes from /me (walletAddress); surfaced via the store
+  }
+
+  async getRequests(): Promise<ApiPaymentRequest[]> {
+    return (await api.requests()).requests;
+  }
+
+  async createRequest(input: CreateRequestRequest): Promise<ApiPaymentRequest> {
+    return api.createRequest(input);
+  }
+
+  async payRequest(requestId: string, transferId: string): Promise<void> {
+    await api.payRequest(requestId, transferId);
+  }
+
+  async cancelRequest(requestId: string): Promise<void> {
+    await api.cancelRequest(requestId);
   }
 }

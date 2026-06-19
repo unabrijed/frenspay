@@ -1,18 +1,71 @@
-// Activity — filterable transaction history (same row component as Home).
+// Activity — open payment requests + filterable transaction history.
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { TxRow } from '@/components/TxRow';
-import { List } from '@/components/ui/primitives';
+import { Btn, TextLink } from '@/components/ui/Button';
+import { Fav, List, Row, RowAmount, RowMeta } from '@/components/ui/primitives';
 import { Txt } from '@/components/ui/Txt';
+import { usd } from '@/lib/money';
 import { colors, GUTTER, type } from '@/lib/theme';
+import { relTime } from '@/services/mappers';
 import type { Txn } from '@/services/wallet';
 import { usePayStore } from '@/store/usePayStore';
 
 const FILTERS = ['All', 'Payments', 'Friends'] as const;
 type Filter = (typeof FILTERS)[number];
+
+function Requests() {
+  const requests = usePayStore((s) => s.requests);
+  const payRequest = usePayStore((s) => s.payRequest);
+  const cancelRequest = usePayStore((s) => s.cancelRequest);
+  const busy = usePayStore((s) => s.busy);
+  const open = requests.filter((r) => r.status === 'open');
+  if (open.length === 0) return null;
+
+  return (
+    <>
+      <Txt style={[type.dayLabel, styles.dayLabel]}>Requests</Txt>
+      <List style={{ marginBottom: 18 }}>
+        {open.map((r) => {
+          const handle = r.counterpartyHandle ?? '';
+          const ini = (handle.replace(/^@/, '').charAt(0) || '?').toUpperCase();
+          const incoming = r.direction === 'incoming';
+          return (
+            <View key={r.id}>
+              <Row>
+                <Fav label={ini} />
+                <RowMeta>
+                  <Txt style={type.rowName} numberOfLines={1}>
+                    {incoming ? `${handle} asks you` : `You asked ${handle || 'someone'}`}
+                  </Txt>
+                  <Txt style={[type.rowTime, { marginTop: 3 }]}>{relTime(r.createdAt)}</Txt>
+                </RowMeta>
+                <RowAmount>
+                  <Txt style={type.rowAmount}>{usd(r.amountUsd)}</Txt>
+                </RowAmount>
+              </Row>
+              <View style={styles.reqAction}>
+                {incoming ? (
+                  <Btn
+                    label={`Pay ${usd(r.amountUsd)}`}
+                    height={42}
+                    disabled={busy}
+                    onPress={() => void payRequest(r.id)}
+                  />
+                ) : (
+                  <TextLink label="Cancel request" onPress={() => void cancelRequest(r.id)} />
+                )}
+              </View>
+            </View>
+          );
+        })}
+      </List>
+    </>
+  );
+}
 
 export default function Activity() {
   const router = useRouter();
@@ -33,6 +86,7 @@ export default function Activity() {
         <View style={styles.fhead}>
           <Txt style={type.screenTitle}>Activity</Txt>
         </View>
+        <Requests />
         <View style={styles.filters}>
           {FILTERS.map((x) => (
             <Pressable key={x} onPress={() => setF(x)} style={[styles.f, f === x && styles.fOn]}>
@@ -66,4 +120,5 @@ const styles = StyleSheet.create({
   },
   fOn: { backgroundColor: colors.ink, borderColor: colors.ink },
   dayLabel: { marginTop: 4, marginBottom: 9, marginHorizontal: 2 },
+  reqAction: { paddingHorizontal: 16, paddingBottom: 13, paddingTop: 2 },
 });

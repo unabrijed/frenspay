@@ -99,7 +99,7 @@ export function Recovery() {
 
 const styles = StyleSheet.create({
   tier: { borderWidth: 1, borderColor: colors.hair, borderRadius: radii.card, padding: 16, backgroundColor: colors.surface },
-  tierOn: { backgroundColor: colors.accentSoft, borderColor: 'rgba(14,122,99,0.35)' },
+  tierOn: { backgroundColor: colors.accentSoft, borderColor: colors.accentLine },
   th: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   desc: { ...type.tierDesc, marginTop: 8 },
   monoInk: { fontFamily: fonts.mono400, color: colors.ink },

@@ -7,7 +7,7 @@ import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AddMoney } from '@/components/sheets/AddMoney';
-import { Request, Send, SendAmount, Sent } from '@/components/sheets/friends';
+import { Request, RequestPick, RequestSent, Send, SendAmount, Sent } from '@/components/sheets/friends';
 import { Recovery, Verify } from '@/components/sheets/identity';
 import { Amount, Declined, Review, Scan, Success } from '@/components/sheets/pay';
 import { colors, radii, shadows } from '@/lib/theme';
@@ -22,6 +22,8 @@ const TALL = new Set<SheetId>([
   'send',
   'sendAmount',
   'request',
+  'requestPick',
+  'requestSent',
   'sent',
   'verify',
   'recovery',
@@ -47,6 +49,10 @@ function renderSheet(id: SheetId) {
       return <SendAmount />;
     case 'request':
       return <Request />;
+    case 'requestPick':
+      return <RequestPick />;
+    case 'requestSent':
+      return <RequestSent />;
     case 'sent':
       return <Sent />;
     case 'verify':

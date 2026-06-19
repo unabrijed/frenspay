@@ -1,5 +1,5 @@
 // Phase-1 Core API (backend-architecture.md §2).
-// Read endpoints + USDC transfers are wired (M0/M1). /auth/sync stays 501 until Privy (M3).
+// Read endpoints, Privy auth/sync, USDC transfers, and payment requests are all wired.
 import type { FastifyInstance } from 'fastify';
 
 import type {
@@ -20,6 +20,7 @@ import { authPreHandler, requirePrivyDid, requireUserId } from '../auth';
 import { config } from '../config';
 import {
   attachTransferSignature,
+  cancelRequest,
   createPendingTransfer,
   createRequest,
   findUserByHandle,
@@ -27,6 +28,7 @@ import {
   getWalletForUser,
   listRequestsForUser,
   listTransactionsForUser,
+  markRequestPaid,
   resolveHandleToFriend,
   setTransferStatusBySignature,
   upsertUserByPrivyDid,
@@ -108,6 +110,28 @@ export async function registerRoutes(app: FastifyInstance) {
     return createRequest({ fromUserId: userId, toUserId: to?.id ?? null, amountUsd, note });
   });
 
+  // Resolve a request as paid, linking the transfer that fulfilled it. The payer (request's
+  // addressee) makes the transfer via /transfer/prepare+submit first, then calls this with that id.
+  app.post<{ Params: { id: string }; Body: { transferId?: string } }>(
+    '/requests/:id/pay',
+    async (req, reply) => {
+      const userId = requireUserId(req);
+      const { transferId } = req.body ?? {};
+      if (!transferId) return reply.code(400).send({ error: 'missing_fields' });
+      const ok = await markRequestPaid(req.params.id, userId, transferId);
+      if (!ok) return reply.code(404).send({ error: 'request_not_found' });
+      return { ok: true };
+    },
+  );
+
+  // Cancel an open request (requester only).
+  app.post<{ Params: { id: string } }>('/requests/:id/cancel', async (req, reply) => {
+    const userId = requireUserId(req);
+    const ok = await cancelRequest(req.params.id, userId);
+    if (!ok) return reply.code(404).send({ error: 'request_not_found' });
+    return { ok: true };
+  });
+
   // --- transfers (gas-sponsored USDC; user signs as token authority, fee-payer sponsors) ---
   app.post<{ Body: PrepareTransferRequest }>('/transfer/prepare', async (req, reply) => {
     const userId = requireUserId(req);
@@ -120,11 +144,19 @@ export async function registerRoutes(app: FastifyInstance) {
     const toWallet = to ? await getWalletForUser(to.id) : null;
     if (!toWallet?.address) return reply.code(404).send({ error: 'recipient_not_found' });
 
-    const { unsignedTx, feePayer } = await buildUsdcTransfer({
-      fromOwner: fromWallet.address,
-      toOwner: toWallet.address,
-      amountUsd,
-    });
+    let built;
+    try {
+      built = await buildUsdcTransfer({
+        fromOwner: fromWallet.address,
+        toOwner: toWallet.address,
+        amountUsd,
+      });
+    } catch (e) {
+      // RPC down / misconfigured mint / blockhash fetch failed — surface as a clean 503.
+      req.log.error({ err: e }, 'buildUsdcTransfer failed');
+      return reply.code(503).send({ error: 'solana_unavailable' });
+    }
+    const { unsignedTx, feePayer } = built;
     // Record the intent now so /transfer/submit only needs the transferId + signed tx.
     const { id: transferId } = await createPendingTransfer({
       fromUserId: userId,
@@ -139,12 +171,20 @@ export async function registerRoutes(app: FastifyInstance) {
   });
 
   app.post<{ Body: SubmitTransferRequest }>('/transfer/submit', async (req, reply) => {
-    requireUserId(req);
+    const userId = requireUserId(req);
     const { transferId, signature } = req.body ?? ({} as SubmitTransferRequest);
     if (!transferId || !signature) return reply.code(400).send({ error: 'missing_fields' });
 
     // The client already signed + broadcast (Privy / dev keypair); just record the signature.
-    await attachTransferSignature(transferId, signature);
+    // Scoped to the owner so a user can only attach to their own transfer.
+    let matched: boolean;
+    try {
+      matched = await attachTransferSignature(transferId, signature, userId);
+    } catch (e) {
+      if ((e as { code?: string }).code === '23505') return reply.code(409).send({ error: 'signature_exists' });
+      throw e;
+    }
+    if (!matched) return reply.code(404).send({ error: 'transfer_not_found' });
     // Status stays 'pending'; the M2 confirmer flips it to confirmed/failed.
     return { signature, status: 'pending' } satisfies SubmitTransferResponse;
   });
@@ -156,10 +196,14 @@ export async function registerRoutes(app: FastifyInstance) {
     } else {
       req.log.warn('HELIUS_WEBHOOK_SECRET unset — /webhooks/helius is open (dev only)');
     }
-    const events = Array.isArray(req.body) ? (req.body as Array<{ signature?: string }>) : [];
+    const events = Array.isArray(req.body)
+      ? (req.body as Array<{ signature?: string; transactionError?: unknown }>)
+      : [];
     for (const ev of events) {
       if (typeof ev?.signature === 'string') {
-        await setTransferStatusBySignature(ev.signature, 'confirmed');
+        // Helius sets transactionError (non-null) on failed txs; null/absent means success.
+        const status = ev.transactionError == null ? 'confirmed' : 'failed';
+        await setTransferStatusBySignature(ev.signature, status);
       }
     }
     return { ok: true };

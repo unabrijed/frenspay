@@ -77,6 +77,7 @@ export function SendAmount() {
 export function Request() {
   const close = usePayStore((s) => s.close);
   const open = usePayStore((s) => s.open);
+  const setRequestDraft = usePayStore((s) => s.setRequestDraft);
   const [d, setD] = useState('20');
   const press = (k: string) => {
     if (k === '⌫') setD((s) => s.slice(0, -1));
@@ -95,8 +96,69 @@ export function Request() {
         </View>
         <Keypad onPress={press} />
         <View style={styles.cta}>
-          <Btn label="Request from a friend" disabled={u <= 0} onPress={() => open('send')} />
-          <Btn label="Share a payment link" variant="secondary" onPress={close} />
+          <Btn
+            label="Choose who to ask"
+            disabled={u <= 0}
+            onPress={() => {
+              setRequestDraft(u);
+              open('requestPick');
+            }}
+          />
+        </View>
+      </SheetBody>
+    </>
+  );
+}
+
+export function RequestPick() {
+  const close = usePayStore((s) => s.close);
+  const requestMoney = usePayStore((s) => s.requestMoney);
+  const amount = usePayStore((s) => s.requestDraftUsd);
+  const busy = usePayStore((s) => s.busy);
+  return (
+    <>
+      <Grab />
+      <SheetHeader eyebrow={`Requesting $${amount}`} title="From a friend" onClose={close} />
+      <SheetBody>
+        <SearchBar placeholder="Search a name or @handle" />
+        <List>
+          {FRIENDS.map((fr) => (
+            <Row
+              key={fr.handle}
+              onPress={() => {
+                if (!busy) void requestMoney(fr.handle, amount);
+              }}>
+              <Fav label={fr.ini} />
+              <RowMeta>
+                <Txt style={type.rowName}>{fr.name}</Txt>
+                <Txt style={[type.rowTime, { marginTop: 3 }]}>{fr.handle}</Txt>
+              </RowMeta>
+              <Icons.Chevron size={18} color={colors.muted} />
+            </Row>
+          ))}
+        </List>
+      </SheetBody>
+    </>
+  );
+}
+
+export function RequestSent() {
+  const close = usePayStore((s) => s.close);
+  const lastRequest = usePayStore((s) => s.lastRequest);
+  return (
+    <>
+      <Grab />
+      <SheetHeader title="Requested" onClose={close} />
+      <SheetBody>
+        <ResultBlock
+          kind="ok"
+          icon={<Icons.Check size={30} color={colors.accent} />}
+          headline={`$${lastRequest.u} requested`}
+          sub={`From ${lastRequest.handle} · ~ ${inr(lastRequest.u)}`}
+        />
+        <Spacer />
+        <View style={styles.cta}>
+          <Btn label="Done" variant="ink" onPress={close} />
         </View>
       </SheetBody>
     </>

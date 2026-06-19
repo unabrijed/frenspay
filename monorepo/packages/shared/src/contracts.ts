@@ -40,6 +40,13 @@ export interface WalletProvider {
   resolveHandle(handle: string): Promise<Friend | null>;
   transfer(input: { toHandle: string; amountUsd: number; note?: string }): Promise<Txn>;
   depositAddress(): string;
+  // ---- payment requests ----
+  getRequests(): Promise<ApiPaymentRequest[]>;
+  createRequest(input: CreateRequestRequest): Promise<ApiPaymentRequest>;
+  /** Mark an incoming request paid, linking the transfer that fulfilled it. */
+  payRequest(requestId: string, transferId: string): Promise<void>;
+  /** Cancel an outgoing request the caller created. */
+  cancelRequest(requestId: string): Promise<void>;
 }
 
 /** Phase 2: licensed USDC→INR settlement. quoteSpend locks a rate; executeSpend debits USDC. */

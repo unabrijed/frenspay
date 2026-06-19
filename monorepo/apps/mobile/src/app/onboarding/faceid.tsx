@@ -89,7 +89,7 @@ function EmailOtp({ onDone }: { onDone: () => void }) {
             />
           )}
         </Field>
-        {authError ? <Txt style={[type.lead, { fontSize: 13, color: '#C0392B' }]}>{authError}</Txt> : null}
+        {authError ? <Txt style={[type.lead, { fontSize: 13, color: colors.danger }]}>{authError}</Txt> : null}
       </View>
       <View style={styles.cta}>
         {sent ? (

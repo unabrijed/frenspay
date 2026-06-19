@@ -17,8 +17,20 @@ npx expo start
 ```
 
 Then either:
-- Press **`i`** to open the **iOS Simulator** (needs Xcode), or
-- Scan the QR code with the **Expo Go** app on your iPhone/Android.
+- Press **`i`** / **`a`** to open the **iOS Simulator** (needs Xcode) or **Android
+  emulator** (needs Android Studio). Expo CLI auto-installs the SDK-matched Expo Go, so
+  this always works regardless of the stores.
+- Scan the QR code with **Expo Go** on a physical phone — but see the note below first.
+
+> **Physical phone on Expo Go: the store version may be too old.** This app is on **Expo
+> SDK 56**. Expo ships the SDK-56 build of Expo Go to the App Store / Play Store on a lag,
+> so a phone with the "latest" store Expo Go can fail with *"This project requires a newer
+> version of Expo Go"* — and updating from the store won't help (nothing newer is there
+> yet). On **Android**, sideload the matching build:
+> `https://expo.dev/go?sdkVersion=56&platform=android&device=true` (allow "install unknown
+> apps"; uninstall the store Expo Go first if the install is rejected). On **iOS**, use the
+> Simulator, `eas go`, or a development build. Background:
+> https://expo.dev/changelog/expo-go-and-app-store-may-2026
 
 No EAS, no Apple Developer account, no Google Play account is required to develop
 and test. Those only matter later, when you publish to a store.

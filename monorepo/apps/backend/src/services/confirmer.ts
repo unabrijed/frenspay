@@ -3,7 +3,7 @@
 // Helius webhook (POST /webhooks/helius) for push confirmation; this poller is the fallback.
 import { config } from '../config';
 import { hasDatabase } from '../db/pool';
-import { getPendingSignatures, setTransferStatus } from '../db/queries';
+import { expireStaleUnsignedTransfers, getPendingSignatures, setTransferStatus } from '../db/queries';
 
 import { getTransferStatus } from './solana';
 
@@ -19,6 +19,9 @@ export async function confirmPendingOnce(log?: (m: string) => void): Promise<voi
       log?.(`transfer ${t.id} → ${status}`);
     }
   }
+  // Retire transfers prepared but never signed (user abandoned before broadcast).
+  const expired = await expireStaleUnsignedTransfers();
+  if (expired > 0) log?.(`expired ${expired} stale unsigned transfer(s)`);
 }
 
 /** Start the background poller. No-op without a DB + configured mint. */

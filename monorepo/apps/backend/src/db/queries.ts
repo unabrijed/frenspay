@@ -46,28 +46,41 @@ export async function findUserByPrivyDid(did: string): Promise<UserRow | null> {
   return rows[0] ?? null;
 }
 
-/** Upsert the user (by Privy DID) + their wallet. Called by /auth/sync after login. */
+/**
+ * Upsert the user (by Privy DID) + their wallet. Called by /auth/sync after login.
+ * Atomic: user + wallet land together or not at all, so a wallet-insert failure can't
+ * leave a walletless user. A handle collision raises PG 23505 (caller maps it to 409).
+ */
 export async function upsertUserByPrivyDid(input: {
   privyDid: string;
   handle: string;
   displayName?: string;
   walletAddress: string;
 }): Promise<UserRow> {
-  const pool = getPool();
-  const { rows } = await pool.query<UserRow>(
-    `insert into users (privy_did, handle, display_name)
-     values ($1, $2, $3)
-     on conflict (privy_did) do update set handle = excluded.handle, display_name = excluded.display_name
-     returning *`,
-    [input.privyDid, input.handle, input.displayName ?? null],
-  );
-  const user = rows[0];
-  await pool.query(
-    `insert into wallets (user_id, address) values ($1, $2)
-     on conflict (address) do nothing`,
-    [user.id, input.walletAddress],
-  );
-  return user;
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+    const { rows } = await client.query<UserRow>(
+      `insert into users (privy_did, handle, display_name)
+       values ($1, $2, $3)
+       on conflict (privy_did) do update set handle = excluded.handle, display_name = excluded.display_name
+       returning *`,
+      [input.privyDid, input.handle, input.displayName ?? null],
+    );
+    const user = rows[0];
+    await client.query(
+      `insert into wallets (user_id, address) values ($1, $2)
+       on conflict (address) do nothing`,
+      [user.id, input.walletAddress],
+    );
+    await client.query('commit');
+    return user;
+  } catch (e) {
+    await client.query('rollback');
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 export async function getWalletForUser(userId: string): Promise<WalletRow | null> {
@@ -201,6 +214,36 @@ export async function createRequest(input: {
   };
 }
 
+/**
+ * Resolve an open request as paid, linking the fulfilling transfer. Scoped to the payer
+ * (to_user_id) and to status='open' so only the addressee can pay, and only once.
+ * Returns false when no open row matched.
+ */
+export async function markRequestPaid(
+  requestId: string,
+  payerUserId: string,
+  transferId: string,
+): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update payment_requests
+        set status = 'paid', transfer_id = $3
+      where id = $1 and to_user_id = $2 and status = 'open'`,
+    [requestId, payerUserId, transferId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/** Cancel an open request. Scoped to the requester (from_user_id). Returns false if no open row matched. */
+export async function cancelRequest(requestId: string, requesterUserId: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update payment_requests
+        set status = 'cancelled'
+      where id = $1 and from_user_id = $2 and status = 'open'`,
+    [requestId, requesterUserId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
 /* ---- transfers (M1 prepare/submit, M2 confirmation) ---- */
 
 export async function createPendingTransfer(input: {
@@ -229,8 +272,21 @@ export async function createPendingTransfer(input: {
   return rows[0];
 }
 
-export async function attachTransferSignature(transferId: string, signature: string): Promise<void> {
-  await getPool().query('update transfers set signature = $2 where id = $1', [transferId, signature]);
+/**
+ * Record the broadcast signature on a transfer the caller owns. Scoped to from_user_id so a
+ * user can only attach a signature to their own transfer. Returns false when no row matched
+ * (unknown id or not the owner) so the route can 404 instead of silently no-op'ing.
+ */
+export async function attachTransferSignature(
+  transferId: string,
+  signature: string,
+  ownerUserId: string,
+): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    'update transfers set signature = $2 where id = $1 and from_user_id = $3',
+    [transferId, signature, ownerUserId],
+  );
+  return (rowCount ?? 0) > 0;
 }
 
 export async function setTransferStatus(
@@ -264,4 +320,20 @@ export async function getPendingSignatures(): Promise<{ id: string; signature: s
     `select id, signature from transfers where status = 'pending' and signature is not null`,
   );
   return rows;
+}
+
+/**
+ * Retire transfers abandoned after /transfer/prepare: still pending, never signed, older than
+ * maxAgeMin. The confirmer poller only follows signed rows (getPendingSignatures), so without
+ * this sweep these would stay pending forever. Returns how many were expired.
+ */
+export async function expireStaleUnsignedTransfers(maxAgeMin = 15): Promise<number> {
+  const { rowCount } = await getPool().query(
+    `update transfers
+        set status = 'failed'
+      where status = 'pending' and signature is null
+        and created_at < now() - make_interval(mins => $1)`,
+    [maxAgeMin],
+  );
+  return rowCount ?? 0;
 }

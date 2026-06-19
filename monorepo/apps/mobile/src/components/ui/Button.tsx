@@ -72,7 +72,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'transparent',
   },
-  primary: { backgroundColor: colors.accent },
+  primary: { backgroundColor: colors.ink, borderColor: colors.accentLine }, // ink fill + 1px gold ring (+ gold glow via shadows.primaryBtn)
   ink: { backgroundColor: colors.ink },
   secondary: { backgroundColor: colors.surface, borderColor: colors.hair },
   pressed: { transform: [{ scale: 0.985 }] },

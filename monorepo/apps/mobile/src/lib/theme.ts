@@ -9,14 +9,16 @@ export const colors = {
   ink: '#16181C',
   muted: '#8A8E94',
   hair: '#EAEBE8',
-  accent: '#0E7A63',
+  accent: '#9A7B33', // antique gold (was emerald #0E7A63) — ~4.6:1 on white, legible as text/figures
   inkSoft: '#F1F2EF',
-  accentSoft: '#E4F2EC', // color-mix(accent 13%, white)
+  accentSoft: '#F3EEDF', // warm cream-gold (~accent mixed 13% into white)
+  accentLine: 'rgba(154,123,51,0.35)', // soft gold border (was a hardcoded teal rgba)
+  danger: '#C0392B', // error red (was hardcoded in onboarding screens)
   scrim: 'rgba(16,18,20,0.42)',
   grab: '#dcddd8',
   white: '#FFFFFF',
-  // shadow base (rgb 16,24,28)
-  shadowBase: '#10181C',
+  // warm near-black shadow base so shadows/glows harmonize with gold
+  shadowBase: '#1C1610',
 } as const;
 
 /* ---- fonts (family strings must match keys in lib/fonts.ts) ---- */
@@ -74,16 +76,16 @@ export const shadows = {
     elevation: 24,
   },
   primaryBtn: {
-    shadowColor: colors.accent,
-    shadowOpacity: 0.32,
-    shadowRadius: 13,
+    shadowColor: colors.accent, // gold halo under the ink primary button
+    shadowOpacity: 0.42,
+    shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
     elevation: 8,
   },
   payBtn: {
-    shadowColor: colors.accent,
-    shadowOpacity: 0.4,
-    shadowRadius: 14,
+    shadowColor: colors.accent, // gold halo under the ink Pay button
+    shadowOpacity: 0.5,
+    shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
     elevation: 10,
   },

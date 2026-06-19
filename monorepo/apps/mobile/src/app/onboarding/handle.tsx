@@ -112,11 +112,11 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
         ) : null}
       </Field>
       {avail === false ? (
-        <Txt style={[styles.avail, { color: '#C0392B' }]}>@{clean} is taken</Txt>
+        <Txt style={[styles.avail, { color: colors.danger }]}>@{clean} is taken</Txt>
       ) : avail ? (
         <Txt style={styles.avail}>@{clean} is available</Txt>
       ) : null}
-      {err ? <Txt style={[type.lead, { fontSize: 13, color: '#C0392B' }]}>{err}</Txt> : null}
+      {err ? <Txt style={[type.lead, { fontSize: 13, color: colors.danger }]}>{err}</Txt> : null}
       <Spacer />
       <View style={styles.cta}>
         <Btn label={busy ? 'Saving…' : 'Continue'} disabled={!avail || busy} onPress={onContinue} />

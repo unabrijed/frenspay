@@ -5,6 +5,7 @@
 // Money flows delegate to the active WalletProvider (@/services/wallet): in mock mode
 // that's local math (unchanged UX); in real mode (EXPO_PUBLIC_USE_REAL_API=1) it hits
 // the Railway API + signs on-device. Real-only behaviors are gated on USE_REAL_API.
+import type { ApiPaymentRequest } from '@pay/shared';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
@@ -25,6 +26,8 @@ export type SheetId =
   | 'send'
   | 'sendAmount'
   | 'request'
+  | 'requestPick'
+  | 'requestSent'
   | 'sent'
   | 'verify'
   | 'recovery';
@@ -66,6 +69,9 @@ interface PayState {
   detail: Txn | null;
   pendingPay: boolean;
   lastSend: { u: number; handle: string };
+  lastRequest: { u: number; handle: string };
+  requestDraftUsd: number;
+  requests: ApiPaymentRequest[];
   busy: boolean;
   error: string | null;
   walletAddress: string;
@@ -84,11 +90,17 @@ interface PayState {
   setMerchant: (m: Merchant) => void;
   setFriend: (f: Friend) => void;
   setPayRupees: (r: number) => void;
+  setRequestDraft: (u: number) => void;
   openDetail: (tx: Txn) => void;
 
   // ---- backend sync (real mode only) ----
   load: () => Promise<void>;
   refresh: () => Promise<void>;
+
+  // ---- payment requests ----
+  requestMoney: (handle: string, amountUsd: number, note?: string) => Promise<void>;
+  payRequest: (id: string) => Promise<void>;
+  cancelRequest: (id: string) => Promise<void>;
 
   // ---- auth actions (delegate to the Privy bridge) ----
   setAuthBridge: (b: AuthBridge) => void;
@@ -104,7 +116,7 @@ interface PayState {
   recoveryDone: () => void;
   finishPay: () => void;
   doPay: (ok: boolean) => void;
-  doSend: (u: number) => Promise<void>;
+  doSend: (u: number) => Promise<Txn | null>;
   doAdd: (amt: number) => Promise<void>;
 
   // ---- onboarding ----
@@ -129,6 +141,9 @@ export const usePayStore = create<PayState>()(
       detail: null,
       pendingPay: false,
       lastSend: { u: 12, handle: '@neha' },
+      lastRequest: { u: 20, handle: '@neha' },
+      requestDraftUsd: 20,
+      requests: [],
       busy: false,
       error: null,
       walletAddress: '',
@@ -158,6 +173,7 @@ export const usePayStore = create<PayState>()(
       setMerchant: (m) => set({ merchant: m }),
       setFriend: (f) => set({ friend: f }),
       setPayRupees: (r) => set({ payRupees: r }),
+      setRequestDraft: (u) => set({ requestDraftUsd: u }),
       openDetail: (tx) => set({ detail: tx }),
 
       // Pull identity + balance + activity from the backend (no-op in mock mode).
@@ -166,12 +182,19 @@ export const usePayStore = create<PayState>()(
         if (USE_PRIVY && get().authStatus !== 'signedIn') return; // wait for the Privy bridge to sign in
         set({ busy: true, error: null });
         try {
-          const [me, bal, txns] = await Promise.all([
+          const [me, bal, txns, reqs] = await Promise.all([
             api.me(),
             wallet.getBalanceUsd(),
             wallet.getTransactions(),
+            wallet.getRequests(),
           ]);
-          set({ walletAddress: me.walletAddress, balanceUSD: bal, transactions: txns, busy: false });
+          set({
+            walletAddress: me.walletAddress,
+            balanceUSD: bal,
+            transactions: txns,
+            requests: reqs,
+            busy: false,
+          });
         } catch (e) {
           set({ busy: false, error: e instanceof Error ? e.message : String(e) });
         }
@@ -179,8 +202,12 @@ export const usePayStore = create<PayState>()(
       refresh: async () => {
         if (!USE_REAL_API) return;
         try {
-          const [bal, txns] = await Promise.all([wallet.getBalanceUsd(), wallet.getTransactions()]);
-          set({ balanceUSD: bal, transactions: txns });
+          const [bal, txns, reqs] = await Promise.all([
+            wallet.getBalanceUsd(),
+            wallet.getTransactions(),
+            wallet.getRequests(),
+          ]);
+          set({ balanceUSD: bal, transactions: txns, requests: reqs });
         } catch (e) {
           set({ error: e instanceof Error ? e.message : String(e) });
         }
@@ -280,8 +307,56 @@ export const usePayStore = create<PayState>()(
           }));
           get().open('sent');
           if (USE_REAL_API) void get().refresh();
+          return tx;
         } catch (e) {
           set({ busy: false, error: e instanceof Error ? e.message : String(e) });
+          return null;
+        }
+      },
+
+      // ---- payment requests ----
+      requestMoney: async (handle, amountUsd, note) => {
+        set({ busy: true, error: null });
+        try {
+          const r = await wallet.createRequest({ toHandle: handle, amountUsd, note });
+          set((s) => ({
+            requests: [r, ...s.requests],
+            lastRequest: { u: amountUsd, handle },
+            busy: false,
+          }));
+          get().open('requestSent');
+        } catch (e) {
+          set({ busy: false, error: e instanceof Error ? e.message : String(e) });
+        }
+      },
+
+      // Pay an incoming request: send to the requester, then link the transfer to the request.
+      payRequest: async (id) => {
+        const r = get().requests.find((x) => x.id === id);
+        if (!r?.counterpartyHandle) return;
+        const handle = r.counterpartyHandle;
+        get().setFriend({ name: handle, handle, ini: (handle.replace(/^@/, '')[0] ?? '?').toUpperCase() });
+        const tx = await get().doSend(r.amountUsd);
+        if (!tx) return; // doSend already set the error
+        try {
+          await wallet.payRequest(id, tx.id);
+          set((s) => ({
+            requests: s.requests.map((x) => (x.id === id ? { ...x, status: 'paid' } : x)),
+          }));
+          if (USE_REAL_API) void get().refresh();
+        } catch (e) {
+          set({ error: e instanceof Error ? e.message : String(e) });
+        }
+      },
+
+      cancelRequest: async (id) => {
+        try {
+          await wallet.cancelRequest(id);
+          set((s) => ({
+            requests: s.requests.map((x) => (x.id === id ? { ...x, status: 'cancelled' } : x)),
+          }));
+        } catch (e) {
+          set({ error: e instanceof Error ? e.message : String(e) });
         }
       },
 
