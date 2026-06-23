@@ -11,6 +11,7 @@ export interface Txn {
   time: string;
   usd: number; // signed: negative = outgoing, positive = top-up
   rupees?: number; // merchant pays only
+  status?: 'pending' | 'confirmed' | 'failed'; // real-mode only; optional so mobile (never sets it) is unaffected
 }
 
 export interface Merchant {
@@ -40,6 +41,8 @@ export interface WalletProvider {
   resolveHandle(handle: string): Promise<Friend | null>;
   transfer(input: { toHandle: string; amountUsd: number; note?: string }): Promise<Txn>;
   depositAddress(): string;
+  /** Devnet faucet: mint test USDC into the caller's own wallet. Optional (real/devnet only). */
+  addMoney?(amountUsd: number): Promise<Txn>;
   // ---- payment requests ----
   getRequests(): Promise<ApiPaymentRequest[]>;
   createRequest(input: CreateRequestRequest): Promise<ApiPaymentRequest>;
@@ -141,4 +144,14 @@ export interface SubmitTransferRequest {
 export interface SubmitTransferResponse {
   signature: string;
   status: 'pending' | 'confirmed';
+}
+
+/** POST /devnet/faucet — mint controlled test USDC to the caller's wallet (devnet/dev only). */
+export interface FaucetRequest {
+  amountUsd: number;
+}
+
+export interface FaucetResponse {
+  signature: string;
+  balanceUsd: number;
 }

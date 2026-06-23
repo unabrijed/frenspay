@@ -8,6 +8,8 @@ import {
   getAccount,
   getAssociatedTokenAddress,
   getMint,
+  getOrCreateAssociatedTokenAccount,
+  mintTo,
   TokenAccountNotFoundError,
 } from '@solana/spl-token';
 import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
@@ -119,6 +121,20 @@ export async function buildUsdcTransfer(input: {
     .serialize({ requireAllSignatures: false, verifySignatures: false })
     .toString('base64');
   return { unsignedTx, feePayer: payer.publicKey.toBase58() };
+}
+
+/**
+ * Devnet faucet: mint controlled USDC to an owner's wallet (creating their ATA if needed).
+ * The fee-payer is the mint authority (see scripts/setup-devnet.ts), so it both pays + mints.
+ * Returns the mint transaction signature. Devnet/dev only — gated at the route.
+ */
+export async function mintUsdcTo(owner: string, amountUsd: number): Promise<string> {
+  const ownerPk = new PublicKey(owner);
+  const mint = usdcMint();
+  const payer = feePayer();
+  const dec = await decimals();
+  const ata = await getOrCreateAssociatedTokenAccount(connection(), payer, mint, ownerPk);
+  return mintTo(connection(), payer, mint, ata.address, payer, toBaseUnits(amountUsd, dec));
 }
 
 /** Poll on-chain status for a signature (used by M2 confirmation). */

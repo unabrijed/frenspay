@@ -1,5 +1,5 @@
 // primitives.tsx — shared building blocks ported from pay.css component rules.
-import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 
 import { Icons } from '@/components/icons';
 import { Txt } from '@/components/ui/Txt';
@@ -11,7 +11,7 @@ export const Hairline = ({ style }: { style?: StyleProp<ViewStyle> }) => (
   <View style={[{ height: 1, backgroundColor: colors.hair }, style]} />
 );
 
-export function Eyebrow({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
+export function Eyebrow({ children, style }: { children: React.ReactNode; style?: StyleProp<TextStyle> }) {
   return <Txt style={[type.eyebrow, style as object]}>{children}</Txt>;
 }
 
@@ -54,8 +54,21 @@ export function Row({
   );
 }
 
-export function RowIcon({ children, accent }: { children: React.ReactNode; accent?: boolean }) {
-  return <View style={[styles.ric, accent && { backgroundColor: colors.accentSoft }]}>{children}</View>;
+export function RowIcon({
+  children,
+  accent,
+  tone,
+}: {
+  children: React.ReactNode;
+  accent?: boolean;
+  /** Solid category colour (coral/mint/violet) — chip fills with it, icon goes white. */
+  tone?: string;
+}) {
+  return (
+    <View style={[styles.ric, accent && { backgroundColor: colors.accentSoft }, tone ? { backgroundColor: tone } : null]}>
+      {children}
+    </View>
+  );
 }
 
 export const RowMeta = ({ children }: { children: React.ReactNode }) => <View style={styles.meta}>{children}</View>;
@@ -265,7 +278,7 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: radii.logo,
-    backgroundColor: colors.ink,
+    backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -273,7 +286,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: radii.logoXl,
-    backgroundColor: colors.ink,
+    backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },

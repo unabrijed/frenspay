@@ -1,4 +1,4 @@
-// BottomNav — custom tab bar: Home (left), lifted ink Pay button with gold halo (center,
+// BottomNav — custom tab bar: Home (left), lifted violet Pay button with violet halo (center,
 // owns the pay action — no Pay tile on Home), Activity (right). Per pay.css .nav.
 // Self-contained via expo-router hooks so it needs no navigator prop types.
 import { usePathname, useRouter } from 'expo-router';
@@ -55,7 +55,7 @@ const styles = StyleSheet.create({
     width: 62,
     height: 62,
     borderRadius: 31,
-    backgroundColor: colors.ink, // ink circle + white QR icon; the gold lives in the halo (shadows.payBtn)
+    backgroundColor: colors.accent, // violet circle + white QR icon; violet halo via shadows.payBtn
     alignItems: 'center',
     justifyContent: 'center',
     ...shadows.payBtn,

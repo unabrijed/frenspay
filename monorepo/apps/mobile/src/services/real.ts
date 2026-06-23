@@ -53,6 +53,12 @@ export class RealWalletProvider implements WalletProvider {
     return ''; // real deposit address comes from /me (walletAddress); surfaced via the store
   }
 
+  async addMoney(amountUsd: number): Promise<Txn> {
+    // Devnet faucet: backend mints controlled USDC to the caller's wallet.
+    const { signature } = await api.faucet({ amountUsd });
+    return { id: signature, type: 'add', title: 'Added money', time: 'Just now', usd: amountUsd };
+  }
+
   async getRequests(): Promise<ApiPaymentRequest[]> {
     return (await api.requests()).requests;
   }

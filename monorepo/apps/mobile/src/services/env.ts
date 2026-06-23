@@ -1,26 +1,47 @@
 import Constants from 'expo-constants';
 
-// Runtime config (Expo public env — inlined at build time).
-// Mock mode is the default so the app runs with no backend; flip USE_REAL_API on
-// once the Railway API + a devnet wallet exist (see backend `yarn devnet:setup`).
+// env.ts — the ONE place mobile env is read. NODE_ENV decides the var set. Expo inlines
+// `process.env.EXPO_PUBLIC_*` as STATIC literals + forces NODE_ENV (development in dev, production
+// in a release build), so we reference both literal sets and pick by NODE_ENV:
+//   development / stage  → EXPO_PUBLIC_STAGE_<KEY> (falling back to EXPO_PUBLIC_<KEY>)
+//   production           → EXPO_PUBLIC_<KEY>
+const isProduction = process.env.NODE_ENV === 'production';
 
-const API_PORT = 3000; // matches the backend default (apps/backend/src/config.ts)
+const E = {
+  apiUrl: isProduction
+    ? process.env.EXPO_PUBLIC_API_URL
+    : process.env.EXPO_PUBLIC_STAGE_API_URL || process.env.EXPO_PUBLIC_API_URL,
+  solanaRpcUrl: isProduction
+    ? process.env.EXPO_PUBLIC_SOLANA_RPC_URL
+    : process.env.EXPO_PUBLIC_STAGE_SOLANA_RPC_URL || process.env.EXPO_PUBLIC_SOLANA_RPC_URL,
+  devUserId: isProduction
+    ? process.env.EXPO_PUBLIC_DEV_USER_ID
+    : process.env.EXPO_PUBLIC_STAGE_DEV_USER_ID || process.env.EXPO_PUBLIC_DEV_USER_ID,
+  devSecretKey: isProduction
+    ? process.env.EXPO_PUBLIC_DEV_SECRET_KEY
+    : process.env.EXPO_PUBLIC_STAGE_DEV_SECRET_KEY || process.env.EXPO_PUBLIC_DEV_SECRET_KEY,
+  privyAppId: isProduction
+    ? process.env.EXPO_PUBLIC_PRIVY_APP_ID
+    : process.env.EXPO_PUBLIC_STAGE_PRIVY_APP_ID || process.env.EXPO_PUBLIC_PRIVY_APP_ID,
+  privyClientId: isProduction
+    ? process.env.EXPO_PUBLIC_PRIVY_CLIENT_ID
+    : process.env.EXPO_PUBLIC_STAGE_PRIVY_CLIENT_ID || process.env.EXPO_PUBLIC_PRIVY_CLIENT_ID,
+};
 
-// Resolves the backend base URL. Priority: explicit EXPO_PUBLIC_API_URL → the dev
-// machine's LAN IP that Expo Go served the bundle from (so physical-device testing
-// works without hardcoding an IP that DHCP keeps reassigning) → localhost.
+const API_PORT = 3001; // matches the backend (apps/backend/.env PORT)
+
+// Resolves the backend base URL. Priority: explicit *_API_URL → the dev machine's LAN IP that Expo
+// served the bundle from (so physical-device testing works without hardcoding an IP DHCP keeps
+// reassigning) → localhost. Only a LAN IPv4 is trusted (rejects tunnel domains + a localhost host).
 function resolveApiUrl(): string {
-  const explicit = process.env.EXPO_PUBLIC_API_URL;
-  if (explicit && explicit.length > 0) return explicit;
+  if (E.apiUrl) return E.apiUrl;
 
   const hostUri =
     Constants.expoConfig?.hostUri ??
-    (Constants as any).expoGoConfig?.debuggerHost ??
-    (Constants as any).manifest2?.extra?.expoGo?.debuggerHost;
+    (Constants as unknown as { expoGoConfig?: { debuggerHost?: string } }).expoGoConfig?.debuggerHost ??
+    (Constants as unknown as { manifest2?: { extra?: { expoGo?: { debuggerHost?: string } } } }).manifest2?.extra
+      ?.expoGo?.debuggerHost;
 
-  // hostUri looks like "192.168.1.10:8081" — keep the host, drop Metro's port.
-  // Only trust a LAN IPv4: this rejects tunnel domains (*.exp.direct) and localhost,
-  // which would otherwise produce a silently-broken URL on a physical device.
   const host = hostUri?.split(':')[0];
   if (host && /^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
     return `http://${host}:${API_PORT}`;
@@ -28,19 +49,16 @@ function resolveApiUrl(): string {
   return `http://localhost:${API_PORT}`;
 }
 
+// The app always talks to the real backend. API_URL defaults to the backend URL (LAN-aware in Expo);
+// override per environment via *_API_URL.
 export const API_URL = resolveApiUrl();
-export const USE_REAL_API = process.env.EXPO_PUBLIC_USE_REAL_API === '1';
+export const SOLANA_RPC_URL = E.solanaRpcUrl || 'https://api.devnet.solana.com';
 
-// Dev identity until Privy (M3): sent as the x-dev-user-id header. From devnet:setup output.
-export const DEV_USER_ID = process.env.EXPO_PUBLIC_DEV_USER_ID ?? '';
-// Dev signer secret: a JSON byte array (a user secretKey from .devnet/keys.json).
-export const DEV_SECRET_KEY = process.env.EXPO_PUBLIC_DEV_SECRET_KEY ?? '';
+// Dev signing path (Expo Go, no Privy): a seeded user id + secret key from apps/backend/.devnet/keys.json.
+export const DEV_USER_ID = E.devUserId ?? '';
+export const DEV_SECRET_KEY = E.devSecretKey ?? '';
 
-// Solana RPC the client uses to broadcast signed transfers.
-export const SOLANA_RPC_URL = process.env.EXPO_PUBLIC_SOLANA_RPC_URL ?? 'https://api.devnet.solana.com';
-
-// Privy (M3). When PRIVY_APP_ID is set, the app mounts Privy and uses email-OTP auth +
-// the embedded Solana wallet for signing (requires a dev client, not Expo Go).
-export const PRIVY_APP_ID = process.env.EXPO_PUBLIC_PRIVY_APP_ID ?? '';
-export const PRIVY_CLIENT_ID = process.env.EXPO_PUBLIC_PRIVY_CLIENT_ID ?? '';
+// Privy (dev client only). Setting PRIVY_APP_ID switches auth to email-OTP + embedded wallet.
+export const PRIVY_APP_ID = E.privyAppId ?? '';
+export const PRIVY_CLIENT_ID = E.privyClientId ?? '';
 export const USE_PRIVY = PRIVY_APP_ID.length > 0;

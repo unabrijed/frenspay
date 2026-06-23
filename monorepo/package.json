@@ -8,9 +8,11 @@
     "packages/*"
   ],
   "scripts": {
+    "start": "yarn workspace @pay/mobile start",
     "mobile": "yarn workspace @pay/mobile start",
     "mobile:web": "yarn workspace @pay/mobile web",
     "backend": "yarn workspace @pay/backend dev",
-    "typecheck": "yarn workspace @pay/shared tsc --noEmit && yarn workspace @pay/mobile tsc --noEmit && yarn workspace @pay/backend tsc --noEmit"
+    "web": "yarn workspace @pay/web dev",
+    "typecheck": "yarn workspace @pay/shared tsc --noEmit && yarn workspace @pay/mobile tsc --noEmit && yarn workspace @pay/backend tsc --noEmit && yarn workspace @pay/web tsc --noEmit"
   }
 }

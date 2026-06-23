@@ -16,7 +16,6 @@ import {
   type WalletProvider,
 } from '@pay/shared';
 
-import { USE_REAL_API } from './env';
 import { RealWalletProvider } from './real';
 
 // Re-export the shared contract so existing `@/services/wallet` imports keep working.
@@ -57,41 +56,6 @@ export const MockSettlementProvider: SettlementProvider = {
   },
 };
 
-export const MockWalletProvider: WalletProvider = {
-  async getBalanceUsd() {
-    return 420;
-  },
-  async getTransactions() {
-    return [];
-  },
-  async resolveHandle(handle) {
-    return FRIENDS.find((f) => f.handle === handle) ?? null;
-  },
-  async transfer({ toHandle, amountUsd }) {
-    return { id: String(Date.now()), type: 'send', title: 'To ' + toHandle, time: 'Just now', usd: -amountUsd };
-  },
-  depositAddress() {
-    return USDC_DEPOSIT_ADDRESS;
-  },
-  // Requests are tracked in the store in mock mode; these just fabricate/no-op.
-  async getRequests() {
-    return [];
-  },
-  async createRequest({ toHandle, amountUsd, note }) {
-    return {
-      id: String(Date.now()),
-      direction: 'outgoing',
-      counterpartyHandle: toHandle,
-      amountUsd,
-      note,
-      status: 'open',
-      createdAt: new Date().toISOString(),
-    };
-  },
-  async payRequest() {},
-  async cancelRequest() {},
-};
-
-/* ---- active providers (mock by default; real when EXPO_PUBLIC_USE_REAL_API=1) ---- */
-export const wallet: WalletProvider = USE_REAL_API ? new RealWalletProvider() : MockWalletProvider;
-export const settlement: SettlementProvider = MockSettlementProvider; // Phase 2 stays mock
+/* ---- active providers: the app always talks to the real backend ---- */
+export const wallet: WalletProvider = new RealWalletProvider();
+export const settlement: SettlementProvider = MockSettlementProvider; // Phase 2 (merchant INR) stays mock

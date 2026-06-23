@@ -8,18 +8,22 @@ export function Segmented({
   value,
   options,
   onChange,
+  onDark = false,
 }: {
   value: string;
   options: string[];
   onChange: (v: string) => void;
+  /** Sits on a coloured (violet) surface — light track + violet active text. */
+  onDark?: boolean;
 }) {
   return (
-    <View style={styles.seg}>
+    <View style={[styles.seg, onDark && styles.segDark]}>
       {options.map((o) => {
         const on = value === o;
+        const labelColor = onDark ? (on ? colors.accent : 'rgba(255,255,255,0.92)') : on ? colors.ink : colors.muted;
         return (
-          <Pressable key={o} onPress={() => onChange(o)} style={[styles.b, on && styles.bOn]}>
-            <Txt style={[styles.label, { color: on ? colors.ink : colors.muted }]}>{o}</Txt>
+          <Pressable key={o} onPress={() => onChange(o)} style={[styles.b, on && (onDark ? styles.bOnDark : styles.bOn)]}>
+            <Txt style={[styles.label, { color: labelColor }]}>{o}</Txt>
           </Pressable>
         );
       })}
@@ -29,7 +33,9 @@ export function Segmented({
 
 const styles = StyleSheet.create({
   seg: { flexDirection: 'row', backgroundColor: colors.inkSoft, borderRadius: 999, padding: 3, gap: 2 },
+  segDark: { backgroundColor: 'rgba(255,255,255,0.22)' },
   b: { paddingVertical: 4, paddingHorizontal: 11, borderRadius: 999 },
   bOn: { backgroundColor: colors.surface, ...shadows.segPill },
+  bOnDark: { backgroundColor: colors.white, ...shadows.segPill },
   label: { fontFamily: fonts.mono600, fontSize: 11 },
 });

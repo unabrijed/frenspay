@@ -1,0 +1,90 @@
+'use client';
+
+// Button — pill CTAs (primary / ink / secondary) + text link, web port.
+import type { CSSProperties, ReactNode } from 'react';
+
+import { Txt } from '@/components/ui/Txt';
+import { haptic as doHaptic, Pressable, View } from '@/components/ui/rn';
+import { colors, radii, shadows, type } from '@/lib/theme';
+
+type Variant = 'primary' | 'ink' | 'secondary';
+
+export function Btn({
+  label,
+  onPress,
+  variant = 'primary',
+  disabled,
+  icon,
+  height = 54,
+  style,
+  haptic = true,
+}: {
+  label: string;
+  onPress?: () => void;
+  variant?: Variant;
+  disabled?: boolean;
+  icon?: ReactNode;
+  height?: number;
+  style?: CSSProperties;
+  haptic?: boolean;
+}) {
+  const isPrimary = variant === 'primary';
+  const textColor = variant === 'secondary' ? colors.ink : colors.white;
+  return (
+    <Pressable
+      disabled={disabled}
+      onPress={() => {
+        if (haptic) doHaptic();
+        onPress?.();
+      }}
+      style={({ pressed }) => [
+        styles.btn,
+        { height },
+        variant === 'primary' && styles.primary,
+        variant === 'ink' && styles.ink,
+        variant === 'secondary' && styles.secondary,
+        isPrimary && { boxShadow: shadows.primaryBtn },
+        pressed && styles.pressed,
+        disabled && styles.disabled,
+        style,
+      ]}
+    >
+      {icon ? <View style={styles.icon}>{icon}</View> : null}
+      <Txt style={[type.button, { color: textColor }]}>{label}</Txt>
+    </Pressable>
+  );
+}
+
+export function TextLink({
+  label,
+  onPress,
+  style,
+}: {
+  label: string;
+  onPress?: () => void;
+  style?: CSSProperties;
+}) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [pressed && { opacity: 0.55 }, style]}>
+      <Txt style={type.textlink}>{label}</Txt>
+    </Pressable>
+  );
+}
+
+const styles = {
+  btn: {
+    width: '100%',
+    borderRadius: radii.pill,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    border: '1px solid transparent',
+  },
+  primary: { background: colors.ink, borderColor: colors.accentLine },
+  ink: { background: colors.ink },
+  secondary: { background: colors.surface, borderColor: colors.hair },
+  pressed: { transform: 'scale(0.985)' },
+  disabled: { opacity: 0.4 },
+  icon: { marginRight: 2 },
+} satisfies Record<string, CSSProperties>;

@@ -273,6 +273,25 @@ export async function createPendingTransfer(input: {
 }
 
 /**
+ * Record a devnet faucet deposit as a confirmed incoming 'add' transfer so it shows in activity.
+ * (from_user_id null = external/faucet origin → listTransactionsForUser renders it as direction 'in'.)
+ */
+export async function recordDeposit(input: {
+  toUserId: string;
+  toAddress: string;
+  amountUsd: number;
+  signature: string;
+}): Promise<{ id: string }> {
+  const { rows } = await getPool().query<{ id: string }>(
+    `insert into transfers (to_user_id, to_address, amount_usdc, kind, status, signature, confirmed_at)
+     values ($1, $2, $3, 'add', 'confirmed', $4, now())
+     returning id`,
+    [input.toUserId, input.toAddress, input.amountUsd, input.signature],
+  );
+  return rows[0];
+}
+
+/**
  * Record the broadcast signature on a transfer the caller owns. Scoped to from_user_id so a
  * user can only attach a signature to their own transfer. Returns false when no row matched
  * (unknown id or not the owner) so the route can 404 instead of silently no-op'ing.

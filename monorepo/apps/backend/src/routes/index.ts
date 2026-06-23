@@ -6,6 +6,8 @@ import type {
   AuthSyncRequest,
   BalanceResponse,
   CreateRequestRequest,
+  FaucetRequest,
+  FaucetResponse,
   MeResponse,
   PrepareTransferRequest,
   PrepareTransferResponse,
@@ -29,11 +31,12 @@ import {
   listRequestsForUser,
   listTransactionsForUser,
   markRequestPaid,
+  recordDeposit,
   resolveHandleToFriend,
   setTransferStatusBySignature,
   upsertUserByPrivyDid,
 } from '../db/queries';
-import { buildUsdcTransfer, getUsdcBalance } from '../services/solana';
+import { buildUsdcTransfer, getUsdcBalance, mintUsdcTo } from '../services/solana';
 
 export async function registerRoutes(app: FastifyInstance) {
   // Identity: Privy bearer token in prod; x-dev-user-id shim when Privy is unconfigured.
@@ -187,6 +190,30 @@ export async function registerRoutes(app: FastifyInstance) {
     if (!matched) return reply.code(404).send({ error: 'transfer_not_found' });
     // Status stays 'pending'; the M2 confirmer flips it to confirmed/failed.
     return { signature, status: 'pending' } satisfies SubmitTransferResponse;
+  });
+
+  // --- devnet faucet: mint controlled test USDC to the caller's wallet (dev/devnet only) ---
+  app.post<{ Body: FaucetRequest }>('/devnet/faucet', async (req, reply) => {
+    if (!config.isDevelopment) {
+      return reply.code(403).send({ error: 'faucet_disabled' });
+    }
+    const userId = requireUserId(req);
+    const requested = req.body?.amountUsd;
+    const amountUsd = requested && requested > 0 ? Math.min(requested, 1000) : 100;
+
+    const wallet = await getWalletForUser(userId);
+    if (!wallet?.address) return reply.code(404).send({ error: 'wallet_not_found' });
+
+    let signature: string;
+    try {
+      signature = await mintUsdcTo(wallet.address, amountUsd);
+    } catch (e) {
+      req.log.error({ err: e }, 'faucet mint failed');
+      return reply.code(503).send({ error: 'solana_unavailable' });
+    }
+    await recordDeposit({ toUserId: userId, toAddress: wallet.address, amountUsd, signature });
+    const balanceUsd = await getUsdcBalance(wallet.address);
+    return { signature, balanceUsd } satisfies FaucetResponse;
   });
 
   // --- M2: Helius webhook for push confirmation (poller in confirmer.ts is the fallback) ---

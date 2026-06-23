@@ -14,7 +14,7 @@ export function getPool(): pg.Pool {
     pool = new pg.Pool({
       connectionString: config.databaseUrl,
       // Railway Postgres typically requires SSL; relax verification for the managed cert.
-      ssl: process.env.PGSSL === 'disable' ? false : { rejectUnauthorized: false },
+      ssl: config.pgSslDisable ? false : { rejectUnauthorized: false },
     });
   }
   return pool;

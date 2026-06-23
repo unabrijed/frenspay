@@ -2,9 +2,8 @@
 // design-reference/app.jsx. balanceUSD is the source of truth; INR is always
 // derived. Persisted fields survive reload (replaces the prototype's localStorage).
 //
-// Money flows delegate to the active WalletProvider (@/services/wallet): in mock mode
-// that's local math (unchanged UX); in real mode (EXPO_PUBLIC_USE_REAL_API=1) it hits
-// the Railway API + signs on-device. Real-only behaviors are gated on USE_REAL_API.
+// Money flows delegate to the RealWalletProvider (@/services/wallet) → the backend API + on-device
+// signing. The app is always real; balance/activity load from the backend once signed in.
 import type { ApiPaymentRequest } from '@pay/shared';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
@@ -13,7 +12,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { RATE } from '@/lib/money';
 import { api, setAuthToken } from '@/services/api';
-import { USE_PRIVY, USE_REAL_API } from '@/services/env';
+import { USE_PRIVY } from '@/services/env';
 import { FRIENDS, wallet, type Friend, type Merchant, type Txn } from '@/services/wallet';
 
 export type SheetId =
@@ -31,12 +30,6 @@ export type SheetId =
   | 'sent'
   | 'verify'
   | 'recovery';
-
-const SEED_TXNS: Txn[] = [
-  { id: '1', type: 'pay', title: 'Anjuna Beach Cafe', time: 'Today · 09:24', usd: -5.71, rupees: 500 },
-  { id: '2', type: 'send', title: 'To @neha', time: 'Yesterday', usd: -12.0 },
-  { id: '3', type: 'add', title: 'Added money', time: '12 Jun', usd: 200.0 },
-];
 
 const SHEET_EXIT_MS = 280;
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -130,8 +123,8 @@ export const usePayStore = create<PayState>()(
       kyc: false,
       recovered: false,
       recoveryPrompted: false,
-      balanceUSD: 420,
-      transactions: SEED_TXNS,
+      balanceUSD: 0,
+      transactions: [],
 
       sheet: null,
       closing: false,
@@ -176,9 +169,8 @@ export const usePayStore = create<PayState>()(
       setRequestDraft: (u) => set({ requestDraftUsd: u }),
       openDetail: (tx) => set({ detail: tx }),
 
-      // Pull identity + balance + activity from the backend (no-op in mock mode).
+      // Pull identity + balance + activity from the backend.
       load: async () => {
-        if (!USE_REAL_API) return;
         if (USE_PRIVY && get().authStatus !== 'signedIn') return; // wait for the Privy bridge to sign in
         set({ busy: true, error: null });
         try {
@@ -200,7 +192,6 @@ export const usePayStore = create<PayState>()(
         }
       },
       refresh: async () => {
-        if (!USE_REAL_API) return;
         try {
           const [bal, txns, reqs] = await Promise.all([
             wallet.getBalanceUsd(),
@@ -306,7 +297,7 @@ export const usePayStore = create<PayState>()(
             busy: false,
           }));
           get().open('sent');
-          if (USE_REAL_API) void get().refresh();
+          void get().refresh();
           return tx;
         } catch (e) {
           set({ busy: false, error: e instanceof Error ? e.message : String(e) });
@@ -343,7 +334,7 @@ export const usePayStore = create<PayState>()(
           set((s) => ({
             requests: s.requests.map((x) => (x.id === id ? { ...x, status: 'paid' } : x)),
           }));
-          if (USE_REAL_API) void get().refresh();
+          void get().refresh();
         } catch (e) {
           set({ error: e instanceof Error ? e.message : String(e) });
         }
@@ -361,20 +352,17 @@ export const usePayStore = create<PayState>()(
       },
 
       doAdd: async (amt) => {
-        if (USE_REAL_API) {
-          // Real: deposits arrive on-chain to the user's wallet; no instant credit.
+        // Mint test USDC to the user's wallet via the devnet faucet, then refresh.
+        set({ busy: true, error: null });
+        try {
+          await wallet.addMoney?.(amt);
           get().close();
-          void get().refresh();
-          return;
+          await get().refresh();
+        } catch (e) {
+          set({ error: e instanceof Error ? e.message : String(e) });
+        } finally {
+          set({ busy: false });
         }
-        set((s) => ({
-          balanceUSD: +(s.balanceUSD + amt).toFixed(2),
-          transactions: [
-            { id: localId(), type: 'add', title: 'Added money', time: 'Just now', usd: amt },
-            ...s.transactions,
-          ],
-        }));
-        get().close();
       },
 
       completeOnboarding: () => set({ onboarded: true }),

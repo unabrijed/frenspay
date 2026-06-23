@@ -4,6 +4,8 @@ import type {
   AuthSyncRequest,
   BalanceResponse,
   CreateRequestRequest,
+  FaucetRequest,
+  FaucetResponse,
   MeResponse,
   PrepareTransferRequest,
   PrepareTransferResponse,
@@ -56,4 +58,6 @@ export const api = {
     req<PrepareTransferResponse>('/transfer/prepare', { method: 'POST', body: JSON.stringify(body) }),
   submitTransfer: (body: SubmitTransferRequest) =>
     req<SubmitTransferResponse>('/transfer/submit', { method: 'POST', body: JSON.stringify(body) }),
+  faucet: (body: FaucetRequest) =>
+    req<FaucetResponse>('/devnet/faucet', { method: 'POST', body: JSON.stringify(body) }),
 };

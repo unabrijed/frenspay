@@ -8,15 +8,17 @@ import type { Txn } from '@/services/wallet';
 
 export function TxRow({ tx, onPress }: { tx: Txn; onPress?: () => void }) {
   const merchant = tx.type === 'pay';
+  // colour-coded category chip (solid fill, white glyph)
+  const tone = merchant ? colors.coral : tx.type === 'add' ? colors.mint : colors.accent;
   return (
     <Row onPress={onPress}>
-      <RowIcon accent={merchant}>
+      <RowIcon tone={tone}>
         {merchant ? (
-          <Icons.Qr size={18} color={colors.accent} />
+          <Icons.Qr size={18} color={colors.white} />
         ) : tx.type === 'add' ? (
-          <Icons.Plus size={17} color={colors.muted} />
+          <Icons.Plus size={17} color={colors.white} />
         ) : (
-          <Icons.Send size={17} color={colors.muted} />
+          <Icons.Send size={17} color={colors.white} />
         )}
       </RowIcon>
       <RowMeta>
@@ -26,7 +28,7 @@ export function TxRow({ tx, onPress }: { tx: Txn; onPress?: () => void }) {
         <Txt style={[type.rowTime, { marginTop: 3 }]}>{tx.time}</Txt>
       </RowMeta>
       <RowAmount>
-        <Txt style={[type.rowAmount, tx.type === 'add' && { color: colors.accent }]}>
+        <Txt style={[type.rowAmount, tx.type === 'add' && { color: colors.pos }]}>
           {tx.type === 'add' ? '+' : '−'}
           {usd(Math.abs(tx.usd))}
         </Txt>
