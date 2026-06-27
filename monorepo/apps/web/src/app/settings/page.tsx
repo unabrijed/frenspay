@@ -17,6 +17,9 @@ import { usePayStore } from '@/store/usePayStore';
 export default function Settings() {
   const router = useRouter();
   const open = usePayStore((s) => s.open);
+  const handle = usePayStore((s) => s.handle);
+  const displayCurrency = usePayStore((s) => s.displayCurrency);
+  const recoveryPasskey = usePayStore((s) => s.recoveryPasskey);
   return (
     <Screen edges={['top']} style={styles.safe}>
       <View style={styles.scroll}>
@@ -25,17 +28,17 @@ export default function Settings() {
         </View>
 
         <View style={styles.profile}>
-          <ProfileAvatar label="B" />
+          <ProfileAvatar label={(handle.replace(/^@/, '')[0] ?? 'U').toUpperCase()} />
           <View>
-            <Txt style={type.handle}>@bridge</Txt>
-            <Txt style={[type.profileSub, { marginTop: 2 }]}>Bridge</Txt>
+            <Txt style={type.handle}>{handle || '@you'}</Txt>
+            <Txt style={[type.profileSub, { marginTop: 2 }]}>Pay account</Txt>
           </View>
         </View>
 
         <List>
           <SettingsRow k="Verification" v="Tier 1" onPress={() => open('verify')} />
-          <SettingsRow k="Recovery" v="Email set" onPress={() => open('recovery')} />
-          <SettingsRow k="Display currency" v="INR" accent />
+          <SettingsRow k="Recovery" v={recoveryPasskey ? 'Passkey set' : 'Email'} onPress={() => open('recovery')} />
+          <SettingsRow k="Display currency" v={displayCurrency} accent onPress={() => open('currency')} />
           <SettingsRow k="Help and support" />
         </List>
 

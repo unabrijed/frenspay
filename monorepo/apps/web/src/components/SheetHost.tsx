@@ -7,9 +7,13 @@ import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 
 import { AddMoney } from '@/components/sheets/AddMoney';
+import { Currency } from '@/components/sheets/Currency';
 import { Request, RequestPick, RequestSent, Send, SendAmount, Sent } from '@/components/sheets/friends';
 import { Recovery, Verify } from '@/components/sheets/identity';
+import { OrderTracking } from '@/components/sheets/OrderTracking';
 import { Amount, Declined, Review, Scan, Success } from '@/components/sheets/pay';
+import { QuoteSheet } from '@/components/sheets/Quote';
+import { Receive } from '@/components/sheets/Receive';
 import { colors, radii, shadows } from '@/lib/theme';
 import { type SheetId, usePayStore } from '@/store/usePayStore';
 
@@ -27,6 +31,8 @@ const TALL = new Set<SheetId>([
   'sent',
   'verify',
   'recovery',
+  'quote',
+  'tracking',
 ]);
 
 function renderSheet(id: SheetId) {
@@ -59,6 +65,14 @@ function renderSheet(id: SheetId) {
       return <Verify />;
     case 'recovery':
       return <Recovery />;
+    case 'receive':
+      return <Receive />;
+    case 'currency':
+      return <Currency />;
+    case 'quote':
+      return <QuoteSheet />;
+    case 'tracking':
+      return <OrderTracking />;
     default:
       return null;
   }

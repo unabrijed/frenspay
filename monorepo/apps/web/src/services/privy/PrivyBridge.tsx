@@ -3,7 +3,7 @@
 // PrivyBridge — the ONE place Privy hooks are called. Bridges Privy's hook state into the
 // imperative zustand store (so screens never import Privy) and registers the PrivySigner.
 // Web SDK: @privy-io/react-auth (+ /solana for the embedded Solana wallet).
-import { useLoginWithEmail, usePrivy } from '@privy-io/react-auth';
+import { useLinkWithPasskey, useLoginWithEmail, usePrivy } from '@privy-io/react-auth';
 import { useCreateWallet, useSignAndSendTransaction, useWallets } from '@privy-io/react-auth/solana';
 import { useEffect, useRef } from 'react';
 
@@ -22,6 +22,7 @@ export function PrivyBridge(): null {
   const { wallets } = useWallets();
   const { createWallet } = useCreateWallet();
   const { signAndSendTransaction } = useSignAndSendTransaction();
+  const { linkWithPasskey } = useLinkWithPasskey();
 
   // Register imperative auth actions into the store (screens call these, not Privy hooks).
   useEffect(() => {
@@ -39,8 +40,19 @@ export function PrivyBridge(): null {
         setTokenRefresher(null);
         setActiveSigner(null);
       },
+      linkPasskey: async () => {
+        await linkWithPasskey();
+      },
     });
-  }, [sendCode, loginWithCode, logout]);
+  }, [sendCode, loginWithCode, logout, linkWithPasskey]);
+
+  // Publish real recovery status (linked email + passkey) for the Recovery sheet + Settings.
+  useEffect(() => {
+    if (!user) return;
+    const email = (user.email as { address?: string } | undefined)?.address ?? '';
+    const passkey = (user.linkedAccounts ?? []).some((a) => a.type === 'passkey');
+    usePayStore.getState().setRecoveryStatus({ email, passkey });
+  }, [user]);
 
   // Once authenticated: ensure an embedded Solana wallet, then publish token + signer + address.
   const wallet = wallets?.[0];

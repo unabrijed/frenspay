@@ -62,6 +62,10 @@ export function Verify() {
 
 export function Recovery() {
   const recoveryDone = usePayStore((s) => s.recoveryDone);
+  const email = usePayStore((s) => s.recoveryEmail);
+  const passkey = usePayStore((s) => s.recoveryPasskey);
+  const addPasskey = usePayStore((s) => s.addPasskey);
+  const error = usePayStore((s) => s.authError);
   return (
     <>
       <Grab />
@@ -70,26 +74,34 @@ export function Recovery() {
         <Txt style={type.lead}>So you never lose access if you lose this phone.</Txt>
         <View style={{ marginTop: 16 }}>
           <List>
-            <Row onPress={() => {}}>
+            {/* Email is the login + recovery factor for email users — informational. */}
+            <Row>
               <RowIcon>
                 <Icons.Mail size={18} color={colors.muted} strokeWidth={1.6} />
               </RowIcon>
               <RowMeta>
                 <Txt style={type.rowName}>Recover by email</Txt>
+                <Txt style={[type.rowTime, { marginTop: 3 }]}>{email || 'Sign in with email'}</Txt>
               </RowMeta>
-              <Icons.Chevron size={18} color={colors.muted} />
+              {email ? <Icons.Check size={18} color={colors.accent} /> : null}
             </Row>
-            <Row onPress={() => {}}>
+            <Row onPress={passkey ? undefined : () => void addPasskey()}>
               <RowIcon>
                 <Icons.Device size={18} color={colors.muted} strokeWidth={1.6} />
               </RowIcon>
               <RowMeta>
                 <Txt style={type.rowName}>Add a second device</Txt>
+                <Txt style={[type.rowTime, { marginTop: 3 }]}>{passkey ? 'Passkey added' : 'Secure with a passkey'}</Txt>
               </RowMeta>
-              <Icons.Chevron size={18} color={colors.muted} />
+              {passkey ? (
+                <Icons.Check size={18} color={colors.accent} />
+              ) : (
+                <Icons.Chevron size={18} color={colors.muted} />
+              )}
             </Row>
           </List>
         </View>
+        {error ? <Txt style={[type.rowTime, { color: colors.danger, marginTop: 12 }]}>{error}</Txt> : null}
         <Spacer />
         <View style={styles.cta}>
           <Btn label="Done" onPress={recoveryDone} />

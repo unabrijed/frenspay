@@ -3,12 +3,19 @@ import type {
   ApiPaymentRequest,
   AuthSyncRequest,
   BalanceResponse,
+  CreateOrderRequest,
+  CreateOrderResponse,
   CreateRequestRequest,
   FaucetRequest,
   FaucetResponse,
+  FundSubmitRequest,
   MeResponse,
+  OrderResponse,
+  OrdersResponse,
   PrepareTransferRequest,
   PrepareTransferResponse,
+  QuoteRequest,
+  QuoteResponse,
   RequestsResponse,
   ResolveHandleResponse,
   SubmitTransferRequest,
@@ -75,4 +82,14 @@ export const api = {
     req<SubmitTransferResponse>('/transfer/submit', { method: 'POST', body: JSON.stringify(body) }),
   faucet: (body: FaucetRequest) =>
     req<FaucetResponse>('/devnet/faucet', { method: 'POST', body: JSON.stringify(body) }),
+  // ---- M1 order lifecycle ----
+  createQuote: (body: QuoteRequest) =>
+    req<QuoteResponse>('/orders/quote', { method: 'POST', body: JSON.stringify(body) }),
+  createOrder: (body: CreateOrderRequest) =>
+    req<CreateOrderResponse>('/orders', { method: 'POST', body: JSON.stringify(body) }),
+  fundSubmit: (id: string, body: FundSubmitRequest) =>
+    req<SubmitTransferResponse>(`/orders/${id}/fund-submit`, { method: 'POST', body: JSON.stringify(body) }),
+  getOrder: (id: string) => req<OrderResponse>(`/orders/${id}`),
+  listOrders: () => req<OrdersResponse>('/orders'),
+  cancelOrder: (id: string) => req<{ ok: true }>(`/orders/${id}/cancel`, { method: 'POST' }),
 };

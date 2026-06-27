@@ -4,14 +4,17 @@
 //
 // Money flows delegate to the RealWalletProvider (@/services/wallet) → the backend API + on-device
 // signing. The app is always real; balance/activity load from the backend once signed in.
-import type { ApiPaymentRequest } from '@pay/shared';
+import type { ApiPaymentRequest, Order, Quote } from '@pay/shared';
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { RATE } from '@/lib/money';
+import type { DisplayCurrency } from '@/lib/money';
+import { parseScannedQR } from '@/lib/qr';
 import { api, setAuthToken } from '@/services/api';
 import { USE_PRIVY } from '@/services/env';
+import { confirmOrder as apiConfirmOrder, createQuote as apiCreateQuote, getOrder as apiGetOrder } from '@/services/orders';
 import { FRIENDS, wallet, type Friend, type Merchant, type Txn } from '@/services/wallet';
 
 export type SheetId =
@@ -28,7 +31,11 @@ export type SheetId =
   | 'requestSent'
   | 'sent'
   | 'verify'
-  | 'recovery';
+  | 'recovery'
+  | 'receive'
+  | 'currency'
+  | 'quote'
+  | 'tracking';
 
 const SHEET_EXIT_MS = 280;
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -41,6 +48,8 @@ interface AuthBridge {
   sendCode: (email: string) => Promise<void>;
   verifyCode: (code: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Link a passkey to the Privy user — a cross-device recovery factor. */
+  linkPasskey: () => Promise<void>;
 }
 
 interface PayState {
@@ -51,6 +60,8 @@ interface PayState {
   recoveryPrompted: boolean;
   balanceUSD: number;
   transactions: Txn[];
+  displayCurrency: DisplayCurrency;
+  handle: string;
 
   // ---- ephemeral ----
   sheet: SheetId | null;
@@ -58,6 +69,8 @@ interface PayState {
   merchant: Merchant;
   friend: Friend;
   payRupees: number;
+  /** Rupee amount carried in from a scanned (dynamic) UPI QR; 0 = enter manually. */
+  scannedRupees: number;
   detail: Txn | null;
   pendingPay: boolean;
   lastSend: { u: number; handle: string };
@@ -67,11 +80,17 @@ interface PayState {
   busy: boolean;
   error: string | null;
   walletAddress: string;
+  // ---- M1 order lifecycle (quote engine + order state machine) ----
+  quote: Quote | null;
+  order: Order | null;
 
   // ---- auth (Privy email OTP; real mode) ----
   authStatus: 'signedOut' | 'codeSent' | 'signedIn';
   authEmail: string;
   authError: string | null;
+  // Real recovery status, published by the Privy bridge.
+  recoveryEmail: string;
+  recoveryPasskey: boolean;
   _authBridge?: AuthBridge;
 
   // ---- sheet control ----
@@ -84,6 +103,7 @@ interface PayState {
   setPayRupees: (r: number) => void;
   setRequestDraft: (u: number) => void;
   openDetail: (tx: Txn) => void;
+  setDisplayCurrency: (c: DisplayCurrency) => void;
 
   // ---- backend sync (real mode only) ----
   load: () => Promise<void>;
@@ -103,13 +123,29 @@ interface PayState {
   authSync: (handle: string) => Promise<void>;
 
   // ---- flows (mirror app.jsx) ----
-  payMerchant: (m: Merchant) => void;
+  /** Decode a scanned QR and route to the right flow (send / merchant-pay). */
+  handleScan: (text: string) => Promise<void>;
+  payMerchant: (m: Merchant, rupees?: number) => void;
   verifyDone: () => void;
   recoveryDone: () => void;
+  /** Publish real recovery status from the Privy bridge. */
+  setRecoveryStatus: (s: { email: string; passkey: boolean }) => void;
+  /** Link a passkey as a second-device recovery factor (delegates to Privy). */
+  addPasskey: () => Promise<void>;
   finishPay: () => void;
   doPay: (ok: boolean) => void;
   doSend: (u: number) => Promise<Txn | null>;
   doAdd: (amt: number) => Promise<void>;
+
+  // ---- order lifecycle: quote → confirm (sign escrow funding) → poll ----
+  /** Request a locked quote for a rupee amount and open the Quote screen. */
+  getQuote: (rupees: number) => Promise<void>;
+  /** Confirm the live quote: create the order, sign the escrow funding, open the timeline. */
+  confirmOrder: () => Promise<void>;
+  /** Poll the in-flight order; refreshes balance once it reaches a terminal state. */
+  refreshOrder: () => Promise<void>;
+  /** Discard the quote and go back to amount entry. */
+  editQuote: () => void;
 
   // ---- onboarding ----
   completeOnboarding: () => void;
@@ -124,12 +160,15 @@ export const usePayStore = create<PayState>()(
       recoveryPrompted: false,
       balanceUSD: 0,
       transactions: [],
+      displayCurrency: 'INR',
+      handle: '',
 
       sheet: null,
       closing: false,
       merchant: { name: 'Anjuna Beach Cafe' },
       friend: FRIENDS[0],
       payRupees: 500,
+      scannedRupees: 0,
       detail: null,
       pendingPay: false,
       lastSend: { u: 12, handle: '@neha' },
@@ -139,10 +178,14 @@ export const usePayStore = create<PayState>()(
       busy: false,
       error: null,
       walletAddress: '',
+      quote: null,
+      order: null,
 
       authStatus: 'signedOut',
       authEmail: '',
       authError: null,
+      recoveryEmail: '',
+      recoveryPasskey: false,
       _authBridge: undefined,
 
       open: (id) => {
@@ -167,6 +210,7 @@ export const usePayStore = create<PayState>()(
       setPayRupees: (r) => set({ payRupees: r }),
       setRequestDraft: (u) => set({ requestDraftUsd: u }),
       openDetail: (tx) => set({ detail: tx }),
+      setDisplayCurrency: (c) => set({ displayCurrency: c }),
 
       // Pull identity + balance + activity from the backend (no-op in mock mode).
       load: async () => {
@@ -181,6 +225,7 @@ export const usePayStore = create<PayState>()(
           ]);
           set({
             walletAddress: me.walletAddress,
+            handle: me.handle,
             balanceUSD: bal,
             transactions: txns,
             requests: reqs,
@@ -235,8 +280,40 @@ export const usePayStore = create<PayState>()(
         await get().load();
       },
 
-      payMerchant: (m) => {
-        set({ merchant: m });
+      // Decode a scanned QR and route: a Pay user's QR → real USDC send; a UPI/merchant QR →
+      // the (Phase-2 mock) merchant pay flow; anything else → a friendly error on the Scan sheet.
+      handleScan: async (text) => {
+        const res = parseScannedQR(text);
+        if (res.kind === 'handle') {
+          if (res.handle === get().handle) {
+            set({ error: "That's your own code" });
+            return;
+          }
+          try {
+            const friend = await wallet.resolveHandle(res.handle);
+            if (!friend) {
+              set({ error: `${res.handle} isn't on Pay yet` });
+              return;
+            }
+            set({ error: null });
+            get().setFriend(friend);
+            get().open('sendAmount');
+          } catch (e) {
+            set({ error: e instanceof Error ? e.message : String(e) });
+          }
+        } else if (res.kind === 'upi') {
+          // Merchant pay → the real order lifecycle: quote (rate+fee+ETA, 45s lock) → escrow → settle.
+          set({ error: null });
+          get().payMerchant({ name: res.name ?? res.payee ?? 'Merchant' }, res.amountInr ?? 0);
+        } else if (res.kind === 'address') {
+          set({ error: 'That wallet isn’t a Pay user yet — ask them to join Pay.' });
+        } else {
+          set({ error: 'Unrecognized QR' });
+        }
+      },
+
+      payMerchant: (m, rupees = 0) => {
+        set({ merchant: m, scannedRupees: rupees });
         if (get().kyc) {
           get().open('amount');
         } else {
@@ -256,6 +333,21 @@ export const usePayStore = create<PayState>()(
       recoveryDone: () => {
         set({ recovered: true });
         get().close();
+      },
+      setRecoveryStatus: ({ email, passkey }) => set({ recoveryEmail: email, recoveryPasskey: passkey }),
+      addPasskey: async () => {
+        const bridge = get()._authBridge;
+        if (!bridge) {
+          set({ authError: 'Sign in to set up recovery.' });
+          return;
+        }
+        set({ authError: null });
+        try {
+          await bridge.linkPasskey();
+          set({ recoveryPasskey: true, recovered: true });
+        } catch (e) {
+          set({ authError: e instanceof Error ? e.message : String(e) });
+        }
       },
       finishPay: () => {
         if (!get().recovered && !get().recoveryPrompted) {
@@ -305,6 +397,51 @@ export const usePayStore = create<PayState>()(
           set({ busy: false, error: e instanceof Error ? e.message : String(e) });
           return null;
         }
+      },
+
+      // ---- order lifecycle: quote → confirm (sign escrow funding) → poll ----
+      getQuote: async (rupees) => {
+        set({ busy: true, error: null });
+        try {
+          const quote = await apiCreateQuote({ direction: 'spend', amountInr: rupees, payoutMethod: 'UPI' });
+          set({ quote, payRupees: rupees, busy: false });
+          get().open('quote');
+        } catch (e) {
+          set({ busy: false, error: e instanceof Error ? e.message : String(e) });
+        }
+      },
+
+      confirmOrder: async () => {
+        const q = get().quote;
+        if (!q) return;
+        set({ busy: true, error: null });
+        try {
+          const order = await apiConfirmOrder(q.id);
+          // Optimistically debit the escrowed USDC so a second order can't see the same balance;
+          // refreshOrder() reconciles against the chain on completion/refund.
+          set((s) => ({ order, balanceUSD: +(s.balanceUSD - q.amountUsdc).toFixed(2), busy: false }));
+          get().open('tracking');
+        } catch (e) {
+          set({ busy: false, error: e instanceof Error ? e.message : String(e) });
+        }
+      },
+
+      refreshOrder: async () => {
+        const current = get().order;
+        if (!current) return;
+        try {
+          const order = await apiGetOrder(current.id);
+          set({ order });
+          // Once settled or refunded, reconcile the on-chain balance + activity.
+          if (order.state === 'completed' || order.state === 'refunded') void get().refresh();
+        } catch (e) {
+          set({ error: e instanceof Error ? e.message : String(e) });
+        }
+      },
+
+      editQuote: () => {
+        set({ quote: null });
+        get().open('amount');
       },
 
       // ---- payment requests ----
@@ -384,6 +521,8 @@ export const usePayStore = create<PayState>()(
         recoveryPrompted: s.recoveryPrompted,
         balanceUSD: s.balanceUSD,
         transactions: s.transactions,
+        displayCurrency: s.displayCurrency,
+        handle: s.handle,
       }),
     },
   ),

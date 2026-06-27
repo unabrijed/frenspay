@@ -27,6 +27,13 @@ export const inr = (usdAmount: number): string => '₹' + groupIN(Math.round(usd
 /** USD figure with 2 decimals. e.g. usd(5.71) -> "$5.71" */
 export const usd = (n: number): string => '$' + n.toFixed(2);
 
+/** The currencies the app can display a USD balance in. */
+export type DisplayCurrency = 'INR' | 'USD';
+
+/** Format a USD amount in the user's chosen display currency. */
+export const formatMoney = (usdAmount: number, currency: DisplayCurrency): string =>
+  currency === 'USD' ? usd(usdAmount) : inr(usdAmount);
+
 /** Format a raw rupee figure. e.g. inrRaw(500) -> "₹500" */
 export const inrRaw = (rupees: number): string => '₹' + groupIN(Math.round(rupees));
 

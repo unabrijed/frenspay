@@ -3,6 +3,7 @@
 // Transaction detail — full screen: result hero, rate-lock (merchant pays), detail list.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
+import { useEffect } from 'react';
 
 import { Icons } from '@/components/icons';
 import { RateLock } from '@/components/RateLock';
@@ -19,10 +20,12 @@ import { usePayStore } from '@/store/usePayStore';
 export default function Detail() {
   const router = useRouter();
   const tx = usePayStore((s) => s.detail) ?? usePayStore((s) => s.transactions[0]);
-  if (!tx) {
-    router.back();
-    return null;
-  }
+  // No tx to show (e.g. opened directly / no state) → go back. In an effect so it never runs
+  // during server prerender, where touching the router would hit `window is not defined`.
+  useEffect(() => {
+    if (!tx) router.back();
+  }, [tx, router]);
+  if (!tx) return null;
   const merchant = tx.type === 'pay';
   const isAdd = tx.type === 'add';
 

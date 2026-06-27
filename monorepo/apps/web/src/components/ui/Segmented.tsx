@@ -44,5 +44,5 @@ const styles = {
   b: { paddingTop: 4, paddingBottom: 4, paddingLeft: 11, paddingRight: 11, borderRadius: 999 },
   bOn: { backgroundColor: colors.surface, boxShadow: shadows.segPill },
   bOnDark: { backgroundColor: colors.white, boxShadow: shadows.segPill },
-  label: { fontFamily: 'var(--font-mono)', fontWeight: 500, fontSize: 11 },
+  label: { fontFamily: 'var(--font-sans)', fontWeight: 600, fontSize: 12 },
 } satisfies Record<string, CSSProperties>;

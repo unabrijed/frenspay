@@ -74,17 +74,17 @@ export function TextLink({
 const styles = {
   btn: {
     width: '100%',
-    borderRadius: radii.pill,
+    borderRadius: radii.tile,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
     border: '1px solid transparent',
   },
-  primary: { background: colors.ink, borderColor: colors.accentLine },
+  primary: { background: colors.accent, borderColor: 'transparent' }, // terracotta CTA
   ink: { background: colors.ink },
-  secondary: { background: colors.surface, borderColor: colors.hair },
-  pressed: { transform: 'scale(0.985)' },
+  secondary: { background: colors.surface, borderColor: colors.outlineVariant },
+  pressed: { transform: 'translateY(1px) scale(0.99)' },
   disabled: { opacity: 0.4 },
   icon: { marginRight: 2 },
 } satisfies Record<string, CSSProperties>;

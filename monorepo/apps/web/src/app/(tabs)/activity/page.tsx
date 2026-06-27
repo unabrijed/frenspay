@@ -1,18 +1,20 @@
 'use client';
 
-// Activity — open payment requests + filterable transaction history.
+// Activity — Tabroad transaction history: trip-summary card, filters, and date-grouped tactile rows
+// with Settling/Settled status. Plus the open-payment-requests block.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
 import { useState } from 'react';
 
-import { TxRow } from '@/components/TxRow';
+import { Icons } from '@/components/icons';
+import { TxCard } from '@/components/TxCard';
 import { Btn, TextLink } from '@/components/ui/Button';
 import { Fav, List, Row, RowAmount, RowMeta } from '@/components/ui/primitives';
 import { Pressable, View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
 import { Txt } from '@/components/ui/Txt';
-import { usd } from '@/lib/money';
-import { colors, GUTTER, type } from '@/lib/theme';
+import { inr, usd } from '@/lib/money';
+import { colors, GUTTER, radii, shadows, type } from '@/lib/theme';
 import { relTime } from '@/services/mappers';
 import type { Txn } from '@/services/wallet';
 import { usePayStore } from '@/store/usePayStore';
@@ -20,8 +22,8 @@ import { usePayStore } from '@/store/usePayStore';
 const FILTERS = ['All', 'Payments', 'Friends'] as const;
 type Filter = (typeof FILTERS)[number];
 
-// numberOfLines={1} → single-line truncation.
 const clamp1: CSSProperties = { display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+const isToday = (t: string) => /just now|^now|ago|today/i.test(t);
 
 function Requests() {
   const requests = usePayStore((s) => s.requests);
@@ -55,12 +57,7 @@ function Requests() {
               </Row>
               <View style={styles.reqAction}>
                 {incoming ? (
-                  <Btn
-                    label={`Pay ${usd(r.amountUsd)}`}
-                    height={42}
-                    disabled={busy}
-                    onPress={() => void payRequest(r.id)}
-                  />
+                  <Btn label={`Pay ${usd(r.amountUsd)}`} height={42} disabled={busy} onPress={() => void payRequest(r.id)} />
                 ) : (
                   <TextLink label="Cancel request" onPress={() => void cancelRequest(r.id)} />
                 )}
@@ -76,15 +73,33 @@ function Requests() {
 export default function Activity() {
   const router = useRouter();
   const txns = usePayStore((s) => s.transactions);
+  const bal = usePayStore((s) => s.balanceUSD);
+  const displayCurrency = usePayStore((s) => s.displayCurrency);
+  const open = usePayStore((s) => s.open);
   const openDetail = usePayStore((s) => s.openDetail);
   const [f, setF] = useState<Filter>('All');
+  const leadINR = displayCurrency === 'INR';
 
   const shown = txns.filter((t) => (f === 'All' ? true : f === 'Payments' ? t.type === 'pay' : t.type !== 'pay'));
+  const todayTx = shown.filter((t) => isToday(t.time));
+  const earlierTx = shown.filter((t) => !isToday(t.time));
 
   const openTx = (tx: Txn) => {
     openDetail(tx);
     router.push('/detail');
   };
+
+  const group = (label: string, list: Txn[]) =>
+    list.length > 0 ? (
+      <>
+        <Txt style={[type.dayLabel, styles.dayLabel]}>{label}</Txt>
+        <View style={styles.txList}>
+          {list.map((tx) => (
+            <TxCard key={tx.id} tx={tx} showInr onPress={() => openTx(tx)} />
+          ))}
+        </View>
+      </>
+    ) : null;
 
   return (
     <Screen edges={['top']} style={styles.safe}>
@@ -92,7 +107,27 @@ export default function Activity() {
         <View style={styles.fhead}>
           <Txt style={type.screenTitle}>Activity</Txt>
         </View>
+
+        {/* trip summary */}
+        <View style={styles.summary}>
+          <Txt style={type.eyebrow}>Trip balance · India</Txt>
+          <Txt style={[type.heroBalance, { fontSize: 38, lineHeight: '44px', marginTop: 6 }]}>{leadINR ? inr(bal) : usd(bal)}</Txt>
+          <View style={styles.realRate}>
+            <Txt style={type.sub}>{leadINR ? `≈ ${usd(bal)}` : `≈ ${inr(bal)}`}</Txt>
+            <View style={styles.ratePill}>
+              <Icons.LockCheck size={14} color={colors.accent} />
+              <Txt style={[type.tierTag, { color: colors.muted }]}>Real-rate</Txt>
+            </View>
+          </View>
+          <Pressable onPress={() => open('add')} style={({ pressed }) => [styles.addFunds, pressed ? { opacity: 0.9 } : null]}>
+            <Icons.Plus size={16} color={colors.white} />
+            <Txt style={[type.tileLabel, { color: colors.white }]}>Add Funds</Txt>
+          </Pressable>
+        </View>
+
         <Requests />
+
+        {/* filters */}
         <View style={styles.filters}>
           {FILTERS.map((x) => (
             <Pressable key={x} onPress={() => setF(x)} style={[styles.f, f === x && styles.fOn]}>
@@ -100,12 +135,15 @@ export default function Activity() {
             </Pressable>
           ))}
         </View>
-        <Txt style={[type.dayLabel, styles.dayLabel]}>Today</Txt>
-        <List>
-          {shown.map((tx) => (
-            <TxRow key={tx.id} tx={tx} onPress={() => openTx(tx)} />
-          ))}
-        </List>
+
+        {shown.length === 0 ? (
+          <Txt style={[type.lead, { textAlign: 'center', marginTop: 18 }]}>No activity yet.</Txt>
+        ) : (
+          <>
+            {group('Today', todayTx)}
+            {group('Earlier', earlierTx)}
+          </>
+        )}
       </View>
     </Screen>
   );
@@ -124,10 +162,41 @@ const styles = {
     borderRadius: 999,
     borderWidth: 1,
     borderStyle: 'solid',
-    borderColor: colors.hair,
+    borderColor: colors.outlineVariant,
     backgroundColor: colors.surface,
   },
-  fOn: { backgroundColor: colors.ink, borderColor: colors.ink },
+  fOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   dayLabel: { marginTop: 4, marginBottom: 9, marginLeft: 2, marginRight: 2 },
+  txList: { gap: 10, marginBottom: 6 },
   reqAction: { paddingLeft: 16, paddingRight: 16, paddingBottom: 13, paddingTop: 2 },
+  summary: { backgroundColor: colors.surfaceContainer, borderRadius: radii.rlc, padding: 18, marginBottom: 16, boxShadow: shadows.card },
+  realRate: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
+  ratePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: colors.surface,
+    borderRadius: 999,
+    paddingLeft: 10,
+    paddingRight: 12,
+    paddingTop: 5,
+    paddingBottom: 5,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: colors.outlineVariant,
+  },
+  addFunds: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    marginTop: 14,
+    backgroundColor: colors.accent,
+    borderRadius: 999,
+    paddingLeft: 14,
+    paddingRight: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
+    boxShadow: shadows.primaryBtn,
+  },
 } satisfies Record<string, CSSProperties>;

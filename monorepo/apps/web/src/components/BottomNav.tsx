@@ -28,7 +28,7 @@ export function BottomNav() {
         <View style={styles.payBtn}>
           <Icons.QrBig size={26} color={colors.white} />
         </View>
-        <Txt style={[type.tabLabel, { color: colors.muted, marginTop: 6 }]}>Pay</Txt>
+        <Txt style={[type.tabLabel, { color: colors.muted, marginTop: 6 }]}>Scan</Txt>
       </Pressable>
 
       <Pressable style={styles.it} onPress={() => router.push('/activity')}>
@@ -43,10 +43,10 @@ const styles = {
   nav: {
     position: 'relative',
     flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopStyle: 'solid',
-    borderTopColor: colors.hair,
     backgroundColor: colors.surface,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    boxShadow: shadows.sheet,
     minHeight: 86,
     paddingTop: 14,
     paddingLeft: 46,

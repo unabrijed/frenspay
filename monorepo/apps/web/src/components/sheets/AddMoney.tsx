@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { Icons } from '@/components/icons';
 import { Btn } from '@/components/ui/Button';
 import { Chip, Chips, Eyebrow, Field, Grab, List, Row, RowIcon, RowMeta, SheetBody, SheetHeader } from '@/components/ui/primitives';
-import { haptic, Pressable, View } from '@/components/ui/rn';
+import { haptic, Pressable, sx, View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { colors, fonts, type } from '@/lib/theme';
 import { USDC_DEPOSIT_ADDRESS } from '@/services/wallet';
@@ -42,9 +42,18 @@ export function AddMoney() {
         </View>
         <Field style={{ marginTop: 12 }}>
           <Txt style={[type.fieldText, { color: colors.muted }]}>$</Txt>
-          <Txt style={type.fieldText}>{amt}</Txt>
+          <input
+            value={amt ? String(amt) : ''}
+            onChange={(e) => {
+              const n = parseInt(e.target.value.replace(/[^0-9]/g, ''), 10);
+              setAmt(Number.isNaN(n) ? 0 : Math.min(n, 100000));
+            }}
+            inputMode="decimal"
+            placeholder="0"
+            style={sx(type.fieldText, { flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', padding: 0, color: colors.ink })}
+          />
         </Field>
-        <Btn label={`Add $${amt}`} onPress={() => doAdd(amt)} style={{ marginTop: 16 }} />
+        <Btn label={`Add $${amt}`} disabled={amt <= 0} onPress={() => doAdd(amt)} style={{ marginTop: 16 }} />
         <Eyebrow style={{ marginTop: 22, marginBottom: 10 }}>Or deposit USDC</Eyebrow>
         <List>
           <Row>

@@ -1,26 +1,12 @@
-// Loads the app's three families as CSS variables consumed by theme.ts + tailwind:
-//   --font-display (Baloo 2, friendly rounded) · --font-inter (body) · --font-mono (money).
-import { Baloo_2, Inter, Spline_Sans_Mono } from 'next/font/google';
+// Loads the app's single family — Hanken Grotesk — as the `--font-sans` CSS variable consumed by
+// lib/theme.ts. (Tabroad uses one family for display, body, and tabular numbers.)
+import { Hanken_Grotesk } from 'next/font/google';
 
-export const inter = Inter({
+export const sans = Hanken_Grotesk({
   subsets: ['latin'],
-  weight: ['300', '400', '500'],
-  variable: '--font-inter',
+  weight: ['400', '500', '600', '700', '800'],
+  variable: '--font-sans',
   display: 'swap',
 });
 
-export const display = Baloo_2({
-  subsets: ['latin'],
-  weight: ['600', '700', '800'],
-  variable: '--font-display',
-  display: 'swap',
-});
-
-export const splineMono = Spline_Sans_Mono({
-  subsets: ['latin'],
-  weight: ['300', '400', '500'],
-  variable: '--font-mono',
-  display: 'swap',
-});
-
-export const fontVars = `${inter.variable} ${display.variable} ${splineMono.variable}`;
+export const fontVars = sans.variable;

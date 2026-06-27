@@ -12,14 +12,14 @@ export const SHEET_GUTTER = spacing.SHEET_GUTTER;
 
 /* ---- fonts: role → RN family name (must match the keys loaded in lib/fonts.ts) ---- */
 export const fonts = {
-  disp700: 'Baloo2_700Bold',
-  disp800: 'Baloo2_800ExtraBold',
-  body400: 'Inter_300Light',
-  body500: 'Inter_400Regular',
-  body600: 'Inter_500Medium',
-  mono400: 'SplineSansMono_300Light',
-  mono500: 'SplineSansMono_400Regular',
-  mono600: 'SplineSansMono_500Medium',
+  disp700: 'HankenGrotesk_700Bold',
+  disp800: 'HankenGrotesk_800ExtraBold',
+  body400: 'HankenGrotesk_400Regular',
+  body500: 'HankenGrotesk_500Medium',
+  body600: 'HankenGrotesk_600SemiBold',
+  mono400: 'HankenGrotesk_400Regular',
+  mono500: 'HankenGrotesk_500Medium',
+  mono600: 'HankenGrotesk_600SemiBold',
 } satisfies Record<FontRole, string>;
 
 /* ---- shadows: abstract spec → RN shadow object (+ Android elevation) ---- */

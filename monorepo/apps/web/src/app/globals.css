@@ -3,16 +3,17 @@
 @tailwind utilities;
 
 /* These :root vars mirror @pay/shared brand tokens (CSS can't import the TS source).
-   They only style the app-frame + body chrome; component styling is shared via lib/theme.ts. */
+   They only style the app-frame + body chrome; component styling is shared via lib/theme.ts.
+   Theme: Tabroad (warm Material-3). */
 :root {
-  --canvas: #ffffff;
+  --canvas: #fff8f4;
   --surface: #ffffff;
-  --ink: #1b1430;
-  --muted: #8b83a8;
-  --hair: #eceaf3;
-  --accent: #6f4aec;
-  /* neutral surround shown around the phone column on wide screens */
-  --backdrop: #e9e7f0;
+  --ink: #1e1b19;
+  --muted: #58413d;
+  --hair: #e8e1dd;
+  --accent: #a6341f;
+  /* warm neutral surround shown around the phone column on wide screens */
+  --backdrop: #ece4dd;
 }
 
 * {
@@ -28,9 +29,33 @@ body {
 body {
   background: var(--backdrop);
   color: var(--ink);
-  font-family: var(--font-inter), system-ui, sans-serif;
+  font-family: var(--font-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Material Symbols Outlined — the Tabroad icon set. Default to unfilled, weight 400. */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* Settling success — pulsing rings behind the confirmation check (Tabroad "Settling"). */
+.pulse-ring {
+  animation: pulse-ring 2.2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.5;
+  }
+  80%,
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
 }
 
 /* Mobile-first, FIXED phone column. The app never widens on tablet/desktop —

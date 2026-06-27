@@ -1,7 +1,7 @@
 // theme.ts — WEB adapter over the shared design tokens (@pay/shared). The single source of
 // truth lives in packages/shared/src/tokens.ts; this only renders those tokens as web CSS
 // (font CSS-vars + numeric weights, box-shadow strings, px line-heights). Re-skin in @pay/shared.
-import { colors, radii, shadowSpec, spacing, tile, typeScale, type FontRole, type ShadowKey, type TypeSpec } from '@pay/shared';
+import { colors, radii, shadowSpec, spacing, tile, typeScale, type FontRole, type ShadowKey, type ShadowSpec, type TypeSpec } from '@pay/shared';
 import type { CSSProperties } from 'react';
 
 export { colors, radii, tile };
@@ -10,16 +10,19 @@ export type { TileTone, TypeVariant } from '@pay/shared';
 export const GUTTER = spacing.GUTTER;
 export const SHEET_GUTTER = spacing.SHEET_GUTTER;
 
-/* ---- fonts: role → CSS var + weight (mirrors lib/fonts.ts) ---- */
+/* ---- fonts: role → CSS var + weight. All roles render Hanken Grotesk (one family);
+   the `mono*` roles add tabular figures for aligned money columns. ---- */
+const SANS = 'var(--font-sans)';
+const TAB = { fontVariantNumeric: 'tabular-nums' } as const;
 const F: Record<FontRole, CSSProperties> = {
-  disp700: { fontFamily: 'var(--font-display)', fontWeight: 700 },
-  disp800: { fontFamily: 'var(--font-display)', fontWeight: 800 },
-  body400: { fontFamily: 'var(--font-inter)', fontWeight: 300 }, // Inter Light
-  body500: { fontFamily: 'var(--font-inter)', fontWeight: 400 }, // Inter Regular
-  body600: { fontFamily: 'var(--font-inter)', fontWeight: 500 }, // Inter Medium
-  mono400: { fontFamily: 'var(--font-mono)', fontWeight: 300 },
-  mono500: { fontFamily: 'var(--font-mono)', fontWeight: 400 },
-  mono600: { fontFamily: 'var(--font-mono)', fontWeight: 500 },
+  disp700: { fontFamily: SANS, fontWeight: 700 },
+  disp800: { fontFamily: SANS, fontWeight: 800 },
+  body400: { fontFamily: SANS, fontWeight: 400 },
+  body500: { fontFamily: SANS, fontWeight: 500 },
+  body600: { fontFamily: SANS, fontWeight: 600 },
+  mono400: { fontFamily: SANS, fontWeight: 400, ...TAB },
+  mono500: { fontFamily: SANS, fontWeight: 500, ...TAB },
+  mono600: { fontFamily: SANS, fontWeight: 600, ...TAB },
 };
 /** Font family+weight tokens (e.g. `fonts.mono500`) for ad-hoc inline text styles. */
 export const fonts = F;
@@ -32,7 +35,10 @@ function hexToRgba(hex: string, a: number): string {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 export const shadows = Object.fromEntries(
-  Object.entries(shadowSpec).map(([k, s]) => [k, `${s.x}px ${s.y}px ${s.blur}px ${hexToRgba(s.color, s.opacity)}`]),
+  (Object.entries(shadowSpec) as Array<[string, ShadowSpec]>).map(([k, s]) => {
+    const drop = `${s.x}px ${s.y}px ${s.blur}px ${hexToRgba(s.color, s.opacity)}`;
+    return [k, s.inset ? `${drop}, ${s.inset}` : drop];
+  }),
 ) as Record<ShadowKey, string>;
 
 /* ---- type scale: shared metrics + web font + px line-height ---- */

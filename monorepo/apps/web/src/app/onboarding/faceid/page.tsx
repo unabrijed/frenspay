@@ -1,7 +1,6 @@
 'use client';
 
-// Auth step. Mock mode: the original "Continue with Face ID" → handle.
-// Privy mode (USE_PRIVY): email-OTP login → embedded wallet is created → handle.
+// Auth step (Privy): email-OTP login → embedded Solana wallet is created → handle.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
@@ -14,31 +13,11 @@ import { View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { Screen } from '@/components/ui/Screen';
 import { colors, type } from '@/lib/theme';
-import { USE_PRIVY } from '@/services/env';
 import { usePayStore } from '@/store/usePayStore';
 
 export default function FaceID() {
   const router = useRouter();
-  if (USE_PRIVY) return <EmailOtp onDone={() => router.replace('/onboarding/handle')} />;
-  return (
-    <Screen edges={['top', 'bottom']} style={styles.safe}>
-      <View style={styles.fhead}>
-        <BackButton onPress={() => router.back()} />
-      </View>
-      <View style={styles.center}>
-        <GlyphCircle>
-          <Icons.Face size={44} color={colors.muted} strokeWidth={1.6} />
-        </GlyphCircle>
-        <Txt style={type.onbH1}>Set up with Face ID</Txt>
-        <Txt style={[type.lead, styles.sub, { fontSize: 15 }]}>
-          No passwords, no seed phrases. Your account is secured on this device.
-        </Txt>
-      </View>
-      <View style={styles.cta}>
-        <Btn label="Continue with Face ID" onPress={() => router.push('/onboarding/handle')} />
-      </View>
-    </Screen>
-  );
+  return <EmailOtp onDone={() => router.replace('/onboarding/handle')} />;
 }
 
 function EmailOtp({ onDone }: { onDone: () => void }) {

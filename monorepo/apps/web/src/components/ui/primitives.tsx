@@ -5,7 +5,7 @@ import type { CSSProperties, ReactNode } from 'react';
 
 import { Icons } from '@/components/icons';
 import { Txt } from '@/components/ui/Txt';
-import { Pressable, type St, View } from '@/components/ui/rn';
+import { Pressable, type St, sx, View } from '@/components/ui/rn';
 import { colors, radii, shadows, type } from '@/lib/theme';
 
 /* ---- generic ---- */
@@ -103,11 +103,36 @@ export function Chip({ label, on, onPress }: { label: string; on?: boolean; onPr
 
 export const Chips = ({ children }: { children: ReactNode }) => <View style={styles.chips}>{children}</View>;
 
-export function SearchBar({ placeholder }: { placeholder: string }) {
+export function SearchBar({
+  placeholder,
+  value,
+  onChangeText,
+  autoFocus,
+}: {
+  placeholder: string;
+  value?: string;
+  onChangeText?: (t: string) => void;
+  autoFocus?: boolean;
+}) {
+  // Controlled when both value + onChangeText are given; otherwise renders the old static label.
+  const controlled = value !== undefined && onChangeText !== undefined;
   return (
     <View style={styles.search}>
       <Icons.Search size={18} color={colors.muted} />
-      <Txt style={type.searchPh}>{placeholder}</Txt>
+      {controlled ? (
+        <input
+          value={value}
+          onChange={(e) => onChangeText?.(e.target.value)}
+          placeholder={placeholder}
+          autoFocus={autoFocus}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          style={sx(type.searchPh, { flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', padding: 0, color: colors.ink })}
+        />
+      ) : (
+        <Txt style={type.searchPh}>{placeholder}</Txt>
+      )}
     </View>
   );
 }
@@ -116,14 +141,14 @@ export function SearchBar({ placeholder }: { placeholder: string }) {
 export function Logo() {
   return (
     <View style={styles.logo}>
-      <Txt style={type.logo}>P</Txt>
+      <Txt style={type.logo}>T</Txt>
     </View>
   );
 }
 export function LogoXl() {
   return (
     <View style={styles.logoXl}>
-      <Txt style={type.logoXl}>P</Txt>
+      <Txt style={type.logoXl}>T</Txt>
     </View>
   );
 }

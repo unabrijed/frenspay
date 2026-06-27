@@ -5,11 +5,19 @@
 import dynamic from 'next/dynamic';
 import type { ReactNode } from 'react';
 
+import { LiveSync } from '@/hooks/useLiveSync';
 import { USE_PRIVY } from '@/services/env';
 
 const PrivyRoot = dynamic(() => import('@/services/privy/PrivyRoot'), { ssr: false });
 
 export function AppProviders({ children }: { children: ReactNode }) {
-  if (USE_PRIVY) return <PrivyRoot>{children}</PrivyRoot>;
-  return <>{children}</>;
+  // LiveSync keeps balance/activity fresh while signed in (so received money appears live).
+  const content = (
+    <>
+      <LiveSync />
+      {children}
+    </>
+  );
+  if (USE_PRIVY) return <PrivyRoot>{content}</PrivyRoot>;
+  return content;
 }

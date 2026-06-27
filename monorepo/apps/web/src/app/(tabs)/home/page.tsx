@@ -1,31 +1,32 @@
 'use client';
 
-// Home — INR-forward balance with an INR/USD toggle, Add/Send/Request tiles, recent activity.
+// Home — Tabroad dashboard (matches the Stitch reference): top app bar, "Active in India" global-balance
+// hero, four Google-Pay-style action buttons (Scan / Send / Request / Add), a wallets bento
+// (USD Wallet · INR · Add Currency), and recent activity as individual tactile cards.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties, ReactNode } from 'react';
-import { useState } from 'react';
 
 import { Icons } from '@/components/icons';
-import { TxRow } from '@/components/TxRow';
+import { TxCard } from '@/components/TxCard';
+import { Avatar } from '@/components/ui/primitives';
 import { Pressable, View } from '@/components/ui/rn';
-import { Avatar, Eyebrow, List, Logo, Spacer } from '@/components/ui/primitives';
 import { Screen } from '@/components/ui/Screen';
-import { Segmented } from '@/components/ui/Segmented';
 import { Txt } from '@/components/ui/Txt';
 import { inr, usd } from '@/lib/money';
-import { colors, fonts, GUTTER, radii, shadows, tile, type } from '@/lib/theme';
-import type { TileTone } from '@/lib/theme';
+import { colors, GUTTER, radii, shadows, type } from '@/lib/theme';
 import type { Txn } from '@/services/wallet';
 import { usePayStore } from '@/store/usePayStore';
+
+const fmtUsd = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function Home() {
   const router = useRouter();
   const bal = usePayStore((s) => s.balanceUSD);
   const txns = usePayStore((s) => s.transactions);
+  const handle = usePayStore((s) => s.handle);
   const open = usePayStore((s) => s.open);
   const openDetail = usePayStore((s) => s.openDetail);
-  const [lead, setLead] = useState<'INR' | 'USD'>('INR');
-  const leadINR = lead === 'INR';
+  const initial = (handle.replace(/^@/, '')[0] ?? 'U').toUpperCase();
 
   const openTx = (tx: Txn) => {
     openDetail(tx);
@@ -34,125 +35,173 @@ export default function Home() {
 
   return (
     <Screen edges={['top']} style={styles.safe}>
-      <View style={styles.scroll}>
-        <View style={styles.top}>
-          <View style={styles.brand}>
-            <Logo />
-            <Txt style={type.brandWord}>Pay</Txt>
-          </View>
-          <Avatar label="B" onPress={() => router.push('/settings')} />
+      <View style={[styles.scroll, { overflowY: 'auto' }]}>
+        {/* top app bar */}
+        <View style={styles.bar}>
+          <Avatar label={initial} onPress={() => router.push('/settings')} />
+          <Txt style={type.brandWord}>Tabroad</Txt>
+          <Pressable onPress={() => router.push('/activity')} style={({ pressed }) => [styles.barBtn, pressed ? { opacity: 0.6 } : null]}>
+            <Icons.Bell size={26} color={colors.accent} />
+          </Pressable>
         </View>
 
-        {/* hero — solid violet card */}
+        {/* global-balance hero */}
         <View style={styles.hero}>
-          <View style={styles.toggle}>
-            <Eyebrow style={styles.heroEyebrow}>{leadINR ? 'Spendable in India' : 'Balance'}</Eyebrow>
-            <Segmented value={lead} options={['INR', 'USD']} onChange={(v) => setLead(v as 'INR' | 'USD')} onDark />
+          <View style={styles.locPill}>
+            <Icons.Pin size={16} color={colors.secondary} />
+            <Txt style={type.eyebrow}>Active in India</Txt>
           </View>
-          <Txt style={[type.heroBalance, styles.heroBal]}>{leadINR ? inr(bal) : usd(bal)}</Txt>
-          <Txt style={[type.sub, styles.heroSub]}>
-            {leadINR ? (
-              <>
-                <Txt style={styles.subBold}>{usd(bal)}</Txt> balance · 1 USD = 87.55 INR
-              </>
-            ) : (
-              <>~ {inr(bal)} · 1 USD = 87.55 INR</>
-            )}
-          </Txt>
-          <Txt style={[type.note, styles.heroNote]}>
-            Your dollars, spent in rupees at a rate locked the moment you pay.
-          </Txt>
+          <Txt style={[type.sub, { marginTop: 18 }]}>Global balance</Txt>
+          <View style={styles.heroAmt}>
+            <Txt style={[type.heroBalance, styles.dollar]}>$</Txt>
+            <Txt style={type.heroBalance}>{fmtUsd(bal)}</Txt>
+          </View>
         </View>
 
-        {/* action tiles — flat colour blocks */}
-        <View style={styles.tiles}>
-          <Tile tone="add" icon={<Icons.Plus size={18} color={tile.add.fg} />} label="Add" onPress={() => open('add')} />
-          <Tile tone="send" icon={<Icons.Send size={18} color={tile.send.fg} />} label="Send" onPress={() => open('send')} />
-          <Tile tone="request" icon={<Icons.Request size={18} color={tile.request.fg} />} label="Request" onPress={() => open('request')} />
+        {/* four Google-Pay-style actions */}
+        <View style={styles.actions}>
+          <ActionBtn label="Scan" onPress={() => open('scan')} icon={<Icons.QrBig size={24} color={colors.accent} />} />
+          <ActionBtn label="Send" onPress={() => open('send')} icon={<Icons.Send size={24} color={colors.accent} />} />
+          <ActionBtn label="Request" onPress={() => open('request')} icon={<Icons.Request size={24} color={colors.accent} />} />
+          <ActionBtn label="Add" onPress={() => open('add')} icon={<Icons.Plus size={24} color={colors.accent} />} />
         </View>
 
-        {/* recent */}
+        {/* wallets bento */}
+        <View style={styles.bento}>
+          <View style={styles.usdCard}>
+            <View style={styles.usdTop}>
+              <View style={styles.usdIcon}>
+                <Icons.Wallet size={22} color={colors.secondary} />
+              </View>
+              <Txt style={[type.tierTag, styles.primaryTag]}>PRIMARY</Txt>
+            </View>
+            <View>
+              <Txt style={type.sub}>USD Wallet</Txt>
+              <Txt style={[type.payeeWho, { fontSize: 24, marginTop: 2 }]}>{usd(bal)}</Txt>
+            </View>
+          </View>
+          <View style={styles.bentoRow}>
+            <View style={styles.smallCard}>
+              <View style={styles.rupeeCircle}>
+                <Txt style={styles.rupeeGlyph}>₹</Txt>
+              </View>
+              <View>
+                <Txt style={[type.eyebrow, { marginBottom: 2 }]}>INR</Txt>
+                <Txt style={[type.payeeWho, { fontSize: 18 }]}>{inr(bal)}</Txt>
+              </View>
+            </View>
+            <Pressable onPress={() => open('add')} style={({ pressed }) => [styles.addCard, pressed ? { backgroundColor: colors.surfaceHigh } : null]}>
+              <Icons.Plus size={26} color={colors.tertiary} />
+              <Txt style={[type.tierTag, { color: colors.tertiary, marginTop: 6 }]}>Add Currency</Txt>
+            </Pressable>
+          </View>
+        </View>
+
+        {/* recent activity */}
         <View style={styles.recent}>
           <View style={styles.rh}>
-            <Eyebrow>Recent</Eyebrow>
+            <Txt style={[type.screenTitle, { fontSize: 20 }]}>Recent activity</Txt>
             <Pressable onPress={() => router.push('/activity')}>
               <Txt style={type.seeAll}>See all</Txt>
             </Pressable>
           </View>
-          <List>
-            {txns.slice(0, 2).map((tx) => (
-              <TxRow key={tx.id} tx={tx} onPress={() => openTx(tx)} />
-            ))}
-          </List>
+          <View style={styles.txList}>
+            {txns.length === 0 ? (
+              <Txt style={[type.lead, { textAlign: 'center', paddingTop: 6 }]}>No activity yet.</Txt>
+            ) : (
+              txns.slice(0, 3).map((tx) => <TxCard key={tx.id} tx={tx} onPress={() => openTx(tx)} />)
+            )}
+          </View>
         </View>
-
-        <Spacer />
       </View>
     </Screen>
   );
 }
 
-function Tile({ tone, icon, label, onPress }: { tone: TileTone; icon: ReactNode; label: string; onPress: () => void }) {
-  const t = tile[tone];
+function ActionBtn({ label, icon, onPress }: { label: string; icon: ReactNode; onPress: () => void }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.tile, { backgroundColor: t.bg }, pressed && { transform: 'scale(0.97)' }]}
-    >
-      {icon}
-      <Txt style={[type.tileLabel, { color: t.fg }]}>{label}</Txt>
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.action, pressed ? { transform: 'scale(0.96)' } : null]}>
+      <View style={styles.actionIcon}>{icon}</View>
+      <Txt style={[type.tileLabel, { color: colors.ink }]}>{label}</Txt>
     </Pressable>
   );
 }
 
+const card: CSSProperties = {
+  backgroundColor: colors.surface,
+  borderRadius: radii.card,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: colors.outlineVariant,
+  boxShadow: shadows.card,
+};
+
 const styles = {
   safe: { flex: 1, backgroundColor: colors.canvas },
-  scroll: { flex: 1, paddingLeft: GUTTER, paddingRight: GUTTER, paddingTop: 4 },
-  top: {
+  scroll: { flex: 1, paddingLeft: GUTTER, paddingRight: GUTTER, paddingTop: 4, paddingBottom: 24 },
+  bar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, paddingBottom: 4, paddingLeft: 2, paddingRight: 2 },
+  barBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+
+  hero: { alignItems: 'center', marginTop: 10, paddingTop: 14, paddingBottom: 20 },
+  locPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingLeft: 4,
-    paddingRight: 4,
-    paddingTop: 8,
-    paddingBottom: 2,
-  },
-  brand: { flexDirection: 'row', alignItems: 'center', gap: 9 },
-  hero: {
-    marginTop: 14,
-    backgroundColor: colors.accent,
-    borderRadius: radii.rlc,
-    paddingLeft: 20,
-    paddingRight: 20,
-    paddingTop: 18,
-    paddingBottom: 20,
-    boxShadow: shadows.rlc,
-  },
-  heroEyebrow: { color: 'rgba(255,255,255,0.85)' },
-  heroBal: { color: colors.white, marginTop: 12 },
-  heroSub: { marginTop: 10, color: 'rgba(255,255,255,0.92)' },
-  heroNote: { marginTop: 12, maxWidth: 300, color: 'rgba(255,255,255,0.80)' },
-  toggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 24 },
-  subBold: { ...fonts.mono500, color: colors.white },
-  tiles: { flexDirection: 'row', gap: 11, marginTop: 18 },
-  tile: {
-    flex: 1,
-    borderRadius: radii.tile,
-    paddingTop: 15,
-    paddingBottom: 14,
-    paddingLeft: 14,
+    gap: 6,
+    backgroundColor: colors.surfaceHigh,
+    paddingLeft: 12,
     paddingRight: 14,
-    alignItems: 'flex-start',
-    gap: 14,
+    paddingTop: 6,
+    paddingBottom: 6,
+    borderRadius: 999,
+    boxShadow: shadows.segPill,
+  },
+  heroAmt: { flexDirection: 'row', alignItems: 'baseline', marginTop: 2 },
+  dollar: { fontSize: 28, color: colors.tertiary, marginRight: 2 },
+
+  actions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4, marginBottom: 4, paddingLeft: 4, paddingRight: 4 },
+  action: { alignItems: 'center', gap: 8 },
+  actionIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 999,
+    backgroundColor: colors.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
     boxShadow: shadows.card,
   },
-  recent: { marginTop: 24 },
-  rh: {
-    flexDirection: 'row',
+
+  bento: { marginTop: 22, gap: 12 },
+  usdCard: { ...card, padding: 18, gap: 16 },
+  usdTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
+  usdIcon: { width: 40, height: 40, borderRadius: 999, backgroundColor: colors.secondarySoft, alignItems: 'center', justifyContent: 'center' },
+  primaryTag: { backgroundColor: colors.secondarySoft, color: colors.secondary, paddingLeft: 8, paddingRight: 8, paddingTop: 3, paddingBottom: 3, borderRadius: 8 },
+  bentoRow: { flexDirection: 'row', gap: 12 },
+  smallCard: { ...card, flex: 1, height: 124, padding: 16, justifyContent: 'space-between' },
+  rupeeCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: colors.outline,
+    backgroundColor: colors.canvas,
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingLeft: 2,
-    paddingRight: 2,
-    paddingBottom: 10,
+    justifyContent: 'center',
   },
+  rupeeGlyph: { fontFamily: 'var(--font-sans)', fontWeight: 600, fontSize: 16, color: colors.ink },
+  addCard: {
+    flex: 1,
+    height: 124,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.outlineVariant,
+    backgroundColor: colors.surfaceContainer,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  recent: { marginTop: 26 },
+  rh: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 2, paddingRight: 2, paddingBottom: 12 },
+  txList: { gap: 10 },
 } satisfies Record<string, CSSProperties>;

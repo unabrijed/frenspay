@@ -32,7 +32,8 @@ export function TxRow({ tx, onPress }: { tx: Txn; onPress?: () => void }) {
         <Txt style={[type.rowName, clamp1]}>{tx.title}</Txt>
         <Txt style={[type.rowTime, { marginTop: 3 }]}>
           {tx.time}
-          {tx.status === 'pending' && ' · Pending'}
+          {tx.status === 'confirmed' && <Txt style={{ color: colors.secondary }}> · Settled</Txt>}
+          {tx.status === 'pending' && <Txt style={{ color: colors.accent }}> · Settling…</Txt>}
           {tx.status === 'failed' && <Txt style={{ color: colors.danger }}> · Failed</Txt>}
         </Txt>
       </RowMeta>
