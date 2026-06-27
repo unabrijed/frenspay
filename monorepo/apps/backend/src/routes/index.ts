@@ -28,6 +28,7 @@ import type {
 import { authPreHandler, requirePrivyDid, requireUserId } from '../auth';
 import { config } from '../config';
 import {
+  appendOrderEvent,
   attachTransferSignature,
   cancelOrder,
   cancelRequest,
@@ -45,6 +46,7 @@ import {
   recordDeposit,
   resolveHandleToFriend,
   setTransferStatusBySignature,
+  updateOrder,
   upsertUserByPrivyDid,
 } from '../db/queries';
 import {
@@ -380,4 +382,20 @@ export async function registerRoutes(app: FastifyInstance) {
       return { ok: true, resolution: 'refunded' };
     },
   );
+
+  // M3 failover demo (dev only): force the assigned LP to fail NOW so the next worker tick re-routes
+  // the order to the next-best LP — independent of which LP got picked.
+  app.post<{ Params: { id: string } }>('/sim/orders/:id/merchant-fail', async (req, reply) => {
+    if (!config.isDevelopment) return reply.code(403).send({ error: 'sim_disabled' });
+    const userId = requireUserId(req);
+    const order = await getOrderSimRow(req.params.id);
+    if (!order || order.userId !== userId) return reply.code(404).send({ error: 'order_not_found' });
+    if (order.state !== 'payment_detected') return reply.code(409).send({ error: 'order_not_failable' });
+    // Escalate immediately: under_review + a past deadline → next tick hits rerouteOrder.
+    await updateOrder(order.id, { resolution: 'under_review', expiresAt: new Date(Date.now() - 60_000) });
+    await appendOrderEvent(order.id, 'payment_detected', 'payment_detected', 'merchant_fail_forced', {
+      resolution: 'under_review',
+    });
+    return { ok: true, resolution: 'under_review' };
+  });
 }

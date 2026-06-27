@@ -180,7 +180,7 @@ export function Sent() {
             </View>
           </View>
           <Txt style={[type.result, { marginTop: 6 }]}>${lastSend.u} sent</Txt>
-          <Txt style={[type.lead, { marginTop: 4, textAlign: 'center' }]}>To {lastSend.handle} · settling on-chain…</Txt>
+          <Txt style={[type.lead, { marginTop: 4, textAlign: 'center' }]}>To {lastSend.handle} · sending…</Txt>
         </View>
         <View style={styles.detailCard}>
           <View style={styles.kvRow}>

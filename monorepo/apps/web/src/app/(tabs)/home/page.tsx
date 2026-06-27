@@ -76,7 +76,7 @@ export default function Home() {
               <Txt style={[type.tierTag, styles.primaryTag]}>PRIMARY</Txt>
             </View>
             <View>
-              <Txt style={type.sub}>USD Wallet</Txt>
+              <Txt style={type.sub}>US Dollars</Txt>
               <Txt style={[type.payeeWho, { fontSize: 24, marginTop: 2 }]}>{usd(bal)}</Txt>
             </View>
           </View>

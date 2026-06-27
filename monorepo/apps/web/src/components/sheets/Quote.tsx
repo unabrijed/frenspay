@@ -1,28 +1,19 @@
 'use client';
 
-// Quote.tsx — the architecture's "highest-leverage UI": one quote, two choices (Continue / Edit).
-// You pay / From balance · Rate · Fee · Network fee · Total time · Payout method · Route quality,
-// under a live 45s lock. Continue funds escrow (signs the server-built tx) and opens the timeline.
+// Quote.tsx — the "highest-leverage UI": one quote, two choices (Continue / Edit).
+// You pay / from balance · today's rate · fee · total time · payout method, under a live 45s lock.
+// Continue confirms the payment and opens the tracker.
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
-
-import type { RouteQuality } from '@pay/shared';
 
 import { Btn, TextLink } from '@/components/ui/Button';
 import { Grab, List, SheetBody, SheetHeader, Spacer } from '@/components/ui/primitives';
 import { View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
-import { inrRaw } from '@/lib/money';
+import { inrRaw, usd } from '@/lib/money';
 import { colors, type } from '@/lib/theme';
 import { usePayStore } from '@/store/usePayStore';
 
-const ROUTE_LABEL: Record<RouteQuality, string> = {
-  high: 'High confidence',
-  medium: 'Good',
-  low: 'Limited',
-};
-
-const fmtUsdc = (n: number): string => `${n.toFixed(2)} USDC`;
 const fmtEta = (minSecs: number, maxSecs: number): string =>
   maxSecs < 90 ? `${minSecs}–${maxSecs} sec` : `${Math.round(minSecs / 60)}–${Math.round(maxSecs / 60)} min`;
 
@@ -76,16 +67,14 @@ export function QuoteSheet() {
       <SheetBody>
         <View style={styles.headline}>
           <Txt style={[type.bigAmount, { color: colors.ink }]}>{inrRaw(quote.amountInr)}</Txt>
-          <Txt style={type.conv}>{fmtUsdc(quote.amountUsdc)} from your balance</Txt>
+          <Txt style={type.conv}>{usd(quote.amountUsdc)} from your balance</Txt>
         </View>
 
         <List>
-          <Line k="Rate" v={`1 USDC = ₹${quote.rate.toFixed(2)}`} />
-          <Line k="Fee" v={inrRaw(quote.feeInr)} />
-          <Line k="Network fee" v={inrRaw(quote.networkFeeInr)} />
+          <Line k="Today's rate" v={`$1 = ₹${quote.rate.toFixed(2)}`} />
+          <Line k="Fee" v={inrRaw(quote.feeInr + quote.networkFeeInr)} />
           <Line k="Total time" v={fmtEta(quote.etaMinSecs, quote.etaMaxSecs)} />
           <Line k="Payout method" v={quote.payoutMethod} />
-          <Line k="Route quality" v={ROUTE_LABEL[quote.routeQuality]} accent={quote.routeQuality === 'high'} />
         </List>
 
         <View style={styles.lock}>

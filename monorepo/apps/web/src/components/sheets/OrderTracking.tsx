@@ -20,11 +20,11 @@ import { usePayStore } from '@/store/usePayStore';
 
 const STEPS: { state: OrderState; label: string; sub: string }[] = [
   { state: 'quote_locked', label: 'Quote locked', sub: 'Rate & fee locked in' },
-  { state: 'pay_instructions', label: 'Pay instructions', sub: 'Confirm to fund escrow' },
-  { state: 'waiting_payment', label: 'Waiting for payment', sub: 'Sending your USDC to escrow' },
-  { state: 'payment_detected', label: 'Payment detected', sub: 'Funds secured in escrow' },
-  { state: 'merchant_confirms', label: 'Merchant confirms', sub: 'Payout being sent on your rail' },
-  { state: 'funds_released', label: 'Funds released', sub: 'Releasing escrow to the merchant' },
+  { state: 'pay_instructions', label: 'Confirm payment', sub: 'Tap confirm to pay' },
+  { state: 'waiting_payment', label: 'Processing payment', sub: 'Securing your money' },
+  { state: 'payment_detected', label: 'Payment secured', sub: 'Your money is held safely' },
+  { state: 'merchant_confirms', label: 'Paying the recipient', sub: 'Sending it across' },
+  { state: 'funds_released', label: 'Payment sent', sub: 'Almost done' },
   { state: 'completed', label: 'Completed', sub: 'All done' },
 ];
 
@@ -88,7 +88,7 @@ export function OrderTracking() {
 
   if (!order) return null;
   if (order.state === 'completed') {
-    return <Done title="Paid" headline={`${inrRaw(order.quote.amountInr)} paid`} inst="Settled from your dollars" onClose={close} />;
+    return <Done title="Paid" headline={`${inrRaw(order.quote.amountInr)} paid`} inst="Paid from your balance" onClose={close} />;
   }
   if (order.state === 'refunded') {
     return <Done title="Refunded" headline={`${inrRaw(order.quote.amountInr)} refunded`} inst="You’ve been made whole" onClose={close} />;
@@ -99,7 +99,7 @@ export function OrderTracking() {
   return (
     <>
       <Grab />
-      <SheetHeader eyebrow={`Ref ${order.referenceCode}`} title="Tracking your payment" onClose={close} />
+      <SheetHeader eyebrow={`Receipt ${order.referenceCode}`} title="Tracking your payment" onClose={close} />
       <SheetBody>
         {order.resolution ? (
           <View style={styles.banner}>

@@ -32,8 +32,8 @@ export function TxCard({ tx, onPress, showInr = false }: { tx: Txn; onPress?: ()
           <Txt style={[type.rowName, clamp1]}>{tx.title}</Txt>
           <Txt style={[type.rowTime, { marginTop: 2 }]}>
             {tx.time}
-            {tx.status === 'pending' && <Txt style={{ color: colors.accent }}> · Settling…</Txt>}
-            {tx.status === 'confirmed' && <Txt style={{ color: colors.secondary }}> · Settled</Txt>}
+            {tx.status === 'pending' && <Txt style={{ color: colors.accent }}> · Processing…</Txt>}
+            {tx.status === 'confirmed' && <Txt style={{ color: colors.secondary }}> · Completed</Txt>}
             {tx.status === 'failed' && <Txt style={{ color: colors.danger }}> · Failed</Txt>}
           </Txt>
         </View>

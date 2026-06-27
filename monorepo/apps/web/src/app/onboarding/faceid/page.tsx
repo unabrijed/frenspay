@@ -52,7 +52,7 @@ function EmailOtp({ onDone }: { onDone: () => void }) {
         </GlyphCircle>
         <Txt style={type.onbH1}>{sent ? 'Enter your code' : 'Set up your account'}</Txt>
         <Txt style={[type.lead, styles.sub, { fontSize: 15 }]}>
-          {sent ? `We sent a 6-digit code to ${usePayStore.getState().authEmail}.` : 'No passwords, no seed phrases — just your email.'}
+          {sent ? `We sent a 6-digit code to ${usePayStore.getState().authEmail}.` : 'No passwords. Just your email.'}
         </Txt>
         <Field style={{ marginTop: 4, alignSelf: 'stretch' }}>
           {sent ? (

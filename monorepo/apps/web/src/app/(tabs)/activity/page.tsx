@@ -116,7 +116,7 @@ export default function Activity() {
             <Txt style={type.sub}>{leadINR ? `≈ ${usd(bal)}` : `≈ ${inr(bal)}`}</Txt>
             <View style={styles.ratePill}>
               <Icons.LockCheck size={14} color={colors.accent} />
-              <Txt style={[type.tierTag, { color: colors.muted }]}>Real-rate</Txt>
+              <Txt style={[type.tierTag, { color: colors.muted }]}>Live rate</Txt>
             </View>
           </View>
           <Pressable onPress={() => open('add')} style={({ pressed }) => [styles.addFunds, pressed ? { opacity: 0.9 } : null]}>

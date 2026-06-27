@@ -66,7 +66,7 @@ export default function Fund() {
           style={sx(type.fieldText, { flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', padding: 0, color: colors.ink })}
         />
       </Field>
-      <Txt style={[type.lead, { fontSize: 13, marginTop: 10 }]}>Test dollars on devnet — added instantly.</Txt>
+      <Txt style={[type.lead, { fontSize: 13, marginTop: 10 }]}>Added to your balance instantly.</Txt>
       {err ? <Txt style={[type.lead, { fontSize: 13, color: colors.danger }]}>{err}</Txt> : null}
       <Spacer />
       <View style={styles.cta}>

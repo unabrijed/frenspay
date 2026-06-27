@@ -54,7 +54,7 @@ export function AddMoney() {
           />
         </Field>
         <Btn label={`Add $${amt}`} disabled={amt <= 0} onPress={() => doAdd(amt)} style={{ marginTop: 16 }} />
-        <Eyebrow style={{ marginTop: 22, marginBottom: 10 }}>Or deposit USDC</Eyebrow>
+        <Eyebrow style={{ marginTop: 22, marginBottom: 10 }}>Or add manually</Eyebrow>
         <List>
           <Row>
             <RowIcon accent>
