@@ -36,7 +36,7 @@ Every integration/flow doc follows the **same six-part shape**, so you always kn
 | # | Doc | Covers | Status |
 |---|---|---|---|
 | 01 | [Architecture](01-architecture.md) | the whole system, monorepo layout, request + on-chain lifecycle | ✅ |
-| 02 | [Auth & identity](02-auth-identity.md) | Privy email login, embedded wallet, `@handle`, KYC tiers | ✅ / 🟡 KYC |
+| 02 | [Auth & identity](02-auth-identity.md) | Privy email login, embedded wallet, `@handle`, enforced KYC tiers | ✅ / 🟡 vendor |
 | 03 | [Custody & gas](03-custody-and-gas.md) | self-custody + fee-payer gas sponsorship (the key legal lever) | ✅ |
 | 04 | [Money in](04-money-in.md) | funding the balance (faucet today → card/bank later) | 🟡 |
 | 05 | [P2P send & request](05-p2p-send-request.md) | send money to a friend, request money | ✅ |
@@ -47,7 +47,7 @@ Every integration/flow doc follows the **same six-part shape**, so you always kn
 | 10 | [Data model](10-data-model.md) | the Postgres schema, table by table | ✅ |
 | 11 | [Compliance & legalities](11-compliance-and-legalities.md) | the honest risk map: custody, KYC, MTL, FX, sanctions | 🟡 |
 | 12 | [Status & roadmap](12-status-and-roadmap.md) | the M0→M7 heat-map of done vs. gray vs. planned | — |
-| 13 | [Future milestones](13-future-milestones.md) | M5–M7: compliance, infra, real rails | ⬜ |
+| 13 | [Future milestones](13-future-milestones.md) | M6–M7: notifications/infra, real rails | ⬜ |
 
 ---
 

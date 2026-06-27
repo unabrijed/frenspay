@@ -84,7 +84,8 @@ it's still open.
   resolution, balance + history, payment requests (create/pay/cancel), confirmation via poller/webhook.
 - ✅ **Mobile parity exists for P2P** (this is the part the Expo app *does* have; it lacks only the
   cash-out order flow).
-- 🟡 Transfer limits / KYC gating cosmetic (→ M5).
+- ✅ **Transfer limits enforced (M5)** — tier-1 caps P2P at $100/tx + a rolling daily cap, with
+  sanctions screening on the recipient; over-limit returns a structured `limit_exceeded`.
 
 ## Key files
 

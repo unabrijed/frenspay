@@ -16,6 +16,7 @@ erDiagram
     users ||--o{ payment_requests : requests
     users ||--o{ quotes : gets
     users ||--o{ orders : places
+    users ||--o{ risk_events : "risk audit (M5)"
     merchants ||--o{ quotes : "priced by"
     merchants ||--o{ orders : assigned
     quotes ||--|| orders : "locks into"
@@ -30,7 +31,7 @@ erDiagram
         uuid id PK
         text privy_did UK
         text handle UK
-        text email
+        int kyc_tier
     }
     wallets {
         uuid id PK
@@ -96,13 +97,25 @@ erDiagram
         text status
         text resolution
     }
+    denylist {
+        uuid id PK
+        text kind
+        text value
+    }
+    risk_events {
+        uuid id PK
+        uuid user_id FK
+        text kind
+        text decision
+        int score
+    }
 ```
 
 ## Table by table
 
 | Table | Purpose | Notes |
 |---|---|---|
-| **users** | one row per person | keyed to Privy DID; unique `handle` |
+| **users** | one row per person | keyed to Privy DID; unique `handle`; `kyc_tier` drives M5 limits |
 | **wallets** | a user's chain address(es) | `chain='solana'`; unique `address` |
 | **transfers** | the money ledger | `kind ∈ send/add/pay/escrow_fund/escrow_release`; `status ∈ pending/confirmed/failed`; unique `signature` |
 | **payment_requests** | "you owe me $X" | `status ∈ open/paid/cancelled`; links the fulfilling `transfer_id` |
@@ -112,6 +125,8 @@ erDiagram
 | **order_events** | append-only timeline | powers the live tracker; `(from_state, to_state, event, detail)` |
 | **order_routing_attempts** *(M3)* | routing audit + tried-set + **M4 scoring substrate** | `(sequence, outcome, reason)`; `released`/`failed` outcomes feed `success_rate` |
 | **disputes** *(M4)* | user disputes on completed orders | `(status open/resolved, resolution upheld/rejected)`; upheld draws down the LP's bond + feeds `dispute_rate` |
+| **denylist** *(M5)* | simulated sanctions list | `(kind address/handle, value)`; screened on every money movement |
+| **risk_events** *(M5)* | per-action fraud/screening audit | `(kind, decision allow/review/block, score, reason)` |
 
 ## Why this way
 
@@ -139,9 +154,9 @@ erDiagram
 
 ## Status
 
-- ✅ Full schema through M4: Phase-1 + orders/quotes/merchants (M1), escrow transfers (M2),
-  `order_routing_attempts` (M3), `disputes` + merchant lifecycle/`bond_usdc`/`base_*` columns (M4);
-  idempotent constraint + column backfills; owner-scoped queries; hot-path indexes.
+- ✅ Full schema through M5: Phase-1 + orders/quotes/merchants (M1), escrow transfers (M2),
+  `order_routing_attempts` (M3), `disputes` + merchant lifecycle columns (M4), `users.kyc_tier` +
+  `denylist` + `risk_events` (M5); idempotent constraint + column backfills; owner-scoped queries.
 - ⬜ RLS, encryption-at-rest, retention policy (production hardening).
 
 ## Key files

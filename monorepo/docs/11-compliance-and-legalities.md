@@ -50,10 +50,11 @@ classification during the build. **Caveat:** the per-order escrow does put funds
 control briefly — see #3. *(The custody/MTL line is fact-specific and jurisdiction-specific; confirm
 with counsel before real funds move.)*
 
-### 2. KYC / customer identification — 🟡 *cosmetic → M5*
-The tiered model (caps scale with verification, "progressive/JIT KYC") is the right shape and the seam
-for a vendor (Persona/Onfido/Sumsub). **Today nothing is enforced** — no documents collected, no
-limits applied. Fine on devnet; **must close before real funds**. Lives at **M5**.
+### 2. KYC / customer identification — ✅ *enforced (M5); real vendor at M7*
+The tiered model is now **enforced**: `users.kyc_tier` gates money movement (tier 1 P2P ≤ $100/tx; tier
+2 unlocks merchant pay), checked server-side against rolling-24h volume, with a simulated verification
+upgrade. **Still simulated** for the vendor leg — no real document collection / KYC-AML provider
+(Persona/Onfido/Sumsub land at **M7**).
 
 ### 3. Escrow release authority — 🟡 *platform-held*
 The escrow is trust-minimized (funds can only go to the intended merchant or back to the user), but the
@@ -71,10 +72,11 @@ Converting fiat↔crypto and paying out to bank rails (UPI/Pix/bank) is the **re
 **licensed partners** (PSP/MSB/VASP) who carry the fiat-leg licenses, plus KYC + source-of-funds at
 entry. Deliberately last; the faucet/simulated payout move nothing of legal consequence until then.
 
-### 6. AML / sanctions / monitoring — ⬜ *deferred to M5*
-Transaction monitoring, velocity/geo checks, fraud scoring, and **sanctions/address screening** (OFAC
-etc.) are required once real value flows. The **data foundation exists** (the `transfers` ledger +
-`order_events` + routing trail), so these are additive analytics over existing data, not a re-architecture.
+### 6. AML / sanctions / monitoring — 🟡 *structure built (M5); real lists/geo at M7*
+Sanctions/address **screening** (against a seeded denylist), a per-tx **fraud score** (allow / review /
+block), and rolling-volume monitoring are **built and wired** (M5), writing a **`risk_events`** audit
+trail. **Simulated**: the denylist is seeded (not a live OFAC/sanctions feed) and geo checks are
+deferred (need IP). Real lists + a monitoring vendor land at **M7**.
 
 ### 7. Best-execution / fair routing — ✅ *evidenced*
 A routing marketplace should prove it isn't self-dealing. The `order_routing_attempts` log + explicit
@@ -98,8 +100,8 @@ yet; those flip at **M7**.
 | Custody / money transmission | non-custodial (lighter class) | ✅ by design | (revisit M7 w/ counsel) |
 | Gas sponsorship | product cost | ✅ | rate-limit M6 |
 | Escrow conditional settlement | trust-minimized | ✅ structure / 🟡 authority | hardening later |
-| KYC tiers | progressive model | 🟡 cosmetic | **M5** |
-| AML / sanctions / monitoring | data foundation only | ⬜ | **M5** |
+| KYC tiers | enforced per-tier caps (sim vendor) | ✅ M5 / 🟡 vendor | vendor **M7** |
+| AML / sanctions / monitoring | screening + fraud score built (sim) | 🟡 M5 | real lists **M7** |
 | FX & disclosure | itemized but fixed rate | 🟡 | **M7** |
 | On-ramp / payout (fiat) | simulated | ⬜ | **M7** |
 | Merchant KYB / bonds / disputes | structure built (M4 ✅), simulated network | 🟡 | real vendor **M7** |
@@ -108,10 +110,11 @@ yet; those flip at **M7**.
 ## Bottom line
 
 The app is intentionally on the **light side of regulation** today because it holds no customer funds
-and moves no real fiat. The **gray** items (KYC, FX, escrow authority, PII) are known and seamed; the
-**deferred** items (licensing, real rails, AML/sanctions) are sequenced into M5/M7 where a licensed
+and moves no real fiat. **KYC enforcement + sanctions screening are now built (M5, simulated vendor);**
+the remaining **gray** items (FX, escrow authority, PII) are known and seamed, and the **deferred**
+items (licensing, real rails, real KYC/AML + sanctions feeds) are sequenced into **M7** where a licensed
 partner carries the regulated leg. The thing to *not* do: flip on a real on-ramp or real payout before
-M5's KYC/AML and counsel sign-off.
+the real KYC/AML vendor + sanctions lists + counsel sign-off.
 
 ## Related
 

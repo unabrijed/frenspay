@@ -57,12 +57,11 @@ Privy. `requireUserId(req)` throws 401 if unmapped.
 
 ## Legalities
 
-- **KYC/AML (Customer Identification).** Real money movement eventually requires identifying customers
-  and screening them. The **tiered** model is the right shape (caps scale with verification), and it's
-  the seam where a KYC vendor (Persona/Onfido/Sumsub) plugs in at **M5**. **Today it's cosmetic** —
-  the UI shows "Verify to pay merchants" and tier copy, but **no limits are actually enforced and no
-  documents are collected.** That's fine on devnet with no real funds, but it is a **gray** that must
-  close before real rails (M7).
+- **KYC/AML (Customer Identification).** The **tiered** model (caps scale with verification) is now
+  **enforced** (M5): `users.kyc_tier` (0–3) gates money movement — tier 1 caps P2P at $100/tx, tier 2
+  unlocks merchant pay — checked server-side against rolling-24h ledger volume, with a simulated
+  verification upgrade (`/kyc/verify`) and sanctions screening. **Still simulated** for the *vendor*
+  leg: no real document collection / KYC-AML provider — that seam (Persona/Onfido/Sumsub) lands at **M7**.
 - **Custody of credentials.** By delegating auth + key management to Privy, we avoid storing passwords
   or private keys ourselves — smaller breach surface and smaller compliance burden. See
   [03-custody-and-gas](03-custody-and-gas.md).
@@ -73,8 +72,10 @@ Privy. `requireUserId(req)` throws 401 if unmapped.
 
 - ✅ Privy email-OTP login + embedded wallet creation, `@handle` selection, `/auth/sync`, bearer-token
   verification, dev `x-dev-user-id` fallback.
-- 🟡 **KYC tiers are cosmetic** — UI shell only; no enforcement, no document capture, no screening.
-  (Closes at **M5**.)
+- ✅ **KYC tiers enforced (M5)** — `kyc_tier` per-tier caps enforced at the money-movement endpoints
+  (structured `limit_exceeded`), a simulated verification upgrade, `/me` returns the tier, sanctions
+  screening + a fraud score, and the Verify UI reflects the real tier.
+- 🟡 **Vendor leg still simulated** — no real document capture / KYC-AML provider (M7).
 
 ## Key files
 

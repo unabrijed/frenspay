@@ -1,35 +1,16 @@
-# 13 · Future Milestones (M5 → M7)
+# 13 · Future Milestones (M6 → M7)
 
 The unbuilt half of the roadmap, documented to the same standard so the full vision is on paper. Each
 is **⬜ planned**. These flip the remaining **simulated** components ([11](11-compliance-and-legalities.md))
-into **real** ones, in dependency order: make the (now-built) marketplace compliant (M5), harden the
-infra (M6), then connect real money (M7). *(M4 — the merchant/liquidity layer — is **✅ built**; see
-[08](08-routing-and-failover.md).)*
+into **real** ones, in dependency order: harden the infra (M6), then connect real money (M7). *(M5 —
+compliance/KYC enforcement + screening — is **✅ built** (simulated vendor), as is the M4 merchant
+layer; see [12](12-status-and-roadmap.md).)*
 
 ```mermaid
 flowchart LR
-    M4["M4 ✅<br/>merchant/liquidity layer"] --> M5["M5<br/>compliance & risk"]
-    M5 --> M6["M6<br/>notifications + infra"]
+    M5["M5 ✅<br/>compliance & risk"] --> M6["M6<br/>notifications + infra"]
     M6 --> M7["M7<br/>real rails (mainnet)"]
 ```
-
----
-
-## M5 · Compliance & Risk
-
-**What it will be.** Make the cosmetic KYC real and add risk controls: enforce **progressive KYC tiers
-0–3** (actual caps/limits), integrate a **KYC/AML vendor**, **address/sanctions screening** (OFAC etc.),
-**transaction monitoring**, **velocity/geo checks**, and **fraud scoring**.
-
-**Why.** The moment real value flows (M7), identifying and screening customers is non-negotiable.
-Building it at M5 means the gates exist *before* the on-ramp turns on.
-
-**Legalities.** This **is** the compliance milestone — it closes the biggest grays from
-[11](11-compliance-and-legalities.md): KYC enforcement, AML monitoring, sanctions screening. Pairs
-directly with that doc.
-
-**Status.** ⬜ Planned. The tiered UI shell ([02](02-auth-identity.md)) and the `transfers`/`orders`
-ledger ([10](10-data-model.md)) are the seams; M5 adds enforcement + a vendor + screening over them.
 
 ---
 
