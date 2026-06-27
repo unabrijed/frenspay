@@ -12,6 +12,7 @@ import type {
   FaucetResponse,
   FundSubmitRequest,
   MeResponse,
+  NotificationsResponse,
   OrderResponse,
   OrdersResponse,
   PayoutMethod,
@@ -54,11 +55,17 @@ import {
   recordDeposit,
   resolveDispute,
   resolveHandleToFriend,
+  getRequestNotifyInfo,
+  listNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
   setMerchantKyb,
   setTransferStatusBySignature,
   setUserKycTier,
+  unreadNotificationCount,
   updateOrder,
   upsertUserByPrivyDid,
+  withUserLock,
 } from '../db/queries';
 import {
   checkCashOutLimit,
@@ -67,6 +74,9 @@ import {
   screenAddress,
   screenHandle,
 } from '../services/compliance';
+import { metrics } from '../services/metrics';
+import { notifyKycUpgraded, notifyRequestPaid } from '../services/notify';
+import { rateLimitHook } from '../services/rateLimit';
 import { DISPUTE_PENALTY_USDC, recomputeMerchantStats } from '../services/merchantStats';
 import {
   confirmOrderFromQuote,
@@ -79,8 +89,17 @@ import { createQuote } from '../services/quoteEngine';
 import { buildUsdcTransfer, getUsdcBalance, mintUsdcTo } from '../services/solana';
 
 export async function registerRoutes(app: FastifyInstance) {
+  // M6: rate-limit the sensitive routes (money movement + faucet + auth) before anything else runs.
+  app.addHook('onRequest', rateLimitHook());
+
   // Identity: Privy bearer token in prod; x-dev-user-id shim when Privy is unconfigured.
   app.addHook('preHandler', authPreHandler);
+
+  // M6: in-memory metrics (Prometheus text). Open by design — counters only, no PII.
+  app.get('/metrics', async (_req, reply) => {
+    reply.header('content-type', 'text/plain; version=0.0.4');
+    return metrics.prometheus();
+  });
 
   // --- auth / identity ---
   app.post<{ Body: AuthSyncRequest }>('/auth/sync', async (req, reply) => {
@@ -165,6 +184,10 @@ export async function registerRoutes(app: FastifyInstance) {
       if (!transferId) return reply.code(400).send({ error: 'missing_fields' });
       const ok = await markRequestPaid(req.params.id, userId, transferId);
       if (!ok) return reply.code(404).send({ error: 'request_not_found' });
+      // M6: notify the requester that their request was paid.
+      const info = await getRequestNotifyInfo(req.params.id);
+      const payer = await findUserById(userId);
+      if (info) await notifyRequestPaid(info.fromUserId, info.amountUsd, payer?.handle ?? 'Someone');
       return { ok: true };
     },
   );
@@ -189,50 +212,55 @@ export async function registerRoutes(app: FastifyInstance) {
     const toWallet = to ? await getWalletForUser(to.id) : null;
     if (!toWallet?.address) return reply.code(404).send({ error: 'recipient_not_found' });
 
-    // M5: enforce the sender's KYC-tier send limits (per-tx + rolling daily).
-    const limit = await checkSendLimit(userId, amountUsd);
-    if (!limit.ok) {
+    // M5 limits + screening, M6 serialized under a per-user advisory lock so the rolling daily-cap
+    // check + the transfer insert can't be raced by two concurrent requests (closes the audit TOCTOU).
+    const outcome = await withUserLock(userId, async () => {
+      const limit = await checkSendLimit(userId, amountUsd);
+      if (!limit.ok) return { kind: 'limit' as const, limit };
+      // sanctions screening + fraud score (simulated) on BOTH parties (sender + recipient).
+      const denylisted =
+        (toHandle ? await screenHandle(toHandle) : false) ||
+        (await screenAddress(toWallet.address)) ||
+        (await screenAddress(fromWallet.address));
+      const risk = await scoreAndRecord({ userId, kind: 'send', amountUsd, denylisted });
+      if (risk.decision === 'block') return { kind: 'blocked' as const, reason: risk.reason };
+
+      let built;
+      try {
+        built = await buildUsdcTransfer({ fromOwner: fromWallet.address, toOwner: toWallet.address, amountUsd });
+      } catch (e) {
+        // RPC down / misconfigured mint / blockhash fetch failed — surface as a clean 503.
+        req.log.error({ err: e }, 'buildUsdcTransfer failed');
+        return { kind: 'solana_unavailable' as const };
+      }
+      // Record the intent now so /transfer/submit only needs the transferId + signed tx.
+      const { id: transferId } = await createPendingTransfer({
+        fromUserId: userId,
+        toUserId: to?.id ?? null,
+        fromAddress: fromWallet.address,
+        toAddress: toWallet.address,
+        amountUsd,
+        kind: 'send',
+        note,
+      });
+      return { kind: 'ok' as const, unsignedTx: built.unsignedTx, feePayer: built.feePayer, transferId };
+    });
+
+    if (outcome.kind === 'limit') {
+      metrics.inc('limit_blocks');
+      const l = outcome.limit;
       return reply.code(403).send({
         error: 'limit_exceeded',
-        kind: limit.kind,
-        currentTier: limit.currentTier,
-        requiredTier: limit.requiredTier,
-        limitUsd: limit.limitUsd,
-        reason: limit.reason,
+        kind: l.kind,
+        currentTier: l.currentTier,
+        requiredTier: l.requiredTier,
+        limitUsd: l.limitUsd,
+        reason: l.reason,
       });
     }
-    // M5: sanctions screening + fraud score (simulated) on BOTH parties (sender + recipient).
-    const denylisted =
-      (toHandle ? await screenHandle(toHandle) : false) ||
-      (await screenAddress(toWallet.address)) ||
-      (await screenAddress(fromWallet.address));
-    const risk = await scoreAndRecord({ userId, kind: 'send', amountUsd, denylisted });
-    if (risk.decision === 'block') return reply.code(403).send({ error: 'blocked', reason: risk.reason });
-
-    let built;
-    try {
-      built = await buildUsdcTransfer({
-        fromOwner: fromWallet.address,
-        toOwner: toWallet.address,
-        amountUsd,
-      });
-    } catch (e) {
-      // RPC down / misconfigured mint / blockhash fetch failed — surface as a clean 503.
-      req.log.error({ err: e }, 'buildUsdcTransfer failed');
-      return reply.code(503).send({ error: 'solana_unavailable' });
-    }
-    const { unsignedTx, feePayer } = built;
-    // Record the intent now so /transfer/submit only needs the transferId + signed tx.
-    const { id: transferId } = await createPendingTransfer({
-      fromUserId: userId,
-      toUserId: to?.id ?? null,
-      fromAddress: fromWallet.address,
-      toAddress: toWallet.address,
-      amountUsd,
-      kind: 'send',
-      note,
-    });
-    return { unsignedTx, feePayer, transferId } satisfies PrepareTransferResponse;
+    if (outcome.kind === 'blocked') return reply.code(403).send({ error: 'blocked', reason: outcome.reason });
+    if (outcome.kind === 'solana_unavailable') return reply.code(503).send({ error: 'solana_unavailable' });
+    return { unsignedTx: outcome.unsignedTx, feePayer: outcome.feePayer, transferId: outcome.transferId } satisfies PrepareTransferResponse;
   });
 
   app.post<{ Body: SubmitTransferRequest }>('/transfer/submit', async (req, reply) => {
@@ -332,9 +360,12 @@ export async function registerRoutes(app: FastifyInstance) {
     const userId = requireUserId(req);
     const { quoteId } = req.body ?? ({} as CreateOrderRequest);
     if (!quoteId) return reply.code(400).send({ error: 'missing_fields' });
-    const result = await confirmOrderFromQuote(userId, quoteId);
+    // M6: serialize per user so concurrent confirms can't race the cash-out daily cap (the in-flight
+    // volume read + order insert happen under the lock).
+    const result = await withUserLock(userId, () => confirmOrderFromQuote(userId, quoteId));
     if ('error' in result) {
       if (result.error === 'limit_exceeded') {
+        metrics.inc('limit_blocks');
         const l = result.limit;
         return reply.code(403).send({
           error: 'limit_exceeded',
@@ -349,6 +380,7 @@ export async function registerRoutes(app: FastifyInstance) {
         result.error === 'quote_expired' ? 409 : result.error === 'solana_unavailable' ? 503 : 404;
       return reply.code(code).send({ error: result.error });
     }
+    metrics.inc('orders_created');
     return {
       order: result.order,
       unsignedTx: result.unsignedTx,
@@ -542,6 +574,7 @@ export async function registerRoutes(app: FastifyInstance) {
     const userId = requireUserId(req);
     const next = Math.max(await getUserKycTier(userId), 2);
     await setUserKycTier(userId, next);
+    await notifyKycUpgraded(userId, next); // M6
     return reply.send({ ok: true, kycTier: next });
   });
 
@@ -553,5 +586,25 @@ export async function registerRoutes(app: FastifyInstance) {
     if (!Number.isInteger(tier) || tier < 0 || tier > 3) return reply.code(400).send({ error: 'invalid_tier' });
     await setUserKycTier(userId, tier);
     return { ok: true, kycTier: tier };
+  });
+
+  // ---- M6: notifications inbox ----
+  app.get('/notifications', async (req) => {
+    const userId = requireUserId(req);
+    const [notifications, unread] = await Promise.all([listNotifications(userId), unreadNotificationCount(userId)]);
+    return { notifications, unread } satisfies NotificationsResponse;
+  });
+
+  app.post<{ Params: { id: string } }>('/notifications/:id/read', async (req, reply) => {
+    const userId = requireUserId(req);
+    const ok = await markNotificationRead(req.params.id, userId);
+    if (!ok) return reply.code(404).send({ error: 'notification_not_found' });
+    return { ok: true };
+  });
+
+  app.post('/notifications/read-all', async (req) => {
+    const userId = requireUserId(req);
+    await markAllNotificationsRead(userId);
+    return { ok: true };
   });
 }

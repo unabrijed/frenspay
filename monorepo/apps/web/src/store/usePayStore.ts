@@ -4,7 +4,7 @@
 //
 // Money flows delegate to the RealWalletProvider (@/services/wallet) → the backend API + on-device
 // signing. The app is always real; balance/activity load from the backend once signed in.
-import type { ApiPaymentRequest, Order, Quote } from '@pay/shared';
+import type { ApiPaymentRequest, Notification, Order, Quote } from '@pay/shared';
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -35,7 +35,8 @@ export type SheetId =
   | 'receive'
   | 'currency'
   | 'quote'
-  | 'tracking';
+  | 'tracking'
+  | 'notifications';
 
 const SHEET_EXIT_MS = 280;
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -60,6 +61,8 @@ interface PayState {
   recoveryPrompted: boolean;
   balanceUSD: number;
   transactions: Txn[];
+  notifications: Notification[];
+  unread: number;
   displayCurrency: DisplayCurrency;
   handle: string;
 
@@ -108,6 +111,7 @@ interface PayState {
   // ---- backend sync (real mode only) ----
   load: () => Promise<void>;
   refresh: () => Promise<void>;
+  readNotifications: () => Promise<void>;
 
   // ---- payment requests ----
   requestMoney: (handle: string, amountUsd: number, note?: string) => Promise<void>;
@@ -160,6 +164,8 @@ export const usePayStore = create<PayState>()(
       recoveryPrompted: false,
       balanceUSD: 0,
       transactions: [],
+      notifications: [],
+      unread: 0,
       displayCurrency: 'INR',
       handle: '',
 
@@ -217,11 +223,12 @@ export const usePayStore = create<PayState>()(
         if (USE_PRIVY && get().authStatus !== 'signedIn') return; // wait for the Privy bridge to sign in
         set({ busy: true, error: null });
         try {
-          const [me, bal, txns, reqs] = await Promise.all([
+          const [me, bal, txns, reqs, notifs] = await Promise.all([
             api.me(),
             wallet.getBalanceUsd(),
             wallet.getTransactions(),
             wallet.getRequests(),
+            api.getNotifications(),
           ]);
           set({
             walletAddress: me.walletAddress,
@@ -230,6 +237,8 @@ export const usePayStore = create<PayState>()(
             balanceUSD: bal,
             transactions: txns,
             requests: reqs,
+            notifications: notifs.notifications,
+            unread: notifs.unread,
             busy: false,
           });
         } catch (e) {
@@ -238,14 +247,25 @@ export const usePayStore = create<PayState>()(
       },
       refresh: async () => {
         try {
-          const [bal, txns, reqs] = await Promise.all([
+          const [bal, txns, reqs, notifs] = await Promise.all([
             wallet.getBalanceUsd(),
             wallet.getTransactions(),
             wallet.getRequests(),
+            api.getNotifications(),
           ]);
-          set({ balanceUSD: bal, transactions: txns, requests: reqs });
+          set({ balanceUSD: bal, transactions: txns, requests: reqs, notifications: notifs.notifications, unread: notifs.unread });
         } catch (e) {
           set({ error: e instanceof Error ? e.message : String(e) });
+        }
+      },
+      // M6: mark the inbox read (optimistic; the next refresh reconciles).
+      readNotifications: async () => {
+        if (get().unread === 0) return;
+        set((s) => ({ unread: 0, notifications: s.notifications.map((n) => ({ ...n, read: true })) }));
+        try {
+          await api.readAllNotifications();
+        } catch {
+          /* best-effort */
         }
       },
 

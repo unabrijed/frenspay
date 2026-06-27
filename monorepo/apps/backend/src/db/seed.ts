@@ -49,6 +49,7 @@ async function main() {
   //   BoltRoute  — fastest (lowest completion time)
   //   SteadyRails— 'slow' behavior (recovers after a delay)
   //   FlakeLP    — 'no_receipt' behavior → escalates → triggers auto-failover when it's the LP
+  await pool.query('delete from notifications');
   await pool.query('delete from risk_events');
   await pool.query('delete from denylist');
   await pool.query('delete from disputes');

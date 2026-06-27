@@ -6,12 +6,24 @@ import { hasDatabase } from './db/pool';
 import { registerRoutes } from './routes/index';
 import { startConfirmer } from './services/confirmer';
 import { registerHeliusWebhook } from './services/helius';
+import { metrics } from './services/metrics';
 
 async function start() {
   const app = Fastify({ logger: true });
 
   const corsOrigin = config.corsOrigin ? config.corsOrigin.split(',').map((s) => s.trim()) : true;
   await app.register(cors, { origin: corsOrigin });
+
+  // M6 observability: count requests by outcome + log route/status/latency (pino, already structured).
+  app.addHook('onResponse', async (req, reply) => {
+    metrics.inc('http_requests');
+    metrics.inc(reply.statusCode < 400 ? 'http_ok' : 'http_err');
+    req.log.info({ method: req.method, url: req.url, status: reply.statusCode, ms: Math.round(reply.elapsedTime) }, 'req');
+  });
+  app.addHook('onError', async (_req, _reply, err) => {
+    metrics.inc('errors');
+    app.log.error({ err }, 'request error');
+  });
 
   app.get('/health', async () => ({ status: 'ok', database: hasDatabase() ? 'configured' : 'none' }));
 

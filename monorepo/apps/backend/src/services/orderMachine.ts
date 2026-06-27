@@ -16,6 +16,7 @@ import {
   getOrderByEscrowReleaseTransfer,
   getOrderForUser,
   getOrderState,
+  getOrderUserAmount,
   getQuoteRowForUser,
   getWalletForUser,
   insertOrder,
@@ -29,6 +30,8 @@ import {
 
 import { checkCashOutLimit, scoreAndRecord, type LimitCheck } from './compliance';
 import { buildDepositTx, escrowAddress, refundEscrow, releaseEscrow } from './escrowProgram';
+import { metrics } from './metrics';
+import { notifyPaymentSent, notifyRefunded } from './notify';
 import { rankMerchants } from './routing';
 
 /** Time a stuck order sits in a state before the worker begins escalating it. Demo-tuned. */
@@ -123,6 +126,9 @@ export async function onTransferConfirmed(transferId: string): Promise<void> {
   if (released && released.state === 'funds_released') {
     await updateOrder(released.id, { state: 'completed', expiresAt: null });
     await appendOrderEvent(released.id, 'funds_released', 'completed', 'completed');
+    metrics.inc('orders_completed'); // M6
+    const info = await getOrderUserAmount(released.id);
+    if (info) await notifyPaymentSent(info.userId, info.amountUsdc); // M6
   }
 }
 
@@ -204,6 +210,8 @@ export async function refundToUser(input: {
   });
   await appendOrderEvent(input.orderId, 'payment_detected', 'refunded', 'refunded');
   await markLatestAttemptOutcome(input.orderId, 'failed'); // M3: the final LP didn't deliver
+  metrics.inc('orders_refunded'); // M6
+  await notifyRefunded(input.userId, input.amountUsdc); // M6
   return true;
 }
 

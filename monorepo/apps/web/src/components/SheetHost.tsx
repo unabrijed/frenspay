@@ -10,6 +10,7 @@ import { AddMoney } from '@/components/sheets/AddMoney';
 import { Currency } from '@/components/sheets/Currency';
 import { Request, RequestPick, RequestSent, Send, SendAmount, Sent } from '@/components/sheets/friends';
 import { Recovery, Verify } from '@/components/sheets/identity';
+import { Notifications } from '@/components/sheets/notifications';
 import { OrderTracking } from '@/components/sheets/OrderTracking';
 import { Amount, Declined, Review, Scan, Success } from '@/components/sheets/pay';
 import { QuoteSheet } from '@/components/sheets/Quote';
@@ -33,6 +34,7 @@ const TALL = new Set<SheetId>([
   'recovery',
   'quote',
   'tracking',
+  'notifications',
 ]);
 
 function renderSheet(id: SheetId) {
@@ -73,6 +75,8 @@ function renderSheet(id: SheetId) {
       return <QuoteSheet />;
     case 'tracking':
       return <OrderTracking />;
+    case 'notifications':
+      return <Notifications />;
     default:
       return null;
   }

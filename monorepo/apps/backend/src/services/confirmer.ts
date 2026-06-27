@@ -3,10 +3,12 @@
 // Helius webhook (POST /webhooks/helius) for push confirmation; this poller is the fallback.
 import { config } from '../config';
 import { hasDatabase } from '../db/pool';
-import { expireStaleUnsignedTransfers, getPendingSignatures, setTransferStatus } from '../db/queries';
+import { expireStaleUnsignedTransfers, getPendingSignatures, getSendNotifyInfo, setTransferStatus } from '../db/queries';
 
 import { recomputeMerchantStats } from './merchantStats';
+import { notifyReceived } from './notify';
 import { onTransferConfirmed } from './orderMachine';
+import { sweepRateLimitWindows } from './rateLimit';
 import { runOrderWorkerOnce } from './simMerchant';
 import { getTransferStatus } from './solana';
 
@@ -23,9 +25,16 @@ export async function confirmPendingOnce(log?: (m: string) => void): Promise<voi
       await setTransferStatus(t.id, status);
       log?.(`transfer ${t.id} → ${status}`);
       // Advance any order linked to this escrow transfer (fund → payment_detected, release → completed).
-      if (status === 'confirmed') await onTransferConfirmed(t.id);
+      if (status === 'confirmed') {
+        await onTransferConfirmed(t.id);
+        // M6: notify the recipient of a confirmed P2P send ("Neha sent you $5").
+        const recv = await getSendNotifyInfo(t.id);
+        if (recv) await notifyReceived(recv.toUserId, recv.amountUsd, recv.fromHandle);
+      }
     }
   }
+  sweepRateLimitWindows(); // M6: drop expired rate-limit windows so the Map can't grow unbounded
+
   // Retire transfers prepared but never signed (user abandoned before broadcast).
   const expired = await expireStaleUnsignedTransfers();
   if (expired > 0) log?.(`expired ${expired} stale unsigned transfer(s)`);

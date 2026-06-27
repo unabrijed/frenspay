@@ -26,6 +26,7 @@ export default function Home() {
   const handle = usePayStore((s) => s.handle);
   const open = usePayStore((s) => s.open);
   const openDetail = usePayStore((s) => s.openDetail);
+  const unread = usePayStore((s) => s.unread);
   const initial = (handle.replace(/^@/, '')[0] ?? 'U').toUpperCase();
 
   const openTx = (tx: Txn) => {
@@ -40,8 +41,9 @@ export default function Home() {
         <View style={styles.bar}>
           <Avatar label={initial} onPress={() => router.push('/settings')} />
           <Txt style={type.brandWord}>Tabroad</Txt>
-          <Pressable onPress={() => router.push('/activity')} style={({ pressed }) => [styles.barBtn, pressed ? { opacity: 0.6 } : null]}>
+          <Pressable onPress={() => open('notifications')} style={({ pressed }) => [styles.barBtn, pressed ? { opacity: 0.6 } : null]}>
             <Icons.Bell size={26} color={colors.accent} />
+            {unread > 0 ? <View style={styles.badge} /> : null}
           </Pressable>
         </View>
 
@@ -140,7 +142,8 @@ const styles = {
   safe: { flex: 1, backgroundColor: colors.canvas },
   scroll: { flex: 1, paddingLeft: GUTTER, paddingRight: GUTTER, paddingTop: 4, paddingBottom: 24 },
   bar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8, paddingBottom: 4, paddingLeft: 2, paddingRight: 2 },
-  barBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  barBtn: { position: 'relative', width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  badge: { position: 'absolute', top: 6, right: 6, width: 9, height: 9, borderRadius: 9, backgroundColor: colors.coral, border: `1.5px solid ${colors.canvas}` },
 
   hero: { alignItems: 'center', marginTop: 10, paddingTop: 14, paddingBottom: 20 },
   locPill: {

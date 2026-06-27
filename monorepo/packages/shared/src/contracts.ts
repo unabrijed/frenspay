@@ -77,6 +77,22 @@ export interface LimitExceededError {
   reason: string;
 }
 
+/** M6: an in-app notification (everyday-app inbox). */
+export interface Notification {
+  id: string;
+  kind: string; // payment_sent | received | refunded | request_paid | kyc_upgraded
+  title: string;
+  body: string | null;
+  meta?: Record<string, unknown>;
+  read: boolean;
+  createdAt: string; // ISO 8601
+}
+
+export interface NotificationsResponse {
+  notifications: Notification[];
+  unread: number;
+}
+
 /** POST /auth/sync body — token in the Authorization header identifies the Privy user. */
 export interface AuthSyncRequest {
   handle: string;

@@ -10,6 +10,7 @@ import type {
   FaucetResponse,
   FundSubmitRequest,
   MeResponse,
+  NotificationsResponse,
   OrderResponse,
   OrdersResponse,
   PrepareTransferRequest,
@@ -112,4 +113,7 @@ export const api = {
   getOrder: (id: string) => req<OrderResponse>(`/orders/${id}`),
   listOrders: () => req<OrdersResponse>('/orders'),
   cancelOrder: (id: string) => req<{ ok: true }>(`/orders/${id}/cancel`, { method: 'POST' }),
+  // M6: notifications inbox
+  getNotifications: () => req<NotificationsResponse>('/notifications'),
+  readAllNotifications: () => req<{ ok: true }>('/notifications/read-all', { method: 'POST' }),
 };

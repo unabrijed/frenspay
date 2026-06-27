@@ -173,6 +173,18 @@ create table if not exists risk_events (
   created_at  timestamptz not null default now()
 );
 
+-- M6: in-app notifications (DB-backed; real push/webhooks deferred to M7).
+create table if not exists notifications (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references users(id) on delete cascade,
+  kind       text not null,                 -- payment_sent | received | refunded | request_paid | kyc_upgraded
+  title      text not null,
+  body       text,
+  meta       jsonb,
+  read       boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
 create index if not exists idx_transfers_from_user on transfers (from_user_id, created_at desc);
 create index if not exists idx_transfers_to_user   on transfers (to_user_id, created_at desc);
 create index if not exists idx_requests_to_user    on payment_requests (to_user_id, created_at desc);
@@ -185,6 +197,7 @@ create index if not exists idx_disputes_merchant   on disputes (merchant_id);
 -- One dispute per order (prevents bond over-draw + dispute_rate corruption from repeated disputes).
 create unique index if not exists uq_disputes_order on disputes (order_id);
 create index if not exists idx_risk_events_user    on risk_events (user_id, created_at desc);
+create index if not exists idx_notifications_user  on notifications (user_id, created_at desc);
 create index if not exists idx_quotes_user         on quotes (user_id, created_at desc);
 
 -- Backfill the CHECK constraints on databases created before they were added (the table

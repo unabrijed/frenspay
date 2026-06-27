@@ -4,6 +4,7 @@ import type {
   ApiPaymentRequest,
   ApiTxn,
   Friend,
+  Notification,
   Order,
   OrderDirection,
   OrderEvent,
@@ -1144,4 +1145,114 @@ export async function insertRiskEvent(input: {
     `insert into risk_events (user_id, kind, amount_usdc, decision, score, reason) values ($1,$2,$3,$4,$5,$6)`,
     [input.userId, input.kind, input.amountUsd ?? null, input.decision, input.score, input.reason ?? null],
   );
+}
+
+/* ---- M6: notifications + per-user advisory lock ---- */
+
+export async function insertNotification(input: {
+  userId: string;
+  kind: string;
+  title: string;
+  body?: string;
+  meta?: Record<string, unknown>;
+}): Promise<void> {
+  await getPool().query(
+    `insert into notifications (user_id, kind, title, body, meta) values ($1,$2,$3,$4,$5)`,
+    [input.userId, input.kind, input.title, input.body ?? null, input.meta ? JSON.stringify(input.meta) : null],
+  );
+}
+
+export async function listNotifications(userId: string, limit = 30): Promise<Notification[]> {
+  const { rows } = await getPool().query<{
+    id: string;
+    kind: string;
+    title: string;
+    body: string | null;
+    meta: Record<string, unknown> | null;
+    read: boolean;
+    created_at: Date;
+  }>(
+    `select id, kind, title, body, meta, read, created_at
+       from notifications where user_id = $1 order by created_at desc limit $2`,
+    [userId, limit],
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    title: r.title,
+    body: r.body,
+    meta: r.meta ?? undefined,
+    read: r.read,
+    createdAt: r.created_at.toISOString(),
+  }));
+}
+
+export async function unreadNotificationCount(userId: string): Promise<number> {
+  const { rows } = await getPool().query<{ n: string }>(
+    `select count(*) as n from notifications where user_id = $1 and read = false`,
+    [userId],
+  );
+  return Number(rows[0].n);
+}
+
+export async function markNotificationRead(id: string, userId: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update notifications set read = true where id = $1 and user_id = $2`,
+    [id, userId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+export async function markAllNotificationsRead(userId: string): Promise<void> {
+  await getPool().query(`update notifications set read = true where user_id = $1 and read = false`, [userId]);
+}
+
+/**
+ * Serialize a per-user critical section with a session advisory lock — so concurrent requests for the
+ * same user can't race a read-then-write (e.g. the M5 daily-cap check + insert). The lock is held on a
+ * dedicated pooled connection for the duration of `fn`; other callers for the same user block on it.
+ */
+export async function withUserLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  const client = await getPool().connect();
+  try {
+    await client.query('select pg_advisory_lock(hashtext($1))', [userId]);
+    return await fn();
+  } finally {
+    await client.query('select pg_advisory_unlock(hashtext($1))', [userId]).catch(() => {});
+    client.release();
+  }
+}
+
+/** Owner + amount for a completed order (notification on cash-out completion). */
+export async function getOrderUserAmount(orderId: string): Promise<{ userId: string; amountUsdc: number } | null> {
+  const { rows } = await getPool().query<{ user_id: string; amount_usdc: string }>(
+    `select user_id, amount_usdc from orders where id = $1`,
+    [orderId],
+  );
+  return rows[0] ? { userId: rows[0].user_id, amountUsdc: Number(rows[0].amount_usdc) } : null;
+}
+
+/** Recipient + amount + sender handle for a confirmed P2P send (notify the receiver). */
+export async function getSendNotifyInfo(
+  transferId: string,
+): Promise<{ toUserId: string; amountUsd: number; fromHandle: string } | null> {
+  const { rows } = await getPool().query<{ to_user_id: string | null; amount_usdc: string; from_handle: string | null }>(
+    `select t.to_user_id, t.amount_usdc, u.handle as from_handle
+       from transfers t left join users u on u.id = t.from_user_id
+      where t.id = $1 and t.kind = 'send'`,
+    [transferId],
+  );
+  const r = rows[0];
+  return r && r.to_user_id
+    ? { toUserId: r.to_user_id, amountUsd: Number(r.amount_usdc), fromHandle: r.from_handle ?? 'Someone' }
+    : null;
+}
+
+/** Requester + amount for a payment request (notify them it was paid). */
+export async function getRequestNotifyInfo(requestId: string): Promise<{ fromUserId: string; amountUsd: number } | null> {
+  const { rows } = await getPool().query<{ from_user_id: string; amount_usdc: string }>(
+    `select from_user_id, amount_usdc from payment_requests where id = $1`,
+    [requestId],
+  );
+  return rows[0] ? { fromUserId: rows[0].from_user_id, amountUsd: Number(rows[0].amount_usdc) } : null;
 }
