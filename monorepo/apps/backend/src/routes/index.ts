@@ -14,6 +14,7 @@ import type {
   MeResponse,
   OrderResponse,
   OrdersResponse,
+  PayoutMethod,
   PrepareTransferRequest,
   PrepareTransferResponse,
   QuoteRequest,
@@ -34,21 +35,29 @@ import {
   cancelRequest,
   createPendingTransfer,
   createRequest,
+  drawDownBond,
   findUserByHandle,
   findUserById,
+  getDisputeRow,
+  getOrderForDispute,
   getOrderForUser,
   getOrderSimRow,
   getWalletForUser,
+  insertDispute,
+  insertMerchantApplication,
   listOrdersForUser,
   listRequestsForUser,
   listTransactionsForUser,
   markRequestPaid,
   recordDeposit,
+  resolveDispute,
   resolveHandleToFriend,
+  setMerchantKyb,
   setTransferStatusBySignature,
   updateOrder,
   upsertUserByPrivyDid,
 } from '../db/queries';
+import { DISPUTE_PENALTY_USDC, recomputeMerchantStats } from '../services/merchantStats';
 import {
   confirmOrderFromQuote,
   flagResolution,
@@ -398,4 +407,59 @@ export async function registerRoutes(app: FastifyInstance) {
     });
     return { ok: true, resolution: 'under_review' };
   });
+
+  // --- M4: merchant lifecycle (onboarding KYB sim) + disputes ---
+
+  // Onboarding: a prospective LP applies (KYB pending → offline until approved). Public.
+  app.post<{ Body: { name?: string; payoutMethod?: PayoutMethod; treasuryAddress?: string } }>(
+    '/merchants/apply',
+    async (req, reply) => {
+      const { name, payoutMethod, treasuryAddress } = req.body ?? {};
+      if (!name || !treasuryAddress) return reply.code(400).send({ error: 'missing_fields' });
+      const id = await insertMerchantApplication({ name, payoutRail: payoutMethod ?? 'UPI', treasuryAddress });
+      return { id, kybStatus: 'pending' };
+    },
+  );
+
+  // A user disputes a completed order, opening a dispute against the merchant who filled it.
+  app.post<{ Params: { id: string }; Body: { reason?: string } }>('/orders/:id/dispute', async (req, reply) => {
+    const userId = requireUserId(req);
+    const order = await getOrderForDispute(req.params.id, userId);
+    if (!order) return reply.code(404).send({ error: 'order_not_found' });
+    if (order.state !== 'completed') return reply.code(409).send({ error: 'order_not_disputable' });
+    const id = await insertDispute({ orderId: req.params.id, merchantId: order.merchantId, reason: req.body?.reason });
+    return { id, status: 'open' };
+  });
+
+  // --- dev-only M4 controls (KYB decision, stats recompute, dispute resolution) ---
+  app.post<{ Params: { id: string }; Querystring: { decision?: string } }>(
+    '/sim/merchants/:id/kyb',
+    async (req, reply) => {
+      if (!config.isDevelopment) return reply.code(403).send({ error: 'sim_disabled' });
+      const decision = req.query.decision === 'reject' ? 'reject' : 'approve';
+      const ok = await setMerchantKyb(req.params.id, decision);
+      if (!ok) return reply.code(409).send({ error: 'not_pending' });
+      return { ok: true, kybStatus: decision === 'approve' ? 'approved' : 'rejected' };
+    },
+  );
+
+  app.post('/sim/merchants/recompute', async (req, reply) => {
+    if (!config.isDevelopment) return reply.code(403).send({ error: 'sim_disabled' });
+    await recomputeMerchantStats((m) => req.log.info(m));
+    return { ok: true };
+  });
+
+  app.post<{ Params: { id: string }; Querystring: { for?: string } }>(
+    '/sim/disputes/:id/resolve',
+    async (req, reply) => {
+      if (!config.isDevelopment) return reply.code(403).send({ error: 'sim_disabled' });
+      const dispute = await getDisputeRow(req.params.id);
+      if (!dispute) return reply.code(404).send({ error: 'dispute_not_found' });
+      if (dispute.status !== 'open') return reply.code(409).send({ error: 'dispute_resolved' });
+      const forUser = req.query.for !== 'merchant';
+      await resolveDispute(req.params.id, forUser ? 'upheld' : 'rejected');
+      if (forUser) await drawDownBond(dispute.merchantId, DISPUTE_PENALTY_USDC); // fine the LP's bond
+      return { ok: true, resolution: forUser ? 'upheld' : 'rejected' };
+    },
+  );
 }

@@ -55,13 +55,19 @@ create table if not exists merchants (
   id                  uuid primary key default gen_random_uuid(),
   name                text not null,
   payout_rail         text not null default 'UPI' constraint merchants_rail_chk check (payout_rail in ('UPI','Pix','bank')),
-  status              text not null default 'online' constraint merchants_status_chk check (status in ('online','offline')),
+  status              text not null default 'online' constraint merchants_status_chk check (status in ('online','offline','suspended')),
   treasury_address    text not null,                  -- devnet address the released USDC settles to
   success_rate        numeric(5, 4) not null default 0.99,
   avg_completion_secs integer not null default 120,
   spread_bps          integer not null default 50,    -- 50 = 0.50% taken off the mid rate
   float_usdc          numeric(20, 6) not null default 100000,
   dispute_rate        numeric(5, 4) not null default 0.005,  -- M3 ranking signal: fraction of orders disputed
+  -- M4: lifecycle + accountability. base_* are the seed priors the recompute smooths live signals toward.
+  kyb_status          text not null default 'approved' constraint merchants_kyb_chk check (kyb_status in ('pending','approved','rejected')),
+  bond_usdc           numeric(20, 6) not null default 5000,
+  base_success_rate        numeric(5, 4) not null default 0.99,
+  base_avg_completion_secs integer not null default 120,
+  base_dispute_rate        numeric(5, 4) not null default 0.005,
   sim_behavior        text not null default 'happy' constraint merchants_sim_chk check (sim_behavior in ('happy','slow','no_receipt','timeout')),
   created_at          timestamptz not null default now()
 );
@@ -131,6 +137,19 @@ create table if not exists order_routing_attempts (
   unique (order_id, sequence)
 );
 
+-- M4: dispute records. Resolved 'upheld' (for the user) draws down the merchant's bond and feeds the
+-- recomputed dispute_rate; 'rejected' clears the merchant. The user opens one on a completed order.
+create table if not exists disputes (
+  id          uuid primary key default gen_random_uuid(),
+  order_id    uuid not null references orders(id) on delete cascade,
+  merchant_id uuid not null references merchants(id),
+  reason      text,
+  status      text not null default 'open' constraint disputes_status_chk check (status in ('open','resolved')),
+  resolution  text constraint disputes_resolution_chk check (resolution in ('upheld','rejected')),
+  created_at  timestamptz not null default now(),
+  resolved_at timestamptz
+);
+
 create index if not exists idx_transfers_from_user on transfers (from_user_id, created_at desc);
 create index if not exists idx_transfers_to_user   on transfers (to_user_id, created_at desc);
 create index if not exists idx_requests_to_user    on payment_requests (to_user_id, created_at desc);
@@ -139,6 +158,8 @@ create index if not exists idx_orders_user         on orders (user_id, created_a
 create index if not exists idx_orders_state        on orders (state, expires_at);
 create index if not exists idx_order_events_order  on order_events (order_id, created_at);
 create index if not exists idx_routing_attempts    on order_routing_attempts (order_id, sequence);
+create index if not exists idx_disputes_merchant   on disputes (merchant_id);
+create index if not exists idx_disputes_order       on disputes (order_id);
 create index if not exists idx_quotes_user         on quotes (user_id, created_at desc);
 
 -- Backfill the CHECK constraints on databases created before they were added (the table
@@ -155,4 +176,15 @@ do $$ begin
   end if;
   -- M3: dispute_rate added to merchants after the table may already exist on older DBs.
   alter table merchants add column if not exists dispute_rate numeric(5, 4) not null default 0.005;
+  -- M4: lifecycle + accountability columns; widen status to allow 'suspended'.
+  alter table merchants add column if not exists kyb_status text not null default 'approved';
+  alter table merchants add column if not exists bond_usdc numeric(20, 6) not null default 5000;
+  alter table merchants add column if not exists base_success_rate numeric(5, 4) not null default 0.99;
+  alter table merchants add column if not exists base_avg_completion_secs integer not null default 120;
+  alter table merchants add column if not exists base_dispute_rate numeric(5, 4) not null default 0.005;
+  alter table merchants drop constraint if exists merchants_status_chk;
+  alter table merchants add constraint merchants_status_chk check (status in ('online','offline','suspended'));
+  if not exists (select 1 from pg_constraint where conname = 'merchants_kyb_chk') then
+    alter table merchants add constraint merchants_kyb_chk check (kyb_status in ('pending','approved','rejected'));
+  end if;
 end $$;

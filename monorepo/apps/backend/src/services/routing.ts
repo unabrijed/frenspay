@@ -1,19 +1,21 @@
-// routing.ts — M3 matching engine. Ranks online merchants on a weighted composite score over
-// normalized signals (reliability, cost, speed, dispute, queue depth, liquidity), and powers both the
-// quote-time pick and auto-failover (re-rank excluding already-tried LPs). "A marketplace, not a DEX":
+// routing.ts — M3 matching engine, M4-aware. Ranks routable (online + KYB-approved) merchants on a
+// weighted composite score over normalized signals (reliability, cost, speed, dispute, liquidity), and
+// powers both the quote-time pick and auto-failover (re-rank excluding already-tried LPs). The signals
+// are kept live by M4's recompute; float is committed by in-flight orders. "A marketplace, not a DEX":
 // invisible to the user, who just pays.
 import type { PayoutMethod } from '@pay/shared';
 
-import { countActiveOrdersByMerchant, listOnlineMerchants, type MerchantRow } from '../db/queries';
+import { committedFloatByMerchant, listRoutableMerchants, type MerchantRow } from '../db/queries';
 
 export interface RankedMerchant {
   merchant: MerchantRow;
   score: number; // composite, [0,1]
-  queueDepth: number;
+  availableFloat: number; // float − in-flight commitments
 }
 
-// Reliability-weighted, matching the architecture's "expose certainty". Weights sum to 1.
-const WEIGHTS = { reliability: 0.35, cost: 0.2, speed: 0.2, dispute: 0.1, queue: 0.1, liquidity: 0.05 };
+// Reliability-weighted, matching the architecture's "expose certainty". Weights sum to 1. (M4 folded the
+// M3 queue-depth signal into liquidity, since available float already reflects an LP's live load.)
+const WEIGHTS = { reliability: 0.35, cost: 0.2, speed: 0.2, dispute: 0.1, liquidity: 0.15 };
 
 /** Min-max normalize to [0,1] across the pool; `invert` for lower-is-better signals. Flat pool → 1. */
 function normalize(values: number[], invert: boolean): number[] {
@@ -28,9 +30,9 @@ function normalize(values: number[], invert: boolean): number[] {
 
 /**
  * Rank eligible merchants best-first for an order of `amountUsdc`.
- * - hard filter: drop LPs that can't cover the order (float < amount) or are in `excludeIds`
- *   (already tried this order); keep the rail filter with a cross-rail fallback.
- * - score: weighted sum of normalized signals (reliability/cost/speed/dispute/queue/liquidity).
+ * - hard filter: drop LPs whose **available** float (total − in-flight) can't cover the order, and any
+ *   in `excludeIds` (already tried this order); keep the rail filter with a cross-rail fallback.
+ * - score: weighted sum of normalized signals (reliability/cost/speed/dispute/liquidity).
  */
 export async function rankMerchants(input: {
   payoutMethod: PayoutMethod;
@@ -38,42 +40,43 @@ export async function rankMerchants(input: {
   excludeIds?: string[];
 }): Promise<RankedMerchant[]> {
   const exclude = new Set(input.excludeIds ?? []);
-  const all = (await listOnlineMerchants()).filter((m) => !exclude.has(m.id));
+  const all = (await listRoutableMerchants()).filter((m) => !exclude.has(m.id));
 
   // Prefer the matching rail; fall back to any rail only if none match.
   const railed = all.filter((m) => m.payout_rail === input.payoutMethod);
   const byRail = railed.length > 0 ? railed : all;
 
+  // Live available float = total float − committed (in-flight) float. A saturated LP has little
+  // headroom and drops out until its orders clear.
+  const committed = await committedFloatByMerchant();
+  const availableOf = (m: MerchantRow) => Math.max(Number(m.float_usdc) - (committed[m.id] ?? 0), 0);
+
   // Hard filter: the LP must be able to cover the order. If that empties the pool, fall back to byRail
   // so we still return something rankable (the caller decides whether to refund on an empty result).
-  const covered = byRail.filter((m) => Number(m.float_usdc) >= input.amountUsdc);
+  const covered = byRail.filter((m) => availableOf(m) >= input.amountUsdc);
   const pool = covered.length > 0 ? covered : byRail;
   if (pool.length === 0) return [];
 
-  const queue = await countActiveOrdersByMerchant();
-  const queueDepths = pool.map((m) => queue[m.id] ?? 0);
-
+  const avail = pool.map(availableOf);
   const rel = normalize(pool.map((m) => Number(m.success_rate)), false);
   const cost = normalize(pool.map((m) => m.spread_bps), true);
   const speed = normalize(pool.map((m) => m.avg_completion_secs), true);
   const dispute = normalize(pool.map((m) => Number(m.dispute_rate)), true);
-  const queueN = normalize(queueDepths, true);
-  // Liquidity headroom: float relative to the order, capped at 5× (beyond that is no real advantage).
+  // Liquidity headroom: available float relative to the order, capped at 5× (beyond is no real edge).
   const liq = normalize(
-    pool.map((m) => Math.min(Number(m.float_usdc) / Math.max(input.amountUsdc, 1), 5)),
+    avail.map((a) => Math.min(a / Math.max(input.amountUsdc, 1), 5)),
     false,
   );
 
   return pool
     .map((m, i) => ({
       merchant: m,
-      queueDepth: queueDepths[i],
+      availableFloat: avail[i],
       score:
         WEIGHTS.reliability * rel[i] +
         WEIGHTS.cost * cost[i] +
         WEIGHTS.speed * speed[i] +
         WEIGHTS.dispute * dispute[i] +
-        WEIGHTS.queue * queueN[i] +
         WEIGHTS.liquidity * liq[i],
     }))
     .sort(

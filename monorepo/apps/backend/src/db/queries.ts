@@ -407,21 +407,32 @@ export interface MerchantRow {
   id: string;
   name: string;
   payout_rail: PayoutMethod;
-  status: 'online' | 'offline';
+  status: 'online' | 'offline' | 'suspended';
   treasury_address: string;
   success_rate: string;
   avg_completion_secs: number;
   spread_bps: number;
   float_usdc: string;
   dispute_rate: string;
+  kyb_status: 'pending' | 'approved' | 'rejected';
+  bond_usdc: string;
+  base_success_rate: string;
+  base_avg_completion_secs: number;
+  base_dispute_rate: string;
   sim_behavior: 'happy' | 'slow' | 'no_receipt' | 'timeout';
 }
 
-/** Online merchants for the routing engine to rank. */
-export async function listOnlineMerchants(): Promise<MerchantRow[]> {
+/** Merchants eligible for routing: online AND KYB-approved (M4). */
+export async function listRoutableMerchants(): Promise<MerchantRow[]> {
   const { rows } = await getPool().query<MerchantRow>(
-    `select * from merchants where status = 'online'`,
+    `select * from merchants where status = 'online' and kyb_status = 'approved'`,
   );
+  return rows;
+}
+
+/** Every merchant (incl. suspended/pending) — for the M4 stats recompute pass. */
+export async function listAllMerchants(): Promise<MerchantRow[]> {
+  const { rows } = await getPool().query<MerchantRow>(`select * from merchants`);
   return rows;
 }
 
@@ -848,19 +859,6 @@ export async function expireStaleOrders(maxAgeMin = 15): Promise<number> {
 
 /* ---- M3: routing signals + reroute audit ---- */
 
-/** Live load per merchant: count of in-flight (non-terminal) orders, keyed by merchant_id. */
-export async function countActiveOrdersByMerchant(): Promise<Record<string, number>> {
-  const { rows } = await getPool().query<{ merchant_id: string; n: string }>(
-    `select merchant_id, count(*) as n
-       from orders
-      where merchant_id is not null and state not in ('completed','refunded','failed')
-      group by merchant_id`,
-  );
-  const out: Record<string, number> = {};
-  for (const r of rows) out[r.merchant_id] = Number(r.n);
-  return out;
-}
-
 /** Record a routing assignment / reroute for an order (the audit log + tried-set). */
 export async function insertRoutingAttempt(input: {
   orderId: string;
@@ -919,4 +917,160 @@ export async function reassignOrderMerchant(
     [orderId, merchantId, expiresAt],
   );
   return (rowCount ?? 0) > 0;
+}
+
+/* ---- M4: merchant lifecycle, live float, performance stats, disputes ---- */
+
+/** Committed (in-flight) float per merchant: sum of amounts on non-terminal assigned orders. */
+export async function committedFloatByMerchant(): Promise<Record<string, number>> {
+  const { rows } = await getPool().query<{ merchant_id: string; committed: string }>(
+    `select merchant_id, coalesce(sum(amount_usdc), 0) as committed
+       from orders
+      where merchant_id is not null
+        and state in ('pay_instructions','waiting_payment','payment_detected','merchant_confirms','funds_released')
+      group by merchant_id`,
+  );
+  const out: Record<string, number> = {};
+  for (const r of rows) out[r.merchant_id] = Number(r.committed);
+  return out;
+}
+
+/** Released/failed attempt counts per merchant from the routing audit log (drives success_rate). */
+export async function merchantOutcomeCounts(): Promise<Record<string, { released: number; failed: number }>> {
+  const { rows } = await getPool().query<{ merchant_id: string; outcome: string; n: string }>(
+    `select merchant_id, outcome, count(*) as n
+       from order_routing_attempts
+      where outcome in ('released','failed')
+      group by merchant_id, outcome`,
+  );
+  const out: Record<string, { released: number; failed: number }> = {};
+  for (const r of rows) {
+    const e = (out[r.merchant_id] ??= { released: 0, failed: 0 });
+    if (r.outcome === 'released') e.released = Number(r.n);
+    else e.failed = Number(r.n);
+  }
+  return out;
+}
+
+/** Avg completion seconds + sample size per merchant (fund_confirmed → funds_released on completed orders). */
+export async function merchantCompletionStats(): Promise<Record<string, { avgSecs: number; n: number }>> {
+  const { rows } = await getPool().query<{ merchant_id: string; avg_secs: string | null; n: string }>(
+    `select o.merchant_id,
+            avg(extract(epoch from (rel.created_at - det.created_at))) as avg_secs,
+            count(*) as n
+       from orders o
+       join order_events det on det.order_id = o.id and det.event = 'fund_confirmed'
+       join order_events rel on rel.order_id = o.id and rel.event = 'funds_released'
+      where o.state = 'completed' and o.merchant_id is not null
+      group by o.merchant_id`,
+  );
+  const out: Record<string, { avgSecs: number; n: number }> = {};
+  for (const r of rows) out[r.merchant_id] = { avgSecs: Number(r.avg_secs ?? 0), n: Number(r.n) };
+  return out;
+}
+
+/** Upheld-dispute + completed-order counts per merchant (drives dispute_rate). */
+export async function merchantDisputeStats(): Promise<Record<string, { upheld: number; completed: number }>> {
+  const { rows } = await getPool().query<{ merchant_id: string; upheld: string; completed: string }>(
+    `select m.id as merchant_id,
+            count(distinct d.id) filter (where d.resolution = 'upheld') as upheld,
+            count(distinct o.id) filter (where o.state = 'completed') as completed
+       from merchants m
+       left join orders o on o.merchant_id = m.id
+       left join disputes d on d.merchant_id = m.id
+      group by m.id`,
+  );
+  const out: Record<string, { upheld: number; completed: number }> = {};
+  for (const r of rows) out[r.merchant_id] = { upheld: Number(r.upheld), completed: Number(r.completed) };
+  return out;
+}
+
+/** Write recomputed live signals back to a merchant. */
+export async function updateMerchantStats(
+  id: string,
+  s: { successRate: number; avgCompletionSecs: number; disputeRate: number },
+): Promise<void> {
+  await getPool().query(
+    `update merchants set success_rate = $2, avg_completion_secs = $3, dispute_rate = $4 where id = $1`,
+    [id, s.successRate, Math.round(s.avgCompletionSecs), s.disputeRate],
+  );
+}
+
+export async function setMerchantStatus(id: string, status: 'online' | 'offline' | 'suspended'): Promise<void> {
+  await getPool().query(`update merchants set status = $2 where id = $1`, [id, status]);
+}
+
+/** Onboarding: create a pending-KYB merchant application (offline until approved). */
+export async function insertMerchantApplication(input: {
+  name: string;
+  payoutRail: PayoutMethod;
+  treasuryAddress: string;
+}): Promise<string> {
+  const { rows } = await getPool().query<{ id: string }>(
+    `insert into merchants (name, payout_rail, status, treasury_address, kyb_status)
+     values ($1, $2, 'offline', $3, 'pending')
+     returning id`,
+    [input.name, input.payoutRail, input.treasuryAddress],
+  );
+  return rows[0].id;
+}
+
+/** Approve/reject a pending application; approval flips it online. */
+export async function setMerchantKyb(id: string, decision: 'approve' | 'reject'): Promise<boolean> {
+  const kyb = decision === 'approve' ? 'approved' : 'rejected';
+  const status = decision === 'approve' ? 'online' : 'offline';
+  const { rowCount } = await getPool().query(
+    `update merchants set kyb_status = $2, status = $3 where id = $1 and kyb_status = 'pending'`,
+    [id, kyb, status],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/** Draw a merchant's bond down (floored at 0) when a dispute is upheld against them. */
+export async function drawDownBond(merchantId: string, amount: number): Promise<void> {
+  await getPool().query(`update merchants set bond_usdc = greatest(bond_usdc - $2, 0) where id = $1`, [
+    merchantId,
+    amount,
+  ]);
+}
+
+export async function insertDispute(input: { orderId: string; merchantId: string; reason?: string }): Promise<string> {
+  const { rows } = await getPool().query<{ id: string }>(
+    `insert into disputes (order_id, merchant_id, reason) values ($1, $2, $3) returning id`,
+    [input.orderId, input.merchantId, input.reason ?? null],
+  );
+  return rows[0].id;
+}
+
+export async function getDisputeRow(
+  id: string,
+): Promise<{ id: string; orderId: string; merchantId: string; status: string } | null> {
+  const { rows } = await getPool().query<{ id: string; order_id: string; merchant_id: string; status: string }>(
+    `select id, order_id, merchant_id, status from disputes where id = $1`,
+    [id],
+  );
+  const r = rows[0];
+  return r ? { id: r.id, orderId: r.order_id, merchantId: r.merchant_id, status: r.status } : null;
+}
+
+export async function resolveDispute(id: string, resolution: 'upheld' | 'rejected'): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update disputes set status = 'resolved', resolution = $2, resolved_at = now()
+      where id = $1 and status = 'open'`,
+    [id, resolution],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/** Order fields needed to open a dispute (owner-scoped); null if not the owner or no merchant. */
+export async function getOrderForDispute(
+  orderId: string,
+  userId: string,
+): Promise<{ merchantId: string; amountUsdc: number; state: OrderState } | null> {
+  const { rows } = await getPool().query<{ merchant_id: string | null; amount_usdc: string; state: OrderState }>(
+    `select merchant_id, amount_usdc, state from orders where id = $1 and user_id = $2`,
+    [orderId, userId],
+  );
+  const r = rows[0];
+  return r && r.merchant_id ? { merchantId: r.merchant_id, amountUsdc: Number(r.amount_usdc), state: r.state } : null;
 }
