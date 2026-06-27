@@ -27,6 +27,7 @@ import {
   updateOrder,
 } from '../db/queries';
 
+import { checkCashOutLimit, scoreAndRecord, type LimitCheck } from './compliance';
 import { buildDepositTx, escrowAddress, refundEscrow, releaseEscrow } from './escrowProgram';
 import { rankMerchants } from './routing';
 
@@ -38,6 +39,7 @@ export const MAX_ROUTING_ATTEMPTS = 3;
 
 type ConfirmResult =
   | { ok: true; order: Order; unsignedTx: string; feePayer: string; transferId: string; referenceCode: string }
+  | { error: 'limit_exceeded'; limit: Extract<LimitCheck, { ok: false }> }
   | { error: 'quote_not_found' | 'quote_expired' | 'wallet_not_found' | 'solana_unavailable' };
 
 /** quote_locked → pay_instructions: create the order + the unsigned escrow-funding tx for the user. */
@@ -48,6 +50,13 @@ export async function confirmOrderFromQuote(userId: string, quoteId: string): Pr
 
   const wallet = await getWalletForUser(userId);
   if (!wallet?.address) return { error: 'wallet_not_found' };
+
+  // M5: enforce cash-out KYC limits against the REAL amountUsdc here (the /orders/quote estimate is
+  // only an early gate), using rolling in-flight volume — so a user can't bypass the cap by reusing or
+  // stacking quotes. Also write the cash-out risk_event (the off-ramp leg had no audit trail).
+  const lim = await checkCashOutLimit(userId, quote.amountUsdc);
+  if (!lim.ok) return { error: 'limit_exceeded', limit: lim };
+  await scoreAndRecord({ userId, kind: 'cash_out', amountUsd: quote.amountUsdc });
 
   const referenceCode = 'PAY-' + randomBytes(4).toString('hex').toUpperCase();
 

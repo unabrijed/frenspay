@@ -16,6 +16,7 @@ export function Verify() {
   const verifyDone = usePayStore((s) => s.verifyDone);
   const payCtx = usePayStore((s) => s.pendingPay);
   const tier = usePayStore((s) => s.kycTier);
+  const error = usePayStore((s) => s.error);
   return (
     <>
       <Grab />
@@ -55,6 +56,7 @@ export function Verify() {
             </Txt>
           </View>
           <Txt style={styles.desc}>Pay merchants across India. Passport + visa, about 2 minutes.</Txt>
+          {error ? <Txt style={[type.lead, { color: colors.danger, marginTop: 10 }]}>{error}</Txt> : null}
           {tier < 2 ? <Btn label="Verify identity" onPress={verifyDone} style={{ marginTop: 14 }} /> : null}
         </View>
 

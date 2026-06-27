@@ -37,19 +37,33 @@ export type LimitCheck =
 
 const WINDOW_HOURS = 24;
 
+/** The smallest tier whose caps actually clear this amount (+ rolling `used`), so the "verify to tier
+ *  N" prompt always unblocks the user. Falls back to MAX_TIER. */
+function smallestTierFor(kind: 'send' | 'cash_out', amountUsd: number, used: number): number {
+  for (let t = 0; t <= MAX_TIER; t++) {
+    const l = KYC_TIERS[t];
+    if (kind === 'send') {
+      if (l.sendPerTx >= amountUsd && l.sendDaily >= used + amountUsd) return t;
+    } else if (l.cashOut && l.cashOutPerTx >= amountUsd && l.cashOutDaily >= used + amountUsd) {
+      return t;
+    }
+  }
+  return MAX_TIER;
+}
+
 /** Enforce P2P send limits (tier + per-tx + rolling-24h daily). */
 export async function checkSendLimit(userId: string, amountUsd: number): Promise<LimitCheck> {
   const tier = await getUserKycTier(userId);
   const lim = tierLimits(tier);
+  const used = await recentSendVolumeUsd(userId, WINDOW_HOURS);
   if (lim.sendPerTx <= 0) {
     return { ok: false, kind: 'send', currentTier: tier, requiredTier: 1, limitUsd: 0, reason: 'sending is not enabled for your account' };
   }
   if (amountUsd > lim.sendPerTx) {
-    return { ok: false, kind: 'send', currentTier: tier, requiredTier: Math.min(tier + 1, MAX_TIER), limitUsd: lim.sendPerTx, reason: `over the $${lim.sendPerTx} per-transfer limit` };
+    return { ok: false, kind: 'send', currentTier: tier, requiredTier: smallestTierFor('send', amountUsd, used), limitUsd: lim.sendPerTx, reason: `over the $${lim.sendPerTx} per-transfer limit` };
   }
-  const used = await recentSendVolumeUsd(userId, WINDOW_HOURS);
   if (used + amountUsd > lim.sendDaily) {
-    return { ok: false, kind: 'send', currentTier: tier, requiredTier: Math.min(tier + 1, MAX_TIER), limitUsd: lim.sendDaily, reason: `over the $${lim.sendDaily} daily limit` };
+    return { ok: false, kind: 'send', currentTier: tier, requiredTier: smallestTierFor('send', amountUsd, used), limitUsd: lim.sendDaily, reason: `over the $${lim.sendDaily} daily limit` };
   }
   return { ok: true };
 }
@@ -58,15 +72,15 @@ export async function checkSendLimit(userId: string, amountUsd: number): Promise
 export async function checkCashOutLimit(userId: string, amountUsd: number): Promise<LimitCheck> {
   const tier = await getUserKycTier(userId);
   const lim = tierLimits(tier);
+  const used = await recentCashOutVolumeUsd(userId, WINDOW_HOURS);
   if (!lim.cashOut) {
-    return { ok: false, kind: 'cash_out', currentTier: tier, requiredTier: 2, limitUsd: 0, reason: 'verify your identity to pay merchants' };
+    return { ok: false, kind: 'cash_out', currentTier: tier, requiredTier: smallestTierFor('cash_out', amountUsd, used), limitUsd: 0, reason: 'verify your identity to pay merchants' };
   }
   if (amountUsd > lim.cashOutPerTx) {
-    return { ok: false, kind: 'cash_out', currentTier: tier, requiredTier: Math.min(tier + 1, MAX_TIER), limitUsd: lim.cashOutPerTx, reason: `over the $${lim.cashOutPerTx} per-payment limit` };
+    return { ok: false, kind: 'cash_out', currentTier: tier, requiredTier: smallestTierFor('cash_out', amountUsd, used), limitUsd: lim.cashOutPerTx, reason: `over the $${lim.cashOutPerTx} per-payment limit` };
   }
-  const used = await recentCashOutVolumeUsd(userId, WINDOW_HOURS);
   if (used + amountUsd > lim.cashOutDaily) {
-    return { ok: false, kind: 'cash_out', currentTier: tier, requiredTier: Math.min(tier + 1, MAX_TIER), limitUsd: lim.cashOutDaily, reason: `over the $${lim.cashOutDaily} daily limit` };
+    return { ok: false, kind: 'cash_out', currentTier: tier, requiredTier: smallestTierFor('cash_out', amountUsd, used), limitUsd: lim.cashOutDaily, reason: `over the $${lim.cashOutDaily} daily limit` };
   }
   return { ok: true };
 }

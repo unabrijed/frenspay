@@ -201,8 +201,11 @@ export async function registerRoutes(app: FastifyInstance) {
         reason: limit.reason,
       });
     }
-    // M5: sanctions screening + fraud score (simulated) on the recipient.
-    const denylisted = (toHandle ? await screenHandle(toHandle) : false) || (await screenAddress(toWallet.address));
+    // M5: sanctions screening + fraud score (simulated) on BOTH parties (sender + recipient).
+    const denylisted =
+      (toHandle ? await screenHandle(toHandle) : false) ||
+      (await screenAddress(toWallet.address)) ||
+      (await screenAddress(fromWallet.address));
     const risk = await scoreAndRecord({ userId, kind: 'send', amountUsd, denylisted });
     if (risk.decision === 'block') return reply.code(403).send({ error: 'blocked', reason: risk.reason });
 
@@ -331,6 +334,17 @@ export async function registerRoutes(app: FastifyInstance) {
     if (!quoteId) return reply.code(400).send({ error: 'missing_fields' });
     const result = await confirmOrderFromQuote(userId, quoteId);
     if ('error' in result) {
+      if (result.error === 'limit_exceeded') {
+        const l = result.limit;
+        return reply.code(403).send({
+          error: 'limit_exceeded',
+          kind: l.kind,
+          currentTier: l.currentTier,
+          requiredTier: l.requiredTier,
+          limitUsd: l.limitUsd,
+          reason: l.reason,
+        });
+      }
       const code =
         result.error === 'quote_expired' ? 409 : result.error === 'solana_unavailable' ? 503 : 404;
       return reply.code(code).send({ error: result.error });

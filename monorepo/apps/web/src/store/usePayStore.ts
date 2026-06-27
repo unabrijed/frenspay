@@ -12,7 +12,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { RATE } from '@/lib/money';
 import type { DisplayCurrency } from '@/lib/money';
 import { parseScannedQR } from '@/lib/qr';
-import { api, setAuthToken } from '@/services/api';
+import { api, ApiError, setAuthToken } from '@/services/api';
 import { USE_PRIVY } from '@/services/env';
 import { confirmOrder as apiConfirmOrder, createQuote as apiCreateQuote, getOrder as apiGetOrder } from '@/services/orders';
 import { FRIENDS, wallet, type Friend, type Merchant, type Txn } from '@/services/wallet';
@@ -402,6 +402,11 @@ export const usePayStore = create<PayState>()(
           [3000, 7000, 12000].forEach((ms) => setTimeout(() => void get().refresh(), ms));
           return tx;
         } catch (e) {
+          if (e instanceof ApiError && e.code === 'limit_exceeded') {
+            set({ busy: false, error: 'Verify your identity to raise your limit.' });
+            get().open('verify');
+            return null;
+          }
           set({ busy: false, error: e instanceof Error ? e.message : String(e) });
           return null;
         }
@@ -415,6 +420,11 @@ export const usePayStore = create<PayState>()(
           set({ quote, payRupees: rupees, busy: false });
           get().open('quote');
         } catch (e) {
+          if (e instanceof ApiError && e.code === 'limit_exceeded') {
+            set({ busy: false, error: 'Verify your identity to raise your limit.', pendingPay: true });
+            get().open('verify');
+            return;
+          }
           set({ busy: false, error: e instanceof Error ? e.message : String(e) });
         }
       },
@@ -430,6 +440,11 @@ export const usePayStore = create<PayState>()(
           set((s) => ({ order, balanceUSD: +(s.balanceUSD - q.amountUsdc).toFixed(2), busy: false }));
           get().open('tracking');
         } catch (e) {
+          if (e instanceof ApiError && e.code === 'limit_exceeded') {
+            set({ busy: false, error: 'Verify your identity to raise your limit.', pendingPay: true });
+            get().open('verify');
+            return;
+          }
           set({ busy: false, error: e instanceof Error ? e.message : String(e) });
         }
       },
@@ -516,6 +531,14 @@ export const usePayStore = create<PayState>()(
     }),
     {
       name: 'pay-store',
+      version: 1,
+      // Migrate the old cosmetic `kyc: boolean` to the real `kycTier` (verified → tier 2).
+      migrate: (persisted: unknown) => {
+        const s = (persisted ?? {}) as Record<string, unknown>;
+        if (typeof s.kycTier !== 'number') s.kycTier = s.kyc === true ? 2 : 1;
+        delete s.kyc;
+        return s as unknown as PayState;
+      },
       // SSR-safe: localStorage in the browser, a no-op store during server render.
       storage: createJSONStorage(() =>
         typeof window !== 'undefined'

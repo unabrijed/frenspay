@@ -56,10 +56,29 @@ async function req<T>(path: string, init?: RequestInit, retried = false): Promis
     }
   }
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`${path} → ${res.status} ${body}`);
+    const text = await res.text().catch(() => '');
+    let payload: Record<string, unknown> = {};
+    try {
+      payload = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new ApiError(res.status, typeof payload.error === 'string' ? payload.error : `http_${res.status}`, payload);
   }
   return (await res.json()) as T;
+}
+
+/** Structured API error so callers can branch on `code` (e.g. 'limit_exceeded') and show a clean
+ *  message instead of a raw "path → 403 {json}" string. */
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+    public payload: Record<string, unknown> = {},
+  ) {
+    super(typeof payload.reason === 'string' ? payload.reason : code);
+    this.name = 'ApiError';
+  }
 }
 
 export const api = {
