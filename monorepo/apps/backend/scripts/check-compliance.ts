@@ -14,6 +14,8 @@ function check(name: string, cond: boolean, detail?: string) {
 
 type Pool = ReturnType<typeof getPool>;
 async function clean(pool: Pool) {
+  // transfers.from_user_id has no ON DELETE CASCADE, so drop the harness user's transfers first.
+  await pool.query(`delete from transfers where from_user_id in (select id from users where privy_did = 'zzc:harness')`);
   await pool.query(`delete from users where privy_did = 'zzc:harness'`); // cascades risk_events
   await pool.query(`delete from denylist where value = 'ZZC-BLOCKED-ADDR'`);
 }
