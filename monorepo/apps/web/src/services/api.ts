@@ -66,6 +66,7 @@ export const api = {
   authSync: (body: AuthSyncRequest) =>
     req<MeResponse>('/auth/sync', { method: 'POST', body: JSON.stringify(body) }),
   me: () => req<MeResponse>('/me'),
+  kycVerify: () => req<{ ok: true; kycTier: number }>('/kyc/verify', { method: 'POST' }),
   balance: () => req<BalanceResponse>('/balance'),
   transactions: () => req<TransactionsResponse>('/transactions'),
   resolve: (handle: string) =>

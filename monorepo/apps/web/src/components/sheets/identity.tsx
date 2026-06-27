@@ -15,6 +15,7 @@ export function Verify() {
   const close = usePayStore((s) => s.close);
   const verifyDone = usePayStore((s) => s.verifyDone);
   const payCtx = usePayStore((s) => s.pendingPay);
+  const tier = usePayStore((s) => s.kycTier);
   return (
     <>
       <Grab />
@@ -39,14 +40,22 @@ export function Verify() {
           </Txt>
         </View>
 
-        <View style={[styles.tier, { marginTop: 12 }]}>
+        <View style={[styles.tier, { marginTop: 12 }, tier >= 2 ? styles.tierOn : null]}>
           <View style={styles.th}>
-            <View style={styles.badgeOff} />
+            {tier >= 2 ? (
+              <View style={styles.badgeOk}>
+                <Icons.LockCheck size={14} color={colors.white} strokeWidth={2.2} />
+              </View>
+            ) : (
+              <View style={styles.badgeOff} />
+            )}
             <Txt style={type.tierTitle}>Tier 2</Txt>
-            <Txt style={[type.tierTag, { marginLeft: 'auto', color: colors.muted }]}>Verify to unlock</Txt>
+            <Txt style={[type.tierTag, { marginLeft: 'auto', color: tier >= 2 ? colors.accent : colors.muted }]}>
+              {tier >= 2 ? 'Active' : 'Verify to unlock'}
+            </Txt>
           </View>
           <Txt style={styles.desc}>Pay merchants across India. Passport + visa, about 2 minutes.</Txt>
-          <Btn label="Verify identity" onPress={verifyDone} style={{ marginTop: 14 }} />
+          {tier < 2 ? <Btn label="Verify identity" onPress={verifyDone} style={{ marginTop: 14 }} /> : null}
         </View>
 
         {payCtx ? <Spacer /> : null}

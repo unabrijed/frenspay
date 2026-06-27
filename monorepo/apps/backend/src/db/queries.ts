@@ -1091,3 +1091,57 @@ export async function getOrderForDispute(
   const r = rows[0];
   return r && r.merchant_id ? { merchantId: r.merchant_id, amountUsdc: Number(r.amount_usdc), state: r.state } : null;
 }
+
+/* ---- M5: KYC tiers, rolling volume, screening, risk audit ---- */
+
+export async function getUserKycTier(userId: string): Promise<number> {
+  const { rows } = await getPool().query<{ kyc_tier: number }>('select kyc_tier from users where id = $1', [userId]);
+  return rows[0]?.kyc_tier ?? 0;
+}
+
+export async function setUserKycTier(userId: string, tier: number): Promise<void> {
+  await getPool().query('update users set kyc_tier = $2 where id = $1', [userId, tier]);
+}
+
+/** The user's confirmed/pending P2P send volume (USD) in the last `hours`. */
+export async function recentSendVolumeUsd(userId: string, hours: number): Promise<number> {
+  const { rows } = await getPool().query<{ total: string }>(
+    `select coalesce(sum(amount_usdc), 0) as total
+       from transfers
+      where from_user_id = $1 and kind = 'send' and status <> 'failed'
+        and created_at > now() - make_interval(hours => $2)`,
+    [userId, hours],
+  );
+  return Number(rows[0].total);
+}
+
+/** The user's in-flight/completed cash-out (order) volume (USD) in the last `hours`. */
+export async function recentCashOutVolumeUsd(userId: string, hours: number): Promise<number> {
+  const { rows } = await getPool().query<{ total: string }>(
+    `select coalesce(sum(amount_usdc), 0) as total
+       from orders
+      where user_id = $1 and state not in ('failed','refunded')
+        and created_at > now() - make_interval(hours => $2)`,
+    [userId, hours],
+  );
+  return Number(rows[0].total);
+}
+
+export async function isDenylisted(kind: 'address' | 'handle', value: string): Promise<boolean> {
+  const { rowCount } = await getPool().query('select 1 from denylist where kind = $1 and value = $2', [kind, value]);
+  return (rowCount ?? 0) > 0;
+}
+
+export async function insertRiskEvent(input: {
+  userId: string;
+  kind: string;
+  amountUsd?: number;
+  decision: 'allow' | 'review' | 'block';
+  score: number;
+  reason?: string;
+}): Promise<void> {
+  await getPool().query(
+    `insert into risk_events (user_id, kind, amount_usdc, decision, score, reason) values ($1,$2,$3,$4,$5,$6)`,
+    [input.userId, input.kind, input.amountUsd ?? null, input.decision, input.score, input.reason ?? null],
+  );
+}

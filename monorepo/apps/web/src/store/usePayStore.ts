@@ -55,7 +55,7 @@ interface AuthBridge {
 interface PayState {
   // ---- persisted ----
   onboarded: boolean;
-  kyc: boolean;
+  kycTier: number;
   recovered: boolean;
   recoveryPrompted: boolean;
   balanceUSD: number;
@@ -155,7 +155,7 @@ export const usePayStore = create<PayState>()(
   persist(
     (set, get) => ({
       onboarded: false,
-      kyc: false,
+      kycTier: 1,
       recovered: false,
       recoveryPrompted: false,
       balanceUSD: 0,
@@ -226,6 +226,7 @@ export const usePayStore = create<PayState>()(
           set({
             walletAddress: me.walletAddress,
             handle: me.handle,
+            kycTier: me.kycTier,
             balanceUSD: bal,
             transactions: txns,
             requests: reqs,
@@ -314,15 +315,22 @@ export const usePayStore = create<PayState>()(
 
       payMerchant: (m, rupees = 0) => {
         set({ merchant: m, scannedRupees: rupees });
-        if (get().kyc) {
+        if (get().kycTier >= 2) {
           get().open('amount');
         } else {
           set({ pendingPay: true });
           get().open('verify');
         }
       },
-      verifyDone: () => {
-        set({ kyc: true });
+      verifyDone: async () => {
+        // Simulated KYC upgrade — promotes the tier server-side (unlocks merchant pay at tier 2).
+        try {
+          const r = await api.kycVerify();
+          set({ kycTier: r.kycTier });
+        } catch (e) {
+          set({ error: e instanceof Error ? e.message : String(e) });
+          return;
+        }
         if (get().pendingPay) {
           set({ pendingPay: false });
           get().open('amount');
@@ -516,7 +524,7 @@ export const usePayStore = create<PayState>()(
       ),
       partialize: (s) => ({
         onboarded: s.onboarded,
-        kyc: s.kyc,
+        kycTier: s.kycTier,
         recovered: s.recovered,
         recoveryPrompted: s.recoveryPrompted,
         balanceUSD: s.balanceUSD,

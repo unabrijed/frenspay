@@ -49,6 +49,8 @@ async function main() {
   //   BoltRoute  — fastest (lowest completion time)
   //   SteadyRails— 'slow' behavior (recovers after a delay)
   //   FlakeLP    — 'no_receipt' behavior → escalates → triggers auto-failover when it's the LP
+  await pool.query('delete from risk_events');
+  await pool.query('delete from denylist');
   await pool.query('delete from disputes');
   await pool.query('delete from order_routing_attempts');
   await pool.query('delete from order_events');
@@ -70,6 +72,15 @@ async function main() {
       'SteadyRails LP', treasuryFor('pay-merchant-steadyrails'),
       'FlakeLP', treasuryFor('pay-merchant-flakelp'),
     ],
+  );
+
+  // M5: simulated sanctions denylist — one address + one handle that screening must block.
+  await pool.query(
+    `insert into denylist (kind, value, reason) values
+       ('address', $1, 'OFAC SDN (simulated)'),
+       ('handle', '@sanctioned', 'OFAC SDN (simulated)')
+     on conflict (kind, value) do nothing`,
+    [treasuryFor('pay-denylist-sanctioned')],
   );
 
   // Reset activity so the seed is repeatable.

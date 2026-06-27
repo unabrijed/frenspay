@@ -64,6 +64,17 @@ export interface MeResponse {
   handle: string;
   displayName: string;
   walletAddress: string;
+  kycTier: number; // M5: 0 restricted · 1 basic/P2P · 2 verified/merchant-pay · 3 enhanced
+}
+
+/** 403 body when a money-movement action exceeds the user's KYC-tier limit (M5). */
+export interface LimitExceededError {
+  error: 'limit_exceeded';
+  kind: 'send' | 'cash_out';
+  currentTier: number;
+  requiredTier: number;
+  limitUsd: number;
+  reason: string;
 }
 
 /** POST /auth/sync body — token in the Authorization header identifies the Privy user. */

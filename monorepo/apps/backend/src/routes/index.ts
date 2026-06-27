@@ -43,6 +43,7 @@ import {
   getOrderForDispute,
   getOrderForUser,
   getOrderSimRow,
+  getUserKycTier,
   getWalletForUser,
   insertDispute,
   insertMerchantApplication,
@@ -55,9 +56,17 @@ import {
   resolveHandleToFriend,
   setMerchantKyb,
   setTransferStatusBySignature,
+  setUserKycTier,
   updateOrder,
   upsertUserByPrivyDid,
 } from '../db/queries';
+import {
+  checkCashOutLimit,
+  checkSendLimit,
+  scoreAndRecord,
+  screenAddress,
+  screenHandle,
+} from '../services/compliance';
 import { DISPUTE_PENALTY_USDC, recomputeMerchantStats } from '../services/merchantStats';
 import {
   confirmOrderFromQuote,
@@ -91,6 +100,7 @@ export async function registerRoutes(app: FastifyInstance) {
       handle: user.handle,
       displayName: user.display_name ?? user.handle,
       walletAddress: wallet?.address ?? walletAddress,
+      kycTier: await getUserKycTier(user.id),
     } satisfies MeResponse;
   });
 
@@ -104,6 +114,7 @@ export async function registerRoutes(app: FastifyInstance) {
       handle: user.handle,
       displayName: user.display_name ?? user.handle,
       walletAddress: wallet?.address ?? '',
+      kycTier: await getUserKycTier(userId),
     };
   });
 
@@ -177,6 +188,23 @@ export async function registerRoutes(app: FastifyInstance) {
     const to = toHandle ? await findUserByHandle(toHandle) : null;
     const toWallet = to ? await getWalletForUser(to.id) : null;
     if (!toWallet?.address) return reply.code(404).send({ error: 'recipient_not_found' });
+
+    // M5: enforce the sender's KYC-tier send limits (per-tx + rolling daily).
+    const limit = await checkSendLimit(userId, amountUsd);
+    if (!limit.ok) {
+      return reply.code(403).send({
+        error: 'limit_exceeded',
+        kind: limit.kind,
+        currentTier: limit.currentTier,
+        requiredTier: limit.requiredTier,
+        limitUsd: limit.limitUsd,
+        reason: limit.reason,
+      });
+    }
+    // M5: sanctions screening + fraud score (simulated) on the recipient.
+    const denylisted = (toHandle ? await screenHandle(toHandle) : false) || (await screenAddress(toWallet.address));
+    const risk = await scoreAndRecord({ userId, kind: 'send', amountUsd, denylisted });
+    if (risk.decision === 'block') return reply.code(403).send({ error: 'blocked', reason: risk.reason });
 
     let built;
     try {
@@ -274,6 +302,19 @@ export async function registerRoutes(app: FastifyInstance) {
     const userId = requireUserId(req);
     const { direction, amountInr, payoutMethod } = req.body ?? ({} as QuoteRequest);
     if (!amountInr || amountInr <= 0) return reply.code(400).send({ error: 'invalid_amount' });
+    // M5: enforce cash-out (merchant-pay) KYC limits before pricing. Estimate USD from the mid rate
+    // (87.55, mirrored locally per the @pay/shared types-only convention); blocks under-tier users.
+    const cashLimit = await checkCashOutLimit(userId, amountInr / 87.55);
+    if (!cashLimit.ok) {
+      return reply.code(403).send({
+        error: 'limit_exceeded',
+        kind: cashLimit.kind,
+        currentTier: cashLimit.currentTier,
+        requiredTier: cashLimit.requiredTier,
+        limitUsd: cashLimit.limitUsd,
+        reason: cashLimit.reason,
+      });
+    }
     const quote = await createQuote(userId, {
       direction: direction === 'cash_out' ? 'cash_out' : 'spend',
       amountInr,
@@ -479,4 +520,24 @@ export async function registerRoutes(app: FastifyInstance) {
       return { ok: true, resolution: forUser ? 'upheld' : 'rejected' };
     },
   );
+
+  // --- M5: KYC verification (simulated upgrade) ---
+  // Real flow: a KYC vendor verifies documents and calls back. Here, "verify" promotes the tier
+  // (unlocks merchant pay at tier 2). The web "Verify identity" button calls this.
+  app.post('/kyc/verify', async (req, reply) => {
+    const userId = requireUserId(req);
+    const next = Math.max(await getUserKycTier(userId), 2);
+    await setUserKycTier(userId, next);
+    return reply.send({ ok: true, kycTier: next });
+  });
+
+  // dev-only: set any tier directly (for exercising limits/screening).
+  app.post<{ Params: { tier: string } }>('/sim/kyc/:tier', async (req, reply) => {
+    if (!config.isDevelopment) return reply.code(403).send({ error: 'sim_disabled' });
+    const userId = requireUserId(req);
+    const tier = Number(req.params.tier);
+    if (!Number.isInteger(tier) || tier < 0 || tier > 3) return reply.code(400).send({ error: 'invalid_tier' });
+    await setUserKycTier(userId, tier);
+    return { ok: true, kycTier: tier };
+  });
 }

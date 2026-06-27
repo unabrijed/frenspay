@@ -10,6 +10,7 @@ create table if not exists users (
   display_name  text,
   email         text,
   phone         text,
+  kyc_tier      integer not null default 1,  -- M5: 0 restricted · 1 basic/P2P · 2 verified/merchant · 3 enhanced
   created_at    timestamptz not null default now()
 );
 
@@ -150,6 +151,28 @@ create table if not exists disputes (
   resolved_at timestamptz
 );
 
+-- M5: sanctions/denylist (simulated) — addresses or handles that must be blocked from money movement.
+create table if not exists denylist (
+  id         uuid primary key default gen_random_uuid(),
+  kind       text not null constraint denylist_kind_chk check (kind in ('address','handle')),
+  value      text not null,
+  reason     text,
+  created_at timestamptz not null default now(),
+  unique (kind, value)
+);
+
+-- M5: risk/fraud audit — one row per screened money-movement action (decision + score + reason).
+create table if not exists risk_events (
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid references users(id) on delete cascade,
+  kind        text not null,                 -- send | cash_out | onboarding
+  amount_usdc numeric(20, 6),
+  decision    text not null default 'allow' constraint risk_decision_chk check (decision in ('allow','review','block')),
+  score       integer not null default 0,
+  reason      text,
+  created_at  timestamptz not null default now()
+);
+
 create index if not exists idx_transfers_from_user on transfers (from_user_id, created_at desc);
 create index if not exists idx_transfers_to_user   on transfers (to_user_id, created_at desc);
 create index if not exists idx_requests_to_user    on payment_requests (to_user_id, created_at desc);
@@ -161,6 +184,7 @@ create index if not exists idx_routing_attempts    on order_routing_attempts (or
 create index if not exists idx_disputes_merchant   on disputes (merchant_id);
 -- One dispute per order (prevents bond over-draw + dispute_rate corruption from repeated disputes).
 create unique index if not exists uq_disputes_order on disputes (order_id);
+create index if not exists idx_risk_events_user    on risk_events (user_id, created_at desc);
 create index if not exists idx_quotes_user         on quotes (user_id, created_at desc);
 
 -- Backfill the CHECK constraints on databases created before they were added (the table
@@ -188,4 +212,6 @@ do $$ begin
   if not exists (select 1 from pg_constraint where conname = 'merchants_kyb_chk') then
     alter table merchants add constraint merchants_kyb_chk check (kyb_status in ('pending','approved','rejected'));
   end if;
+  -- M5: KYC tier on existing user rows.
+  alter table users add column if not exists kyc_tier integer not null default 1;
 end $$;
