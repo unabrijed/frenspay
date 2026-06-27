@@ -1,8 +1,22 @@
 // queries.ts — typed data access over the lazy pg pool (db/pool.ts).
 // Maps rows to the @pay/shared wire DTOs. Phase 1 is USDC-only, so no rupee column.
-import type { ApiPaymentRequest, ApiTxn, Friend } from '@pay/shared';
+import type {
+  ApiPaymentRequest,
+  ApiTxn,
+  Friend,
+  Order,
+  OrderDirection,
+  OrderEvent,
+  OrderResolution,
+  OrderState,
+  PayoutMethod,
+  Quote,
+  RouteQuality,
+} from '@pay/shared';
 
 import { getPool } from './pool';
+
+export type TransferKind = 'send' | 'add' | 'pay' | 'escrow_fund' | 'escrow_release';
 
 export interface UserRow {
   id: string;
@@ -247,12 +261,12 @@ export async function cancelRequest(requestId: string, requesterUserId: string):
 /* ---- transfers (M1 prepare/submit, M2 confirmation) ---- */
 
 export async function createPendingTransfer(input: {
-  fromUserId: string;
+  fromUserId: string | null;
   toUserId: string | null;
   fromAddress: string;
   toAddress: string;
   amountUsd: number;
-  kind?: 'send' | 'add' | 'pay';
+  kind?: TransferKind;
   note?: string;
 }): Promise<{ id: string }> {
   const { rows } = await getPool().query<{ id: string }>(
@@ -355,4 +369,554 @@ export async function expireStaleUnsignedTransfers(maxAgeMin = 15): Promise<numb
     [maxAgeMin],
   );
   return rowCount ?? 0;
+}
+
+/**
+ * Record an already-broadcast backend-signed transfer (escrow release/refund) as pending+signed
+ * so the confirmer poller follows it to a terminal status, exactly like a user transfer.
+ */
+export async function recordEscrowTransfer(input: {
+  fromAddress: string;
+  toAddress: string;
+  toUserId?: string | null;
+  amountUsd: number;
+  kind: 'escrow_release';
+  signature: string;
+  note?: string;
+}): Promise<{ id: string }> {
+  const { rows } = await getPool().query<{ id: string }>(
+    `insert into transfers (from_address, to_address, to_user_id, amount_usdc, kind, status, signature, note)
+     values ($1, $2, $3, $4, $5, 'pending', $6, $7)
+     returning id`,
+    [
+      input.fromAddress,
+      input.toAddress,
+      input.toUserId ?? null,
+      input.amountUsd,
+      input.kind,
+      input.signature,
+      input.note ?? null,
+    ],
+  );
+  return rows[0];
+}
+
+/* ---- M1: merchants / quotes / orders (stablecoin on/off-ramp lifecycle) ---- */
+
+export interface MerchantRow {
+  id: string;
+  name: string;
+  payout_rail: PayoutMethod;
+  status: 'online' | 'offline';
+  treasury_address: string;
+  success_rate: string;
+  avg_completion_secs: number;
+  spread_bps: number;
+  float_usdc: string;
+  dispute_rate: string;
+  sim_behavior: 'happy' | 'slow' | 'no_receipt' | 'timeout';
+}
+
+/** Online merchants for the routing engine to rank. */
+export async function listOnlineMerchants(): Promise<MerchantRow[]> {
+  const { rows } = await getPool().query<MerchantRow>(
+    `select * from merchants where status = 'online'`,
+  );
+  return rows;
+}
+
+interface QuoteRow {
+  id: string;
+  user_id: string;
+  merchant_id: string | null;
+  direction: OrderDirection;
+  amount_inr: string;
+  amount_usdc: string;
+  rate: string;
+  fee_inr: string;
+  network_fee_inr: string;
+  eta_min_secs: number;
+  eta_max_secs: number;
+  payout_method: PayoutMethod;
+  route_quality: RouteQuality;
+  created_at: Date;
+  expires_at: Date;
+  merchant_name: string | null;
+}
+
+function toQuote(r: QuoteRow): Quote {
+  return {
+    id: r.id,
+    direction: r.direction,
+    amountInr: Number(r.amount_inr),
+    amountUsdc: Number(r.amount_usdc),
+    rate: Number(r.rate),
+    feeInr: Number(r.fee_inr),
+    networkFeeInr: Number(r.network_fee_inr),
+    etaMinSecs: r.eta_min_secs,
+    etaMaxSecs: r.eta_max_secs,
+    payoutMethod: r.payout_method,
+    routeQuality: r.route_quality,
+    merchantName: r.merchant_name ?? 'Best route',
+    quotedAt: r.created_at.getTime(),
+    expiresAt: r.expires_at.getTime(),
+  };
+}
+
+export async function insertQuote(input: {
+  userId: string;
+  merchantId: string | null;
+  direction: OrderDirection;
+  amountInr: number;
+  amountUsdc: number;
+  rate: number;
+  feeInr: number;
+  networkFeeInr: number;
+  etaMinSecs: number;
+  etaMaxSecs: number;
+  payoutMethod: PayoutMethod;
+  routeQuality: RouteQuality;
+  expiresAt: Date;
+}): Promise<Quote> {
+  const { rows } = await getPool().query<QuoteRow>(
+    `with ins as (
+       insert into quotes (user_id, merchant_id, direction, amount_inr, amount_usdc, rate,
+                           fee_inr, network_fee_inr, eta_min_secs, eta_max_secs,
+                           payout_method, route_quality, expires_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       returning *
+     )
+     select ins.*, m.name as merchant_name
+       from ins left join merchants m on m.id = ins.merchant_id`,
+    [
+      input.userId,
+      input.merchantId,
+      input.direction,
+      input.amountInr,
+      input.amountUsdc,
+      input.rate,
+      input.feeInr,
+      input.networkFeeInr,
+      input.etaMinSecs,
+      input.etaMaxSecs,
+      input.payoutMethod,
+      input.routeQuality,
+      input.expiresAt,
+    ],
+  );
+  return toQuote(rows[0]);
+}
+
+/** Raw quote row scoped to its owner — used at order-confirm time to re-check expiry. */
+export async function getQuoteRowForUser(
+  quoteId: string,
+  userId: string,
+): Promise<{ id: string; merchantId: string | null; amountUsdc: number; expiresAt: Date } | null> {
+  const { rows } = await getPool().query<{
+    id: string;
+    merchant_id: string | null;
+    amount_usdc: string;
+    expires_at: Date;
+  }>('select id, merchant_id, amount_usdc, expires_at from quotes where id = $1 and user_id = $2', [
+    quoteId,
+    userId,
+  ]);
+  const r = rows[0];
+  return r
+    ? { id: r.id, merchantId: r.merchant_id, amountUsdc: Number(r.amount_usdc), expiresAt: r.expires_at }
+    : null;
+}
+
+interface OrderJoinRow {
+  id: string;
+  user_id: string;
+  state: OrderState;
+  resolution: OrderResolution | null;
+  amount_usdc: string;
+  reference_code: string;
+  created_at: Date;
+  updated_at: Date;
+  quote_id: string;
+  // joined quote columns (aliased)
+  q_direction: OrderDirection;
+  q_amount_inr: string;
+  q_amount_usdc: string;
+  q_rate: string;
+  q_fee_inr: string;
+  q_network_fee_inr: string;
+  q_eta_min_secs: number;
+  q_eta_max_secs: number;
+  q_payout_method: PayoutMethod;
+  q_route_quality: RouteQuality;
+  q_created_at: Date;
+  q_expires_at: Date;
+  merchant_name: string | null;
+}
+
+const ORDER_SELECT = `
+  select o.id, o.user_id, o.state, o.resolution, o.amount_usdc, o.reference_code,
+         o.created_at, o.updated_at, o.quote_id,
+         q.direction as q_direction, q.amount_inr as q_amount_inr, q.amount_usdc as q_amount_usdc,
+         q.rate as q_rate, q.fee_inr as q_fee_inr, q.network_fee_inr as q_network_fee_inr,
+         q.eta_min_secs as q_eta_min_secs, q.eta_max_secs as q_eta_max_secs,
+         q.payout_method as q_payout_method, q.route_quality as q_route_quality,
+         q.created_at as q_created_at, q.expires_at as q_expires_at,
+         m.name as merchant_name
+    from orders o
+    join quotes q on q.id = o.quote_id
+    left join merchants m on m.id = o.merchant_id`;
+
+function toOrder(r: OrderJoinRow, events?: OrderEvent[]): Order {
+  const quote: Quote = {
+    id: r.quote_id,
+    direction: r.q_direction,
+    amountInr: Number(r.q_amount_inr),
+    amountUsdc: Number(r.q_amount_usdc),
+    rate: Number(r.q_rate),
+    feeInr: Number(r.q_fee_inr),
+    networkFeeInr: Number(r.q_network_fee_inr),
+    etaMinSecs: r.q_eta_min_secs,
+    etaMaxSecs: r.q_eta_max_secs,
+    payoutMethod: r.q_payout_method,
+    routeQuality: r.q_route_quality,
+    merchantName: r.merchant_name ?? 'Best route',
+    quotedAt: r.q_created_at.getTime(),
+    expiresAt: r.q_expires_at.getTime(),
+  };
+  return {
+    id: r.id,
+    state: r.state,
+    resolution: r.resolution,
+    direction: r.q_direction,
+    referenceCode: r.reference_code,
+    amountUsdc: Number(r.amount_usdc),
+    quote,
+    merchantName: quote.merchantName,
+    payoutMethod: r.q_payout_method,
+    createdAt: r.created_at.toISOString(),
+    updatedAt: r.updated_at.toISOString(),
+    events,
+  };
+}
+
+export async function insertOrder(input: {
+  userId: string;
+  quoteId: string;
+  merchantId: string | null;
+  amountUsdc: number;
+  referenceCode: string;
+  state: OrderState;
+  escrowFundTransferId: string | null;
+  note?: string;
+}): Promise<string> {
+  const { rows } = await getPool().query<{ id: string }>(
+    `insert into orders (user_id, quote_id, merchant_id, amount_usdc, reference_code, state, escrow_fund_transfer_id, note)
+     values ($1,$2,$3,$4,$5,$6,$7,$8)
+     returning id`,
+    [
+      input.userId,
+      input.quoteId,
+      input.merchantId,
+      input.amountUsdc,
+      input.referenceCode,
+      input.state,
+      input.escrowFundTransferId,
+      input.note ?? null,
+    ],
+  );
+  return rows[0].id;
+}
+
+export async function appendOrderEvent(
+  orderId: string,
+  fromState: OrderState | null,
+  toState: OrderState,
+  event: string,
+  detail?: Record<string, unknown>,
+): Promise<void> {
+  await getPool().query(
+    `insert into order_events (order_id, from_state, to_state, event, detail)
+     values ($1,$2,$3,$4,$5)`,
+    [orderId, fromState, toState, event, detail ? JSON.stringify(detail) : null],
+  );
+}
+
+export async function listOrderEvents(orderId: string): Promise<OrderEvent[]> {
+  const { rows } = await getPool().query<{
+    from_state: OrderState | null;
+    to_state: OrderState;
+    event: string;
+    detail: Record<string, unknown> | null;
+    created_at: Date;
+  }>(
+    `select from_state, to_state, event, detail, created_at
+       from order_events where order_id = $1 order by created_at asc`,
+    [orderId],
+  );
+  return rows.map((r) => ({
+    fromState: r.from_state,
+    toState: r.to_state,
+    event: r.event,
+    detail: r.detail ?? undefined,
+    createdAt: r.created_at.toISOString(),
+  }));
+}
+
+export async function getOrderForUser(orderId: string, userId: string): Promise<Order | null> {
+  const { rows } = await getPool().query<OrderJoinRow>(`${ORDER_SELECT} where o.id = $1 and o.user_id = $2`, [
+    orderId,
+    userId,
+  ]);
+  if (!rows[0]) return null;
+  const events = await listOrderEvents(orderId);
+  return toOrder(rows[0], events);
+}
+
+export async function listOrdersForUser(userId: string, limit = 50): Promise<Order[]> {
+  const { rows } = await getPool().query<OrderJoinRow>(
+    `${ORDER_SELECT} where o.user_id = $1 order by o.created_at desc limit $2`,
+    [userId, limit],
+  );
+  return rows.map((r) => toOrder(r));
+}
+
+/** State patch with bumped updated_at. Pass only the fields to change; `clearResolution` nulls it. */
+export async function updateOrder(
+  orderId: string,
+  patch: {
+    state?: OrderState;
+    resolution?: OrderResolution | null;
+    expiresAt?: Date | null;
+    escrowReleaseTransferId?: string;
+  },
+): Promise<void> {
+  const sets: string[] = ['updated_at = now()'];
+  const vals: unknown[] = [];
+  let i = 1;
+  if (patch.state !== undefined) {
+    sets.push(`state = $${++i}`);
+    vals.push(patch.state);
+  }
+  if (patch.resolution !== undefined) {
+    sets.push(`resolution = $${++i}`);
+    vals.push(patch.resolution);
+  }
+  if (patch.expiresAt !== undefined) {
+    sets.push(`expires_at = $${++i}`);
+    vals.push(patch.expiresAt);
+  }
+  if (patch.escrowReleaseTransferId !== undefined) {
+    sets.push(`escrow_release_transfer_id = $${++i}`);
+    vals.push(patch.escrowReleaseTransferId);
+  }
+  await getPool().query(`update orders set ${sets.join(', ')} where id = $1`, [orderId, ...vals]);
+}
+
+/** Lightweight order row for the worker including the merchant's sim fields + the quote's rail. */
+export interface WorkerOrderRow {
+  id: string;
+  user_id: string;
+  reference_code: string;
+  state: OrderState;
+  resolution: OrderResolution | null;
+  amount_usdc: string;
+  updated_at: Date;
+  expires_at: Date | null;
+  escrow_release_transfer_id: string | null;
+  merchant_id: string | null;
+  treasury_address: string | null;
+  sim_behavior: 'happy' | 'slow' | 'no_receipt' | 'timeout' | null;
+  payout_method: PayoutMethod | null;
+}
+
+/** Orders the simulated-merchant worker drives (mid-flow, awaiting the LP). */
+export async function listWorkerOrders(): Promise<WorkerOrderRow[]> {
+  const { rows } = await getPool().query<WorkerOrderRow>(
+    `select o.id, o.user_id, o.reference_code, o.state, o.resolution, o.amount_usdc, o.updated_at,
+            o.expires_at, o.escrow_release_transfer_id, o.merchant_id,
+            m.treasury_address, m.sim_behavior, q.payout_method
+       from orders o
+       left join merchants m on m.id = o.merchant_id
+       join quotes q on q.id = o.quote_id
+      where o.state in ('payment_detected','merchant_confirms')`,
+  );
+  return rows;
+}
+
+export async function getOrderByEscrowFundTransfer(transferId: string): Promise<{ id: string; state: OrderState } | null> {
+  const { rows } = await getPool().query<{ id: string; state: OrderState }>(
+    'select id, state from orders where escrow_fund_transfer_id = $1',
+    [transferId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function getOrderByEscrowReleaseTransfer(transferId: string): Promise<{ id: string; state: OrderState } | null> {
+  const { rows } = await getPool().query<{ id: string; state: OrderState }>(
+    'select id, state from orders where escrow_release_transfer_id = $1',
+    [transferId],
+  );
+  return rows[0] ?? null;
+}
+
+export async function getOrderEscrowFundTransferId(orderId: string): Promise<string | null> {
+  const { rows } = await getPool().query<{ escrow_fund_transfer_id: string | null }>(
+    'select escrow_fund_transfer_id from orders where id = $1',
+    [orderId],
+  );
+  return rows[0]?.escrow_fund_transfer_id ?? null;
+}
+
+/** Core order fields for the dev-only /sim endpoints (no quote join). */
+export async function getOrderSimRow(
+  orderId: string,
+): Promise<{
+  id: string;
+  userId: string;
+  reference: string;
+  amountUsdc: number;
+  state: OrderState;
+  treasuryAddress: string | null;
+} | null> {
+  const { rows } = await getPool().query<{
+    id: string;
+    user_id: string;
+    reference_code: string;
+    amount_usdc: string;
+    state: OrderState;
+    treasury_address: string | null;
+  }>(
+    `select o.id, o.user_id, o.reference_code, o.amount_usdc, o.state, m.treasury_address
+       from orders o left join merchants m on m.id = o.merchant_id
+      where o.id = $1`,
+    [orderId],
+  );
+  const r = rows[0];
+  return r
+    ? {
+        id: r.id,
+        userId: r.user_id,
+        reference: r.reference_code,
+        amountUsdc: Number(r.amount_usdc),
+        state: r.state,
+        treasuryAddress: r.treasury_address,
+      }
+    : null;
+}
+
+/**
+ * Atomic compare-and-set on order state — claims a transition only if the order is still in one of
+ * `fromStates`. Returns true if it moved. Lets the worker and the dev /sim endpoints race safely
+ * (only one wins the claim before broadcasting an escrow tx).
+ */
+export async function casOrderState(
+  orderId: string,
+  fromStates: OrderState[],
+  toState: OrderState,
+): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update orders set state = $3, updated_at = now()
+      where id = $1 and state = any($2::text[])`,
+    [orderId, fromStates, toState],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/** Cancel an order whose escrow funding never completed (signing failed/abandoned). Owner-scoped. */
+export async function cancelOrder(orderId: string, userId: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update orders set state = 'failed', updated_at = now()
+      where id = $1 and user_id = $2 and state in ('pay_instructions','waiting_payment')`,
+    [orderId, userId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/**
+ * Retire orders stuck pre-escrow (prepared but never funded) past maxAgeMin — mirrors
+ * expireStaleUnsignedTransfers so abandoned orders don't linger in pay_instructions forever.
+ */
+export async function expireStaleOrders(maxAgeMin = 15): Promise<number> {
+  const { rowCount } = await getPool().query(
+    `update orders set state = 'failed', updated_at = now()
+      where state in ('pay_instructions','waiting_payment')
+        and created_at < now() - make_interval(mins => $1)`,
+    [maxAgeMin],
+  );
+  return rowCount ?? 0;
+}
+
+/* ---- M3: routing signals + reroute audit ---- */
+
+/** Live load per merchant: count of in-flight (non-terminal) orders, keyed by merchant_id. */
+export async function countActiveOrdersByMerchant(): Promise<Record<string, number>> {
+  const { rows } = await getPool().query<{ merchant_id: string; n: string }>(
+    `select merchant_id, count(*) as n
+       from orders
+      where merchant_id is not null and state not in ('completed','refunded','failed')
+      group by merchant_id`,
+  );
+  const out: Record<string, number> = {};
+  for (const r of rows) out[r.merchant_id] = Number(r.n);
+  return out;
+}
+
+/** Record a routing assignment / reroute for an order (the audit log + tried-set). */
+export async function insertRoutingAttempt(input: {
+  orderId: string;
+  merchantId: string;
+  sequence: number;
+  outcome?: 'assigned' | 'released' | 'failed' | 'rerouted';
+  reason?: string;
+}): Promise<void> {
+  await getPool().query(
+    `insert into order_routing_attempts (order_id, merchant_id, sequence, outcome, reason)
+     values ($1,$2,$3,$4,$5)
+     on conflict (order_id, sequence) do nothing`,
+    [input.orderId, input.merchantId, input.sequence, input.outcome ?? 'assigned', input.reason ?? null],
+  );
+}
+
+/** Mark the latest (highest-sequence) attempt for an order with a terminal outcome. */
+export async function markLatestAttemptOutcome(
+  orderId: string,
+  outcome: 'released' | 'failed' | 'rerouted',
+): Promise<void> {
+  await getPool().query(
+    `update order_routing_attempts set outcome = $2
+      where order_id = $1
+        and sequence = (select max(sequence) from order_routing_attempts where order_id = $1)`,
+    [orderId, outcome],
+  );
+}
+
+/** The merchants already tried for an order + the current attempt count (drives failover). */
+export async function listRoutingAttempts(
+  orderId: string,
+): Promise<{ merchantId: string; sequence: number; outcome: string }[]> {
+  const { rows } = await getPool().query<{ merchant_id: string; sequence: number; outcome: string }>(
+    `select merchant_id, sequence, outcome from order_routing_attempts
+      where order_id = $1 order by sequence asc`,
+    [orderId],
+  );
+  return rows.map((r) => ({ merchantId: r.merchant_id, sequence: r.sequence, outcome: r.outcome }));
+}
+
+/**
+ * Atomically reassign a stalled order to a new merchant for auto-failover: only fires while the order
+ * is still in payment_detected, clears the resolution, and resets the SLA deadline. Returns true if it
+ * claimed the reassignment (false = someone else already moved it).
+ */
+export async function reassignOrderMerchant(
+  orderId: string,
+  merchantId: string,
+  expiresAt: Date,
+): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update orders
+        set merchant_id = $2, resolution = null, expires_at = $3, updated_at = now()
+      where id = $1 and state = 'payment_detected'`,
+    [orderId, merchantId, expiresAt],
+  );
+  return (rowCount ?? 0) > 0;
 }

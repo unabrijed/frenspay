@@ -155,3 +155,121 @@ export interface FaucetResponse {
   signature: string;
   balanceUsd: number;
 }
+
+/* ---- M1: orders, quotes, the spend/cash-out lifecycle (stablecoin-onofframp-architecture.pdf) ----
+ * The real order pipeline that supersedes the MockSettlementProvider stub above: a Quote Engine
+ * (rate+fee+ETA, locked 45s) feeding a 7-state Order State Machine settled through backend-custodied
+ * devnet escrow with conditional release. Simulated rails (mock merchant/LP, quoted-not-live FX). */
+
+export type OrderDirection = 'spend' | 'cash_out';
+
+/** Plain-English route-quality label surfaced on the quote screen ("complex scoring underneath"). */
+export type RouteQuality = 'high' | 'medium' | 'low';
+
+/** Payout rail the merchant/LP settles fiat on. */
+export type PayoutMethod = 'UPI' | 'Pix' | 'bank';
+
+/**
+ * A locked quote for one order. Symmetric across directions: `amountInr` is the fiat leg and
+ * `amountUsdc` the crypto leg debited from the user into escrow. The UI labels them per `direction`
+ * ("You pay / From balance" for spend; "You cash out / You receive" for cash_out). Locked 45s —
+ * timestamps are epoch ms. (`amountUsdc = amountInr / rate`; fees are itemized line items reflecting
+ * the merchant spread for M1, mirroring the doc's quote screen math.)
+ */
+export interface Quote {
+  id: string;
+  direction: OrderDirection;
+  amountInr: number;
+  amountUsdc: number;
+  rate: number; // INR per 1 USDC, after merchant spread
+  feeInr: number;
+  networkFeeInr: number;
+  etaMinSecs: number;
+  etaMaxSecs: number;
+  payoutMethod: PayoutMethod;
+  routeQuality: RouteQuality;
+  merchantName: string;
+  quotedAt: number; // epoch ms
+  expiresAt: number; // epoch ms (quotedAt + 45_000)
+}
+
+/** Happy-path position of an order (the 7-step timeline) plus the two terminal failures. */
+export type OrderState =
+  | 'quote_locked'
+  | 'pay_instructions'
+  | 'waiting_payment'
+  | 'payment_detected'
+  | 'merchant_confirms'
+  | 'funds_released'
+  | 'completed'
+  | 'refunded'
+  | 'failed';
+
+/**
+ * Transient overlay shown while an order is mid-flow but something is off (the doc's visible
+ * "what's happening" states). `refunded` is the terminal `OrderState`, not an overlay.
+ */
+export type OrderResolution = 'delayed' | 'needs_action' | 'under_review';
+
+export interface OrderEvent {
+  fromState: OrderState | null;
+  toState: OrderState;
+  event: string;
+  detail?: Record<string, unknown>;
+  createdAt: string; // ISO 8601
+}
+
+export interface Order {
+  id: string;
+  state: OrderState;
+  resolution: OrderResolution | null;
+  direction: OrderDirection;
+  referenceCode: string;
+  amountUsdc: number;
+  quote: Quote;
+  merchantName: string;
+  payoutMethod: PayoutMethod;
+  createdAt: string; // ISO 8601
+  updatedAt: string; // ISO 8601
+  /** Append-only transition log powering the live timeline (present on GET /orders/:id). */
+  events?: OrderEvent[];
+}
+
+/* ---- order API DTOs ---- */
+
+export interface QuoteRequest {
+  direction: OrderDirection;
+  amountInr: number;
+  payoutMethod?: PayoutMethod;
+}
+
+export interface QuoteResponse {
+  quote: Quote;
+}
+
+export interface CreateOrderRequest {
+  quoteId: string;
+}
+
+/** POST /orders — the order plus the unsigned escrow-funding tx (same shape as /transfer/prepare). */
+export interface CreateOrderResponse {
+  order: Order;
+  unsignedTx: string;
+  feePayer: string;
+  transferId: string;
+  referenceCode: string;
+}
+
+/** POST /orders/:id/fund-submit — record the broadcast escrow-funding signature. */
+export interface FundSubmitRequest {
+  transferId: string;
+  signature: string;
+}
+
+export interface OrderResponse {
+  order: Order;
+}
+
+export interface OrdersResponse {
+  orders: Order[];
+}

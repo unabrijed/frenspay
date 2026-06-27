@@ -1,8 +1,16 @@
 // Dev seed: two users + wallets and a couple of transfers/requests so the read
 // endpoints return data before auth (M3) and on-chain wallets (M1) exist.
 // Run: yarn workspace @pay/backend db:seed   (needs DATABASE_URL)
-// Idempotent: upserts users/wallets by unique key, and resets transfers/requests.
+// Idempotent: upserts users/wallets by unique key, and resets transfers/requests/orders.
+import { createHash } from 'node:crypto';
+
+import { Keypair } from '@solana/web3.js';
+
 import { getPool } from './pool';
+
+/** Deterministic devnet treasury pubkey for a merchant (stable across seeds; receive-only). */
+const treasuryFor = (label: string): string =>
+  Keypair.fromSeed(createHash('sha256').update(label).digest().subarray(0, 32)).publicKey.toBase58();
 
 async function main() {
   const pool = getPool();
@@ -33,6 +41,35 @@ async function main() {
   // Placeholder devnet addresses; replaced by real generated wallets in M1.
   await upsertWallet(bridge, 'DEVbridgeWa11et1111111111111111111111111111');
   await upsertWallet(neha, 'DEVnehaWa11et22222222222222222222222222222222');
+
+  // Simulated merchant/LP network (M1 seed; M3 ranking + failover). Honest, varied profiles so the
+  // weighted ranking is meaningful and failover is demonstrable:
+  //   RapidPay   — best overall (top reliability, low dispute)
+  //   ThriftPay  — cheapest (lowest spread)
+  //   BoltRoute  — fastest (lowest completion time)
+  //   SteadyRails— 'slow' behavior (recovers after a delay)
+  //   FlakeLP    — 'no_receipt' behavior → escalates → triggers auto-failover when it's the LP
+  await pool.query('delete from order_routing_attempts');
+  await pool.query('delete from order_events');
+  await pool.query('delete from orders');
+  await pool.query('delete from quotes');
+  await pool.query('delete from merchants');
+  await pool.query(
+    `insert into merchants (name, payout_rail, status, treasury_address, success_rate, avg_completion_secs, spread_bps, float_usdc, dispute_rate, sim_behavior)
+     values
+       ($1, 'UPI','online',$2,  0.992, 120, 50, 100000, 0.003, 'happy'),
+       ($3, 'UPI','online',$4,  0.972, 200, 25,  80000, 0.006, 'happy'),
+       ($5, 'UPI','online',$6,  0.951,  70, 90,  60000, 0.012, 'happy'),
+       ($7, 'UPI','online',$8,  0.960, 180, 80, 100000, 0.008, 'slow'),
+       ($9, 'UPI','online',$10, 0.940, 150, 60,  40000, 0.030, 'no_receipt')`,
+    [
+      'RapidPay LP', treasuryFor('pay-merchant-rapidpay'),
+      'ThriftPay LP', treasuryFor('pay-merchant-thriftpay'),
+      'BoltRoute LP', treasuryFor('pay-merchant-boltroute'),
+      'SteadyRails LP', treasuryFor('pay-merchant-steadyrails'),
+      'FlakeLP', treasuryFor('pay-merchant-flakelp'),
+    ],
+  );
 
   // Reset activity so the seed is repeatable.
   await pool.query('delete from payment_requests');

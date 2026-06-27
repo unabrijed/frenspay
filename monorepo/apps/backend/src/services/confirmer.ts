@@ -5,6 +5,8 @@ import { config } from '../config';
 import { hasDatabase } from '../db/pool';
 import { expireStaleUnsignedTransfers, getPendingSignatures, setTransferStatus } from '../db/queries';
 
+import { onTransferConfirmed } from './orderMachine';
+import { runOrderWorkerOnce } from './simMerchant';
 import { getTransferStatus } from './solana';
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -17,11 +19,16 @@ export async function confirmPendingOnce(log?: (m: string) => void): Promise<voi
     if (status !== 'pending') {
       await setTransferStatus(t.id, status);
       log?.(`transfer ${t.id} → ${status}`);
+      // Advance any order linked to this escrow transfer (fund → payment_detected, release → completed).
+      if (status === 'confirmed') await onTransferConfirmed(t.id);
     }
   }
   // Retire transfers prepared but never signed (user abandoned before broadcast).
   const expired = await expireStaleUnsignedTransfers();
   if (expired > 0) log?.(`expired ${expired} stale unsigned transfer(s)`);
+
+  // Drive the simulated merchant/LP + order escalation timers.
+  await runOrderWorkerOnce(log);
 }
 
 /** Start the background poller. No-op without a DB + configured mint. */

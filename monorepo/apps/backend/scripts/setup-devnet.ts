@@ -115,6 +115,8 @@ async function main() {
   console.log('  USDC_MINT=' + out.usdcMint);
   console.log('  FEE_PAYER_SECRET_KEY=' + JSON.stringify(out.feePayerSecretKey));
   console.log('\nFor the mobile DevKeypairSigner, use a user secretKey from', keysPath);
+  console.log('\nM2 escrow program: `cd anchor && anchor deploy --provider.cluster devnet`.');
+  console.log('  ESCROW_PROGRAM_ID is optional — the backend falls back to the IDL address if unset.');
 }
 
 main().catch((err) => {

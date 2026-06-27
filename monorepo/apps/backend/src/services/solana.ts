@@ -22,31 +22,34 @@ export function connection(): Connection {
   return _connection;
 }
 
+/** Parse a solana-keygen JSON byte array into raw secret-key bytes. */
+function parseSecretKey(raw: string, label: string): Uint8Array {
+  const t = raw.trim();
+  if (!t) throw new Error(`${label} is not set`);
+  if (!t.startsWith('[')) throw new Error(`${label} must be a JSON byte array (solana-keygen format)`);
+  return Uint8Array.from(JSON.parse(t) as number[]);
+}
+
 let _feePayer: Keypair | null = null;
 export function feePayer(): Keypair {
-  if (_feePayer) return _feePayer;
-  const raw = config.feePayerSecretKey.trim();
-  if (!raw) throw new Error('FEE_PAYER_SECRET_KEY is not set');
-  let bytes: Uint8Array;
-  if (raw.startsWith('[')) {
-    bytes = Uint8Array.from(JSON.parse(raw) as number[]);
-  } else {
-    // base58 — decode via PublicKey's bs58 dependency indirectly through Keypair? Use bs58.
-    throw new Error('FEE_PAYER_SECRET_KEY must be a JSON byte array (solana-keygen format)');
-  }
-  _feePayer = Keypair.fromSecretKey(bytes);
+  if (!_feePayer) _feePayer = Keypair.fromSecretKey(parseSecretKey(config.feePayerSecretKey, 'FEE_PAYER_SECRET_KEY'));
   return _feePayer;
 }
 
-function usdcMint(): PublicKey {
+export function usdcMint(): PublicKey {
   if (!config.usdcMint) throw new Error('USDC_MINT is not set');
   return new PublicKey(config.usdcMint);
 }
 
 let _decimals: number | null = null;
-async function decimals(): Promise<number> {
+export async function decimals(): Promise<number> {
   if (_decimals == null) _decimals = (await getMint(connection(), usdcMint())).decimals;
   return _decimals;
+}
+
+/** Base units (e.g. 6dp) for a UI USDC amount. Exported for the escrow program ix builders. */
+export async function toUsdcBaseUnits(amountUsd: number): Promise<bigint> {
+  return toBaseUnits(amountUsd, await decimals());
 }
 
 function isValidPubkey(s: string): boolean {

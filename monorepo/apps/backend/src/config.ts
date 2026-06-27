@@ -40,10 +40,16 @@ export const config = {
   heliusApiKey: env('HELIUS_API_KEY'),
   // Fee-payer secret as a JSON array of bytes (solana-keygen format) or base58 string.
   feePayerSecretKey: env('FEE_PAYER_SECRET_KEY'),
+  // On-chain escrow program id (M2). Defaults to the deployed devnet program; the order machine
+  // builds deposit/release/refund instructions against it. Falls back to the IDL's address if unset.
+  escrowProgramId: env('ESCROW_PROGRAM_ID'),
   // SPL mint used as "USDC" (a controlled devnet mint in dev; Circle's USDC mint in prod).
   usdcMint: env('USDC_MINT'),
   // Shared secret for the Helius webhook (?secret=...). Open in dev if unset.
   heliusWebhookSecret: env('HELIUS_WEBHOOK_SECRET'),
+  // Public base URL of this backend (e.g. https://api.pay.app) — needed to register the Helius
+  // webhook callback. Unset locally → registration is skipped and the poller confirms transfers.
+  publicBaseUrl: env('PUBLIC_BASE_URL'),
 
   // Privy (M3).
   privyAppId: env('PRIVY_APP_ID'),

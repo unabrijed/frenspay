@@ -5,6 +5,7 @@ import { config } from './config';
 import { hasDatabase } from './db/pool';
 import { registerRoutes } from './routes/index';
 import { startConfirmer } from './services/confirmer';
+import { registerHeliusWebhook } from './services/helius';
 
 async function start() {
   const app = Fastify({ logger: true });
@@ -21,6 +22,9 @@ async function start() {
 
   // M2: poll pending transfers to confirmation (no-op without DB + USDC_MINT).
   startConfirmer(8000, (m) => app.log.info(m));
+
+  // Indexer: register the Helius push webhook (no-op unless HELIUS_API_KEY + PUBLIC_BASE_URL set).
+  void registerHeliusWebhook((m) => app.log.info(m));
 }
 
 start().catch((err) => {
