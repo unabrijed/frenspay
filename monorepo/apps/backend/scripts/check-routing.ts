@@ -1,8 +1,9 @@
-// check-routing.ts — ranking-determinism harness for the M3 routing engine. Asserts the weighted
-// rankMerchants picks the expected LP, fails over to the next-best on exclude, and drops underfunded
-// LPs via the float hard-filter. Read-only against the seeded DB; starts no server.
-//
-// Run: yarn workspace @pay/backend tsx scripts/check-routing.ts   (needs DATABASE_URL + `db:init`/`db:seed`)
+// check-routing.ts — ranking-determinism harness, self-fixturing (creates its own throwaway LP
+// profiles, asserts the ordering among THEM, cleans up). Needs only a migrated DB (`db:init`) — no
+// `db:seed`, no real-data mutation. Asserts the weighted rankMerchants orders LPs best-first, fails
+// over to the next-best on exclude, and drops LPs whose float can't cover the order. Relative ordering
+// among the harness LPs holds regardless of any other merchants in the pool (normalization is monotone).
+// Run: yarn workspace @pay/backend tsx scripts/check-routing.ts   (needs DATABASE_URL + db:init)
 import { getPool } from '../src/db/pool';
 import { rankMerchants } from '../src/services/routing';
 
@@ -12,35 +13,54 @@ function check(name: string, cond: boolean, detail?: string) {
   if (!cond) failures++;
 }
 
-async function main() {
-  const amount = 11.4; // ≈ ₹1000 at the mid rate — small enough that every seeded LP can cover it
+type Pool = ReturnType<typeof getPool>;
+async function clean(pool: Pool) {
+  await pool.query(`delete from merchants where name like 'ZZ-ROUTE-%'`);
+}
 
-  const ranked = await rankMerchants({ payoutMethod: 'UPI', amountUsdc: amount });
-  console.log('ranking:', ranked.map((r) => `${r.merchant.name}=${r.score.toFixed(3)}`).join('  '));
-  check('pool non-empty', ranked.length > 0);
-  // Guard against a stale DB: NaN scores mean `dispute_rate` is missing (run `db:init`), and < 5 LPs
-  // means the 5-profile seed isn't loaded (run `db:seed`). Either makes the rest meaningless.
-  check('scores are finite (DB migrated — dispute_rate present)', ranked.every((r) => Number.isFinite(r.score)),
-    ranked.map((r) => `${r.merchant.name}=${r.score}`).join(' '));
-  check('5 LP profiles seeded', ranked.length >= 5, `${ranked.length} LPs`);
-  const top = ranked[0]?.merchant;
-  check('RapidPay LP wins overall (reliability-weighted)', top?.name === 'RapidPay LP', top?.name);
+const COLS =
+  'name,payout_rail,status,treasury_address,success_rate,avg_completion_secs,spread_bps,float_usdc,dispute_rate,kyb_status,bond_usdc,base_success_rate,base_avg_completion_secs,base_dispute_rate,sim_behavior';
 
-  if (top) {
-    const next = await rankMerchants({ payoutMethod: 'UPI', amountUsdc: amount, excludeIds: [top.id] });
-    check('exclude winner → a different next-best is returned', next[0]?.merchant.id !== top.id, next[0]?.merchant.name);
-    check('excluded LP is absent from the re-rank', !next.some((r) => r.merchant.id === top.id));
-  }
-
-  // Float hard-filter: at 50k USDC, FlakeLP (float 40k) cannot cover the order and must be dropped.
-  const big = await rankMerchants({ payoutMethod: 'UPI', amountUsdc: 50_000 });
-  check(
-    'underfunded LP dropped (FlakeLP, 40k float, at 50k order)',
-    !big.some((r) => r.merchant.name === 'FlakeLP'),
-    big.map((r) => r.merchant.name).join(', '),
+async function mkLP(pool: Pool, name: string, treasury: string, sr: number, secs: number, spread: number, float: number) {
+  const { rows } = await pool.query<{ id: string }>(
+    `insert into merchants (${COLS})
+     values ($1,'UPI','online',$2,$3,$4,$5,$6,0.005,'approved',9000,$3,$4,0.005,'happy') returning id`,
+    [name, treasury, sr, secs, spread, float],
   );
+  return rows[0].id;
+}
 
-  await getPool().end();
+async function main() {
+  const pool = getPool();
+  await clean(pool);
+
+  // BEST dominates every signal; MID/LOW are progressively worse; POOR is worst AND underfunded.
+  const best = await mkLP(pool, 'ZZ-ROUTE-BEST', 'ZZRouteBest00000000000000000000000000000', 0.99, 90, 30, 100000);
+  const mid = await mkLP(pool, 'ZZ-ROUTE-MID', 'ZZRouteMid000000000000000000000000000000', 0.96, 160, 70, 100000);
+  const low = await mkLP(pool, 'ZZ-ROUTE-LOW', 'ZZRouteLow000000000000000000000000000000', 0.93, 220, 110, 100000);
+  const poor = await mkLP(pool, 'ZZ-ROUTE-POOR', 'ZZRoutePoor00000000000000000000000000000', 0.9, 240, 120, 40000);
+  const mine = new Set([best, mid, low, poor]);
+
+  const amount = 11.4;
+  let ranked = await rankMerchants({ payoutMethod: 'UPI', amountUsdc: amount });
+  const order = ranked.filter((r) => mine.has(r.merchant.id)).map((r) => r.merchant.id);
+  check('all 4 synthetic LPs ranked', order.length === 4, `${order.length}/4`);
+  check('BEST ranks first among them', order[0] === best);
+  check('order is BEST > MID > LOW > POOR', order.indexOf(best) < order.indexOf(mid) && order.indexOf(mid) < order.indexOf(low) && order.indexOf(low) < order.indexOf(poor));
+
+  // Failover: exclude BEST → MID leads, BEST absent.
+  ranked = await rankMerchants({ payoutMethod: 'UPI', amountUsdc: amount, excludeIds: [best] });
+  const next = ranked.filter((r) => mine.has(r.merchant.id)).map((r) => r.merchant.id);
+  check('exclude BEST → MID leads', next[0] === mid);
+  check('excluded BEST absent from re-rank', !ranked.some((r) => r.merchant.id === best));
+
+  // Float hard-filter: at 50k, POOR (40k float) is dropped; BEST (100k) is kept.
+  ranked = await rankMerchants({ payoutMethod: 'UPI', amountUsdc: 50_000 });
+  check('underfunded LP dropped at 50k', !ranked.some((r) => r.merchant.id === poor));
+  check('funded LP kept at 50k', ranked.some((r) => r.merchant.id === best));
+
+  await clean(pool);
+  await pool.end();
   console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`);
   process.exit(failures === 0 ? 0 : 1);
 }
