@@ -1,35 +1,17 @@
-# 13 · Future Milestones (M4 → M7)
+# 13 · Future Milestones (M5 → M7)
 
 The unbuilt half of the roadmap, documented to the same standard so the full vision is on paper. Each
-is **⬜ planned**. These flip the **simulated** components ([11](11-compliance-and-legalities.md)) into
-**real** ones, in dependency order: build the merchant network (M4), make it compliant (M5), harden the
-infra (M6), then connect real money (M7).
+is **⬜ planned**. These flip the remaining **simulated** components ([11](11-compliance-and-legalities.md))
+into **real** ones, in dependency order: make the (now-built) marketplace compliant (M5), harden the
+infra (M6), then connect real money (M7). *(M4 — the merchant/liquidity layer — is **✅ built**; see
+[08](08-routing-and-failover.md).)*
 
 ```mermaid
 flowchart LR
-    M3["M3 ✅/🟡<br/>routing + failover"] --> M4["M4<br/>merchant/liquidity layer"]
-    M4 --> M5["M5<br/>compliance & risk"]
+    M4["M4 ✅<br/>merchant/liquidity layer"] --> M5["M5<br/>compliance & risk"]
     M5 --> M6["M6<br/>notifications + infra"]
     M6 --> M7["M7<br/>real rails (mainnet)"]
 ```
-
----
-
-## M4 · Merchant / Liquidity Layer
-
-**What it will be.** Turn the simulated LPs into a real, operated network: merchant **onboarding
-(KYB)**, **float/inventory** management, response-time **SLAs**, **performance scoring** (feeding the
-M3 ranking with real signals instead of seeded ones), and **reserve/bond** + **dispute handling**.
-
-**Why.** M3's routing is only as good as the merchants it ranks. A real network needs real onboarding,
-real liquidity tracking, and real accountability (bonds/disputes) so failover has trustworthy
-counterparties to route to.
-
-**Legalities.** **KYB** (know-your-business) on every LP, contracts, performance bonds, and a dispute
-process. This is where counterparty risk becomes real — the bond/reserve model is the mitigation.
-
-**Status.** ⬜ Planned. The `merchants` table + `sim_behavior` is the seam; real scoring replaces
-seeded signals; `order_routing_attempts` becomes the dispute/performance substrate.
 
 ---
 

@@ -84,9 +84,12 @@ scoring weights ([08](08-routing-and-failover.md)) are the evidence trail. (Not 
 `users` holds email/phone/handle. A real launch needs a privacy policy, retention limits, encryption at
 rest, and regional handling (India **DPDP**, **GDPR**). Minimal today.
 
-### 9. Merchant/LP network (KYB) — ⬜ *deferred to M4*
-Real liquidity providers need **know-your-business**, contracts, performance bonds, and dispute
-handling. Today LPs are simulated, so there's no real counterparty risk. **M4.**
+### 9. Merchant/LP network (KYB) — 🟡 *modelled (M4 ✅), real vendor deferred to M7*
+The **structure** is now built ([08](08-routing-and-failover.md)): KYB lifecycle (`kyb_status`,
+onboarding/approval gating), performance scoring from real outcomes, **bonds** (skin-in-the-game,
+auto-suspend below a floor), and a **dispute** open/resolve flow that draws the bond down. Still
+**simulated** — no real KYB vendor, contracts, payout, or arbitration — so no real counterparty risk
+yet; those flip at **M7**.
 
 ## Summary table
 
@@ -99,7 +102,7 @@ handling. Today LPs are simulated, so there's no real counterparty risk. **M4.**
 | AML / sanctions / monitoring | data foundation only | ⬜ | **M5** |
 | FX & disclosure | itemized but fixed rate | 🟡 | **M7** |
 | On-ramp / payout (fiat) | simulated | ⬜ | **M7** |
-| Merchant KYB / bonds | simulated | ⬜ | **M4** |
+| Merchant KYB / bonds / disputes | structure built (M4 ✅), simulated network | 🟡 | real vendor **M7** |
 | Data / privacy | minimal | 🟡 | pre-launch |
 
 ## Bottom line

@@ -21,6 +21,8 @@ erDiagram
     quotes ||--|| orders : "locks into"
     orders ||--o{ order_events : logs
     orders ||--o{ order_routing_attempts : "routing trail (M3)"
+    orders ||--o{ disputes : "disputed (M4)"
+    merchants ||--o{ disputes : "against (M4)"
     transfers ||--o{ orders : "escrow fund/release"
     payment_requests ||--o| transfers : "fulfilled by"
 
@@ -50,11 +52,13 @@ erDiagram
     }
     merchants {
         uuid id PK
-        text treasury_address
-        numeric success_rate
-        int spread_bps
+        text status
+        text kyb_status
         numeric float_usdc
-        text sim_behavior
+        numeric bond_usdc
+        numeric success_rate
+        numeric dispute_rate
+        int spread_bps
     }
     quotes {
         uuid id PK
@@ -85,6 +89,13 @@ erDiagram
         int sequence
         text outcome
     }
+    disputes {
+        uuid id PK
+        uuid order_id FK
+        uuid merchant_id FK
+        text status
+        text resolution
+    }
 ```
 
 ## Table by table
@@ -95,11 +106,12 @@ erDiagram
 | **wallets** | a user's chain address(es) | `chain='solana'`; unique `address` |
 | **transfers** | the money ledger | `kind ∈ send/add/pay/escrow_fund/escrow_release`; `status ∈ pending/confirmed/failed`; unique `signature` |
 | **payment_requests** | "you owe me $X" | `status ∈ open/paid/cancelled`; links the fulfilling `transfer_id` |
-| **merchants** | the simulated LP network | ranking signals (success/spread/speed/float) + `sim_behavior` (happy/slow/no_receipt/timeout) |
+| **merchants** | the LP network (simulated) | ranking signals (`success_rate`/`dispute_rate`/`avg_completion_secs`/`spread_bps`/`float_usdc`) kept **live by M4** + `base_*` seed priors; lifecycle (`status` incl. `suspended`, `kyb_status`), `bond_usdc`, `sim_behavior` |
 | **quotes** | a 45s-locked price | INR + USDC legs, `rate`, fees, ETA, `route_quality`, `expires_at` |
 | **orders** | the 7-state machine | `state` + transient `resolution`; links escrow fund/release transfers; `expires_at` = escalation deadline |
 | **order_events** | append-only timeline | powers the live tracker; `(from_state, to_state, event, detail)` |
-| **order_routing_attempts** *(M3)* | routing audit + tried-set | `(sequence, outcome, reason)`; one per assignment/reroute |
+| **order_routing_attempts** *(M3)* | routing audit + tried-set + **M4 scoring substrate** | `(sequence, outcome, reason)`; `released`/`failed` outcomes feed `success_rate` |
+| **disputes** *(M4)* | user disputes on completed orders | `(status open/resolved, resolution upheld/rejected)`; upheld draws down the LP's bond + feeds `dispute_rate` |
 
 ## Why this way
 
@@ -127,9 +139,9 @@ erDiagram
 
 ## Status
 
-- ✅ Full Phase-1 + M1 + M2 schema, idempotent constraint backfills, owner-scoped queries, hot-path
-  indexes.
-- 🟡 `order_routing_attempts` + `merchants.dispute_rate` land with **M3** (in progress).
+- ✅ Full schema through M4: Phase-1 + orders/quotes/merchants (M1), escrow transfers (M2),
+  `order_routing_attempts` (M3), `disputes` + merchant lifecycle/`bond_usdc`/`base_*` columns (M4);
+  idempotent constraint + column backfills; owner-scoped queries; hot-path indexes.
 - ⬜ RLS, encryption-at-rest, retention policy (production hardening).
 
 ## Key files

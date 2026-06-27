@@ -71,8 +71,9 @@ change** — only the *source* of the USDC flips from "we mint it" to "a partner
 
 - ✅ Devnet faucet (`/devnet/faucet`) — mints controlled USDC, records a deposit, returns new balance;
   dev-gated and clamped.
-- 🟡 **"Add money" UX implies real funding** but is a faucet/airbridge — copy like *"Test dollars on
-  devnet"* and the *"deposit USDC"* address path leak the test/crypto nature.
+- 🟡 **"Add money" is still a faucet under the hood**, but the **de-crypto pass cleaned the copy** —
+  *"Test dollars on devnet"* → *"Added to your balance instantly"*, *"Or deposit USDC"* → *"Or add
+  manually"*. The user no longer sees the test/crypto nature; the *funding mechanism* is still a faucet.
 - ⬜ **Real on-ramp** (card/bank, licensed partner, KYC-gated) — **M7**.
 
 ## Key files

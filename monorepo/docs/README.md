@@ -42,12 +42,12 @@ Every integration/flow doc follows the **same six-part shape**, so you always kn
 | 05 | [P2P send & request](05-p2p-send-request.md) | send money to a friend, request money | ✅ |
 | 06 | [Payout order lifecycle](06-payout-order-lifecycle.md) | quote engine + the 7-state order machine | ✅ |
 | 07 | [On-chain escrow](07-onchain-escrow.md) | the Anchor program that holds funds (M2) | ✅ |
-| 08 | [Routing & failover](08-routing-and-failover.md) | picking & silently re-routing merchants (M3) | 🟡 in progress |
+| 08 | [Routing, scoring & the LP marketplace](08-routing-and-failover.md) | ranking, silent failover (M3) + live signals/float/KYB/bonds/disputes (M4) | ✅ |
 | 09 | [Confirmation pipeline](09-confirmation-pipeline.md) | how the chain tells the app a payment landed | ✅ |
 | 10 | [Data model](10-data-model.md) | the Postgres schema, table by table | ✅ |
 | 11 | [Compliance & legalities](11-compliance-and-legalities.md) | the honest risk map: custody, KYC, MTL, FX, sanctions | 🟡 |
 | 12 | [Status & roadmap](12-status-and-roadmap.md) | the M0→M7 heat-map of done vs. gray vs. planned | — |
-| 13 | [Future milestones](13-future-milestones.md) | M4–M7: merchant layer, compliance, infra, real rails | ⬜ |
+| 13 | [Future milestones](13-future-milestones.md) | M5–M7: compliance, infra, real rails | ⬜ |
 
 ---
 
