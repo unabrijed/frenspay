@@ -159,7 +159,8 @@ create index if not exists idx_orders_state        on orders (state, expires_at)
 create index if not exists idx_order_events_order  on order_events (order_id, created_at);
 create index if not exists idx_routing_attempts    on order_routing_attempts (order_id, sequence);
 create index if not exists idx_disputes_merchant   on disputes (merchant_id);
-create index if not exists idx_disputes_order       on disputes (order_id);
+-- One dispute per order (prevents bond over-draw + dispute_rate corruption from repeated disputes).
+create unique index if not exists uq_disputes_order on disputes (order_id);
 create index if not exists idx_quotes_user         on quotes (user_id, created_at desc);
 
 -- Backfill the CHECK constraints on databases created before they were added (the table

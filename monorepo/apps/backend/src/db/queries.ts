@@ -909,14 +909,23 @@ export async function reassignOrderMerchant(
   orderId: string,
   merchantId: string,
   expiresAt: Date,
+  expectedMerchantId: string,
 ): Promise<boolean> {
+  // Exclusive claim: only the reroute that still sees the *stalled* merchant wins, so two concurrent
+  // worker ticks can't both reassign (and desync orders.merchant_id from the attempt log).
   const { rowCount } = await getPool().query(
     `update orders
         set merchant_id = $2, resolution = null, expires_at = $3, updated_at = now()
-      where id = $1 and state = 'payment_detected'`,
-    [orderId, merchantId, expiresAt],
+      where id = $1 and state = 'payment_detected' and merchant_id = $4`,
+    [orderId, merchantId, expiresAt, expectedMerchantId],
   );
   return (rowCount ?? 0) > 0;
+}
+
+/** Current state of an order (or null). Used as a pre-broadcast guard for refunds. */
+export async function getOrderState(orderId: string): Promise<OrderState | null> {
+  const { rows } = await getPool().query<{ state: OrderState }>(`select state from orders where id = $1`, [orderId]);
+  return rows[0]?.state ?? null;
 }
 
 /* ---- M4: merchant lifecycle, live float, performance stats, disputes ---- */
@@ -952,15 +961,23 @@ export async function merchantOutcomeCounts(): Promise<Record<string, { released
   return out;
 }
 
-/** Avg completion seconds + sample size per merchant (fund_confirmed → funds_released on completed orders). */
+/**
+ * Avg completion seconds + sample size per merchant on completed orders. Measured from
+ * GREATEST(fund_confirmed, the final routing attempt) → funds_released, so the FINAL merchant is only
+ * charged for ITS handling window — not the stall time of any predecessor LP that was rerouted away.
+ */
 export async function merchantCompletionStats(): Promise<Record<string, { avgSecs: number; n: number }>> {
   const { rows } = await getPool().query<{ merchant_id: string; avg_secs: string | null; n: string }>(
     `select o.merchant_id,
-            avg(extract(epoch from (rel.created_at - det.created_at))) as avg_secs,
+            avg(extract(epoch from (rel.created_at - greatest(det.created_at, att.created_at)))) as avg_secs,
             count(*) as n
        from orders o
        join order_events det on det.order_id = o.id and det.event = 'fund_confirmed'
        join order_events rel on rel.order_id = o.id and rel.event = 'funds_released'
+       join lateral (
+         select created_at from order_routing_attempts a
+          where a.order_id = o.id order by sequence desc limit 1
+       ) att on true
       where o.state = 'completed' and o.merchant_id is not null
       group by o.merchant_id`,
   );

@@ -25,6 +25,7 @@ import type {
   SubmitTransferResponse,
   TransactionsResponse,
 } from '@pay/shared';
+import { PublicKey } from '@solana/web3.js';
 
 import { authPreHandler, requirePrivyDid, requireUserId } from '../auth';
 import { config } from '../config';
@@ -415,9 +416,16 @@ export async function registerRoutes(app: FastifyInstance) {
     '/merchants/apply',
     async (req, reply) => {
       const { name, payoutMethod, treasuryAddress } = req.body ?? {};
+      const rail = payoutMethod ?? 'UPI';
       if (!name || !treasuryAddress) return reply.code(400).send({ error: 'missing_fields' });
-      const id = await insertMerchantApplication({ name, payoutRail: payoutMethod ?? 'UPI', treasuryAddress });
-      return { id, kybStatus: 'pending' };
+      if (!['UPI', 'Pix', 'bank'].includes(rail)) return reply.code(400).send({ error: 'invalid_rail' });
+      try {
+        new PublicKey(treasuryAddress); // release target — must be a valid Solana address
+      } catch {
+        return reply.code(400).send({ error: 'invalid_treasury_address' });
+      }
+      const id = await insertMerchantApplication({ name, payoutRail: rail, treasuryAddress });
+      return reply.code(201).send({ id, kybStatus: 'pending' });
     },
   );
 
@@ -427,8 +435,14 @@ export async function registerRoutes(app: FastifyInstance) {
     const order = await getOrderForDispute(req.params.id, userId);
     if (!order) return reply.code(404).send({ error: 'order_not_found' });
     if (order.state !== 'completed') return reply.code(409).send({ error: 'order_not_disputable' });
-    const id = await insertDispute({ orderId: req.params.id, merchantId: order.merchantId, reason: req.body?.reason });
-    return { id, status: 'open' };
+    let id: string;
+    try {
+      id = await insertDispute({ orderId: req.params.id, merchantId: order.merchantId, reason: req.body?.reason });
+    } catch (e) {
+      if ((e as { code?: string }).code === '23505') return reply.code(409).send({ error: 'already_disputed' });
+      throw e;
+    }
+    return reply.code(201).send({ id, status: 'open' });
   });
 
   // --- dev-only M4 controls (KYB decision, stats recompute, dispute resolution) ---
@@ -457,7 +471,10 @@ export async function registerRoutes(app: FastifyInstance) {
       if (!dispute) return reply.code(404).send({ error: 'dispute_not_found' });
       if (dispute.status !== 'open') return reply.code(409).send({ error: 'dispute_resolved' });
       const forUser = req.query.for !== 'merchant';
-      await resolveDispute(req.params.id, forUser ? 'upheld' : 'rejected');
+      // Gate the bond draw on the atomic resolve actually claiming the row — so two concurrent calls
+      // can't fine the bond twice for one dispute.
+      const resolved = await resolveDispute(req.params.id, forUser ? 'upheld' : 'rejected');
+      if (!resolved) return reply.code(409).send({ error: 'dispute_resolved' });
       if (forUser) await drawDownBond(dispute.merchantId, DISPUTE_PENALTY_USDC); // fine the LP's bond
       return { ok: true, resolution: forUser ? 'upheld' : 'rejected' };
     },

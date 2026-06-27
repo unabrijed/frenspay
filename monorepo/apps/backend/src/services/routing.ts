@@ -51,10 +51,10 @@ export async function rankMerchants(input: {
   const committed = await committedFloatByMerchant();
   const availableOf = (m: MerchantRow) => Math.max(Number(m.float_usdc) - (committed[m.id] ?? 0), 0);
 
-  // Hard filter: the LP must be able to cover the order. If that empties the pool, fall back to byRail
-  // so we still return something rankable (the caller decides whether to refund on an empty result).
-  const covered = byRail.filter((m) => availableOf(m) >= input.amountUsdc);
-  const pool = covered.length > 0 ? covered : byRail;
+  // Hard filter (truly hard): only LPs whose available float can cover the order. If none can, return
+  // [] so the caller fails fast — `createQuote` → `no_merchant`, `rerouteOrder` → refund — rather than
+  // routing real money to an LP that provably can't service it.
+  const pool = byRail.filter((m) => availableOf(m) >= input.amountUsdc);
   if (pool.length === 0) return [];
 
   const avail = pool.map(availableOf);

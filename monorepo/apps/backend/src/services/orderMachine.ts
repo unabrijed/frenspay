@@ -15,6 +15,7 @@ import {
   getOrderByEscrowFundTransfer,
   getOrderByEscrowReleaseTransfer,
   getOrderForUser,
+  getOrderState,
   getQuoteRowForUser,
   getWalletForUser,
   insertOrder,
@@ -169,6 +170,11 @@ export async function refundToUser(input: {
   const wallet = await getWalletForUser(input.userId);
   if (!wallet?.address) return false;
 
+  // Guard: only refund an order still awaiting payout. If it was already released or moved on (race with
+  // a release / dev confirm / overlapping tick), don't broadcast a refund against an escrow that no
+  // longer holds the funds. (The on-chain program is the ultimate guard; this avoids the wasted tx.)
+  if ((await getOrderState(input.orderId)) !== 'payment_detected') return false;
+
   // Broadcast first; the program enforces single-refund (the escrow closes), so we set the terminal
   // state only after the on-chain refund is broadcast + recorded.
   const signature = await refundEscrow({ reference: input.reference, userOwner: wallet.address });
@@ -205,15 +211,17 @@ export async function rerouteOrder(input: {
 }): Promise<boolean> {
   const attempts = await listRoutingAttempts(input.orderId);
   const sequence = attempts.length ? Math.max(...attempts.map((a) => a.sequence)) : 0;
-  if (sequence >= MAX_ROUTING_ATTEMPTS) return false; // give up → refund
+  const currentMerchantId = attempts.at(-1)?.merchantId; // the stalled LP (== orders.merchant_id)
+  if (sequence >= MAX_ROUTING_ATTEMPTS || !currentMerchantId) return false; // give up → refund
 
   const tried = attempts.map((a) => a.merchantId);
   const ranked = await rankMerchants({ payoutMethod: input.payoutMethod, amountUsdc: input.amountUsdc, excludeIds: tried });
   const next = ranked[0]?.merchant;
-  if (!next) return false; // no fresh LP → refund
+  if (!next) return false; // no fresh LP that can cover the order → refund
 
-  // Atomically reassign while still in payment_detected (fresh SLA window). Lost the race → bail.
-  const claimed = await reassignOrderMerchant(input.orderId, next.id, new Date(Date.now() + ORDER_SLA_MS));
+  // Atomically reassign while still in payment_detected AND still pointing at the stalled LP — so two
+  // concurrent ticks can't both claim. Lost the race → bail.
+  const claimed = await reassignOrderMerchant(input.orderId, next.id, new Date(Date.now() + ORDER_SLA_MS), currentMerchantId);
   if (!claimed) return false;
 
   await markLatestAttemptOutcome(input.orderId, 'failed'); // the LP we just left

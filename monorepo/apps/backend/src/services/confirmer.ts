@@ -12,6 +12,7 @@ import { getTransferStatus } from './solana';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let tick = 0;
+let running = false; // re-entrancy guard: a slow pass must not overlap the next tick
 
 /** One pass: resolve every pending+broadcast transfer and persist a terminal status. */
 export async function confirmPendingOnce(log?: (m: string) => void): Promise<void> {
@@ -41,7 +42,13 @@ export async function confirmPendingOnce(log?: (m: string) => void): Promise<voi
 export function startConfirmer(intervalMs = 8000, log?: (m: string) => void): void {
   if (timer || !hasDatabase() || !config.usdcMint) return;
   timer = setInterval(() => {
-    confirmPendingOnce(log).catch((e) => log?.(`confirmer error: ${String(e)}`));
+    if (running) return; // previous pass still in flight (slow RPC) — skip this tick
+    running = true;
+    confirmPendingOnce(log)
+      .catch((e) => log?.(`confirmer error: ${String(e)}`))
+      .finally(() => {
+        running = false;
+      });
   }, intervalMs);
   timer.unref?.();
 }

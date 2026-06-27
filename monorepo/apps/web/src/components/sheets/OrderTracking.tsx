@@ -93,6 +93,24 @@ export function OrderTracking() {
   if (order.state === 'refunded') {
     return <Done title="Refunded" headline={`${inrRaw(order.quote.amountInr)} refunded`} inst="You’ve been made whole" onClose={close} />;
   }
+  if (order.state === 'failed') {
+    // Terminal failure (e.g. never funded / abandoned). Not a dead-end timeline — show a clear close-out.
+    return (
+      <>
+        <Grab />
+        <SheetHeader title="Payment cancelled" onClose={close} />
+        <SheetBody>
+          <Txt style={[type.lead, { textAlign: 'center', marginTop: 8 }]}>
+            This payment didn’t go through. No money left your balance — please try again.
+          </Txt>
+          <Spacer />
+          <View style={styles.cta}>
+            <Btn label="Done" variant="ink" onPress={close} />
+          </View>
+        </SheetBody>
+      </>
+    );
+  }
 
   const idx = STEPS.findIndex((s) => s.state === order.state);
 
