@@ -74,6 +74,7 @@ import {
   screenAddress,
   screenHandle,
 } from '../services/compliance';
+import { getMidRate, getMidRateAsOf } from '../services/fxRate';
 import { metrics } from '../services/metrics';
 import { notifyKycUpgraded, notifyRequestPaid } from '../services/notify';
 import { rateLimitHook } from '../services/rateLimit';
@@ -101,6 +102,9 @@ export async function registerRoutes(app: FastifyInstance) {
     reply.header('content-type', 'text/plain; version=0.0.4');
     return metrics.prometheus();
   });
+
+  // M7: the live mid-market FX rate (for a standalone "today's rate" display; quotes carry their own).
+  app.get('/fx/rate', async () => ({ rate: getMidRate(), asOf: getMidRateAsOf() }));
 
   // --- auth / identity ---
   app.post<{ Body: AuthSyncRequest }>('/auth/sync', async (req, reply) => {
@@ -337,9 +341,9 @@ export async function registerRoutes(app: FastifyInstance) {
     const userId = requireUserId(req);
     const { direction, amountInr, payoutMethod } = req.body ?? ({} as QuoteRequest);
     if (!amountInr || amountInr <= 0) return reply.code(400).send({ error: 'invalid_amount' });
-    // M5: enforce cash-out (merchant-pay) KYC limits before pricing. Estimate USD from the mid rate
-    // (87.55, mirrored locally per the @pay/shared types-only convention); blocks under-tier users.
-    const cashLimit = await checkCashOutLimit(userId, amountInr / 87.55);
+    // M5: enforce cash-out (merchant-pay) KYC limits before pricing. Estimate USD from the live mid
+    // rate (M7); blocks under-tier users.
+    const cashLimit = await checkCashOutLimit(userId, amountInr / getMidRate());
     if (!cashLimit.ok) {
       return reply.code(403).send({
         error: 'limit_exceeded',

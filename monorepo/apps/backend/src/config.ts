@@ -56,4 +56,10 @@ export const config = {
   privyAppSecret: env('PRIVY_APP_SECRET'),
   // Optional: paste the verification key from the Privy dashboard to skip a network fetch per verify.
   privyVerificationKey: env('PRIVY_VERIFICATION_KEY'),
+
+  // M7: live FX. A free, no-key source returning `rates.INR`; cached + range-validated, falling back to
+  // FX_FALLBACK_RATE on any failure. Refreshed in the background so quoting never blocks on the network.
+  fxSourceUrl: env('FX_SOURCE_URL', 'https://open.er-api.com/v6/latest/USD'),
+  fxFallbackRate: Number(env('FX_FALLBACK_RATE', '87.55')),
+  fxRefreshMs: Number(env('FX_REFRESH_MS', '600000')), // 10 min
 };

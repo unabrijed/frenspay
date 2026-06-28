@@ -5,6 +5,7 @@ import { config } from './config';
 import { hasDatabase } from './db/pool';
 import { registerRoutes } from './routes/index';
 import { startConfirmer } from './services/confirmer';
+import { startFxRefresher } from './services/fxRate';
 import { registerHeliusWebhook } from './services/helius';
 import { metrics } from './services/metrics';
 import { startRateLimitSweeper } from './services/rateLimit';
@@ -39,6 +40,9 @@ async function start() {
 
   // M6: sweep stale rate-limit windows independently of the confirmer (which no-ops without a mint).
   startRateLimitSweeper();
+
+  // M7: prime + refresh the live FX rate in the background (quoting reads the cache; falls back safely).
+  startFxRefresher(config.fxRefreshMs, (m) => app.log.info(m));
 
   // Indexer: register the Helius push webhook (no-op unless HELIUS_API_KEY + PUBLIC_BASE_URL set).
   void registerHeliusWebhook((m) => app.log.info(m));
