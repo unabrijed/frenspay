@@ -4,6 +4,8 @@
 // swaps this for @fastify/rate-limit + Redis at M7.
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
+import { config } from '../config';
+
 import { metrics } from './metrics';
 
 interface Rule {
@@ -27,12 +29,11 @@ type Window = { count: number; resetAt: number };
 const windows = new Map<string, Window>();
 
 function identity(req: FastifyRequest): string {
-  return (
-    (req.headers['x-dev-user-id'] as string) ||
-    (req.headers['authorization'] as string) ||
-    req.ip ||
-    'anon'
-  );
+  // `x-dev-user-id` is a client-spoofable dev shim — honoring it in prod would let an attacker mint a
+  // fresh bucket per request and defeat every cap. Only trust it in development; otherwise key on the
+  // bearer token (stable per user) then the peer IP.
+  const dev = config.isDevelopment ? (req.headers['x-dev-user-id'] as string | undefined) : undefined;
+  return dev || (req.headers['authorization'] as string) || req.ip || 'anon';
 }
 
 /** Build the Fastify onRequest hook. Returns 429 (with retry-after) past a route's per-window cap. */
@@ -62,6 +63,15 @@ export function rateLimitHook(rules: Rule[] = RATE_LIMIT_RULES) {
 export function sweepRateLimitWindows(): void {
   const now = Date.now();
   for (const [k, w] of windows) if (now >= w.resetAt) windows.delete(k);
+}
+
+let sweepTimer: ReturnType<typeof setInterval> | null = null;
+/** Start an independent sweep so the Map can't leak — NOT coupled to the confirmer (which is a no-op
+ *  without a configured mint). Idempotent; unref'd so it never holds the process open. */
+export function startRateLimitSweeper(intervalMs = 60_000): void {
+  if (sweepTimer) return;
+  sweepTimer = setInterval(sweepRateLimitWindows, intervalMs);
+  sweepTimer.unref?.();
 }
 
 /** Test seam: reset all windows (used by the check-infra harness). */

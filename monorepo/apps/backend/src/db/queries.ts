@@ -15,7 +15,7 @@ import type {
   RouteQuality,
 } from '@pay/shared';
 
-import { getPool } from './pool';
+import { getLockPool, getPool } from './pool';
 
 export type TransferKind = 'send' | 'add' | 'pay' | 'escrow_fund' | 'escrow_release';
 
@@ -339,14 +339,18 @@ export async function setTransferStatus(
 export async function setTransferStatusBySignature(
   signature: string,
   status: 'pending' | 'confirmed' | 'failed',
-): Promise<void> {
-  await getPool().query(
+): Promise<string | null> {
+  // Returns the transfer id only when the row actually transitioned (status changed) — so a webhook
+  // re-delivery, or a row the poller already finalized, can't re-fire order advancement / notifications.
+  const { rows } = await getPool().query<{ id: string }>(
     `update transfers
         set status = $2,
             confirmed_at = case when $2 = 'confirmed' then now() else confirmed_at end
-      where signature = $1`,
+      where signature = $1 and status <> $2
+      returning id`,
     [signature, status],
   );
+  return rows[0]?.id ?? null;
 }
 
 export async function getPendingSignatures(): Promise<{ id: string; signature: string }[]> {
@@ -1213,13 +1217,23 @@ export async function markAllNotificationsRead(userId: string): Promise<void> {
  * dedicated pooled connection for the duration of `fn`; other callers for the same user block on it.
  */
 export async function withUserLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
-  const client = await getPool().connect();
+  // Connect from the DEDICATED lock pool, not the query pool — fn's own queries use the query pool, so
+  // holding this connection for the whole section can't deadlock against them (M6 audit H1).
+  const client = await getLockPool().connect();
+  let unlocked = false;
   try {
     await client.query('select pg_advisory_lock(hashtext($1))', [userId]);
     return await fn();
   } finally {
-    await client.query('select pg_advisory_unlock(hashtext($1))', [userId]).catch(() => {});
-    client.release();
+    try {
+      await client.query('select pg_advisory_unlock(hashtext($1))', [userId]);
+      unlocked = true;
+    } catch {
+      /* unlock failed */
+    }
+    // If the unlock didn't run, destroy the connection (release with an error) so the pool doesn't
+    // recycle a session that still holds the advisory lock (poisoned-connection hazard, M6 audit M3).
+    client.release(unlocked ? undefined : new Error('advisory unlock failed'));
   }
 }
 
@@ -1239,7 +1253,8 @@ export async function getSendNotifyInfo(
   const { rows } = await getPool().query<{ to_user_id: string | null; amount_usdc: string; from_handle: string | null }>(
     `select t.to_user_id, t.amount_usdc, u.handle as from_handle
        from transfers t left join users u on u.id = t.from_user_id
-      where t.id = $1 and t.kind = 'send'`,
+      where t.id = $1 and t.kind = 'send'
+        and not exists (select 1 from payment_requests pr where pr.transfer_id = t.id)`,
     [transferId],
   );
   const r = rows[0];

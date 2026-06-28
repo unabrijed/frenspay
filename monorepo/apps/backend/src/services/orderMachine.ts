@@ -18,6 +18,7 @@ import {
   getOrderState,
   getOrderUserAmount,
   getQuoteRowForUser,
+  getSendNotifyInfo,
   getWalletForUser,
   insertOrder,
   insertRoutingAttempt,
@@ -31,7 +32,7 @@ import {
 import { checkCashOutLimit, scoreAndRecord, type LimitCheck } from './compliance';
 import { buildDepositTx, escrowAddress, refundEscrow, releaseEscrow } from './escrowProgram';
 import { metrics } from './metrics';
-import { notifyPaymentSent, notifyRefunded } from './notify';
+import { notifyPaymentSent, notifyReceived, notifyRefunded } from './notify';
 import { rankMerchants } from './routing';
 
 /** Time a stuck order sits in a state before the worker begins escalating it. Demo-tuned. */
@@ -130,6 +131,14 @@ export async function onTransferConfirmed(transferId: string): Promise<void> {
     const info = await getOrderUserAmount(released.id);
     if (info) await notifyPaymentSent(info.userId, info.amountUsdc); // M6
   }
+}
+
+/** The confirmer AND the Helius webhook both funnel a confirmed transfer through here: advance any
+ *  linked order, then notify the recipient of a P2P send. Keeps both confirmation paths in sync. */
+export async function onTransferConfirmedAndNotify(transferId: string): Promise<void> {
+  await onTransferConfirmed(transferId);
+  const recv = await getSendNotifyInfo(transferId);
+  if (recv) await notifyReceived(recv.toUserId, recv.amountUsd, recv.fromHandle);
 }
 
 /** Overlay a transient resolution (delayed / needs_action / under_review) without leaving the state. */

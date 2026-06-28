@@ -228,7 +228,8 @@ export const usePayStore = create<PayState>()(
             wallet.getBalanceUsd(),
             wallet.getTransactions(),
             wallet.getRequests(),
-            api.getNotifications(),
+            // Non-critical: a failing /notifications must never blank the dashboard.
+            api.getNotifications().catch(() => ({ notifications: get().notifications, unread: get().unread })),
           ]);
           set({
             walletAddress: me.walletAddress,
@@ -251,9 +252,17 @@ export const usePayStore = create<PayState>()(
             wallet.getBalanceUsd(),
             wallet.getTransactions(),
             wallet.getRequests(),
-            api.getNotifications(),
+            api.getNotifications().catch(() => null),
           ]);
-          set({ balanceUSD: bal, transactions: txns, requests: reqs, notifications: notifs.notifications, unread: notifs.unread });
+          // Don't overwrite notifications while the inbox is open — it would resurrect the just-cleared
+          // unread badge (the optimistic read-all may not be committed server-side yet).
+          const keepInbox = get().sheet === 'notifications' || !notifs;
+          set({
+            balanceUSD: bal,
+            transactions: txns,
+            requests: reqs,
+            ...(keepInbox ? {} : { notifications: notifs.notifications, unread: notifs.unread }),
+          });
         } catch (e) {
           set({ error: e instanceof Error ? e.message : String(e) });
         }

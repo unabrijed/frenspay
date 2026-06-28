@@ -7,9 +7,11 @@ import { registerRoutes } from './routes/index';
 import { startConfirmer } from './services/confirmer';
 import { registerHeliusWebhook } from './services/helius';
 import { metrics } from './services/metrics';
+import { startRateLimitSweeper } from './services/rateLimit';
 
 async function start() {
-  const app = Fastify({ logger: true });
+  // trustProxy: behind Railway's proxy, so req.ip reflects the client (used as a rate-limit fallback key).
+  const app = Fastify({ logger: true, trustProxy: true });
 
   const corsOrigin = config.corsOrigin ? config.corsOrigin.split(',').map((s) => s.trim()) : true;
   await app.register(cors, { origin: corsOrigin });
@@ -34,6 +36,9 @@ async function start() {
 
   // M2: poll pending transfers to confirmation (no-op without DB + USDC_MINT).
   startConfirmer(8000, (m) => app.log.info(m));
+
+  // M6: sweep stale rate-limit windows independently of the confirmer (which no-ops without a mint).
+  startRateLimitSweeper();
 
   // Indexer: register the Helius push webhook (no-op unless HELIUS_API_KEY + PUBLIC_BASE_URL set).
   void registerHeliusWebhook((m) => app.log.info(m));

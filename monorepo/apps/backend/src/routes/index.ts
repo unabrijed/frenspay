@@ -82,6 +82,7 @@ import {
   confirmOrderFromQuote,
   flagResolution,
   markFundSubmitted,
+  onTransferConfirmedAndNotify,
   refundToUser,
   releaseToMerchant,
 } from '../services/orderMachine';
@@ -320,7 +321,10 @@ export async function registerRoutes(app: FastifyInstance) {
       if (typeof ev?.signature === 'string') {
         // Helius sets transactionError (non-null) on failed txs; null/absent means success.
         const status = ev.transactionError == null ? 'confirmed' : 'failed';
-        await setTransferStatusBySignature(ev.signature, status);
+        const id = await setTransferStatusBySignature(ev.signature, status);
+        // M6: on a real pending→confirmed transition, drive the same advance-order + notify path the
+        // poller uses (previously the webhook only flipped the row, so prod webhook-wins dropped both).
+        if (id && status === 'confirmed') await onTransferConfirmedAndNotify(id);
       }
     }
     return { ok: true };
