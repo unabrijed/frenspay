@@ -1,33 +1,13 @@
-# 13 · Future Milestones (M6 → M7)
+# 13 · Future Milestones (M7)
 
-The unbuilt half of the roadmap, documented to the same standard so the full vision is on paper. Each
-is **⬜ planned**. These flip the remaining **simulated** components ([11](11-compliance-and-legalities.md))
-into **real** ones, in dependency order: harden the infra (M6), then connect real money (M7). *(M5 —
-compliance/KYC enforcement + screening — is **✅ built** (simulated vendor), as is the M4 merchant
-layer; see [12](12-status-and-roadmap.md).)*
+The last unbuilt milestone, documented to the same standard so the full vision is on paper. **M0–M6 are
+✅ built** (simulated rails where needed; see [12](12-status-and-roadmap.md)) — M7 flips every remaining
+**simulated** edge ([11](11-compliance-and-legalities.md)) into a **real, licensed** one.
 
 ```mermaid
 flowchart LR
-    M5["M5 ✅<br/>compliance & risk"] --> M6["M6<br/>notifications + infra"]
-    M6 --> M7["M7<br/>real rails (mainnet)"]
+    M6["M6 ✅<br/>notifications + infra"] --> M7["M7<br/>real rails (mainnet)"]
 ```
-
----
-
-## M6 · Notifications + Infra Hardening
-
-**What it will be.** Production infrastructure: a **notification service** (push/webhooks/reminders —
-"you paid ₹X to Y", "Z sent you $A"), **Redis** for queues/locks/quote-cache, **API-gateway
-rate-limiting** (incl. protecting the fee-payer from abuse), and **observability** dashboards.
-
-**Why.** Today there's one in-process 8s poller and no rate-limiting — fine for devnet, not for
-production load, abuse resistance, or operability. This is the "make it survive real traffic" milestone.
-
-**Legalities.** Operational resilience + abuse prevention are themselves compliance expectations for a
-payments operator; rate-limiting the fee-payer prevents a spam-drain DoS.
-
-**Status.** ⬜ Planned. The confirmer/worker move from an in-process tick to real queues; notifications
-read the existing `transfers`/`order_events` data.
 
 ---
 
@@ -36,7 +16,9 @@ read the existing `transfers`/`order_events` data.
 **What it will be.** Flip every simulated component to production: a **live FX source**, **real payout
 providers** (UPI/Pix/bank), **KYC/AML vendors** live, and **mainnet** USDC (Circle's real mint)
 instead of a controlled devnet mint. The faucet becomes a **real on-ramp** (card/bank/Apple Pay via a
-licensed partner).
+licensed partner). Plus the **infra-scale carry-overs from M6**: **Redis** (multi-instance locks/queues/
+quote-cache), a shared rate-limit store, a real metrics scrape target, and **real push/webhook**
+notification delivery (FCM/APNs) over the in-app inbox.
 
 **Why.** The endgame: real users moving real money. Everything before M7 exists so that this switch is
 a *configuration + partnership* change, not a re-architecture.

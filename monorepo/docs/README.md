@@ -47,7 +47,8 @@ Every integration/flow doc follows the **same six-part shape**, so you always kn
 | 10 | [Data model](10-data-model.md) | the Postgres schema, table by table | ✅ |
 | 11 | [Compliance & legalities](11-compliance-and-legalities.md) | the honest risk map: custody, KYC, MTL, FX, sanctions | 🟡 |
 | 12 | [Status & roadmap](12-status-and-roadmap.md) | the M0→M7 heat-map of done vs. gray vs. planned | — |
-| 13 | [Future milestones](13-future-milestones.md) | M6–M7: notifications/infra, real rails | ⬜ |
+| 13 | [Future milestones](13-future-milestones.md) | M7: real rails (the last milestone) | ⬜ |
+| 14 | [Notifications & infra](14-notifications-and-infra.md) | in-app inbox, advisory lock, rate-limit, metrics (M6) | ✅ / 🟡 scale |
 
 ---
 

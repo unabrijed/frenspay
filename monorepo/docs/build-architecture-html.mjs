@@ -25,6 +25,7 @@ const FILES = [
   '11-compliance-and-legalities.md',
   '12-status-and-roadmap.md',
   '13-future-milestones.md',
+  '14-notifications-and-infra.md',
 ];
 
 const docs = FILES.map((f) => readFileSync(join(here, f), 'utf8'));

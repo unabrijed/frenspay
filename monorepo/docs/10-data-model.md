@@ -17,6 +17,7 @@ erDiagram
     users ||--o{ quotes : gets
     users ||--o{ orders : places
     users ||--o{ risk_events : "risk audit (M5)"
+    users ||--o{ notifications : "inbox (M6)"
     merchants ||--o{ quotes : "priced by"
     merchants ||--o{ orders : assigned
     quotes ||--|| orders : "locks into"
@@ -109,6 +110,13 @@ erDiagram
         text decision
         int score
     }
+    notifications {
+        uuid id PK
+        uuid user_id FK
+        text kind
+        text title
+        boolean read
+    }
 ```
 
 ## Table by table
@@ -127,6 +135,7 @@ erDiagram
 | **disputes** *(M4)* | user disputes on completed orders | `(status open/resolved, resolution upheld/rejected)`; upheld draws down the LP's bond + feeds `dispute_rate` |
 | **denylist** *(M5)* | simulated sanctions list | `(kind address/handle, value)`; screened on every money movement |
 | **risk_events** *(M5)* | per-action fraud/screening audit | `(kind, decision allow/review/block, score, reason)` |
+| **notifications** *(M6)* | in-app inbox | `(kind, title, body, read, meta)`; written by `notify()` at lifecycle events |
 
 ## Why this way
 
@@ -154,9 +163,10 @@ erDiagram
 
 ## Status
 
-- ✅ Full schema through M5: Phase-1 + orders/quotes/merchants (M1), escrow transfers (M2),
+- ✅ Full schema through M6: Phase-1 + orders/quotes/merchants (M1), escrow transfers (M2),
   `order_routing_attempts` (M3), `disputes` + merchant lifecycle columns (M4), `users.kyc_tier` +
-  `denylist` + `risk_events` (M5); idempotent constraint + column backfills; owner-scoped queries.
+  `denylist` + `risk_events` (M5), `notifications` (M6); idempotent constraint + column backfills;
+  owner-scoped queries.
 - ⬜ RLS, encryption-at-rest, retention policy (production hardening).
 
 ## Key files

@@ -14,9 +14,9 @@ flowchart LR
       M3["M3 · Routing + auto-failover<br/>weighted rank, silent reroute"]
       M4["M4 · Merchant/liquidity layer<br/>live float, scoring, KYB, bonds, disputes"]
       M5["M5 · Compliance & risk<br/>enforced KYC tiers, screening, fraud score"]
+      M6["M6 · Notifications + infra<br/>inbox, advisory lock, rate-limit, metrics"]
     end
     subgraph planned["⬜ Planned"]
-      M6["M6 · Notifications + infra"]
       M7["M7 · Real rails"]
     end
     M0 --> M1 --> M2 --> M3 --> M4 --> M5 --> M6 --> M7
@@ -36,7 +36,7 @@ flowchart LR
 | Routing / matching engine | weighted rank + **silent failover** | ✅ | M3 |
 | Merchant / liquidity layer | live float, **computed scoring**, KYB, bonds, disputes (simulated network) | ✅ / 🟡 sim | M4 |
 | Compliance & risk (KYC/AML) | **enforced KYC tiers** + screening + fraud score (sim vendor) | ✅ / 🟡 vendor | M5 |
-| Notifications, queues, rate-limit, observability | none (one in-process poller) | ⬜ | M6 |
+| Notifications, rate-limit, observability | **in-app inbox + advisory lock + in-house rate-limit + /metrics** (single-instance) | ✅ / 🟡 scale | M6 |
 | Real rails (live FX, payout, KYC vendor, mainnet) | simulated | ⬜ | M7 |
 
 ## What "done" means per shipped milestone
@@ -57,6 +57,11 @@ flowchart LR
   endpoints (rolling-24h volume, structured `limit_exceeded`), simulated verification upgrade,
   sanctions/denylist screening + a per-tx fraud score → `risk_events`. The web uses the real tier.
   `check-compliance.ts` harness. *Gray: KYC vendor + real sanctions lists still simulated (M7).*
+- **M6 — Notifications + infra** ✅ — in-app notifications (table + emits at order completed/refunded,
+  send→recipient, request paid, KYC upgrade + web bell/badge/inbox), a per-user **advisory lock** closing
+  the M5 daily-cap TOCTOU, an in-house **rate limiter** (money-movement + faucet + auth), and **metrics**
+  at `/metrics` + a pino latency log. `check-infra.ts` 7/7. *Gray: single-instance — Redis + real push are
+  M7. See [14](14-notifications-and-infra.md).*
 - **De-crypto UX** ✅ — dollars-only Quote, human payment tracker, Processing/Completed chips, copy
   swaps; the app reads like an everyday money app, no crypto "tells" user-facing.
 
@@ -69,12 +74,13 @@ flowchart LR
 4. **KYC vendor + sanctions lists are simulated** — tiers are now **enforced** (M5), but real document
    capture and a live OFAC/sanctions feed are sim. *(M7)*
 5. **Escrow release authority is platform-held** — operationally trusted. *(hardening)*
-6. **One in-process poller**, no queue/Redis/rate-limit/observability. *(M6 — next)*
+6. **Single-instance infra** — rate-limit + metrics + notifications are built (M6), but the lock/limiter/
+   counters are in-process; **Redis (multi-instance) + real push** are *(M7)*.
 7. **Mobile lacks the cash-out order flow** (P2P only). *(parity work)*
 
 ## Where we are
 
-Committed on branch `sacred`: anchor program, backend (M1–M5), web+mobile + de-crypto, docs. Next
-milestone: **M6 — Notifications + infra hardening** (Redis queues/locks, rate-limiting, observability,
-notifications). See [13-future-milestones](13-future-milestones.md) for M6–M7 detail and
-[11-compliance](11-compliance-and-legalities.md) for the risk map.
+Committed on branch `sacred`: anchor program, backend (M1–M6), web+mobile + de-crypto, docs. Next and
+**final** milestone: **M7 — Real rails** (live FX, real payout + KYC/AML vendors, mainnet) — the one that
+flips every simulated component to production. See [13-future-milestones](13-future-milestones.md) for
+the M7 detail and [11-compliance](11-compliance-and-legalities.md) for the risk map.

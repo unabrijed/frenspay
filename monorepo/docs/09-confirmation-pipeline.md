@@ -43,7 +43,8 @@ transfers. So the confirmer is both the chain-watcher *and* the heartbeat for th
 
 **Order advancement.** When a transfer flips to `confirmed`, `onTransferConfirmed(transferId)` looks up
 the linked order and advances it: an `escrow_fund` confirmation → `payment_detected` (and sets the SLA
-`expires_at`); an `escrow_release` confirmation → `completed`.
+`expires_at`); an `escrow_release` confirmation → `completed`. A confirmed P2P **send** also fires an
+in-app notification to the recipient ("Neha sent you $5" — M6, see [14](14-notifications-and-infra.md)).
 
 ## Why this way
 
@@ -54,7 +55,9 @@ the linked order and advances it: an `escrow_fund` confirmation → `payment_det
   fully decoupled from *what* the transaction did (send vs. escrow vs. faucet). New transaction types
   plug in with zero confirmer change.
 - **One process, one clock.** Folding the order-escalation worker into the same tick avoids a separate
-  queue/cron for now (that's M6). Simple and sufficient on devnet.
+  queue/cron — and the tick now also recomputes merchant stats + sweeps the rate-limit windows
+  ([14](14-notifications-and-infra.md)). A Redis-backed queue (multi-instance) is the remaining **M7**
+  scale step.
 
 ## Legalities
 
@@ -70,7 +73,7 @@ the linked order and advances it: an `escrow_fund` confirmation → `payment_det
 - ✅ Confirmer poller (8s) with order advancement + worker tick + stale-transfer expiry; Helius webhook
   registration (idempotent) and handler with optional shared-secret auth.
 - 🟡 Webhook is **only active when deployed** (needs `HELIUS_API_KEY` + `PUBLIC_BASE_URL`); locally the
-  poller carries confirmation. No retry/backoff queue yet (M6).
+  poller carries confirmation. No Redis-backed retry/backoff queue yet (multi-instance → **M7**).
 
 ## Key files
 

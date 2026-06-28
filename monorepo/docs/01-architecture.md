@@ -148,8 +148,9 @@ flowchart LR
   simple and consistent, and so the order machine has one authoritative writer.
 - **No build step (tsx).** Fast iteration for a solo builder; the cost is the types-only `@pay/shared`
   quirk above.
-- **One poller inside the API process.** No separate worker/Redis yet (that's M6). The 8s confirmer
-  doubles as the order-escalation clock. Simple, good enough for devnet, explicitly temporary.
+- **One poller inside the API process.** Rate-limiting, metrics, and notifications are in-process (M6);
+  a separate worker/Redis (multi-instance) is the remaining M7 scale step. The 8s confirmer doubles as
+  the order-escalation clock. Simple, good enough for devnet, explicitly temporary.
 - **Always-real, devnet.** Avoids mock/real drift: the code you test is the code that ships; only the
   *counterparty* (merchant/LP) is simulated.
 
