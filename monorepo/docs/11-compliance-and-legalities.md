@@ -62,10 +62,11 @@ The escrow is trust-minimized (funds can only go to the intended merchant or bac
 fully trust-minimized off-ramp constrains this further (payout-proof-conditioned release, time-locked
 auto-refund, or multisig). This is the main legal gray of the payout flow. See [07](07-onchain-escrow.md).
 
-### 4. FX & consumer disclosure — 🟡 *quoted, not live*
-Quoting INR↔USD with a spread has consumer-protection (and sometimes licensing) implications. The
-quote screen **does** itemize rate + fees (good), but the **rate is a hardcoded constant**. A real
-launch needs a live FX source and clear, accurate disclosure. **M7.**
+### 4. FX & consumer disclosure — ✅ *live rate (M7); spread disclosure good*
+Quoting INR↔USD with a spread has consumer-protection (and sometimes licensing) implications. The rate
+is now a **live, cached, range-validated** USD→INR feed (M7) and the quote screen itemizes rate + fees,
+so the disclosure is accurate. Remaining for a real launch: a regulated FX provider with an SLA + the
+formal disclosures that pair with real payout (**M7 vendor leg**).
 
 ### 5. On-ramp / payout (real fiat) — ⬜ *deferred to M7*
 Converting fiat↔crypto and paying out to bank rails (UPI/Pix/bank) is the **regulated core** and needs
@@ -102,7 +103,7 @@ yet; those flip at **M7**.
 | Escrow conditional settlement | trust-minimized | ✅ structure / 🟡 authority | hardening later |
 | KYC tiers | enforced per-tier caps (sim vendor) | ✅ M5 / 🟡 vendor | vendor **M7** |
 | AML / sanctions / monitoring | screening + fraud score built (sim) | 🟡 M5 | real lists **M7** |
-| FX & disclosure | itemized but fixed rate | 🟡 | **M7** |
+| FX & disclosure | **live cached rate** + itemized spread | ✅ M7 | provider SLA later |
 | On-ramp / payout (fiat) | simulated | ⬜ | **M7** |
 | Merchant KYB / bonds / disputes | structure built (M4 ✅), simulated network | 🟡 | real vendor **M7** |
 | Data / privacy | minimal | 🟡 | pre-launch |

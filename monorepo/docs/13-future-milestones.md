@@ -28,7 +28,8 @@ fiat legs, live KYC/AML enforcement, FX disclosure, mainnet custody/key hardenin
 the fee-payer + constrained escrow authority). **Counsel sign-off required before launch.**
 
 **Status.** ⬜ Planned. Seams are everywhere by design: `USDC_MINT` → Circle's mint; `solana.ts` faucet
-→ on-ramp partner; simulated LP payout → real PSP; `MID_RATE` constant → live FX; devnet → mainnet RPC.
+→ on-ramp partner; simulated LP payout → real PSP; devnet → mainnet RPC. **(Live FX already shipped —
+`fxRate.ts`; what remains is a *regulated* FX provider SLA paired with real payout.)**
 
 ---
 

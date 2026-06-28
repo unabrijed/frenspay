@@ -30,7 +30,7 @@ flowchart LR
 | Custody & gas sponsorship | fee-payer model, no SOL for users | ✅ | M0 |
 | P2P send / request | real gas-sponsored USDC + requests | ✅ | M0 |
 | Money in (funding) | **devnet faucet** | 🟡 | M0 → M7 |
-| Quote engine | rate+fee+ETA, 45s lock; **FX = constant** | ✅ / 🟡 FX | M1 |
+| Quote engine | rate+fee+ETA, 45s lock; **live FX** (M7) | ✅ | M1 / M7 FX |
 | Order state machine | 7 states + resolutions, CAS, failure-first | ✅ | M1 |
 | Escrow / conditional release | **on-chain Anchor PDA** (devnet) | ✅ | M2 |
 | Routing / matching engine | weighted rank + **silent failover** | ✅ | M3 |
@@ -67,7 +67,8 @@ flowchart LR
 
 ## The honest gray list (what's not real yet)
 
-1. **FX rate** is a constant (`87.55`), not a live feed. *(M7)*
+1. **FX is live** now (cached, range-validated, with an offline fallback); the remaining gray is a
+   *regulated* FX provider with an SLA + formal disclosures, bundled with real payout. *(M7 vendor)*
 2. **The LP network is simulated** — `sim_behavior` drives outcomes; KYB/bonds/disputes are modelled,
    not backed by a real vendor or arbitration. *(M7)* But the signals they feed are now **real/computed**.
 3. **Funding is a faucet**, not a real on-ramp. *(M7)*

@@ -31,8 +31,8 @@ monorepo/
 
 > **Quirk worth knowing:** the backend imports from `@pay/shared` as **types only** (`import type`).
 > Runtime *value* imports from the raw-TS workspace package fail under `tsx`, so shared constants
-> (like the FX `RATE`) are **mirrored locally** in the backend (e.g. `MID_RATE_INR_PER_USDC` in
-> `quoteEngine.ts`). If you add a shared runtime value the backend needs, copy it, don't import it.
+> (e.g. the quote fee constants in `quoteEngine.ts`) are **mirrored locally** in the backend rather
+> than imported. If you add a shared runtime value the backend needs, copy it, don't import it.
 
 ---
 

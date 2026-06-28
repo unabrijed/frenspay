@@ -15,7 +15,7 @@ This is the M1 milestone. Escrow (07) and routing (08) plug into it; this doc is
 `quoteEngine.createQuote` picks a merchant (via [routing](08-routing-and-failover.md)), then prices:
 
 ```
-rate      = MID_RATE_INR_PER_USDC × (1 − merchant.spread_bps / 10_000)   // worse-than-mid for the user
+rate      = getMidRate() × (1 − merchant.spread_bps / 10_000)   // worse-than-mid for the user
 amountUsdc = amountInr / rate
 fees      = flat platform fee + network fee (illustrative for M1)
 eta       = merchant.avg_completion_secs … ×2
@@ -23,7 +23,9 @@ expiresAt = now + 45s
 ```
 
 The quote is persisted (so the order can verify it hasn't expired) and carries `routeQuality`. The FX
-**`MID_RATE` is a hardcoded constant (87.55)** — *quoted, not live* — which is the main 🟡 here.
+**mid rate is now live (M7)** — `getMidRate()` returns a cached, range-validated USD→INR rate refreshed
+in the background (with a safe fallback); the merchant spread is applied on top. See
+[14](14-notifications-and-infra.md) for the infra layer.
 
 ## Flow — the 7 states
 
@@ -127,9 +129,9 @@ orders).
 
 - ✅ Quote engine (rate/fee/ETA, 45s lock), full 7-state machine + resolution overlays, CAS
   transitions, escrow fund/release/refund wiring, the web Quote + OrderTracking UI, dev sim controls.
-- 🟡 **FX rate is a hardcoded constant** (quoted, not live); fees are illustrative; the **merchant/LP
-  is simulated** (`simMerchant.ts`).
-- ⬜ Live FX + real payout rails (M7).
+- ✅ **FX rate is live** (M7) — cached, range-validated USD→INR with a safe fallback; the spread applies
+  on top. Fees are still illustrative; the **merchant/LP is simulated** (`simMerchant.ts`).
+- ⬜ Real payout rails + mainnet (rest of M7).
 
 ## Key files
 
