@@ -8,8 +8,8 @@
 ## The core thesis: simulated-rails-first keeps us out of scope
 
 The product is built **structure-first with simulated rails**: real on-chain escrow and a real order
-lifecycle, but a **simulated merchant/LP network**, a **quoted (not live) FX rate**, a **devnet
-faucet instead of a real on-ramp**, and **no real fiat payout**. Because **no real customer money and
+lifecycle, but a **simulated merchant/LP network**, a **devnet faucet instead of a real on-ramp**, and
+**no real fiat payout** (live FX + enforced KYC tiers have since shipped). Because **no real customer money and
 no real fiat movement occur**, almost none of the heavy regulation is *triggered yet*. The design
 intent is that each regulated edge has a **clean seam** where a licensed partner or vendor plugs in at
 the milestone that needs it — so we build the whole machine now and turn on the regulated parts last
@@ -26,8 +26,8 @@ flowchart TB
       C4["Audit substrate — full ledger +<br/>routing trail + on-chain proofs"]
     end
     subgraph gray["🟡 Gray (exists but simulated/cosmetic)"]
-      G1["KYC tiers — UI only, not enforced"]
-      G2["FX rate — hardcoded constant"]
+      G1["KYC vendor — simulated<br/>(tiers enforced, M5)"]
+      G2["FX — live rate shipped (M7);<br/>no regulated provider SLA"]
       G3["Escrow release authority —<br/>platform-held (operationally trusted)"]
       G4["PII/data — minimal, no retention policy"]
     end

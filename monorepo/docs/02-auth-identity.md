@@ -5,7 +5,8 @@
 How a person becomes a user. **Privy** provides email-OTP login and silently creates an **embedded
 Solana wallet** for them (no seed phrase, no "connect wallet"). The user picks an **`@handle`** (like
 Venmo/Cash App) so friends can pay them by name, not by address. Identity verification (**KYC**) is
-modelled as tiers that gate limits — but today those tiers are **cosmetic**.
+modelled as tiers that **enforce** money-movement limits (M5; see Status below), backed by a simulated
+verification vendor for now.
 
 Three identities are tracked per person:
 - **Privy DID** — the login identity (`did:privy:…`), the source of truth for "who is this request."

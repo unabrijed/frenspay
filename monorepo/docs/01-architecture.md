@@ -167,8 +167,9 @@ and the program enforces release/refund rules on-chain. Full detail in
 
 ✅ The architecture itself is complete and stable: monorepo, backend services, web app, shared types,
 the build→sign→submit→confirm seam, and the on-chain escrow are all wired and typecheck-clean across
-4 workspaces. 🟡 Gray spots are *what flows through it* — simulated merchants, a quoted (not live) FX
-rate, a faucet instead of a real on-ramp, a simulated LP network + KYC vendor — each called out in its own doc.
+4 workspaces. 🟡 Gray spots are *what flows through it* — a simulated LP network, a faucet instead of a
+real on-ramp, and a simulated KYC vendor (live FX + enforced KYC tiers already shipped) — each called
+out in its own doc.
 
 ## Key files
 

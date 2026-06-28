@@ -70,8 +70,8 @@ it's still open.
 
 - **P2P money transfer** between identified users is generally the *lightest* activity in the app, but
   it's still where **transfer limits and KYC tiers** belong (tier 1 caps small amounts; larger sends
-  should require verification). Today limits are **cosmetic** (the UI mentions "up to $100 per
-  transfer" but nothing is enforced) — that gate closes at **M5**.
+  should require verification). These limits are now **enforced** (M5): tier 1 caps P2P at $100/tx plus
+  a rolling daily cap, checked server-side with sanctions screening on the recipient.
 - **AML / travel rule.** At real scale, P2P flows need transaction monitoring and (above thresholds)
   originator/beneficiary information sharing. Not in scope until real rails; the `transfers` ledger is
   the data foundation those checks will read.

@@ -120,8 +120,8 @@ orders).
   fiat. Today the fiat leg is **simulated** (the "merchant" is a worker), so no real payout happens —
   the structure is real, the rail is not (M4/M7).
 - **FX.** Quoting an INR↔USD rate and taking a spread has consumer-protection and (in some places)
-  licensing implications. The rate is currently a **fixed constant** — a real launch needs a live FX
-  source and clear disclosure of the rate + fees (the quote screen already itemizes them).
+  licensing implications. The rate is now a **live, cached, range-validated** feed (M7) and the quote
+  screen itemizes the rate + fees; a regulated FX provider with an SLA is the remaining step.
 - **Escrow / funds-in-flight.** While an order is mid-flight, the USDC sits in the on-chain escrow —
   see [07](07-onchain-escrow.md) for who controls it and why that's the key legal question.
 
