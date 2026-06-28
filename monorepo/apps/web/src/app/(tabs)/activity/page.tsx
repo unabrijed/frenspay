@@ -74,6 +74,7 @@ export default function Activity() {
   const router = useRouter();
   const txns = usePayStore((s) => s.transactions);
   const bal = usePayStore((s) => s.balanceUSD);
+  const fxRate = usePayStore((s) => s.fxRate);
   const displayCurrency = usePayStore((s) => s.displayCurrency);
   const open = usePayStore((s) => s.open);
   const openDetail = usePayStore((s) => s.openDetail);
@@ -111,9 +112,9 @@ export default function Activity() {
         {/* trip summary */}
         <View style={styles.summary}>
           <Txt style={type.eyebrow}>Trip balance · India</Txt>
-          <Txt style={[type.heroBalance, { fontSize: 38, lineHeight: '44px', marginTop: 6 }]}>{leadINR ? inr(bal) : usd(bal)}</Txt>
+          <Txt style={[type.heroBalance, { fontSize: 38, lineHeight: '44px', marginTop: 6 }]}>{leadINR ? inr(bal, fxRate) : usd(bal)}</Txt>
           <View style={styles.realRate}>
-            <Txt style={type.sub}>{leadINR ? `≈ ${usd(bal)}` : `≈ ${inr(bal)}`}</Txt>
+            <Txt style={type.sub}>{leadINR ? `≈ ${usd(bal)}` : `≈ ${inr(bal, fxRate)}`}</Txt>
             <View style={styles.ratePill}>
               <Icons.LockCheck size={14} color={colors.accent} />
               <Txt style={[type.tierTag, { color: colors.muted }]}>Live rate</Txt>

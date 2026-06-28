@@ -21,8 +21,9 @@ function groupIN(n: number): string {
   }
 }
 
-/** Rupees for a USD amount, rounded. e.g. inr(420) -> "₹36,771" */
-export const inr = (usdAmount: number): string => '₹' + groupIN(Math.round(usdAmount * RATE));
+/** Rupees for a USD amount, rounded. Pass a live rate (M7) to override the static fallback `RATE`.
+ *  e.g. inr(420) -> "₹36,771"; inr(420, 94.4) -> "₹39,648" */
+export const inr = (usdAmount: number, rate: number = RATE): string => '₹' + groupIN(Math.round(usdAmount * rate));
 
 /** USD figure with 2 decimals. e.g. usd(5.71) -> "$5.71" */
 export const usd = (n: number): string => '$' + n.toFixed(2);

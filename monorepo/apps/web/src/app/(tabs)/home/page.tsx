@@ -22,6 +22,7 @@ const fmtUsd = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits:
 export default function Home() {
   const router = useRouter();
   const bal = usePayStore((s) => s.balanceUSD);
+  const fxRate = usePayStore((s) => s.fxRate);
   const txns = usePayStore((s) => s.transactions);
   const handle = usePayStore((s) => s.handle);
   const open = usePayStore((s) => s.open);
@@ -89,7 +90,7 @@ export default function Home() {
               </View>
               <View>
                 <Txt style={[type.eyebrow, { marginBottom: 2 }]}>INR</Txt>
-                <Txt style={[type.payeeWho, { fontSize: 18 }]}>{inr(bal)}</Txt>
+                <Txt style={[type.payeeWho, { fontSize: 18 }]}>{inr(bal, fxRate)}</Txt>
               </View>
             </View>
             <Pressable onPress={() => open('add')} style={({ pressed }) => [styles.addCard, pressed ? { backgroundColor: colors.surfaceHigh } : null]}>

@@ -116,4 +116,6 @@ export const api = {
   // M6: notifications inbox
   getNotifications: () => req<NotificationsResponse>('/notifications'),
   readAllNotifications: () => req<{ ok: true }>('/notifications/read-all', { method: 'POST' }),
+  // M7: live FX mid rate (INR per USD) for standalone display; quotes carry their own locked rate.
+  fxRate: () => req<{ rate: number; asOf: string | null }>('/fx/rate'),
 };

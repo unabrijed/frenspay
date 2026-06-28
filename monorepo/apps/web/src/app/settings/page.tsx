@@ -20,6 +20,8 @@ export default function Settings() {
   const handle = usePayStore((s) => s.handle);
   const displayCurrency = usePayStore((s) => s.displayCurrency);
   const recoveryPasskey = usePayStore((s) => s.recoveryPasskey);
+  const kycTier = usePayStore((s) => s.kycTier);
+  const logout = usePayStore((s) => s.logout);
   return (
     <Screen edges={['top']} style={styles.safe}>
       <View style={styles.scroll}>
@@ -36,7 +38,7 @@ export default function Settings() {
         </View>
 
         <List>
-          <SettingsRow k="Verification" v="Tier 1" onPress={() => open('verify')} />
+          <SettingsRow k="Verification" v={`Tier ${kycTier}`} onPress={() => open('verify')} />
           <SettingsRow k="Recovery" v={recoveryPasskey ? 'Passkey set' : 'Email'} onPress={() => open('recovery')} />
           <SettingsRow k="Display currency" v={displayCurrency} accent onPress={() => open('currency')} />
           <SettingsRow k="Help and support" />
@@ -45,7 +47,13 @@ export default function Settings() {
         <Spacer />
         <View style={styles.footer}>
           <TextLink label="Replay onboarding" onPress={() => router.push('/onboarding/welcome')} />
-          <TextLink label="Log out" />
+          <TextLink
+            label="Log out"
+            onPress={async () => {
+              await logout();
+              router.replace('/onboarding/welcome');
+            }}
+          />
           <Txt style={type.version}>v0.1</Txt>
         </View>
       </View>

@@ -60,6 +60,7 @@ interface PayState {
   recovered: boolean;
   recoveryPrompted: boolean;
   balanceUSD: number;
+  fxRate: number; // live INR-per-USD mid rate (M7), for standalone INR display
   transactions: Txn[];
   notifications: Notification[];
   unread: number;
@@ -163,6 +164,7 @@ export const usePayStore = create<PayState>()(
       recovered: false,
       recoveryPrompted: false,
       balanceUSD: 0,
+      fxRate: 87.55,
       transactions: [],
       notifications: [],
       unread: 0,
@@ -223,19 +225,21 @@ export const usePayStore = create<PayState>()(
         if (USE_PRIVY && get().authStatus !== 'signedIn') return; // wait for the Privy bridge to sign in
         set({ busy: true, error: null });
         try {
-          const [me, bal, txns, reqs, notifs] = await Promise.all([
+          const [me, bal, txns, reqs, notifs, fx] = await Promise.all([
             api.me(),
             wallet.getBalanceUsd(),
             wallet.getTransactions(),
             wallet.getRequests(),
             // Non-critical: a failing /notifications must never blank the dashboard.
             api.getNotifications().catch(() => ({ notifications: get().notifications, unread: get().unread })),
+            api.fxRate().catch(() => ({ rate: get().fxRate, asOf: null })),
           ]);
           set({
             walletAddress: me.walletAddress,
             handle: me.handle,
             kycTier: me.kycTier,
             balanceUSD: bal,
+            fxRate: fx.rate,
             transactions: txns,
             requests: reqs,
             notifications: notifs.notifications,
@@ -302,7 +306,23 @@ export const usePayStore = create<PayState>()(
       logout: async () => {
         await get()._authBridge?.logout();
         setAuthToken(null);
-        set({ authStatus: 'signedOut', walletAddress: '', authEmail: '' });
+        // Clear ALL persisted financial + identity data so the next person on this browser can't see the
+        // prior user's balance / activity / handle / tier (these survive in localStorage via partialize).
+        set({
+          authStatus: 'signedOut',
+          walletAddress: '',
+          authEmail: '',
+          handle: '',
+          balanceUSD: 0,
+          transactions: [],
+          notifications: [],
+          unread: 0,
+          requests: [],
+          kycTier: 1,
+          recovered: false,
+          recoveryPrompted: false,
+          onboarded: false,
+        });
       },
       authSync: async (handle) => {
         const me = await api.authSync({ handle, walletAddress: get().walletAddress });
@@ -580,6 +600,7 @@ export const usePayStore = create<PayState>()(
         recovered: s.recovered,
         recoveryPrompted: s.recoveryPrompted,
         balanceUSD: s.balanceUSD,
+        fxRate: s.fxRate,
         transactions: s.transactions,
         displayCurrency: s.displayCurrency,
         handle: s.handle,
