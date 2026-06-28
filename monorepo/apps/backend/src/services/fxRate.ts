@@ -17,9 +17,10 @@ export function parseRate(body: unknown): number | null {
   return Number(inr.toFixed(4));
 }
 
-/** The current INR-per-USD mid rate (cached). Falls back to config.fxFallbackRate until a fetch lands. */
+/** The current INR-per-USD mid rate (cached). Falls back to config.fxFallbackRate until a fetch lands.
+ *  Belt-and-suspenders: never return a non-finite value into money math. */
 export function getMidRate(): number {
-  return cached.rate;
+  return Number.isFinite(cached.rate) ? cached.rate : config.fxFallbackRate;
 }
 
 /** ISO timestamp of the last good rate, or null while still on the fallback. */

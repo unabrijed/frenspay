@@ -20,6 +20,7 @@ function check(name: string, cond: boolean, detail?: string) {
 async function main() {
   _resetFxCacheForTest();
   check('fallback returned before any fetch', getMidRate() === config.fxFallbackRate, `₹${getMidRate()}`);
+  check('getMidRate is always finite (no NaN into money math)', Number.isFinite(getMidRate()));
   check('asOf is null before any fetch', getMidRateAsOf() === null);
 
   // Range validation — a bad source value must be rejected so it can't price a quote.

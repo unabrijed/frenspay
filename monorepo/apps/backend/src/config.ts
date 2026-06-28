@@ -23,6 +23,16 @@ function env(key: string, fallback = ''): string {
   return process.env[key] || fallback;
 }
 
+/** Read a numeric env var, returning `def` if it's missing / non-finite / outside [min,max]. Prevents a
+ *  malformed value from seeding NaN into money math (e.g. the FX fallback rate → poisoned quotes). */
+function num(key: string, def: number, range?: { min?: number; max?: number }): number {
+  const n = Number(env(key, String(def)));
+  if (!Number.isFinite(n) || (range?.min != null && n < range.min) || (range?.max != null && n > range.max)) {
+    return def;
+  }
+  return n;
+}
+
 export const config = {
   nodeEnv: node_env,
   isDevelopment,
@@ -60,6 +70,9 @@ export const config = {
   // M7: live FX. A free, no-key source returning `rates.INR`; cached + range-validated, falling back to
   // FX_FALLBACK_RATE on any failure. Refreshed in the background so quoting never blocks on the network.
   fxSourceUrl: env('FX_SOURCE_URL', 'https://open.er-api.com/v6/latest/USD'),
-  fxFallbackRate: Number(env('FX_FALLBACK_RATE', '87.55')),
-  fxRefreshMs: Number(env('FX_REFRESH_MS', '600000')), // 10 min
+  // Validated: a bad FX_FALLBACK_RATE must never seed NaN into a quote (NaN comparisons silently pass
+  // the cash-out cap). Same plausibility band as the live-rate validator; bad refresh interval can't
+  // become a hot loop (floored).
+  fxFallbackRate: num('FX_FALLBACK_RATE', 87.55, { min: 50, max: 150 }),
+  fxRefreshMs: num('FX_REFRESH_MS', 600_000, { min: 1000 }), // 10 min default
 };
