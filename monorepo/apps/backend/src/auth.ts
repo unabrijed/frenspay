@@ -5,6 +5,7 @@
 // Dev mode (Privy not configured): fall back to the `x-dev-user-id` header.
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
+import { config } from './config';
 import { findUserByPrivyDid } from './db/queries';
 import { privyConfigured, verifyAccessToken } from './services/privy';
 
@@ -30,8 +31,9 @@ export async function authPreHandler(req: FastifyRequest, _reply: FastifyReply):
     }
     return;
   }
-  // Dev fallback only when Privy is not configured.
-  if (!privyConfigured()) {
+  // Dev fallback only in a dev/stage environment AND when Privy is unconfigured — never let a prod
+  // misconfig (missing PRIVY secret) turn the spoofable x-dev-user-id header into an auth bypass.
+  if (config.isDevelopment && !privyConfigured()) {
     const hdr = req.headers['x-dev-user-id'];
     if (typeof hdr === 'string' && hdr.length > 0) req.userId = hdr;
   }

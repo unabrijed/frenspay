@@ -20,10 +20,13 @@ export async function confirmPendingOnce(log?: (m: string) => void): Promise<voi
   for (const t of pending) {
     const status = await getTransferStatus(t.signature);
     if (status !== 'pending') {
-      await setTransferStatus(t.id, status);
-      log?.(`transfer ${t.id} → ${status}`);
-      // Advance any order linked to this escrow transfer + notify the recipient of a confirmed P2P send.
-      if (status === 'confirmed') await onTransferConfirmedAndNotify(t.id);
+      // Only act on a real transition — if the webhook finalized this row first, don't double-advance/notify.
+      const changed = await setTransferStatus(t.id, status);
+      if (changed) {
+        log?.(`transfer ${t.id} → ${status}`);
+        // Advance any order linked to this escrow transfer + notify the recipient of a confirmed P2P send.
+        if (status === 'confirmed') await onTransferConfirmedAndNotify(t.id);
+      }
     }
   }
   // Retire transfers prepared but never signed (user abandoned before broadcast).

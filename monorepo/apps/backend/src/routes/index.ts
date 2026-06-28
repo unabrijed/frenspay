@@ -580,6 +580,9 @@ export async function registerRoutes(app: FastifyInstance) {
   // (unlocks merchant pay at tier 2). The web "Verify identity" button calls this.
   app.post('/kyc/verify', async (req, reply) => {
     const userId = requireUserId(req);
+    // Simulated instant verification — dev/stage only. In prod this must be a real KYC vendor callback
+    // (M7); leaving it open would let any logged-in user self-promote to tier 2 (merchant cash-out).
+    if (!config.isDevelopment) return reply.code(403).send({ error: 'kyc_provider_unavailable' });
     const next = Math.max(await getUserKycTier(userId), 2);
     await setUserKycTier(userId, next);
     await notifyKycUpgraded(userId, next); // M6

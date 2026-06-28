@@ -15,7 +15,6 @@ import {
   getOrderByEscrowFundTransfer,
   getOrderByEscrowReleaseTransfer,
   getOrderForUser,
-  getOrderState,
   getOrderUserAmount,
   getQuoteRowForUser,
   getSendNotifyInfo,
@@ -118,9 +117,11 @@ export async function markFundSubmitted(orderId: string, userId: string): Promis
 /** Called by the confirmer when any escrow transfer confirms on-chain; advances the linked order. */
 export async function onTransferConfirmed(transferId: string): Promise<void> {
   const funded = await getOrderByEscrowFundTransfer(transferId);
-  if (funded && funded.state === 'waiting_payment') {
+  // Advance from waiting_payment OR pay_instructions: a confirmed deposit is authoritative even if the
+  // user's /fund-submit call dropped (otherwise the escrow funds while the order stays stuck → stranded).
+  if (funded && (funded.state === 'waiting_payment' || funded.state === 'pay_instructions')) {
     await updateOrder(funded.id, { state: 'payment_detected', expiresAt: new Date(Date.now() + ORDER_SLA_MS) });
-    await appendOrderEvent(funded.id, 'waiting_payment', 'payment_detected', 'fund_confirmed');
+    await appendOrderEvent(funded.id, funded.state, 'payment_detected', 'fund_confirmed');
     return;
   }
   const released = await getOrderByEscrowReleaseTransfer(transferId);
@@ -194,14 +195,22 @@ export async function refundToUser(input: {
   const wallet = await getWalletForUser(input.userId);
   if (!wallet?.address) return false;
 
-  // Guard: only refund an order still awaiting payout. If it was already released or moved on (race with
-  // a release / dev confirm / overlapping tick), don't broadcast a refund against an escrow that no
-  // longer holds the funds. (The on-chain program is the ultimate guard; this avoids the wasted tx.)
-  if ((await getOrderState(input.orderId)) !== 'payment_detected') return false;
+  // Atomically claim the order BEFORE broadcasting — mutually exclusive with releaseToMerchant's CAS
+  // from payment_detected, so a concurrent release + refund can't both broadcast and diverge the DB
+  // ledger from on-chain settlement. (The on-chain close is the ultimate single-settle guard; this
+  // keeps our records consistent under concurrency too.)
+  const claimed = await casOrderState(input.orderId, ['payment_detected'], 'refunded');
+  if (!claimed) return false;
 
-  // Broadcast first; the program enforces single-refund (the escrow closes), so we set the terminal
-  // state only after the on-chain refund is broadcast + recorded.
-  const signature = await refundEscrow({ reference: input.reference, userOwner: wallet.address });
+  let signature: string;
+  try {
+    signature = await refundEscrow({ reference: input.reference, userOwner: wallet.address });
+  } catch (e) {
+    // Broadcast failed after claiming — revert so the worker can retry; don't leave a refunded order
+    // with no on-chain refund.
+    await casOrderState(input.orderId, ['refunded'], 'payment_detected');
+    throw e;
+  }
   const { id: releaseTransferId } = await recordEscrowTransfer({
     fromAddress: escrowAddress(input.reference),
     toAddress: wallet.address,
@@ -212,7 +221,6 @@ export async function refundToUser(input: {
     note: 'refund',
   });
   await updateOrder(input.orderId, {
-    state: 'refunded',
     resolution: null,
     expiresAt: null,
     escrowReleaseTransferId: releaseTransferId,

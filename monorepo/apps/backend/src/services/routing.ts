@@ -86,12 +86,3 @@ export async function rankMerchants(input: {
         a.merchant.spread_bps - b.merchant.spread_bps,
     );
 }
-
-/** Back-compat: the single best merchant for a quote (or null). */
-export async function pickMerchant(input: {
-  payoutMethod: PayoutMethod;
-  amountUsdc?: number;
-}): Promise<MerchantRow | null> {
-  const ranked = await rankMerchants({ payoutMethod: input.payoutMethod, amountUsdc: input.amountUsdc ?? 0 });
-  return ranked[0]?.merchant ?? null;
-}

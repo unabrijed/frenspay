@@ -326,14 +326,17 @@ export async function attachTransferSignature(
 export async function setTransferStatus(
   transferId: string,
   status: 'pending' | 'confirmed' | 'failed',
-): Promise<void> {
-  await getPool().query(
+): Promise<boolean> {
+  // Transition-gated (`status <> $2`) so the poller can't re-fire order-advance/notify on a row the
+  // Helius webhook already finalized in the same tick. Returns true only on a real transition.
+  const { rowCount } = await getPool().query(
     `update transfers
         set status = $2,
             confirmed_at = case when $2 = 'confirmed' then now() else confirmed_at end
-      where id = $1`,
+      where id = $1 and status <> $2`,
     [transferId, status],
   );
+  return (rowCount ?? 0) > 0;
 }
 
 export async function setTransferStatusBySignature(
@@ -840,9 +843,14 @@ export async function casOrderState(
 
 /** Cancel an order whose escrow funding never completed (signing failed/abandoned). Owner-scoped. */
 export async function cancelOrder(orderId: string, userId: string): Promise<boolean> {
+  // Never fail an order whose escrow deposit was already broadcast (signature set) — that would strand
+  // funded USDC on-chain with no release/refund path. Only cancel orders that never funded.
   const { rowCount } = await getPool().query(
     `update orders set state = 'failed', updated_at = now()
-      where id = $1 and user_id = $2 and state in ('pay_instructions','waiting_payment')`,
+      where id = $1 and user_id = $2 and state in ('pay_instructions','waiting_payment')
+        and not exists (
+          select 1 from transfers t where t.id = orders.escrow_fund_transfer_id and t.signature is not null
+        )`,
     [orderId, userId],
   );
   return (rowCount ?? 0) > 0;
@@ -853,10 +861,16 @@ export async function cancelOrder(orderId: string, userId: string): Promise<bool
  * expireStaleUnsignedTransfers so abandoned orders don't linger in pay_instructions forever.
  */
 export async function expireStaleOrders(maxAgeMin = 15): Promise<number> {
+  // Only retire orders that never funded (still pay_instructions AND no broadcast deposit). A
+  // waiting_payment order means the deposit IS broadcast — leave it for the confirmer, never auto-fail
+  // it (that would strand funded escrow on-chain).
   const { rowCount } = await getPool().query(
     `update orders set state = 'failed', updated_at = now()
-      where state in ('pay_instructions','waiting_payment')
-        and created_at < now() - make_interval(mins => $1)`,
+      where state = 'pay_instructions'
+        and created_at < now() - make_interval(mins => $1)
+        and not exists (
+          select 1 from transfers t where t.id = orders.escrow_fund_transfer_id and t.signature is not null
+        )`,
     [maxAgeMin],
   );
   return rowCount ?? 0;
