@@ -4,6 +4,7 @@
 // hero, four Google-Pay-style action buttons (Scan / Send / Request / Add), a wallets bento
 // (USD Wallet · INR · Add Currency), and recent activity as individual tactile cards.
 import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 
 import { Icons } from '@/components/icons';
@@ -21,6 +22,7 @@ const fmtUsd = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits:
 
 export default function Home() {
   const router = useRouter();
+  const pollKyc = usePayStore((s) => s.pollKyc);
   const bal = usePayStore((s) => s.balanceUSD);
   const fxRate = usePayStore((s) => s.fxRate);
   const txns = usePayStore((s) => s.transactions);
@@ -29,6 +31,15 @@ export default function Home() {
   const openDetail = usePayStore((s) => s.openDetail);
   const unread = usePayStore((s) => s.unread);
   const initial = (handle.replace(/^@/, '')[0] ?? 'U').toUpperCase();
+
+  // Returning from the hosted KYC flow (callback = /home?kyc=done): poll until the tier lands, then
+  // drop the query param so a refresh doesn't re-trigger it. Read from window (client-only effect)
+  // to avoid useSearchParams' Suspense-boundary requirement at build time.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('kyc') !== 'done') return;
+    void pollKyc();
+    router.replace('/home');
+  }, [pollKyc, router]);
 
   const openTx = (tx: Txn) => {
     openDetail(tx);

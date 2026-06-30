@@ -40,6 +40,16 @@ body {
   font-feature-settings: 'liga';
   -webkit-font-smoothing: antialiased;
   user-select: none;
+  /* Each icon renders its glyph NAME as ligature text (see icons.tsx). Until the icon font
+     actually loads, the browser would paint that source text ("home", "send", …) in a fallback
+     font — the "random words on screen" bug. Hide it (space is still reserved by the span's
+     width/height, so no layout shift) until the inline boot script in layout.tsx confirms the
+     font is available and adds `fonts-ready`. If the font never loads, icons stay blank rather
+     than showing words — the lesser evil. */
+  visibility: hidden;
+}
+html.fonts-ready .material-symbols-outlined {
+  visibility: visible;
 }
 
 /* Settling success — pulsing rings behind the confirmation check (Tabroad "Settling"). */

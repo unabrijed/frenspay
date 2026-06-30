@@ -67,6 +67,15 @@ export const config = {
   // Optional: paste the verification key from the Privy dashboard to skip a network fetch per verify.
   privyVerificationKey: env('PRIVY_VERIFICATION_KEY'),
 
+  // M7: KYC vendor. 'sim' = the dev instant-promote (no documents); 'didit' = real document+liveness
+  // via Didit's hosted flow + signed webhook. Defaults to sim in dev, didit in prod (prod must never
+  // self-promote). Flip to a real vendor by setting STAGE_KYC_PROVIDER=didit + the DIDIT_* creds.
+  kycProvider: env('KYC_PROVIDER', isDevelopment ? 'sim' : 'didit'),
+  diditApiKey: env('DIDIT_API_KEY'),
+  diditWorkflowId: env('DIDIT_WORKFLOW_ID'),
+  diditWebhookSecret: env('DIDIT_WEBHOOK_SECRET'),
+  diditBaseUrl: env('DIDIT_BASE_URL', 'https://verification.didit.me'),
+
   // M7: live FX. A free, no-key source returning `rates.INR`; cached + range-validated, falling back to
   // FX_FALLBACK_RATE on any failure. Refreshed in the background so quoting never blocks on the network.
   fxSourceUrl: env('FX_SOURCE_URL', 'https://open.er-api.com/v6/latest/USD'),

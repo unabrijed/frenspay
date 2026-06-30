@@ -7,10 +7,15 @@ import { registerRoutes } from './routes/index';
 import { startConfirmer } from './services/confirmer';
 import { startFxRefresher } from './services/fxRate';
 import { registerHeliusWebhook } from './services/helius';
+import { assertKycConfig } from './services/kyc';
+import { startKycPoller } from './services/kyc/poller';
 import { metrics } from './services/metrics';
 import { startRateLimitSweeper } from './services/rateLimit';
 
 async function start() {
+  // Fail fast on a misconfigured real KYC provider before accepting traffic.
+  assertKycConfig();
+
   // trustProxy: behind Railway's proxy, so req.ip reflects the client (used as a rate-limit fallback key).
   const app = Fastify({ logger: true, trustProxy: true });
 
@@ -46,6 +51,10 @@ async function start() {
 
   // Indexer: register the Helius push webhook (no-op unless HELIUS_API_KEY + PUBLIC_BASE_URL set).
   void registerHeliusWebhook((m) => app.log.info(m));
+
+  // M7: reconcile real-vendor KYC decisions (no-op with the sim provider). Reliable path even when
+  // the webhook can't reach us locally; the webhook just makes approval instant.
+  startKycPoller(15_000, (m) => app.log.info(m));
 }
 
 start().catch((err) => {

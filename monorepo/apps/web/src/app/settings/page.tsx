@@ -12,6 +12,7 @@ import { View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
 import { Txt } from '@/components/ui/Txt';
 import { colors, fonts, GUTTER, type } from '@/lib/theme';
+import { IS_DEV } from '@/services/env';
 import { usePayStore } from '@/store/usePayStore';
 
 export default function Settings() {
@@ -22,6 +23,7 @@ export default function Settings() {
   const recoveryPasskey = usePayStore((s) => s.recoveryPasskey);
   const kycTier = usePayStore((s) => s.kycTier);
   const logout = usePayStore((s) => s.logout);
+  const resetForTesting = usePayStore((s) => s.resetForTesting);
   return (
     <Screen edges={['top']} style={styles.safe}>
       <View style={styles.scroll}>
@@ -54,6 +56,15 @@ export default function Settings() {
               router.replace('/onboarding/welcome');
             }}
           />
+          {IS_DEV ? (
+            <TextLink
+              label="Reset for testing"
+              onPress={async () => {
+                await resetForTesting();
+                router.replace('/onboarding/welcome');
+              }}
+            />
+          ) : null}
           <Txt style={type.version}>v0.1</Txt>
         </View>
       </View>

@@ -23,6 +23,8 @@ export const RATE_LIMIT_RULES: Rule[] = [
   { method: 'POST', path: '/orders/quote', bucket: 'quote', limit: 30, windowMs: 60_000 },
   { method: 'POST', path: '/devnet/faucet', bucket: 'faucet', limit: 5, windowMs: 60_000 },
   { method: 'POST', path: '/auth/sync', bucket: 'auth', limit: 10, windowMs: 60_000 },
+  // Each verify spends a paid KYC vendor session — cap it so a client can't burn the quota / run up cost.
+  { method: 'POST', path: '/kyc/verify', bucket: 'kyc', limit: 5, windowMs: 60_000 },
 ];
 
 type Window = { count: number; resetAt: number };

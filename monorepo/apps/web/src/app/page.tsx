@@ -4,6 +4,8 @@
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
+import { Splash } from '@/components/ui/Splash';
+import { bootTrace } from '@/lib/boot';
 import { usePayStore, useStoreHydrated } from '@/store/usePayStore';
 
 export default function Page() {
@@ -12,9 +14,12 @@ export default function Page() {
   const onboarded = usePayStore((s) => s.onboarded);
 
   useEffect(() => {
-    if (hydrated) router.replace(onboarded ? '/home' : '/onboarding/welcome');
+    if (hydrated) {
+      bootTrace(`entry redirect → ${onboarded ? '/home' : '/onboarding/welcome'}`);
+      router.replace(onboarded ? '/home' : '/onboarding/welcome');
+    }
   }, [hydrated, onboarded, router]);
 
-  // Decide on the client once persisted state is read; the app-frame background shows briefly.
-  return null;
+  // Show the splash during the hydrate-then-redirect window instead of a blank frame.
+  return <Splash />;
 }

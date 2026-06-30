@@ -14,6 +14,15 @@ create table if not exists users (
   created_at    timestamptz not null default now()
 );
 
+-- M7: real-vendor KYC. The tier (above) is what gates money movement; these columns track the
+-- vendor verification lifecycle. Idempotent ALTERs so existing DBs pick them up on boot (init.ts).
+alter table users add column if not exists kyc_status     text not null default 'none'; -- none|pending|in_review|approved|declined
+alter table users add column if not exists kyc_provider   text;
+alter table users add column if not exists kyc_session_id text;
+alter table users add column if not exists kyc_verified_at timestamptz;
+-- Webhook/poll correlates the vendor session back to the user; unique so a session maps to one user.
+create unique index if not exists users_kyc_session_id_idx on users(kyc_session_id);
+
 create table if not exists wallets (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references users(id) on delete cascade,

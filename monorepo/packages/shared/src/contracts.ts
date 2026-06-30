@@ -65,7 +65,26 @@ export interface MeResponse {
   displayName: string;
   walletAddress: string;
   kycTier: number; // M5: 0 restricted · 1 basic/P2P · 2 verified/merchant-pay · 3 enhanced
+  kycStatus?: KycStatus; // M7: vendor verification lifecycle (undefined when no check has started)
 }
+
+/** M7: lifecycle of a real-vendor identity check. */
+export type KycStatus = 'none' | 'pending' | 'in_review' | 'approved' | 'declined';
+
+/** M7 real vendor: the backend creates a session and returns a hosted verification URL the client opens. */
+export interface KycStartResponse {
+  url: string;
+  sessionId: string;
+}
+
+/** Dev/sim vendor: instant tier promote (no hosted flow). */
+export interface KycSimVerifyResponse {
+  ok: true;
+  kycTier: number;
+}
+
+/** `POST /kyc/verify` returns one of two shapes depending on the configured provider. */
+export type KycVerifyResponse = KycSimVerifyResponse | KycStartResponse;
 
 /** 403 body when a money-movement action exceeds the user's KYC-tier limit (M5). */
 export interface LimitExceededError {

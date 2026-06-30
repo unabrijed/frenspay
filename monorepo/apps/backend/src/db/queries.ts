@@ -1122,6 +1122,55 @@ export async function setUserKycTier(userId: string, tier: number): Promise<void
   await getPool().query('update users set kyc_tier = $2 where id = $1', [userId, tier]);
 }
 
+/* ---- M7: real-vendor KYC session lifecycle ---- */
+
+/** Record a started vendor session against the user and mark them pending. */
+export async function setKycSession(userId: string, sessionId: string, provider: string): Promise<void> {
+  await getPool().query(
+    `update users set kyc_session_id = $2, kyc_provider = $3, kyc_status = 'pending' where id = $1`,
+    [userId, sessionId, provider],
+  );
+}
+
+/** Resolve the user a webhook/decision belongs to, via the vendor session id. */
+export async function getUserByKycSession(
+  sessionId: string,
+): Promise<{ id: string; kycTier: number; status: string } | null> {
+  const { rows } = await getPool().query<{ id: string; kyc_tier: number; kyc_status: string }>(
+    'select id, kyc_tier, kyc_status from users where kyc_session_id = $1',
+    [sessionId],
+  );
+  return rows[0] ? { id: rows[0].id, kycTier: rows[0].kyc_tier, status: rows[0].kyc_status } : null;
+}
+
+/** Apply an approved verification: raise the tier (never lower it) and stamp approval. */
+export async function setKycApproved(userId: string, tier: number): Promise<void> {
+  await getPool().query(
+    `update users set kyc_tier = greatest(kyc_tier, $2), kyc_status = 'approved', kyc_verified_at = now() where id = $1`,
+    [userId, tier],
+  );
+}
+
+/** Mark a terminal/non-approved vendor outcome (declined or still in review). */
+export async function setKycStatus(userId: string, status: 'in_review' | 'declined'): Promise<void> {
+  await getPool().query('update users set kyc_status = $2 where id = $1', [userId, status]);
+}
+
+/** Pending vendor sessions (for the local decision-poll fallback when there's no public webhook URL). */
+export async function getPendingKycSessions(): Promise<Array<{ id: string; sessionId: string; kycTier: number }>> {
+  const { rows } = await getPool().query<{ id: string; kyc_session_id: string; kyc_tier: number }>(
+    `select id, kyc_session_id, kyc_tier from users
+      where kyc_status in ('pending', 'in_review') and kyc_session_id is not null`,
+  );
+  return rows.map((r) => ({ id: r.id, sessionId: r.kyc_session_id, kycTier: r.kyc_tier }));
+}
+
+/** Read a user's current KYC status (for /me). */
+export async function getUserKycStatus(userId: string): Promise<string> {
+  const { rows } = await getPool().query<{ kyc_status: string }>('select kyc_status from users where id = $1', [userId]);
+  return rows[0]?.kyc_status ?? 'none';
+}
+
 /** The user's confirmed/pending P2P send volume (USD) in the last `hours`. */
 export async function recentSendVolumeUsd(userId: string, hours: number): Promise<number> {
   const { rows } = await getPool().query<{ total: string }>(

@@ -40,3 +40,7 @@ export const DEV_SECRET_KEY = E.devSecretKey ?? '';
 export const PRIVY_APP_ID = E.privyAppId ?? '';
 export const PRIVY_CLIENT_ID = E.privyClientId ?? '';
 export const USE_PRIVY = PRIVY_APP_ID.length > 0;
+
+// Dev-only build flag: true under `next dev` (yarn web), false in a production build. Gates testing
+// affordances (e.g. the Settings "Reset for testing" action) so they never ship to a prod bundle.
+export const IS_DEV = !isProduction;

@@ -5,10 +5,16 @@
 import dynamic from 'next/dynamic';
 import type { ReactNode } from 'react';
 
+import { Splash } from '@/components/ui/Splash';
 import { LiveSync } from '@/hooks/useLiveSync';
 import { USE_PRIVY } from '@/services/env';
 
-const PrivyRoot = dynamic(() => import('@/services/privy/PrivyRoot'), { ssr: false });
+// `loading` shows the splash while the Privy chunk downloads on the client (ssr:false means it
+// only renders client-side), so the post-hydration window is never a blank frame.
+const PrivyRoot = dynamic(() => import('@/services/privy/PrivyRoot'), {
+  ssr: false,
+  loading: () => <Splash />,
+});
 
 export function AppProviders({ children }: { children: ReactNode }) {
   // LiveSync keeps balance/activity fresh while signed in (so received money appears live).

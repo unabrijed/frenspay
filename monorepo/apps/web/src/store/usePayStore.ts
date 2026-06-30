@@ -4,11 +4,12 @@
 //
 // Money flows delegate to the RealWalletProvider (@/services/wallet) → the backend API + on-device
 // signing. The app is always real; balance/activity load from the backend once signed in.
-import type { ApiPaymentRequest, Notification, Order, Quote } from '@pay/shared';
+import type { ApiPaymentRequest, KycStatus, Notification, Order, Quote } from '@pay/shared';
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
+import { bootTrace } from '@/lib/boot';
 import { RATE } from '@/lib/money';
 import type { DisplayCurrency } from '@/lib/money';
 import { parseScannedQR } from '@/lib/qr';
@@ -77,6 +78,8 @@ interface PayState {
   scannedRupees: number;
   detail: Txn | null;
   pendingPay: boolean;
+  /** Real-vendor verification lifecycle (M7): 'pending' while the user is in/returning from the flow. */
+  kycStatus: KycStatus;
   lastSend: { u: number; handle: string };
   lastRequest: { u: number; handle: string };
   requestDraftUsd: number;
@@ -126,12 +129,18 @@ interface PayState {
   verifyOtp: (code: string) => Promise<void>;
   logout: () => Promise<void>;
   authSync: (handle: string) => Promise<void>;
+  /** Dev-only: reset backend KYC tier + local state and sign out, to re-test onboarding + KYC. */
+  resetForTesting: () => Promise<void>;
 
   // ---- flows (mirror app.jsx) ----
   /** Decode a scanned QR and route to the right flow (send / merchant-pay). */
   handleScan: (text: string) => Promise<void>;
   payMerchant: (m: Merchant, rupees?: number) => void;
   verifyDone: () => void;
+  /** After returning from the hosted KYC flow: poll /me until the vendor decision lands. */
+  pollKyc: () => Promise<void>;
+  /** Resume a merchant-pay interrupted by the hosted-KYC redirect (reads the sessionStorage stash). */
+  resumePayAfterKyc: () => void;
   recoveryDone: () => void;
   /** Publish real recovery status from the Privy bridge. */
   setRecoveryStatus: (s: { email: string; passkey: boolean }) => void;
@@ -179,6 +188,7 @@ export const usePayStore = create<PayState>()(
       scannedRupees: 0,
       detail: null,
       pendingPay: false,
+      kycStatus: 'none',
       lastSend: { u: 12, handle: '@neha' },
       lastRequest: { u: 20, handle: '@neha' },
       requestDraftUsd: 20,
@@ -238,6 +248,7 @@ export const usePayStore = create<PayState>()(
             walletAddress: me.walletAddress,
             handle: me.handle,
             kycTier: me.kycTier,
+            kycStatus: me.kycStatus ?? 'none',
             balanceUSD: bal,
             fxRate: fx.rate,
             transactions: txns,
@@ -324,6 +335,22 @@ export const usePayStore = create<PayState>()(
           onboarded: false,
         });
       },
+      // Dev-only full reset for re-testing onboarding + KYC from scratch. Order matters: reset the
+      // BACKEND tier while still authed (logout clears the token next), then drop the KYC-redirect
+      // stash, then logout (clears the Privy session + persisted store → onboarded=false, tier=1).
+      resetForTesting: async () => {
+        try {
+          await api.devResetKyc();
+        } catch {
+          /* dev endpoint 403s in prod / no backend reachable — reset is best-effort */
+        }
+        try {
+          sessionStorage.removeItem('tabroad:resumePay');
+        } catch {
+          /* sessionStorage blocked — ignore */
+        }
+        await get().logout();
+      },
       authSync: async (handle) => {
         const me = await api.authSync({ handle, walletAddress: get().walletAddress });
         set({ walletAddress: me.walletAddress });
@@ -372,10 +399,30 @@ export const usePayStore = create<PayState>()(
         }
       },
       verifyDone: async () => {
-        // Simulated KYC upgrade — promotes the tier server-side (unlocks merchant pay at tier 2).
+        // Two providers behind one call (see backend /kyc/verify): the dev sim returns the new tier
+        // instantly; a real vendor returns a hosted URL we navigate to (tier is raised later via the
+        // webhook/reconciler, picked up by pollKyc when the user returns to /home?kyc=done).
         try {
-          const r = await api.kycVerify();
-          set({ kycTier: r.kycTier });
+          set({ error: null });
+          const r = await api.kycVerify(`${window.location.origin}/home?kyc=done`);
+          if ('url' in r) {
+            set({ kycStatus: 'pending' });
+            // The redirect destroys in-memory state; stash the merchant-pay intent so we can resume
+            // it when the user returns to /home?kyc=done (pollKyc reads this back).
+            if (get().pendingPay) {
+              try {
+                sessionStorage.setItem(
+                  'tabroad:resumePay',
+                  JSON.stringify({ merchant: get().merchant, rupees: get().scannedRupees }),
+                );
+              } catch {
+                /* sessionStorage blocked — resume is best-effort */
+              }
+            }
+            window.location.assign(r.url); // leaves the app; control returns via the callback URL
+            return;
+          }
+          set({ kycTier: r.kycTier, kycStatus: 'approved' });
         } catch (e) {
           set({ error: e instanceof Error ? e.message : String(e) });
           return;
@@ -385,6 +432,44 @@ export const usePayStore = create<PayState>()(
           get().open('amount');
         } else {
           get().close();
+        }
+      },
+      pollKyc: async () => {
+        // Poll /me until the vendor decision lands (the backend reconciler/webhook raises the tier).
+        for (let i = 0; i < 20; i++) {
+          try {
+            const me = await api.me();
+            set({ kycTier: me.kycTier, kycStatus: me.kycStatus ?? get().kycStatus });
+            if (me.kycTier >= 2) {
+              set({ pendingPay: false });
+              get().resumePayAfterKyc();
+              return;
+            }
+            if (me.kycStatus === 'declined') {
+              set({ error: 'Verification didn’t pass. Please try again.' });
+              return;
+            }
+          } catch {
+            /* transient — keep trying */
+          }
+          await new Promise((res) => setTimeout(res, 3000));
+        }
+        // Timed out with no terminal decision — surface it instead of spinning forever.
+        if (get().kycTier < 2) {
+          set({ error: 'Verification is taking longer than expected. Please try again.' });
+        }
+      },
+      resumePayAfterKyc: () => {
+        // Resume a merchant-pay that was interrupted by the hosted-KYC redirect (see verifyDone).
+        try {
+          const raw = sessionStorage.getItem('tabroad:resumePay');
+          if (!raw) return;
+          sessionStorage.removeItem('tabroad:resumePay');
+          const { merchant, rupees } = JSON.parse(raw) as { merchant: Merchant; rupees: number };
+          set({ merchant, scannedRupees: rupees ?? 0 });
+          get().open('amount');
+        } catch {
+          /* best-effort resume */
         }
       },
       recoveryDone: () => {
@@ -609,13 +694,30 @@ export const usePayStore = create<PayState>()(
   ),
 );
 
-/** True once persisted state has been read from AsyncStorage (re-renders on finish). */
+/** True once persisted state has been read from storage (re-renders on finish). Resolves true after
+ *  a short timeout regardless, so a stalled hydration can never trap the entry page on the splash —
+ *  proceeding with empty persisted state is the correct fallback (the app just redirects normally). */
 export function useStoreHydrated(): boolean {
   const [hydrated, setHydrated] = useState(() => usePayStore.persist.hasHydrated());
   useEffect(() => {
-    const unsub = usePayStore.persist.onFinishHydration(() => setHydrated(true));
-    setHydrated(usePayStore.persist.hasHydrated());
-    return unsub;
-  }, []);
+    if (hydrated) {
+      bootTrace('store hydrated (sync)');
+      return;
+    }
+    const done = () => {
+      bootTrace('store hydrated');
+      setHydrated(true);
+    };
+    const unsub = usePayStore.persist.onFinishHydration(done);
+    if (usePayStore.persist.hasHydrated()) done();
+    const t = setTimeout(() => {
+      bootTrace('store hydrate TIMEOUT — proceeding empty');
+      setHydrated(true);
+    }, 3000);
+    return () => {
+      unsub();
+      clearTimeout(t);
+    };
+  }, [hydrated]);
   return hydrated;
 }

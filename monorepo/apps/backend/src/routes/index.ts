@@ -11,6 +11,8 @@ import type {
   FaucetRequest,
   FaucetResponse,
   FundSubmitRequest,
+  KycStartResponse,
+  KycSimVerifyResponse,
   MeResponse,
   NotificationsResponse,
   OrderResponse,
@@ -44,6 +46,7 @@ import {
   getOrderForDispute,
   getOrderForUser,
   getOrderSimRow,
+  getUserKycStatus,
   getUserKycTier,
   getWalletForUser,
   insertDispute,
@@ -59,6 +62,7 @@ import {
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  setKycSession,
   setMerchantKyb,
   setTransferStatusBySignature,
   setUserKycTier,
@@ -75,6 +79,8 @@ import {
   screenHandle,
 } from '../services/compliance';
 import { getMidRate, getMidRateAsOf } from '../services/fxRate';
+import { getKycProvider } from '../services/kyc';
+import { applyKycForSession } from '../services/kyc/poller';
 import { metrics } from '../services/metrics';
 import { notifyKycUpgraded, notifyRequestPaid } from '../services/notify';
 import { rateLimitHook } from '../services/rateLimit';
@@ -89,6 +95,28 @@ import {
 } from '../services/orderMachine';
 import { createQuote } from '../services/quoteEngine';
 import { buildUsdcTransfer, getUsdcBalance, mintUsdcTo } from '../services/solana';
+
+/** Accept a client-supplied KYC return URL only if it's an http(s) URL on an allowed origin (CORS
+ *  allowlist). Empty allowlist = dev allow-all. Anything else → '' (vendor uses its default). */
+function safeReturnUrl(input: unknown): string {
+  if (typeof input !== 'string' || !input) return '';
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    return '';
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+  if (!config.corsOrigin) return input; // dev: CORS allows all → accept
+  const allowed = config.corsOrigin.split(',').map((s) => s.trim());
+  return allowed.includes(url.origin) ? input : '';
+}
+
+const KYC_STATUSES = ['none', 'pending', 'in_review', 'approved', 'declined'] as const;
+/** Map a raw DB value to the typed KYC status, defaulting unknown values to 'none'. */
+function toKycStatus(s: string): MeResponse['kycStatus'] {
+  return (KYC_STATUSES as readonly string[]).includes(s) ? (s as MeResponse['kycStatus']) : 'none';
+}
 
 export async function registerRoutes(app: FastifyInstance) {
   // M6: rate-limit the sensitive routes (money movement + faucet + auth) before anything else runs.
@@ -139,6 +167,7 @@ export async function registerRoutes(app: FastifyInstance) {
       displayName: user.display_name ?? user.handle,
       walletAddress: wallet?.address ?? '',
       kycTier: await getUserKycTier(userId),
+      kycStatus: toKycStatus(await getUserKycStatus(userId)),
     };
   });
 
@@ -575,18 +604,56 @@ export async function registerRoutes(app: FastifyInstance) {
     },
   );
 
-  // --- M5: KYC verification (simulated upgrade) ---
-  // Real flow: a KYC vendor verifies documents and calls back. Here, "verify" promotes the tier
-  // (unlocks merchant pay at tier 2). The web "Verify identity" button calls this.
-  app.post('/kyc/verify', async (req, reply) => {
+  // --- M5/M7: KYC verification. The "Verify identity" button calls this. With the sim provider
+  // (dev) it promotes instantly; with a real vendor (Didit) it starts a hosted session and returns a
+  // URL for the client to open — the tier is raised later via the webhook + reconciler (kyc/poller).
+  app.post<{ Body: { returnUrl?: string } }>('/kyc/verify', async (req, reply) => {
     const userId = requireUserId(req);
-    // Simulated instant verification — dev/stage only. In prod this must be a real KYC vendor callback
-    // (M7); leaving it open would let any logged-in user self-promote to tier 2 (merchant cash-out).
-    if (!config.isDevelopment) return reply.code(403).send({ error: 'kyc_provider_unavailable' });
-    const next = Math.max(await getUserKycTier(userId), 2);
-    await setUserKycTier(userId, next);
-    await notifyKycUpgraded(userId, next); // M6
-    return reply.send({ ok: true, kycTier: next });
+    const provider = getKycProvider();
+    // The client return target becomes the vendor's post-verification redirect. Only echo it onward
+    // if it's an allowed origin (CORS allowlist) so we never hand a third party an arbitrary redirect.
+    const returnUrl = safeReturnUrl(req.body?.returnUrl);
+
+    let result;
+    try {
+      result = await provider.start({ userId, vendorData: userId, callbackUrl: returnUrl });
+    } catch (err) {
+      // Don't leak the vendor's raw error to the client.
+      req.log.error({ err }, 'kyc provider start failed');
+      return reply.code(503).send({ error: 'kyc_unavailable' });
+    }
+
+    if (result.mode === 'instant') {
+      // Sim path — dev/stage only. In prod a real vendor must verify; never let a user self-promote.
+      if (!config.isDevelopment) return reply.code(403).send({ error: 'kyc_provider_unavailable' });
+      const next = Math.max(await getUserKycTier(userId), result.tier);
+      await setUserKycTier(userId, next);
+      await notifyKycUpgraded(userId, next); // M6
+      return reply.send({ ok: true, kycTier: next } satisfies KycSimVerifyResponse);
+    }
+
+    await setKycSession(userId, result.sessionId, provider.name);
+    return reply.send({ url: result.url, sessionId: result.sessionId } satisfies KycStartResponse);
+  });
+
+  // Real-vendor webhook: a thin "this session changed, go check" ping. We verify the signature for
+  // authenticity, then reconcile from the vendor's authoritative decision (applyKycForSession only
+  // acts on sessions we issued), so a forged call can't promote anyone. The reconciler poller is the
+  // reliable fallback if this never arrives (e.g. no public URL locally).
+  app.post('/webhooks/kyc', async (req, reply) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    if (!getKycProvider().verifyWebhook(body, req.headers as Record<string, string | undefined>)) {
+      return reply.code(401).send({ error: 'unauthorized' });
+    }
+    const sessionId = typeof body.session_id === 'string' ? body.session_id : null;
+    try {
+      if (sessionId) await applyKycForSession(sessionId, (m) => req.log.info(m));
+    } catch (err) {
+      // Swallow transient DB/vendor failures: the reconciler poller will retry. Returning 200 avoids
+      // a vendor retry storm hammering us during an outage.
+      req.log.warn({ err, sessionId }, 'kyc webhook processing failed');
+    }
+    return { ok: true };
   });
 
   // dev-only: set any tier directly (for exercising limits/screening).
