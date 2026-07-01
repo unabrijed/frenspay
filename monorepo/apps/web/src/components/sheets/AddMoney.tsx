@@ -9,7 +9,6 @@ import { Chip, Chips, Eyebrow, Field, Grab, List, Row, RowIcon, RowMeta, SheetBo
 import { haptic, Pressable, sx, View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { colors, fonts, type } from '@/lib/theme';
-import { USDC_DEPOSIT_ADDRESS } from '@/services/wallet';
 import { usePayStore } from '@/store/usePayStore';
 
 const CHIPS = [50, 100, 250];
@@ -18,12 +17,11 @@ export function AddMoney() {
   const close = usePayStore((s) => s.close);
   const doAdd = usePayStore((s) => s.doAdd);
   const walletAddress = usePayStore((s) => s.walletAddress);
-  const addr = walletAddress || USDC_DEPOSIT_ADDRESS;
   const [amt, setAmt] = useState(100);
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     haptic();
-    await navigator.clipboard.writeText(addr).catch(() => {});
+    await navigator.clipboard.writeText(walletAddress).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -54,21 +52,27 @@ export function AddMoney() {
           />
         </Field>
         <Btn label={`Add $${amt}`} disabled={amt <= 0} onPress={() => doAdd(amt)} style={{ marginTop: 16 }} />
-        <Eyebrow style={{ marginTop: 22, marginBottom: 10 }}>Or add manually</Eyebrow>
-        <List>
-          <Row>
-            <RowIcon accent>
-              <Icons.Qr size={18} color={colors.accent} />
-            </RowIcon>
-            <RowMeta>
-              <Txt style={{ ...fonts.mono400, fontSize: 14, color: colors.ink }}>{addr}</Txt>
-            </RowMeta>
-            <Pressable onPress={copy} hitSlop={8} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6 }, pressed && { opacity: 0.6 }]}>
-              <Icons.Copy size={16} color={colors.accent} strokeWidth={1.6} />
-              <Txt style={{ ...fonts.body500, fontSize: 14, color: colors.accent }}>{copied ? 'Copied' : 'Copy'}</Txt>
-            </Pressable>
-          </Row>
-        </List>
+        {walletAddress ? (
+          <>
+            <Eyebrow style={{ marginTop: 22, marginBottom: 10 }}>Or add manually</Eyebrow>
+            <List>
+              <Row>
+                <RowIcon accent>
+                  <Icons.Qr size={18} color={colors.accent} />
+                </RowIcon>
+                <RowMeta>
+                  <Txt style={{ ...fonts.mono400, fontSize: 14, color: colors.ink }}>
+                    {`${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}`}
+                  </Txt>
+                </RowMeta>
+                <Pressable onPress={copy} hitSlop={8} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6 }, pressed && { opacity: 0.6 }]}>
+                  <Icons.Copy size={16} color={colors.accent} strokeWidth={1.6} />
+                  <Txt style={{ ...fonts.body500, fontSize: 14, color: colors.accent }}>{copied ? 'Copied' : 'Copy'}</Txt>
+                </Pressable>
+              </Row>
+            </List>
+          </>
+        ) : null}
       </SheetBody>
     </>
   );

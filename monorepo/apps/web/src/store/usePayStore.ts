@@ -10,7 +10,6 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { bootTrace } from '@/lib/boot';
-import { RATE } from '@/lib/money';
 import type { DisplayCurrency } from '@/lib/money';
 import { parseScannedQR } from '@/lib/qr';
 import { api, ApiError, setAuthToken } from '@/services/api';
@@ -21,9 +20,6 @@ import { FRIENDS, wallet, type Friend, type Merchant, type Txn } from '@/service
 export type SheetId =
   | 'scan'
   | 'amount'
-  | 'review'
-  | 'success'
-  | 'declined'
   | 'add'
   | 'send'
   | 'sendAmount'
@@ -31,19 +27,18 @@ export type SheetId =
   | 'requestPick'
   | 'requestSent'
   | 'sent'
+  | 'sendFailed'
   | 'verify'
   | 'recovery'
   | 'receive'
   | 'currency'
   | 'quote'
   | 'tracking'
+  | 'help'
   | 'notifications';
 
 const SHEET_EXIT_MS = 280;
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
-
-let _seq = 0;
-const localId = () => `local-${Date.now()}-${_seq++}`;
 
 /** Imperative auth actions registered by the Privy bridge (real mode only). */
 interface AuthBridge {
@@ -151,7 +146,6 @@ interface PayState {
   /** Link a passkey as a second-device recovery factor (delegates to Privy). */
   addPasskey: () => Promise<void>;
   finishPay: () => void;
-  doPay: (ok: boolean) => void;
   doSend: (u: number) => Promise<Txn | null>;
   doAdd: (amt: number) => Promise<void>;
 
@@ -518,24 +512,6 @@ export const usePayStore = create<PayState>()(
         }
       },
 
-      // Merchant pay stays on the mock settlement path (Phase 2).
-      doPay: (ok) => {
-        if (!ok) {
-          get().open('declined');
-          return;
-        }
-        const { payRupees, merchant } = get();
-        const u = payRupees / RATE;
-        set((s) => ({
-          balanceUSD: +(s.balanceUSD - u).toFixed(2),
-          transactions: [
-            { id: localId(), type: 'pay', title: merchant.name, time: 'Just now', usd: -u, rupees: payRupees },
-            ...s.transactions,
-          ],
-        }));
-        get().open('success');
-      },
-
       doSend: async (u) => {
         const { friend } = get();
         set({ busy: true, error: null });
@@ -560,6 +536,7 @@ export const usePayStore = create<PayState>()(
             return null;
           }
           set({ busy: false, error: e instanceof Error ? e.message : String(e) });
+          get().open('sendFailed');
           return null;
         }
       },

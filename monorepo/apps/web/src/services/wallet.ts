@@ -1,20 +1,8 @@
-// wallet.ts — the mobile-side seam. The contract types live in @fpay/shared (the
-// Railway backend uses the same types); this file keeps the in-memory Mock*
-// implementations and demo data the app runs on today.
-//
-// In Phase 1 the real providers (Privy embedded wallet + Solana USDC transfers via
-// Helius, the Railway Fastify API) drop in here with no UI changes. Phase 2 (INR
-// merchant settlement via the licensed partner float) becomes the real SettlementProvider.
+// wallet.ts — the web-side wallet seam. The contract types live in @fpay/shared (the Railway
+// backend uses the same types). The app always talks to the real backend via RealWalletProvider;
+// this file only keeps the shared FRIENDS demo list used as a fallback in the people picker.
 
-import {
-  RATE,
-  RATE_LABEL,
-  rupeesToUsd,
-  type Friend,
-  type Merchant,
-  type SettlementProvider,
-  type WalletProvider,
-} from '@fpay/shared';
+import { RATE_LABEL, type Friend, type WalletProvider } from '@fpay/shared';
 
 import { RealWalletProvider } from './real';
 
@@ -22,7 +10,7 @@ import { RealWalletProvider } from './real';
 export type { Friend, Merchant, RateLockQuote, SettlementProvider, Txn, TxnType, WalletProvider } from '@fpay/shared';
 export { RATE_LABEL };
 
-/* ---- mock data ---- */
+/* ---- demo friends: fallback list in the people picker until real contacts resolve ---- */
 export const FRIENDS: Friend[] = [
   { name: 'Neha R.', handle: '@neha', ini: 'N' },
   { name: 'Arjun M.', handle: '@arjun', ini: 'A' },
@@ -30,32 +18,5 @@ export const FRIENDS: Friend[] = [
   { name: 'Priya V.', handle: '@priya', ini: 'P' },
 ];
 
-export const DEMO_MERCHANTS: Merchant[] = [
-  { name: 'Anjuna Beach Cafe' },
-  { name: 'Auto rickshaw' },
-  { name: 'Mango Tree Restaurant' },
-];
-
-export const USDC_DEPOSIT_ADDRESS = '7xBn…mK4q';
-
-/* ---- mock implementations (local math; no network) ---- */
-export const MockSettlementProvider: SettlementProvider = {
-  async quoteSpend({ rupees }) {
-    const now = Date.now();
-    return {
-      rupees,
-      usdc: rupeesToUsd(rupees),
-      rate: RATE,
-      rateLabel: RATE_LABEL,
-      quotedAt: now,
-      expiresAt: now + 60_000,
-    };
-  },
-  async executeSpend(quote) {
-    return { settled: true, usdDebited: quote.usdc, rupees: quote.rupees };
-  },
-};
-
-/* ---- active providers: the app always talks to the real backend ---- */
+/* ---- active provider: the app always talks to the real backend ---- */
 export const wallet: WalletProvider = new RealWalletProvider();
-export const settlement: SettlementProvider = MockSettlementProvider; // Phase 2 (merchant INR) stays mock

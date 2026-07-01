@@ -1,16 +1,15 @@
 'use client';
 
-// pay.tsx — the signature pay flow sheets: Scan → Amount → Review → Success / Declined.
+// pay.tsx — the merchant pay entry sheets: Scan → Amount. Amount runs the REAL order lifecycle
+// (getQuote → Quote sheet → confirmOrder/escrow → OrderTracking); there is no client-side settlement.
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 
 import { Icons } from '@/components/icons';
-import { RateLock } from '@/components/RateLock';
-import { ResultBlock } from '@/components/ResultBlock';
-import { Btn, TextLink } from '@/components/ui/Button';
+import { Btn } from '@/components/ui/Button';
 import { Keypad } from '@/components/ui/Keypad';
-import { Grab, KV, SheetBody, SheetHeader, Spacer } from '@/components/ui/primitives';
+import { Grab, SheetBody, SheetHeader } from '@/components/ui/primitives';
 import { Pressable, View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { inrRaw, RATE, usd } from '@/lib/money';
@@ -103,7 +102,7 @@ export function Scan() {
           <Txt style={[type.lead, styles.scanError]}>{error}</Txt>
         ) : (
           <Txt style={[type.lead, styles.scanLead]}>
-            {camErr ? CAM_MESSAGES[camErr] : "Point at a friend's Pay QR."}
+            {camErr ? CAM_MESSAGES[camErr] : "Point at a friend's fpay QR."}
           </Txt>
         )}
         {camErr ? (
@@ -161,98 +160,13 @@ export function Amount() {
   );
 }
 
-export function Review() {
-  const close = usePayStore((s) => s.close);
-  const open = usePayStore((s) => s.open);
-  const doPay = usePayStore((s) => s.doPay);
-  const merchant = usePayStore((s) => s.merchant);
-  const payR = usePayStore((s) => s.payRupees);
-  const bal = usePayStore((s) => s.balanceUSD);
-  const u = payR / RATE;
-  const after = bal - u;
-  const ok = after >= 0;
-  return (
-    <>
-      <Grab />
-      <SheetHeader title="Review payment" onClose={close} />
-      <SheetBody>
-        <Txt style={[type.lead, { marginBottom: 4 }]}>
-          Paying {merchant.name}. The rate is locked for this payment.
-        </Txt>
-        <View style={{ marginTop: 22 }}>
-          <RateLock payUsd={u} getR={payR} />
-        </View>
-        <View style={{ marginTop: 12 }}>
-          <KV k="Balance after" v={ok ? usd(after) : usd(bal)} />
-        </View>
-        <Spacer />
-        <View style={styles.cta}>
-          <Btn label={`Pay ${inrRaw(payR)}`} onPress={() => doPay(ok)} />
-          <TextLink label="Back" onPress={() => open('amount')} />
-        </View>
-      </SheetBody>
-    </>
-  );
-}
-
-export function Success() {
-  const close = usePayStore((s) => s.close);
-  const finishPay = usePayStore((s) => s.finishPay);
-  const payR = usePayStore((s) => s.payRupees);
-  const u = payR / RATE;
-  return (
-    <>
-      <Grab />
-      <SheetHeader title="Paid" onClose={close} />
-      <SheetBody>
-        <ResultBlock
-          kind="ok"
-          icon={<Icons.Check size={30} color={colors.accent} />}
-          headline={`${inrRaw(payR)} paid`}
-          inst="Paid instantly, from your dollars"
-        />
-        <View style={{ marginTop: 22 }}>
-          <RateLock payUsd={u} getR={payR} />
-        </View>
-        <Spacer />
-        <View style={styles.cta}>
-          <Btn label="Done" variant="ink" onPress={finishPay} />
-        </View>
-      </SheetBody>
-    </>
-  );
-}
-
-export function Declined() {
-  const close = usePayStore((s) => s.close);
-  const open = usePayStore((s) => s.open);
-  const payR = usePayStore((s) => s.payRupees);
-  const bal = usePayStore((s) => s.balanceUSD);
-  const need = payR / RATE;
-  return (
-    <>
-      <Grab />
-      <SheetHeader title="Payment not sent" onClose={close} />
-      <SheetBody>
-        <ResultBlock kind="no" icon={<Icons.XBig size={28} color={colors.muted} />} headline={`${inrRaw(payR)} not paid`} />
-        <Txt style={[type.reassure, { textAlign: 'center', marginTop: 22 }]}>
-          Your balance did not change.{'\n'}You need <Txt style={styles.bold}>{usd(need)}</Txt> but have{' '}
-          <Txt style={styles.bold}>{usd(bal)}</Txt>.
-        </Txt>
-        <Spacer />
-        <View style={styles.cta}>
-          <Btn label="Add money" onPress={() => open('add')} />
-          <TextLink label="Cancel" onPress={close} />
-        </View>
-      </SheetBody>
-    </>
-  );
-}
-
 const styles = {
   viewport: {
     position: 'relative',
-    height: 250,
+    width: '100%',
+    maxWidth: 340,
+    aspectRatio: 1, // square, aspect-locked → identical framing on phone + the 430px desktop column
+    alignSelf: 'center',
     backgroundColor: '#101316',
     borderRadius: 18,
     alignItems: 'center',
@@ -266,6 +180,4 @@ const styles = {
   retryRow: { alignItems: 'center', marginBottom: 14 },
   myqr: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingTop: 2, paddingBottom: 14 },
   amountbig: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
-  cta: { gap: 13, alignItems: 'center' },
-  bold: { ...fonts.mono500, color: colors.ink },
 } satisfies Record<string, CSSProperties>;

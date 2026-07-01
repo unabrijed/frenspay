@@ -3,7 +3,7 @@
 // OrderTracking.tsx — the live 7-step order timeline + the four failure-resolution states.
 // Polls GET /orders/:id until terminal. Every state answers "what's happening / what to do / ETA",
 // per the architecture: a user must never wonder "did my money disappear?".
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { useEffect } from 'react';
 
 import type { OrderResolution, OrderState } from '@fpay/shared';
@@ -56,13 +56,34 @@ function Step({ label, sub, status }: { label: string; sub: string; status: 'don
   );
 }
 
-function Done({ title, headline, inst, onClose }: { title: string; headline: string; inst: string; onClose: () => void }) {
+// Terminal outcome card — reused for completed / refunded (kind="ok") and failed (kind="no"), so
+// every order outcome reads as the same intentional ResultBlock card.
+function Outcome({
+  kind = 'ok',
+  icon,
+  title,
+  headline,
+  inst,
+  onClose,
+}: {
+  kind?: 'ok' | 'no';
+  icon?: ReactNode;
+  title: string;
+  headline: string;
+  inst: string;
+  onClose: () => void;
+}) {
   return (
     <>
       <Grab />
       <SheetHeader title={title} onClose={onClose} />
       <SheetBody>
-        <ResultBlock kind="ok" icon={<Icons.Check size={30} color={colors.accent} />} headline={headline} inst={inst} />
+        <ResultBlock
+          kind={kind}
+          icon={icon ?? <Icons.Check size={30} color={colors.accent} />}
+          headline={headline}
+          inst={inst}
+        />
         <Spacer />
         <View style={styles.cta}>
           <Btn label="Done" variant="ink" onPress={onClose} />
@@ -88,27 +109,22 @@ export function OrderTracking() {
 
   if (!order) return null;
   if (order.state === 'completed') {
-    return <Done title="Paid" headline={`${inrRaw(order.quote.amountInr)} paid`} inst="Paid from your balance" onClose={close} />;
+    return <Outcome title="Paid" headline={`${inrRaw(order.quote.amountInr)} paid`} inst="Paid from your balance" onClose={close} />;
   }
   if (order.state === 'refunded') {
-    return <Done title="Refunded" headline={`${inrRaw(order.quote.amountInr)} refunded`} inst="You’ve been made whole" onClose={close} />;
+    return <Outcome title="Refunded" headline={`${inrRaw(order.quote.amountInr)} refunded`} inst="You’ve been made whole" onClose={close} />;
   }
   if (order.state === 'failed') {
-    // Terminal failure (e.g. never funded / abandoned). Not a dead-end timeline — show a clear close-out.
+    // Terminal failure (e.g. never funded / abandoned) — a clear result card, not a dead-end timeline.
     return (
-      <>
-        <Grab />
-        <SheetHeader title="Payment cancelled" onClose={close} />
-        <SheetBody>
-          <Txt style={[type.lead, { textAlign: 'center', marginTop: 8 }]}>
-            This payment didn’t go through. No money left your balance — please try again.
-          </Txt>
-          <Spacer />
-          <View style={styles.cta}>
-            <Btn label="Done" variant="ink" onPress={close} />
-          </View>
-        </SheetBody>
-      </>
+      <Outcome
+        kind="no"
+        icon={<Icons.XBig size={28} color={colors.muted} />}
+        title="Payment cancelled"
+        headline={`${inrRaw(order.quote.amountInr)} not paid`}
+        inst="No money left your balance — please try again."
+        onClose={close}
+      />
     );
   }
 

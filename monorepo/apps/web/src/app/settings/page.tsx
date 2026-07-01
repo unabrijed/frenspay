@@ -35,7 +35,7 @@ export default function Settings() {
           <ProfileAvatar label={(handle.replace(/^@/, '')[0] ?? 'U').toUpperCase()} />
           <View>
             <Txt style={type.handle}>{handle || '@you'}</Txt>
-            <Txt style={[type.profileSub, { marginTop: 2 }]}>Pay account</Txt>
+            <Txt style={[type.profileSub, { marginTop: 2 }]}>fpay account</Txt>
           </View>
         </View>
 
@@ -43,7 +43,7 @@ export default function Settings() {
           <SettingsRow k="Verification" v={`Tier ${kycTier}`} onPress={() => open('verify')} />
           <SettingsRow k="Recovery" v={recoveryPasskey ? 'Passkey set' : 'Email'} onPress={() => open('recovery')} />
           <SettingsRow k="Display currency" v={displayCurrency} accent onPress={() => open('currency')} />
-          <SettingsRow k="Help and support" />
+          <SettingsRow k="Help and support" onPress={() => open('help')} />
         </List>
 
         <Spacer />

@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 
 import { Icons } from '@/components/icons';
 import { ResultBlock } from '@/components/ResultBlock';
-import { Btn } from '@/components/ui/Button';
+import { Btn, TextLink } from '@/components/ui/Button';
 import { Keypad } from '@/components/ui/Keypad';
 import { Fav, Grab, List, Row, RowMeta, SearchBar, SheetBody, SheetHeader, Spacer } from '@/components/ui/primitives';
 import { Txt } from '@/components/ui/Txt';
@@ -199,6 +199,33 @@ export function Sent() {
         <Spacer />
         <View style={styles.cta}>
           <Btn label="Done" onPress={close} />
+        </View>
+      </SheetBody>
+    </>
+  );
+}
+
+// Terminal failure for a P2P send (or a failed request-pay). Mirrors the merchant-pay failed card so
+// every outcome reads as an intentional result. Opened by the store's doSend catch.
+export function SendFailed() {
+  const close = usePayStore((s) => s.close);
+  const open = usePayStore((s) => s.open);
+  const error = usePayStore((s) => s.error);
+  return (
+    <>
+      <Grab />
+      <SheetHeader title="Not sent" onClose={close} />
+      <SheetBody>
+        <ResultBlock
+          kind="no"
+          icon={<Icons.XBig size={28} color={colors.muted} />}
+          headline="Payment not sent"
+          sub={error ?? 'Something went wrong. No money left your balance.'}
+        />
+        <Spacer />
+        <View style={styles.cta}>
+          <Btn label="Try again" onPress={() => open('sendAmount')} />
+          <TextLink label="Done" onPress={close} />
         </View>
       </SheetBody>
     </>
