@@ -20,7 +20,7 @@ export function SwKiller(): null {
             // Reload once so the page loads uncontrolled (the SW still controls THIS document until a
             // navigation). Guard against a loop via sessionStorage — but if it's unavailable (Safari
             // private mode) still reload: the next load finds 0 registrations and stops, so no loop.
-            const KEY = 'tabroad:sw-killed';
+            const KEY = 'fpay:sw-killed';
             let alreadyKilled = false;
             try {
               alreadyKilled = sessionStorage.getItem(KEY) === '1';

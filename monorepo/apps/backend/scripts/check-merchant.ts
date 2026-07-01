@@ -3,7 +3,7 @@
 //   1. a failing LP's recomputed success_rate drops below its seed prior and it ranks below a healthy LP;
 //   2. an in-flight order commits live float and saturates the LP out of routing;
 //   3. drawing the bond below MIN_BOND suspends the LP (absent from routing).
-// Run: yarn workspace @pay/backend tsx scripts/check-merchant.ts   (needs DATABASE_URL + `db:init`)
+// Run: yarn workspace @fpay/backend tsx scripts/check-merchant.ts   (needs DATABASE_URL + `db:init`)
 import { committedFloatByMerchant, drawDownBond } from '../src/db/queries';
 import { getPool } from '../src/db/pool';
 import { DISPUTE_PENALTY_USDC, MIN_BOND, recomputeMerchantStats } from '../src/services/merchantStats';

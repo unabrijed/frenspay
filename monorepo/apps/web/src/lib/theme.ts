@@ -1,11 +1,11 @@
-// theme.ts — WEB adapter over the shared design tokens (@pay/shared). The single source of
+// theme.ts — WEB adapter over the shared design tokens (@fpay/shared). The single source of
 // truth lives in packages/shared/src/tokens.ts; this only renders those tokens as web CSS
-// (font CSS-vars + numeric weights, box-shadow strings, px line-heights). Re-skin in @pay/shared.
-import { colors, radii, shadowSpec, spacing, tile, typeScale, type FontRole, type ShadowKey, type ShadowSpec, type TypeSpec } from '@pay/shared';
+// (font CSS-vars + numeric weights, box-shadow strings, px line-heights). Re-skin in @fpay/shared.
+import { colors, radii, shadowSpec, spacing, tile, typeScale, type FontRole, type ShadowKey, type ShadowSpec, type TypeSpec } from '@fpay/shared';
 import type { CSSProperties } from 'react';
 
 export { colors, radii, tile };
-export type { TileTone, TypeVariant } from '@pay/shared';
+export type { TileTone, TypeVariant } from '@fpay/shared';
 
 export const GUTTER = spacing.GUTTER;
 export const SHEET_GUTTER = spacing.SHEET_GUTTER;

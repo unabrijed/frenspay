@@ -6,7 +6,7 @@
 import type { CSSProperties } from 'react';
 import { useEffect } from 'react';
 
-import type { OrderResolution, OrderState } from '@pay/shared';
+import type { OrderResolution, OrderState } from '@fpay/shared';
 
 import { Icons } from '@/components/icons';
 import { ResultBlock } from '@/components/ResultBlock';

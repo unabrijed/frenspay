@@ -1,6 +1,6 @@
 'use client';
 
-// Activity — Tabroad transaction history: trip-summary card, filters, and date-grouped tactile rows
+// Activity — fpay transaction history: trip-summary card, filters, and date-grouped tactile rows
 // with Settling/Settled status. Plus the open-payment-requests block.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
@@ -10,6 +10,7 @@ import { Icons } from '@/components/icons';
 import { TxCard } from '@/components/TxCard';
 import { Btn, TextLink } from '@/components/ui/Button';
 import { Fav, List, Row, RowAmount, RowMeta } from '@/components/ui/primitives';
+import { Skeleton, TxListSkeleton } from '@/components/ui/Skeleton';
 import { Pressable, View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
 import { Txt } from '@/components/ui/Txt';
@@ -73,6 +74,7 @@ function Requests() {
 export default function Activity() {
   const router = useRouter();
   const txns = usePayStore((s) => s.transactions);
+  const loaded = usePayStore((s) => s.firstLoadDone);
   const bal = usePayStore((s) => s.balanceUSD);
   const fxRate = usePayStore((s) => s.fxRate);
   const displayCurrency = usePayStore((s) => s.displayCurrency);
@@ -112,9 +114,17 @@ export default function Activity() {
         {/* trip summary */}
         <View style={styles.summary}>
           <Txt style={type.eyebrow}>Trip balance · India</Txt>
-          <Txt style={[type.heroBalance, { fontSize: 38, lineHeight: '44px', marginTop: 6 }]}>{leadINR ? inr(bal, fxRate) : usd(bal)}</Txt>
+          {loaded ? (
+            <Txt style={[type.heroBalance, { fontSize: 38, lineHeight: '44px', marginTop: 6 }]}>{leadINR ? inr(bal, fxRate) : usd(bal)}</Txt>
+          ) : (
+            <Skeleton w={180} h={40} r={12} style={{ marginTop: 8, marginBottom: 4 }} />
+          )}
           <View style={styles.realRate}>
-            <Txt style={type.sub}>{leadINR ? `≈ ${usd(bal)}` : `≈ ${inr(bal, fxRate)}`}</Txt>
+            {loaded ? (
+              <Txt style={type.sub}>{leadINR ? `≈ ${usd(bal)}` : `≈ ${inr(bal, fxRate)}`}</Txt>
+            ) : (
+              <Skeleton w={90} h={13} />
+            )}
             <View style={styles.ratePill}>
               <Icons.LockCheck size={14} color={colors.accent} />
               <Txt style={[type.tierTag, { color: colors.muted }]}>Live rate</Txt>
@@ -137,7 +147,11 @@ export default function Activity() {
           ))}
         </View>
 
-        {shown.length === 0 ? (
+        {!loaded ? (
+          <View style={styles.txList}>
+            <TxListSkeleton rows={4} />
+          </View>
+        ) : shown.length === 0 ? (
           <Txt style={[type.lead, { textAlign: 'center', marginTop: 18 }]}>No activity yet.</Txt>
         ) : (
           <>

@@ -1,7 +1,7 @@
-# @pay/web
+# @fpay/web
 
 The Pay **web app** — a **Next.js 15 (App Router)** mobile-first port of the mobile UI. It
-renders as a **fixed phone column that never widens** on desktop/tablet, reuses `@pay/shared`
+renders as a **fixed phone column that never widens** on desktop/tablet, reuses `@fpay/shared`
 + the same store/services as mobile, and uses Privy's **browser** SDK so email-OTP login +
 an embedded Solana wallet work **with no device or dev build**.
 
@@ -10,9 +10,9 @@ an embedded Solana wallet work **with no device or dev build**.
 ```bash
 # from the monorepo root (Node 22 — `nvm use` first)
 yarn web                              # dev server → http://localhost:3000  (mock mode)
-yarn workspace @pay/web build         # production build
-yarn workspace @pay/web start         # serve the production build
-yarn workspace @pay/web tsc --noEmit  # typecheck just this app
+yarn workspace @fpay/web build         # production build
+yarn workspace @fpay/web start         # serve the production build
+yarn workspace @fpay/web tsc --noEmit  # typecheck just this app
 ```
 
 Mock mode (default) needs **zero setup** — walk the whole app in the browser: onboarding,

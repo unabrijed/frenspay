@@ -9,6 +9,7 @@ import { Icons } from '@/components/icons';
 import { BackButton } from '@/components/ui/BackButton';
 import { Btn } from '@/components/ui/Button';
 import { Field, GlyphCircle, Spacer } from '@/components/ui/primitives';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { Screen } from '@/components/ui/Screen';
@@ -16,30 +17,52 @@ import { colors, type } from '@/lib/theme';
 import { usePayStore } from '@/store/usePayStore';
 
 export default function FaceID() {
-  const router = useRouter();
-  return <EmailOtp onDone={() => router.replace('/onboarding/handle')} />;
+  return <EmailOtp />;
 }
 
-function EmailOtp({ onDone }: { onDone: () => void }) {
+function EmailOtp() {
   const router = useRouter();
   const authStatus = usePayStore((s) => s.authStatus);
   const authError = usePayStore((s) => s.authError);
+  const authEmail = usePayStore((s) => s.authEmail);
+  const handle = usePayStore((s) => s.handle);
+  const loaded = usePayStore((s) => s.firstLoadDone);
   const requestOtp = usePayStore((s) => s.requestOtp);
   const verifyOtp = usePayStore((s) => s.verifyOtp);
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const sent = authStatus === 'codeSent';
+  const signedIn = authStatus === 'signedIn';
 
+  // Signed in: once the embedded wallet + backend identity have loaded, route by whether a handle
+  // already exists — existing users skip straight to Home; brand-new users pick a handle.
   useEffect(() => {
-    if (authStatus === 'signedIn') onDone();
-  }, [authStatus, onDone]);
+    if (signedIn && loaded) router.replace(handle ? '/home' : '/onboarding/handle');
+  }, [signedIn, loaded, handle, router]);
 
   // Reset the in-flight guard once the request settles (status change or error) so a
   // double-tap can't fire concurrent sendCode/loginWithCode calls.
   useEffect(() => {
     setSubmitting(false);
   }, [authStatus, authError]);
+
+  // After the code verifies, Privy creates the embedded Solana wallet and we pull the account —
+  // show a dedicated "setting up" state (no inputs, no progress gap) until routing kicks in.
+  if (signedIn) {
+    return (
+      <Screen edges={['top', 'bottom']} style={styles.safe}>
+        <View style={styles.center}>
+          <GlyphCircle>
+            <Icons.Face size={44} color={colors.muted} strokeWidth={1.6} />
+          </GlyphCircle>
+          <Txt style={type.onbH1}>Setting up your account</Txt>
+          <Txt style={[type.lead, styles.sub, { fontSize: 15 }]}>Creating your secure wallet…</Txt>
+          <Skeleton w={168} h={6} r={999} style={{ marginTop: 4 }} />
+        </View>
+      </Screen>
+    );
+  }
 
   return (
     <Screen edges={['top', 'bottom']} style={styles.safe}>
@@ -52,7 +75,7 @@ function EmailOtp({ onDone }: { onDone: () => void }) {
         </GlyphCircle>
         <Txt style={type.onbH1}>{sent ? 'Enter your code' : 'Set up your account'}</Txt>
         <Txt style={[type.lead, styles.sub, { fontSize: 15 }]}>
-          {sent ? `We sent a 6-digit code to ${usePayStore.getState().authEmail}.` : 'No passwords. Just your email.'}
+          {sent ? `We sent a 6-digit code to ${authEmail}.` : 'No passwords. Just your email.'}
         </Txt>
         <Field style={{ marginTop: 4, alignSelf: 'stretch' }}>
           {sent ? (
@@ -81,7 +104,7 @@ function EmailOtp({ onDone }: { onDone: () => void }) {
       <View style={styles.cta}>
         {sent ? (
           <Btn
-            label="Verify"
+            label={submitting ? 'Verifying…' : 'Verify'}
             disabled={code.length < 4 || submitting}
             onPress={() => {
               setSubmitting(true);
@@ -90,7 +113,7 @@ function EmailOtp({ onDone }: { onDone: () => void }) {
           />
         ) : (
           <Btn
-            label="Send code"
+            label={submitting ? 'Sending…' : 'Send code'}
             disabled={!email.includes('@') || submitting}
             onPress={() => {
               setSubmitting(true);

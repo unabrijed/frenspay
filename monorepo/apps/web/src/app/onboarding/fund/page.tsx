@@ -3,41 +3,56 @@
 // Add first dollars — funds the wallet via the devnet faucet, then completes onboarding → Home.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { BackButton } from '@/components/ui/BackButton';
 import { Btn } from '@/components/ui/Button';
 import { Chip, Chips, Field, Spacer } from '@/components/ui/primitives';
+import { Splash } from '@/components/ui/Splash';
 import { sx, View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { Screen } from '@/components/ui/Screen';
 import { colors, type } from '@/lib/theme';
 import { wallet } from '@/services/wallet';
-import { usePayStore } from '@/store/usePayStore';
+import { usePayStore, useStoreHydrated } from '@/store/usePayStore';
 
 const CHIPS = [50, 100, 250];
 
 export default function Fund() {
   const router = useRouter();
+  const hydrated = useStoreHydrated();
+  const authStatus = usePayStore((s) => s.authStatus);
   const completeOnboarding = usePayStore((s) => s.completeOnboarding);
   const load = usePayStore((s) => s.load);
   const [amt, setAmt] = useState(100);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Step guard: funding signs a wallet transaction — bounce to the entry router if we land here
+  // without a signed-in session (direct URL / reload before the Privy bridge re-signs in).
+  useEffect(() => {
+    if (hydrated && authStatus !== 'signedIn') router.replace('/');
+  }, [hydrated, authStatus, router]);
+
   const finish = async () => {
     setErr(null);
     setBusy(true);
     try {
-      await wallet.addMoney?.(amt); // devnet faucet → mints test USDC into the user's wallet
-      completeOnboarding();
-      await load(); // pull the funded balance before landing on Home
-      router.replace('/home');
+      await wallet.addMoney?.(amt); // devnet faucet → mints test USDC. The only step that can hard-fail.
     } catch (e) {
+      // Funding failed → do NOT complete onboarding; let the user retry.
       setErr(e instanceof Error ? e.message : String(e));
       setBusy(false);
+      return;
     }
+    // Funded: finish onboarding and land on Home. load() is a best-effort prefetch — Home shows a
+    // skeleton until it (or the 12s LiveSync) lands, so a slow/failed load never traps onboarding.
+    completeOnboarding();
+    void load();
+    router.replace('/home');
   };
+
+  if (!hydrated || authStatus !== 'signedIn') return <Splash />;
 
   return (
     <Screen edges={['top', 'bottom']} style={styles.safe}>

@@ -1,5 +1,5 @@
 {
-  "name": "@pay/backend",
+  "name": "@fpay/backend",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
     "@fastify/cors": "^10.0.1",
-    "@pay/shared": "*",
+    "@fpay/shared": "*",
     "@privy-io/server-auth": "^1.32.5",
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",

@@ -67,7 +67,7 @@ src/
 
 ### The backend seam
 The UI and store talk only to the `WalletProvider` / `SettlementProvider` interfaces
-in `src/services/wallet.ts`, with the contract types shared from `@pay/shared` (the
+in `src/services/wallet.ts`, with the contract types shared from `@fpay/shared` (the
 "thin interface" from `backend-architecture.md`). Today these are in-memory mocks. In
 **Phase 1**, the real providers (Privy embedded wallet + Solana USDC transfers via
 Helius, the Railway Fastify API in `apps/backend`) drop in there with no UI changes.

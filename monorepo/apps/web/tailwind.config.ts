@@ -3,7 +3,7 @@ import type { Config } from 'tailwindcss';
 // Tailwind utilities mirror the SINGLE SOURCE OF TRUTH in packages/shared/src/tokens.ts
 // (a CSS/Tailwind config can't import the TS token object directly). Most styling flows
 // through lib/theme.ts (shared-backed) inline styles; keep these literals in sync if a token
-// changes in @pay/shared. The component-facing tokens are already centralised — this is chrome only.
+// changes in @fpay/shared. The component-facing tokens are already centralised — this is chrome only.
 const config: Config = {
   content: ['./src/**/*.{ts,tsx}'],
   theme: {

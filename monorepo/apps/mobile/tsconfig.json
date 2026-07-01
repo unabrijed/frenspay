@@ -10,10 +10,10 @@
       "@/assets/*": [
         "./assets/*"
       ],
-      "@pay/shared": [
+      "@fpay/shared": [
         "../../packages/shared/src/index.ts"
       ],
-      "@pay/shared/*": [
+      "@fpay/shared/*": [
         "../../packages/shared/src/*"
       ]
     }

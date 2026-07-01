@@ -1,4 +1,4 @@
-# Tabroad — canonical design system (FINAL, no going back)
+# fpay — canonical design system (FINAL, no going back)
 
 Source: Google Stitch export (project `9482248058262328332`), 5 screens — Dashboard, Settling,
 Transaction History, Payment Input, Choose Handle. This **replaces** the old violet "Direction 3" +
@@ -8,7 +8,7 @@ Baloo 2 system. The values below are the single source of truth; they are encode
 ## Aesthetic
 Warm Material-3 "Arrival" — cream surfaces, **terracotta** primary, **teal** secondary, soft **tactile**
 shadows (a drop shadow plus an inner white highlight), rounded-2xl cards, pill buttons, an 8px grid.
-Light mode. Brand wordmark: **Tabroad** (Hanken Grotesk, terracotta).
+Light mode. Brand wordmark: **fpay** (Hanken Grotesk, terracotta).
 
 ## Color (Material 3 roles → our semantic tokens)
 | M3 role | hex | our token |
@@ -63,7 +63,7 @@ pills/chips/nav-active `full`. Tokens: `card 20, rlc 24, tile 16, field 12, row 
 **Material Symbols Outlined** (axis FILL 0 default, FILL 1 for active/emphasis; weight 400–600).
 
 ## Screen layouts (the 5 references)
-1. **Dashboard** — top app bar (avatar · "Tabroad" wordmark · notifications); hero: an "Active in India"
+1. **Dashboard** — top app bar (avatar · "fpay" wordmark · notifications); hero: an "Active in India"
    location pill, "Global Balance", a big tabular `$` amount; a primary CTA ("Pay Like a Local", scanner
    icon); a **bento** of cards (large USD wallet card, smaller INR card, dashed "Add" card); Recent Activity
    as rounded tactile rows (circular icon · name · time · amount).

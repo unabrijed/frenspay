@@ -19,7 +19,7 @@ A web production build reads unprefixed `NEXT_PUBLIC_*` (see `apps/web/.env.exam
 
 1. New Railway **service** from this repo. Root directory: `monorepo` (the yarn workspace root). Builder
    is **Nixpacks** (no Dockerfile). Start command + healthcheck come from `apps/backend/railway.json`
-   (`yarn workspace @pay/backend start`, `/health`). Node is pinned to 22 via `.nvmrc`.
+   (`yarn workspace @fpay/backend start`, `/health`). Node is pinned to 22 via `.nvmrc`.
 2. Attach (or reuse) a **Postgres** plugin and set `STAGE_DATABASE_URL` to its connection string (SSL on;
    leave `STAGE_PGSSL` unset).
 3. Set service **Variables**:
@@ -39,7 +39,7 @@ A web production build reads unprefixed `NEXT_PUBLIC_*` (see `apps/web/.env.exam
    little devnet SOL (it already holds ~10).
 4. Deploy. Initialize the schema once (idempotent) against the Railway DB:
    ```
-   yarn workspace @pay/backend db:init      # applies apps/backend/src/db/schema.sql
+   yarn workspace @fpay/backend db:init      # applies apps/backend/src/db/schema.sql
    ```
    (Run locally with `STAGE_DATABASE_URL` pointed at the Railway DB, or via Railway's shell.)
 5. Verify: `curl https://<backend>/health` → `{"status":"ok","database":"configured"}`.

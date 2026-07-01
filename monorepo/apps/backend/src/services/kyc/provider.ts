@@ -6,8 +6,9 @@ export type KycStartResult =
   | { mode: 'instant'; tier: number }
   | { mode: 'redirect'; sessionId: string; url: string };
 
-/** Normalized vendor outcome (mapped from the provider's own status strings). */
-export type KycOutcome = 'approved' | 'declined' | 'in_review' | 'pending';
+/** Normalized vendor outcome (mapped from the provider's own status strings). `expired` is terminal-
+ *  but-unverified (vendor session expired/abandoned) — the reconciler stops tracking it. */
+export type KycOutcome = 'approved' | 'declined' | 'in_review' | 'pending' | 'expired';
 
 export interface KycDecision {
   sessionId: string;

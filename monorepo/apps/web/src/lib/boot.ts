@@ -26,7 +26,7 @@ export const SPLASH_WATCHDOG_MS = 8000;
 export function bootRecoverReload(reason: string): boolean {
   if (typeof window === 'undefined') return false;
   try {
-    const KEY = 'tabroad:boot-reload-at';
+    const KEY = 'fpay:boot-reload-at';
     const last = Number(window.sessionStorage.getItem(KEY) || 0);
     if (Date.now() - last < 10_000) return false;
     window.sessionStorage.setItem(KEY, String(Date.now()));

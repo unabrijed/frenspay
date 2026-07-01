@@ -21,8 +21,12 @@ function mapStatus(s: unknown): KycDecision['status'] {
     case 'in review':
     case 'in_review':
       return 'in_review';
+    case 'expired':
+    case 'kyc expired':
+    case 'abandoned':
+      return 'expired'; // terminal-but-unverified — stop reconciling (the user can start over)
     default:
-      return 'pending'; // Not Started / In Progress / Abandoned / etc.
+      return 'pending'; // Not Started / In Progress / Awaiting User / Resubmitted
   }
 }
 

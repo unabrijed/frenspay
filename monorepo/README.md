@@ -1,6 +1,6 @@
-# Pay — monorepo
+# fpay — monorepo
 
-Yarn-workspaces monorepo for **Pay**, a travel payments app (hold USD, spend INR at a
+Yarn-workspaces monorepo for **fpay**, a travel payments app (hold USD, spend INR at a
 locked rate via UPI QR, plus send/request with friends). There are **two frontends** — a
 Next.js **web app** and an Expo **mobile app** — sharing one backend, design system, and
 business logic.
@@ -44,10 +44,10 @@ All commands run from the **monorepo root**.
 | `yarn mobile -- -c` | Mobile with a cleared cache (use after editing `apps/mobile/.env`) |
 | `yarn backend` | **API** in watch mode → http://localhost:3001 |
 | `yarn typecheck` | Type-check **all four** workspaces (shared + mobile + backend + web) |
-| `yarn workspace @pay/backend db:init` | Apply the DB schema (idempotent) |
-| `yarn workspace @pay/backend db:seed` | Insert 2 test users (@bridge, @neha) + sample activity (prints ids) |
-| `yarn workspace @pay/backend devnet:setup` | Provision fee-payer + USDC mint + funded devnet wallets |
-| `yarn workspace @pay/<app> <cmd>` | Run any script in a specific workspace |
+| `yarn workspace @fpay/backend db:init` | Apply the DB schema (idempotent) |
+| `yarn workspace @fpay/backend db:seed` | Insert 2 test users (@bridge, @neha) + sample activity (prints ids) |
+| `yarn workspace @fpay/backend devnet:setup` | Provision fee-payer + USDC mint + funded devnet wallets |
+| `yarn workspace @fpay/<app> <cmd>` | Run any script in a specific workspace |
 
 > `yarn start` is an alias for `yarn mobile`. **Always launch from the repo root** (never
 > `expo start` / `npx expo` from a random directory — Expo resolves the wrong entry).
@@ -58,8 +58,8 @@ All commands run from the **monorepo root**.
 
 ```bash
 yarn web              # → http://localhost:3000  (mock mode, zero setup)
-yarn workspace @pay/web build   # production build
-yarn workspace @pay/web tsc --noEmit   # typecheck just the web app
+yarn workspace @fpay/web build   # production build
+yarn workspace @fpay/web tsc --noEmit   # typecheck just the web app
 ```
 
 Mobile-first by design: it renders as a **fixed phone column that never widens** on
@@ -110,8 +110,8 @@ for testing Privy — no build, no device.)
 
 ```bash
 cp apps/backend/.env.example apps/backend/.env   # then fill STAGE_DATABASE_URL etc.
-yarn workspace @pay/backend db:init              # apply the schema (idempotent)
-yarn workspace @pay/backend db:seed              # 2 test users + sample activity (prints ids)
+yarn workspace @fpay/backend db:init              # apply the schema (idempotent)
+yarn workspace @fpay/backend db:seed              # 2 test users + sample activity (prints ids)
 yarn backend                                     # → http://localhost:3001
 curl localhost:3001/health                       # → {"status":"ok","database":"configured"}
 ```

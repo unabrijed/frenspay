@@ -1,4 +1,4 @@
-// wallet.ts — the mobile-side seam. The contract types live in @pay/shared (the
+// wallet.ts — the mobile-side seam. The contract types live in @fpay/shared (the
 // Railway backend uses the same types); this file keeps the in-memory Mock*
 // implementations and demo data the app runs on today.
 //
@@ -14,12 +14,12 @@ import {
   type Merchant,
   type SettlementProvider,
   type WalletProvider,
-} from '@pay/shared';
+} from '@fpay/shared';
 
 import { RealWalletProvider } from './real';
 
 // Re-export the shared contract so existing `@/services/wallet` imports keep working.
-export type { Friend, Merchant, RateLockQuote, SettlementProvider, Txn, TxnType, WalletProvider } from '@pay/shared';
+export type { Friend, Merchant, RateLockQuote, SettlementProvider, Txn, TxnType, WalletProvider } from '@fpay/shared';
 export { RATE_LABEL };
 
 /* ---- mock data ---- */

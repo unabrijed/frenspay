@@ -4,7 +4,7 @@
 //
 // Money flows delegate to the RealWalletProvider (@/services/wallet) → the backend API + on-device
 // signing. The app is always real; balance/activity load from the backend once signed in.
-import type { ApiPaymentRequest } from '@pay/shared';
+import type { ApiPaymentRequest } from '@fpay/shared';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';

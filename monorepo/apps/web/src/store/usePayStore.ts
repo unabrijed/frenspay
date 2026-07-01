@@ -4,7 +4,7 @@
 //
 // Money flows delegate to the RealWalletProvider (@/services/wallet) → the backend API + on-device
 // signing. The app is always real; balance/activity load from the backend once signed in.
-import type { ApiPaymentRequest, KycStatus, Notification, Order, Quote } from '@pay/shared';
+import type { ApiPaymentRequest, KycStatus, Notification, Order, Quote } from '@fpay/shared';
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -85,6 +85,10 @@ interface PayState {
   requestDraftUsd: number;
   requests: ApiPaymentRequest[];
   busy: boolean;
+  /** True once the first signed-in load() of this SESSION has resolved. Ephemeral (never persisted)
+   *  so every fresh app load starts false → screens show skeletons until live data arrives, instead
+   *  of flashing persisted (possibly stale / prior-session) balance + activity. */
+  firstLoadDone: boolean;
   error: string | null;
   walletAddress: string;
   // ---- M1 order lifecycle (quote engine + order state machine) ----
@@ -194,6 +198,7 @@ export const usePayStore = create<PayState>()(
       requestDraftUsd: 20,
       requests: [],
       busy: false,
+      firstLoadDone: false,
       error: null,
       walletAddress: '',
       quote: null,
@@ -233,6 +238,12 @@ export const usePayStore = create<PayState>()(
       // Pull identity + balance + activity from the backend (no-op in mock mode).
       load: async () => {
         if (USE_PRIVY && get().authStatus !== 'signedIn') return; // wait for the Privy bridge to sign in
+        // First load of this session: drop any persisted prior-session financials so they can't flash
+        // before the fresh fetch resolves. Skeletons (gated on firstLoadDone) cover the gap. Identity
+        // (handle/kycTier) is left intact — load() repopulates it and losing it would break routing.
+        if (!get().firstLoadDone) {
+          set({ balanceUSD: 0, transactions: [], requests: [], notifications: [], unread: 0 });
+        }
         set({ busy: true, error: null });
         try {
           const [me, bal, txns, reqs, notifs, fx] = await Promise.all([
@@ -256,9 +267,12 @@ export const usePayStore = create<PayState>()(
             notifications: notifs.notifications,
             unread: notifs.unread,
             busy: false,
+            firstLoadDone: true,
           });
         } catch (e) {
-          set({ busy: false, error: e instanceof Error ? e.message : String(e) });
+          // Mark firstLoadDone even on failure so skeletons resolve to the empty/error state
+          // rather than spinning forever.
+          set({ busy: false, firstLoadDone: true, error: e instanceof Error ? e.message : String(e) });
         }
       },
       refresh: async () => {
@@ -333,6 +347,7 @@ export const usePayStore = create<PayState>()(
           recovered: false,
           recoveryPrompted: false,
           onboarded: false,
+          firstLoadDone: false,
         });
       },
       // Dev-only full reset for re-testing onboarding + KYC from scratch. Order matters: reset the
@@ -345,7 +360,7 @@ export const usePayStore = create<PayState>()(
           /* dev endpoint 403s in prod / no backend reachable — reset is best-effort */
         }
         try {
-          sessionStorage.removeItem('tabroad:resumePay');
+          sessionStorage.removeItem('fpay:resumePay');
         } catch {
           /* sessionStorage blocked — ignore */
         }
@@ -357,7 +372,7 @@ export const usePayStore = create<PayState>()(
         await get().load();
       },
 
-      // Decode a scanned QR and route: a Pay user's QR → real USDC send; a UPI/merchant QR →
+      // Decode a scanned QR and route: an fpay user's QR → real USDC send; a UPI/merchant QR →
       // the (Phase-2 mock) merchant pay flow; anything else → a friendly error on the Scan sheet.
       handleScan: async (text) => {
         const res = parseScannedQR(text);
@@ -369,7 +384,7 @@ export const usePayStore = create<PayState>()(
           try {
             const friend = await wallet.resolveHandle(res.handle);
             if (!friend) {
-              set({ error: `${res.handle} isn't on Pay yet` });
+              set({ error: `${res.handle} isn't on fpay yet` });
               return;
             }
             set({ error: null });
@@ -383,7 +398,7 @@ export const usePayStore = create<PayState>()(
           set({ error: null });
           get().payMerchant({ name: res.name ?? res.payee ?? 'Merchant' }, res.amountInr ?? 0);
         } else if (res.kind === 'address') {
-          set({ error: 'That wallet isn’t a Pay user yet — ask them to join Pay.' });
+          set({ error: 'That wallet isn’t an fpay user yet — ask them to join fpay.' });
         } else {
           set({ error: 'Unrecognized QR' });
         }
@@ -401,18 +416,21 @@ export const usePayStore = create<PayState>()(
       verifyDone: async () => {
         // Two providers behind one call (see backend /kyc/verify): the dev sim returns the new tier
         // instantly; a real vendor returns a hosted URL we navigate to (tier is raised later via the
-        // webhook/reconciler, picked up by pollKyc when the user returns to /home?kyc=done).
+        // webhook/reconciler, picked up by pollKyc when Didit redirects back to /home with
+        // ?verificationSessionId=… appended). The callback carries NO query of our own, so Didit's
+        // appended params can't collide with one (…/home?kyc=done?verificationSessionId=… would
+        // otherwise mis-parse and skip the poll).
         try {
           set({ error: null });
-          const r = await api.kycVerify(`${window.location.origin}/home?kyc=done`);
+          const r = await api.kycVerify(`${window.location.origin}/home`);
           if ('url' in r) {
             set({ kycStatus: 'pending' });
             // The redirect destroys in-memory state; stash the merchant-pay intent so we can resume
-            // it when the user returns to /home?kyc=done (pollKyc reads this back).
+            // it when the user returns to /home (pollKyc reads this back).
             if (get().pendingPay) {
               try {
                 sessionStorage.setItem(
-                  'tabroad:resumePay',
+                  'fpay:resumePay',
                   JSON.stringify({ merchant: get().merchant, rupees: get().scannedRupees }),
                 );
               } catch {
@@ -462,9 +480,9 @@ export const usePayStore = create<PayState>()(
       resumePayAfterKyc: () => {
         // Resume a merchant-pay that was interrupted by the hosted-KYC redirect (see verifyDone).
         try {
-          const raw = sessionStorage.getItem('tabroad:resumePay');
+          const raw = sessionStorage.getItem('fpay:resumePay');
           if (!raw) return;
-          sessionStorage.removeItem('tabroad:resumePay');
+          sessionStorage.removeItem('fpay:resumePay');
           const { merchant, rupees } = JSON.parse(raw) as { merchant: Merchant; rupees: number };
           set({ merchant, scannedRupees: rupees ?? 0 });
           get().open('amount');

@@ -223,7 +223,7 @@ function ContactsPrompt({ onAllow }: { onAllow: () => void }) {
       </View>
       <View style={{ flex: 1 }}>
         <Txt style={type.rowName}>Pay your contacts</Txt>
-        <Txt style={[type.rowTime, { marginTop: 2 }]}>Allow access to find friends on Tabroad</Txt>
+        <Txt style={[type.rowTime, { marginTop: 2 }]}>Allow access to find friends on fpay</Txt>
       </View>
       <Txt style={{ ...fonts.body500, fontSize: 14, color: colors.accent }}>Allow</Txt>
     </Pressable>
@@ -297,7 +297,7 @@ function PeopleSearch({ onPick }: { onPick: (f: Friend) => void }) {
         </List>
       ) : (
         <Txt style={[type.rowTime, { textAlign: 'center', marginTop: 18 }]}>
-          {checking ? 'Checking…' : handle ? `${handle} isn’t on Tabroad yet — invite them from Receive` : 'No matches'}
+          {checking ? 'Checking…' : handle ? `${handle} isn’t on fpay yet — invite them from Receive` : 'No matches'}
         </Txt>
       )}
     </>

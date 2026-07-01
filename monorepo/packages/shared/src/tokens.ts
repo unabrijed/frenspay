@@ -3,9 +3,8 @@
 // the backend. Platform-agnostic values live here; each app's lib/theme.ts is a thin adapter
 // that turns these into platform representations (web CSS vs RN styles). Re-skin = edit here.
 //
-// THEME: "Tabroad" — warm Material-3. Terracotta primary, teal secondary, cream surfaces,
-// Hanken Grotesk, tactile shadows. (Supersedes the old violet / Baloo 2 system — see
-// design-reference/tabroad/README.md.)
+// THEME: "fpay" — warm Material-3. Terracotta primary, teal secondary, cream surfaces,
+// Hanken Grotesk, tactile shadows. (Supersedes the old violet / Baloo 2 system.)
 
 /* ---- Tier 1: brand seeds (change these to re-skin everything) ---- */
 export const brand = {
@@ -126,7 +125,7 @@ export const typeScale = {
   sheetTitle: { role: 'disp700', fontSize: 24, letterSpacing: -0.2, color: 'ink' },
   flipFig: { role: 'disp700', fontSize: 27, letterSpacing: -0.3, color: 'ink' },
   payeeWho: { role: 'disp700', fontSize: 20, color: 'ink' },
-  brandWord: { role: 'disp700', fontSize: 26, letterSpacing: -0.5, color: 'accent' }, // Tabroad wordmark
+  brandWord: { role: 'disp700', fontSize: 26, letterSpacing: -0.5, color: 'accent' }, // fpay wordmark
   logo: { role: 'disp700', fontSize: 17, color: 'white' },
   logoXl: { role: 'disp800', fontSize: 30, color: 'white' },
   tierTitle: { role: 'disp700', fontSize: 18, color: 'ink' },

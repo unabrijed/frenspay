@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 
 import { Icons } from '@/components/icons';
 import { Grab, SheetBody, SheetHeader } from '@/components/ui/primitives';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { Txt } from '@/components/ui/Txt';
 import { View } from '@/components/ui/rn';
 import { colors, radii, type } from '@/lib/theme';
@@ -33,6 +34,7 @@ function ago(iso: string): string {
 export function Notifications() {
   const close = usePayStore((s) => s.close);
   const items = usePayStore((s) => s.notifications);
+  const loaded = usePayStore((s) => s.firstLoadDone);
   const readNotifications = usePayStore((s) => s.readNotifications);
 
   // Mark the inbox read when it opens.
@@ -45,7 +47,18 @@ export function Notifications() {
       <Grab />
       <SheetHeader title="Activity" onClose={close} />
       <SheetBody>
-        {items.length === 0 ? (
+        {!loaded ? (
+          Array.from({ length: 4 }, (_, i) => (
+            <View key={i} style={styles.row}>
+              <Skeleton w={38} h={38} r={999} />
+              <View style={styles.col}>
+                <Skeleton w="60%" h={13} />
+                <Skeleton w="40%" h={11} />
+              </View>
+              <Skeleton w={28} h={11} />
+            </View>
+          ))
+        ) : items.length === 0 ? (
           <Txt style={[type.lead, { color: colors.muted, textAlign: 'center', marginTop: 24 }]}>
             You’re all caught up.
           </Txt>

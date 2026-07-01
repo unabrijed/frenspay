@@ -1,4 +1,4 @@
-// One-shot schema loader: `yarn workspace @pay/backend db:init` (needs DATABASE_URL).
+// One-shot schema loader: `yarn workspace @fpay/backend db:init` (needs DATABASE_URL).
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

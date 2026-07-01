@@ -2,7 +2,7 @@
 // confirmOrder() funds escrow by signing the server-built tx with the active signer (Privy embedded
 // wallet, or the dev keypair), then records the signature so the backend confirmer can advance the
 // order. The Quote screen and order timeline drive these.
-import type { CreateOrderResponse, Order, OrderDirection, PayoutMethod, Quote } from '@pay/shared';
+import type { CreateOrderResponse, Order, OrderDirection, PayoutMethod, Quote } from '@fpay/shared';
 
 import { api } from './api';
 import { getActiveSigner } from './signer';

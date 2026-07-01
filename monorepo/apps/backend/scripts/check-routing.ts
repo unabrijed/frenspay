@@ -3,7 +3,7 @@
 // `db:seed`, no real-data mutation. Asserts the weighted rankMerchants orders LPs best-first, fails
 // over to the next-best on exclude, and drops LPs whose float can't cover the order. Relative ordering
 // among the harness LPs holds regardless of any other merchants in the pool (normalization is monotone).
-// Run: yarn workspace @pay/backend tsx scripts/check-routing.ts   (needs DATABASE_URL + db:init)
+// Run: yarn workspace @fpay/backend tsx scripts/check-routing.ts   (needs DATABASE_URL + db:init)
 import { getPool } from '../src/db/pool';
 import { rankMerchants } from '../src/services/routing';
 

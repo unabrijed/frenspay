@@ -2,9 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
-/* These :root vars mirror @pay/shared brand tokens (CSS can't import the TS source).
+/* These :root vars mirror @fpay/shared brand tokens (CSS can't import the TS source).
    They only style the app-frame + body chrome; component styling is shared via lib/theme.ts.
-   Theme: Tabroad (warm Material-3). */
+   Theme: fpay (warm Material-3). */
 :root {
   --canvas: #fff8f4;
   --surface: #ffffff;
@@ -34,7 +34,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Material Symbols Outlined — the Tabroad icon set. Default to unfilled, weight 400. */
+/* Material Symbols Outlined — the fpay icon set. Default to unfilled, weight 400. */
 .material-symbols-outlined {
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   font-feature-settings: 'liga';
@@ -52,7 +52,7 @@ html.fonts-ready .material-symbols-outlined {
   visibility: visible;
 }
 
-/* Settling success — pulsing rings behind the confirmation check (Tabroad "Settling"). */
+/* Settling success — pulsing rings behind the confirmation check (fpay "Settling"). */
 .pulse-ring {
   animation: pulse-ring 2.2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
 }
@@ -65,6 +65,33 @@ html.fonts-ready .material-symbols-outlined {
   100% {
     transform: scale(1.4);
     opacity: 0;
+  }
+}
+
+/* Skeleton shimmer — placeholder blocks shown while first-load data arrives (see
+   components/ui/Skeleton.tsx). A warm neutral base with a light sweep, so screens read as
+   "loading" instead of flashing empty→full. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--hair);
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
   }
 }
 

@@ -6,7 +6,7 @@
 // escalation timers live in simMerchant.ts.
 import { randomBytes } from 'node:crypto';
 
-import type { Order, OrderResolution, OrderState, PayoutMethod } from '@pay/shared';
+import type { Order, OrderResolution, OrderState, PayoutMethod } from '@fpay/shared';
 
 import {
   appendOrderEvent,

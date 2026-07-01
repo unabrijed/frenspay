@@ -15,8 +15,8 @@ import { fontVars } from '@/lib/fonts';
 const FONTS_READY_SCRIPT = `(function(){var F="24px 'Material Symbols Outlined'",e=document.documentElement;function r(){e.classList.add('fonts-ready')}try{if(document.fonts&&document.fonts.load){var c=function(){try{if(document.fonts.check(F))r()}catch(_){r()}};document.fonts.load(F).then(c).catch(function(){});document.fonts.ready.then(c)}else{r()}}catch(_){r()}})();`;
 
 export const metadata: Metadata = {
-  title: 'Tabroad',
-  description: 'Tabroad — hold dollars, pay like a local.',
+  title: 'fpay',
+  description: 'fpay — hold dollars, pay like a local.',
 };
 
 export const viewport: Viewport = {

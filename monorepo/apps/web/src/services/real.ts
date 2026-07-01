@@ -1,6 +1,6 @@
 // real.ts — RealWalletProvider: the WalletProvider backed by the Railway API + active Signer.
 // transfer() = prepare (server builds + fee-payer-signs) → signAndSend (client) → submit (record).
-import type { ApiPaymentRequest, CreateRequestRequest, Txn, WalletProvider } from '@pay/shared';
+import type { ApiPaymentRequest, CreateRequestRequest, Txn, WalletProvider } from '@fpay/shared';
 
 import { api } from './api';
 import { DEV_SECRET_KEY, SOLANA_RPC_URL } from './env';

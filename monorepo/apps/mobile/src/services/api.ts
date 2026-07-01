@@ -1,4 +1,4 @@
-// api.ts — typed fetch client for the Railway backend. Same @pay/shared DTOs as the server.
+// api.ts — typed fetch client for the Railway backend. Same @fpay/shared DTOs as the server.
 import type {
   ApiPaymentRequest,
   AuthSyncRequest,
@@ -14,7 +14,7 @@ import type {
   SubmitTransferRequest,
   SubmitTransferResponse,
   TransactionsResponse,
-} from '@pay/shared';
+} from '@fpay/shared';
 
 import { API_URL, DEV_USER_ID } from './env';
 

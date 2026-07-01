@@ -173,4 +173,4 @@ erDiagram
 
 - `apps/backend/src/db/schema.sql` (the whole schema), `db/queries.ts` (every query), `db/seed.ts`
   (merchants + test data), `db/pool.ts` (connection).
-- Init/seed: `yarn workspace @pay/backend db:init` / `db:seed`.
+- Init/seed: `yarn workspace @fpay/backend db:init` / `db:seed`.

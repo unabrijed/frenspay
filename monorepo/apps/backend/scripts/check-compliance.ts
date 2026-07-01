@@ -1,7 +1,7 @@
 // check-compliance.ts — M5 verification. Self-fixturing (creates its own user + denylist entry +
 // transfers, asserts, cleans up); needs only a migrated DB (db:init), not the demo seed, and won't
 // touch real data. Proves KYC-tier limits (per-tx, daily, cash-out tier gate) + sanctions screening.
-// Run: yarn workspace @pay/backend tsx scripts/check-compliance.ts   (needs DATABASE_URL + db:init)
+// Run: yarn workspace @fpay/backend tsx scripts/check-compliance.ts   (needs DATABASE_URL + db:init)
 import { getPool } from '../src/db/pool';
 import { setUserKycTier } from '../src/db/queries';
 import { checkCashOutLimit, checkSendLimit, screenAddress } from '../src/services/compliance';

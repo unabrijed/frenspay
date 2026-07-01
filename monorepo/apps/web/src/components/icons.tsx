@@ -1,4 +1,4 @@
-// icons.tsx — Tabroad icon set, backed by Material Symbols Outlined (loaded in layout.tsx).
+// icons.tsx — fpay icon set, backed by Material Symbols Outlined (loaded in layout.tsx).
 // The `Icons.*` API (size / color / fill) is preserved so call sites are unchanged; each icon is
 // a glyph name. `strokeWidth` is accepted but ignored (Material Symbols use a weight axis instead).
 import type { CSSProperties } from 'react';

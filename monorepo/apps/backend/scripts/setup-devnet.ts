@@ -3,7 +3,7 @@
 // with token accounts (mints USDC to @bridge), upserts them into the DB, and writes
 // all secrets to .devnet/keys.json (gitignored) for the mobile DevKeypairSigner.
 //
-// Run: yarn workspace @pay/backend devnet:setup    (needs DATABASE_URL)
+// Run: yarn workspace @fpay/backend devnet:setup    (needs DATABASE_URL)
 // After it prints, copy USDC_MINT + FEE_PAYER_SECRET_KEY into apps/backend/.env.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

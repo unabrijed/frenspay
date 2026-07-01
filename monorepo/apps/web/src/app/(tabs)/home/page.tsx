@@ -1,6 +1,6 @@
 'use client';
 
-// Home — Tabroad dashboard (matches the Stitch reference): top app bar, "Active in India" global-balance
+// Home — fpay dashboard (matches the Stitch reference): top app bar, "Active in India" global-balance
 // hero, four Google-Pay-style action buttons (Scan / Send / Request / Add), a wallets bento
 // (USD Wallet · INR · Add Currency), and recent activity as individual tactile cards.
 import { useRouter } from 'next/navigation';
@@ -10,6 +10,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { Icons } from '@/components/icons';
 import { TxCard } from '@/components/TxCard';
 import { Avatar } from '@/components/ui/primitives';
+import { Skeleton, TxListSkeleton } from '@/components/ui/Skeleton';
 import { Pressable, View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
 import { Txt } from '@/components/ui/Txt';
@@ -26,17 +27,20 @@ export default function Home() {
   const bal = usePayStore((s) => s.balanceUSD);
   const fxRate = usePayStore((s) => s.fxRate);
   const txns = usePayStore((s) => s.transactions);
+  const loaded = usePayStore((s) => s.firstLoadDone);
   const handle = usePayStore((s) => s.handle);
   const open = usePayStore((s) => s.open);
   const openDetail = usePayStore((s) => s.openDetail);
   const unread = usePayStore((s) => s.unread);
   const initial = (handle.replace(/^@/, '')[0] ?? 'U').toUpperCase();
 
-  // Returning from the hosted KYC flow (callback = /home?kyc=done): poll until the tier lands, then
-  // drop the query param so a refresh doesn't re-trigger it. Read from window (client-only effect)
-  // to avoid useSearchParams' Suspense-boundary requirement at build time.
+  // Returning from the hosted KYC flow: Didit redirects to the callback (/home) with
+  // ?verificationSessionId=…&status=… appended. Poll until the tier lands, then drop the query so a
+  // refresh doesn't re-trigger it. Read from window (client-only effect) to avoid useSearchParams'
+  // Suspense-boundary requirement at build time. (`kyc=done` kept as a harmless legacy fallback.)
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get('kyc') !== 'done') return;
+    const q = new URLSearchParams(window.location.search);
+    if (!q.get('verificationSessionId') && q.get('kyc') !== 'done') return;
     void pollKyc();
     router.replace('/home');
   }, [pollKyc, router]);
@@ -52,7 +56,7 @@ export default function Home() {
         {/* top app bar */}
         <View style={styles.bar}>
           <Avatar label={initial} onPress={() => router.push('/settings')} />
-          <Txt style={type.brandWord}>Tabroad</Txt>
+          <Txt style={type.brandWord}>fpay</Txt>
           <Pressable onPress={() => open('notifications')} style={({ pressed }) => [styles.barBtn, pressed ? { opacity: 0.6 } : null]}>
             <Icons.Bell size={26} color={colors.accent} />
             {unread > 0 ? <View style={styles.badge} /> : null}
@@ -66,10 +70,14 @@ export default function Home() {
             <Txt style={type.eyebrow}>Active in India</Txt>
           </View>
           <Txt style={[type.sub, { marginTop: 18 }]}>Global balance</Txt>
-          <View style={styles.heroAmt}>
-            <Txt style={[type.heroBalance, styles.dollar]}>$</Txt>
-            <Txt style={type.heroBalance}>{fmtUsd(bal)}</Txt>
-          </View>
+          {loaded ? (
+            <View style={styles.heroAmt}>
+              <Txt style={[type.heroBalance, styles.dollar]}>$</Txt>
+              <Txt style={type.heroBalance}>{fmtUsd(bal)}</Txt>
+            </View>
+          ) : (
+            <Skeleton w={190} h={44} r={12} style={{ marginTop: 8 }} />
+          )}
         </View>
 
         {/* four Google-Pay-style actions */}
@@ -91,7 +99,11 @@ export default function Home() {
             </View>
             <View>
               <Txt style={type.sub}>US Dollars</Txt>
-              <Txt style={[type.payeeWho, { fontSize: 24, marginTop: 2 }]}>{usd(bal)}</Txt>
+              {loaded ? (
+                <Txt style={[type.payeeWho, { fontSize: 24, marginTop: 2 }]}>{usd(bal)}</Txt>
+              ) : (
+                <Skeleton w={104} h={22} style={{ marginTop: 6 }} />
+              )}
             </View>
           </View>
           <View style={styles.bentoRow}>
@@ -101,7 +113,11 @@ export default function Home() {
               </View>
               <View>
                 <Txt style={[type.eyebrow, { marginBottom: 2 }]}>INR</Txt>
-                <Txt style={[type.payeeWho, { fontSize: 18 }]}>{inr(bal, fxRate)}</Txt>
+                {loaded ? (
+                  <Txt style={[type.payeeWho, { fontSize: 18 }]}>{inr(bal, fxRate)}</Txt>
+                ) : (
+                  <Skeleton w={76} h={17} style={{ marginTop: 4 }} />
+                )}
               </View>
             </View>
             <Pressable onPress={() => open('add')} style={({ pressed }) => [styles.addCard, pressed ? { backgroundColor: colors.surfaceHigh } : null]}>
@@ -120,7 +136,9 @@ export default function Home() {
             </Pressable>
           </View>
           <View style={styles.txList}>
-            {txns.length === 0 ? (
+            {!loaded ? (
+              <TxListSkeleton rows={3} />
+            ) : txns.length === 0 ? (
               <Txt style={[type.lead, { textAlign: 'center', paddingTop: 6 }]}>No activity yet.</Txt>
             ) : (
               txns.slice(0, 3).map((tx) => <TxCard key={tx.id} tx={tx} onPress={() => openTx(tx)} />)

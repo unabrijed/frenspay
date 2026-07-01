@@ -1,11 +1,11 @@
-// theme.ts — MOBILE (React Native) adapter over the shared design tokens (@pay/shared).
+// theme.ts — MOBILE (React Native) adapter over the shared design tokens (@fpay/shared).
 // Single source of truth: packages/shared/src/tokens.ts. This renders those tokens as RN
-// styles (font-family names, RN shadow objects, numeric line-heights). Re-skin in @pay/shared.
-import { colors, radii, shadowSpec, spacing, tile, typeScale, type FontRole, type ShadowKey, type TypeSpec } from '@pay/shared';
+// styles (font-family names, RN shadow objects, numeric line-heights). Re-skin in @fpay/shared.
+import { colors, radii, shadowSpec, spacing, tile, typeScale, type FontRole, type ShadowKey, type TypeSpec } from '@fpay/shared';
 import type { TextStyle, ViewStyle } from 'react-native';
 
 export { colors, radii, tile };
-export type { TileTone, TypeVariant } from '@pay/shared';
+export type { TileTone, TypeVariant } from '@fpay/shared';
 
 export const GUTTER = spacing.GUTTER;
 export const SHEET_GUTTER = spacing.SHEET_GUTTER;

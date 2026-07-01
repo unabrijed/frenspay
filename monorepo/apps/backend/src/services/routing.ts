@@ -3,7 +3,7 @@
 // powers both the quote-time pick and auto-failover (re-rank excluding already-tried LPs). The signals
 // are kept live by M4's recompute; float is committed by in-flight orders. "A marketplace, not a DEX":
 // invisible to the user, who just pays.
-import type { PayoutMethod } from '@pay/shared';
+import type { PayoutMethod } from '@fpay/shared';
 
 import { committedFloatByMerchant, listRoutableMerchants, type MerchantRow } from '../db/queries';
 

@@ -4,8 +4,8 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // @pay/shared is consumed as raw TS source — let Next compile it.
-  transpilePackages: ['@pay/shared'],
+  // @fpay/shared is consumed as raw TS source — let Next compile it.
+  transpilePackages: ['@fpay/shared'],
   // There's a stray yarn.lock at the payments/ root (outside the monorepo); pin the
   // workspace root to the monorepo so module resolution + file tracing are correct.
   outputFileTracingRoot: path.join(__dirname, '..', '..'),

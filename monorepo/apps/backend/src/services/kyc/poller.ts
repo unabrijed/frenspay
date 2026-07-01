@@ -31,6 +31,11 @@ export async function applyKycForSession(sessionId: string, log?: (m: string) =>
   } else if (decision.status === 'declined') {
     await setKycStatus(user.id, 'declined');
     log?.(`kyc ${sessionId} → declined (user ${user.id})`);
+  } else if (decision.status === 'expired') {
+    // Vendor session expired/abandoned: clear the pending row so the reconciler stops polling it.
+    // 'none' (not 'declined') leaves the user free to start a fresh verification.
+    await setKycStatus(user.id, 'none');
+    log?.(`kyc ${sessionId} → expired/abandoned (user ${user.id}); reset to none`);
   } else if (decision.status === 'in_review' && user.status !== 'in_review') {
     await setKycStatus(user.id, 'in_review');
   }

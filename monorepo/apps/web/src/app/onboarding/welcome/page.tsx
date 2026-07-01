@@ -10,15 +10,9 @@ import { View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { Screen } from '@/components/ui/Screen';
 import { colors, type } from '@/lib/theme';
-import { usePayStore } from '@/store/usePayStore';
 
 export default function Welcome() {
   const router = useRouter();
-  const completeOnboarding = usePayStore((s) => s.completeOnboarding);
-  const skip = () => {
-    completeOnboarding();
-    router.replace('/home');
-  };
   return (
     <Screen edges={['top', 'bottom']} style={styles.safe}>
       <View style={styles.center}>
@@ -28,7 +22,9 @@ export default function Welcome() {
       </View>
       <View style={styles.cta}>
         <Btn label="Get started" onPress={() => router.push('/onboarding/faceid')} />
-        <TextLink label="I already have an account" onPress={skip} />
+        {/* Existing users sign in with the same email-OTP entry; faceid routes them straight to Home
+            once their account (handle) loads. */}
+        <TextLink label="I already have an account" onPress={() => router.push('/onboarding/faceid')} />
       </View>
     </Screen>
   );

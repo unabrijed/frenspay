@@ -1,18 +1,18 @@
 {
   "expo": {
-    "name": "Pay",
-    "slug": "pay",
+    "name": "fpay",
+    "slug": "fpay",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "pay",
+    "scheme": "fpay",
     "userInterfaceStyle": "light",
     "ios": {
       "icon": "./assets/expo.icon",
-      "bundleIdentifier": "com.bridge.pay"
+      "bundleIdentifier": "com.bridge.fpay"
     },
     "android": {
-      "package": "com.bridge.pay",
+      "package": "com.bridge.fpay",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

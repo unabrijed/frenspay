@@ -155,7 +155,7 @@ export function Amount() {
           <Txt style={type.conv}>{usd(u)} from your balance</Txt>
         </View>
         <Keypad onPress={press} />
-        <Btn label="Get quote" variant="ink" disabled={rupees <= 0 || busy} onPress={() => void getQuote(rupees)} />
+        <Btn label={busy ? 'Getting quote…' : 'Get quote'} variant="ink" disabled={rupees <= 0 || busy} onPress={() => void getQuote(rupees)} />
       </SheetBody>
     </>
   );

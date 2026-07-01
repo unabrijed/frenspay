@@ -1,5 +1,5 @@
 // mappers.ts — convert the API wire shape (ApiTxn) to the UI shape (Txn).
-import type { ApiTxn, Txn } from '@pay/shared';
+import type { ApiTxn, Txn } from '@fpay/shared';
 
 /** Human-friendly relative time for the activity rows. */
 export function relTime(iso: string): string {

@@ -1,5 +1,5 @@
 // queries.ts — typed data access over the lazy pg pool (db/pool.ts).
-// Maps rows to the @pay/shared wire DTOs. Phase 1 is USDC-only, so no rupee column.
+// Maps rows to the @fpay/shared wire DTOs. Phase 1 is USDC-only, so no rupee column.
 import type {
   ApiPaymentRequest,
   ApiTxn,
@@ -13,7 +13,7 @@ import type {
   PayoutMethod,
   Quote,
   RouteQuality,
-} from '@pay/shared';
+} from '@fpay/shared';
 
 import { getLockPool, getPool } from './pool';
 
@@ -1151,8 +1151,9 @@ export async function setKycApproved(userId: string, tier: number): Promise<void
   );
 }
 
-/** Mark a terminal/non-approved vendor outcome (declined or still in review). */
-export async function setKycStatus(userId: string, status: 'in_review' | 'declined'): Promise<void> {
+/** Set a non-approved KYC status: 'in_review', terminal 'declined', or 'none' to clear a stale
+ *  pending row (expired/abandoned vendor session) so the reconciler stops tracking it. */
+export async function setKycStatus(userId: string, status: 'in_review' | 'declined' | 'none'): Promise<void> {
   await getPool().query('update users set kyc_status = $2 where id = $1', [userId, status]);
 }
 

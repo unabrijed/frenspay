@@ -1,6 +1,6 @@
 // Dev seed: two users + wallets and a couple of transfers/requests so the read
 // endpoints return data before auth (M3) and on-chain wallets (M1) exist.
-// Run: yarn workspace @pay/backend db:seed   (needs DATABASE_URL)
+// Run: yarn workspace @fpay/backend db:seed   (needs DATABASE_URL)
 // Idempotent: upserts users/wallets by unique key, and resets transfers/requests/orders.
 import { createHash } from 'node:crypto';
 

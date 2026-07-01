@@ -27,7 +27,7 @@ import type {
   SubmitTransferRequest,
   SubmitTransferResponse,
   TransactionsResponse,
-} from '@pay/shared';
+} from '@fpay/shared';
 import { PublicKey } from '@solana/web3.js';
 
 import { authPreHandler, requirePrivyDid, requireUserId } from '../auth';
@@ -646,12 +646,15 @@ export async function registerRoutes(app: FastifyInstance) {
       return reply.code(401).send({ error: 'unauthorized' });
     }
     const sessionId = typeof body.session_id === 'string' ? body.session_id : null;
-    try {
-      if (sessionId) await applyKycForSession(sessionId, (m) => req.log.info(m));
-    } catch (err) {
-      // Swallow transient DB/vendor failures: the reconciler poller will retry. Returning 200 avoids
-      // a vendor retry storm hammering us during an outage.
-      req.log.warn({ err, sessionId }, 'kyc webhook processing failed');
+    // Ack within the vendor's ~5s delivery budget: reconcile from the authoritative decision OUT of
+    // band rather than awaiting it (the decision fetch alone can take up to FETCH_TIMEOUT_MS). Safe
+    // here — long-running Fastify process (async work isn't frozen post-response), the handler is
+    // idempotent, and the 15s reconciler poller is the backstop. Returning 200 also avoids a vendor
+    // retry storm during a transient DB/vendor failure.
+    if (sessionId) {
+      void applyKycForSession(sessionId, (m) => req.log.info(m)).catch((err) =>
+        req.log.warn({ err, sessionId }, 'kyc webhook processing failed'),
+      );
     }
     return { ok: true };
   });

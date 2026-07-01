@@ -15,7 +15,7 @@ monorepo/
 │   ├── web/         Next.js consumer app (full feature set incl. cash-out)
 │   └── mobile/      Expo app (P2P only today; no order flow yet)
 ├── packages/
-│   └── shared/      @pay/shared — TypeScript types + money helpers (RATE, inr(), usd())
+│   └── shared/      @fpay/shared — TypeScript types + money helpers (RATE, inr(), usd())
 └── anchor/          Solana program (Rust + Anchor) — the on-chain escrow
 ```
 
@@ -29,7 +29,7 @@ monorepo/
 | Data | **Postgres** (Railway/Supabase) | access control in the API layer, no RLS |
 | Infra | Privy (wallets), Helius (RPC + webhooks) | both have free tiers |
 
-> **Quirk worth knowing:** the backend imports from `@pay/shared` as **types only** (`import type`).
+> **Quirk worth knowing:** the backend imports from `@fpay/shared` as **types only** (`import type`).
 > Runtime *value* imports from the raw-TS workspace package fail under `tsx`, so shared constants
 > (e.g. the quote fee constants in `quoteEngine.ts`) are **mirrored locally** in the backend rather
 > than imported. If you add a shared runtime value the backend needs, copy it, don't import it.
@@ -146,7 +146,7 @@ flowchart LR
 
 - **Thin clients, fat backend.** Pricing, state, and chain logic live server-side so web + mobile stay
   simple and consistent, and so the order machine has one authoritative writer.
-- **No build step (tsx).** Fast iteration for a solo builder; the cost is the types-only `@pay/shared`
+- **No build step (tsx).** Fast iteration for a solo builder; the cost is the types-only `@fpay/shared`
   quirk above.
 - **One poller inside the API process.** Rate-limiting, metrics, and notifications are in-process (M6);
   a separate worker/Redis (multi-instance) is the remaining M7 scale step. The 8s confirmer doubles as

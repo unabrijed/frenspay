@@ -1,7 +1,7 @@
 'use client';
 
 // Choose handle (Privy) — real input + availability check (GET /users/resolve) + /auth/sync
-// (upserts the user + their embedded wallet). Tabroad "Choose Handle" layout.
+// (upserts the user + their embedded wallet). fpay "Choose Handle" layout.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
@@ -9,15 +9,27 @@ import { useEffect, useState } from 'react';
 import { Icons } from '@/components/icons';
 import { BackButton } from '@/components/ui/BackButton';
 import { Btn } from '@/components/ui/Button';
+import { Splash } from '@/components/ui/Splash';
 import { View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { Screen } from '@/components/ui/Screen';
 import { colors, type } from '@/lib/theme';
 import { wallet } from '@/services/wallet';
-import { usePayStore } from '@/store/usePayStore';
+import { usePayStore, useStoreHydrated } from '@/store/usePayStore';
 
 export default function Handle() {
   const router = useRouter();
+  const hydrated = useStoreHydrated();
+  const authStatus = usePayStore((s) => s.authStatus);
+
+  // Step guard: this screen calls /auth/sync (needs the signed-in wallet). If it's reached without
+  // a signed-in session (direct URL / reload before the Privy bridge re-signs in), bounce to the
+  // entry router, which re-routes to the correct step once auth resolves.
+  useEffect(() => {
+    if (hydrated && authStatus !== 'signedIn') router.replace('/');
+  }, [hydrated, authStatus, router]);
+  if (!hydrated || authStatus !== 'signedIn') return <Splash />;
+
   return <HandlePrivy onDone={() => router.push('/onboarding/fund')} />;
 }
 
@@ -72,7 +84,7 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
 
       <View style={styles.center}>
         <Txt style={[type.onbH1, { textAlign: 'center' }]}>Choose your handle</Txt>
-        <Txt style={styles.sub}>This is how friends find and pay you on Tabroad.</Txt>
+        <Txt style={styles.sub}>This is how friends find and pay you on fpay.</Txt>
 
         <View style={styles.fieldWrap}>
           <View style={[styles.field, avail === false ? { borderColor: colors.danger } : null]}>

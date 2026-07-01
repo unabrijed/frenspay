@@ -1,6 +1,6 @@
 // Metro config for use inside the Yarn-workspaces monorepo.
 // Watches the workspace root so Metro can resolve hoisted deps and the
-// @pay/shared workspace package. Per the Expo "Work with monorepos" guide.
+// @fpay/shared workspace package. Per the Expo "Work with monorepos" guide.
 const { getDefaultConfig } = require('expo/metro-config');
 const path = require('path');
 

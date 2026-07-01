@@ -1,6 +1,6 @@
 'use client';
 
-// TxCard — Tabroad transaction row as an individual tactile card (Home recent + Activity history).
+// TxCard — fpay transaction row as an individual tactile card (Home recent + Activity history).
 // Circular type icon · title · time/Settling-Settled status on the left; signed USD (+ optional ≈₹) right.
 import type { CSSProperties } from 'react';
 

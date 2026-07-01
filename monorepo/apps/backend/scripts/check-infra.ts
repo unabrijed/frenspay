@@ -2,7 +2,7 @@
 // only a migrated DB (db:init), no seed, no real-data mutation. Asserts: a notification can be written
 // + listed + marked read; the per-user advisory lock serializes a read-then-write so two concurrent
 // over-cap sends can't both pass (the M5 TOCTOU is closed); the rate limiter 429s past its window; the
-// metrics counter increments. Run: yarn workspace @pay/backend tsx scripts/check-infra.ts
+// metrics counter increments. Run: yarn workspace @fpay/backend tsx scripts/check-infra.ts
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { getPool } from '../src/db/pool';

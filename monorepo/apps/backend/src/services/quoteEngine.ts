@@ -2,7 +2,7 @@
 // M7: the mid-market FX rate is now LIVE (getMidRate, cached + range-validated); the merchant spread is
 // applied on top. Fees are itemized line items reflecting the spread, mirroring the doc's quote screen
 // math (`You receive = amountInr / rate`, fees shown separately).
-import type { OrderDirection, PayoutMethod, Quote, RouteQuality } from '@pay/shared';
+import type { OrderDirection, PayoutMethod, Quote, RouteQuality } from '@fpay/shared';
 
 import { insertQuote } from '../db/queries';
 

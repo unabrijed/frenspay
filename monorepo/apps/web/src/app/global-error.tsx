@@ -21,7 +21,7 @@ export default function GlobalError({ error }: { error: Error & { digest?: strin
         msg,
       );
     if (isChunkError && typeof window !== 'undefined') {
-      const KEY = 'tabroad:chunk-reload-at';
+      const KEY = 'fpay:chunk-reload-at';
       const last = Number(window.sessionStorage.getItem(KEY) || 0);
       if (Date.now() - last > 10_000) {
         window.sessionStorage.setItem(KEY, String(Date.now()));

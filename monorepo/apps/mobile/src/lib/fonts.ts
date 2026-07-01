@@ -1,5 +1,5 @@
 // Font assets to load at startup. Family names here become the `fontFamily` strings used
-// throughout the app (see `fonts` in theme.ts). Tabroad uses a single family — Hanken Grotesk —
+// throughout the app (see `fonts` in theme.ts). fpay uses a single family — Hanken Grotesk —
 // for display, body, and tabular numbers.
 import {
   HankenGrotesk_400Regular,

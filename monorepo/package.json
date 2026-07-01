@@ -1,5 +1,5 @@
 {
-  "name": "pay-monorepo",
+  "name": "fpay-monorepo",
   "version": "1.0.0",
   "private": true,
   "packageManager": "yarn@1.22.22",
@@ -8,11 +8,11 @@
     "packages/*"
   ],
   "scripts": {
-    "start": "yarn workspace @pay/mobile start",
-    "mobile": "yarn workspace @pay/mobile start",
-    "mobile:web": "yarn workspace @pay/mobile web",
-    "backend": "yarn workspace @pay/backend dev",
-    "web": "yarn workspace @pay/web dev",
-    "typecheck": "yarn workspace @pay/shared tsc --noEmit && yarn workspace @pay/mobile tsc --noEmit && yarn workspace @pay/backend tsc --noEmit && yarn workspace @pay/web tsc --noEmit"
+    "start": "yarn workspace @fpay/mobile start",
+    "mobile": "yarn workspace @fpay/mobile start",
+    "mobile:web": "yarn workspace @fpay/mobile web",
+    "backend": "yarn workspace @fpay/backend dev",
+    "web": "yarn workspace @fpay/web dev",
+    "typecheck": "yarn workspace @fpay/shared tsc --noEmit && yarn workspace @fpay/mobile tsc --noEmit && yarn workspace @fpay/backend tsc --noEmit && yarn workspace @fpay/web tsc --noEmit"
   }
 }

@@ -1,7 +1,7 @@
 // check-fx.ts — M7 live FX harness. Pure (no DB): asserts the fallback before any fetch, the range
 // validation (a bad/garbage rate can't poison a quote), a bad source keeps the fallback, and a
 // best-effort live fetch returns a sane INR rate (warns — not fails — if the network is down).
-// Run: yarn workspace @pay/backend tsx scripts/check-fx.ts
+// Run: yarn workspace @fpay/backend tsx scripts/check-fx.ts
 import { config } from '../src/config';
 import {
   _resetFxCacheForTest,

@@ -23,11 +23,11 @@ export function Receive() {
 
   const onShare = async () => {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const text = `Pay me on Tabroad — my handle is ${handle || ''}`.trim();
+    const text = `Pay me on fpay — my handle is ${handle || ''}`.trim();
     const message = origin ? `${text}\n${origin}` : text;
     try {
       if (typeof navigator !== 'undefined' && navigator.share) {
-        await navigator.share({ title: 'Pay me on Tabroad', text, url: origin || undefined });
+        await navigator.share({ title: 'Pay me on fpay', text, url: origin || undefined });
       } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
         await navigator.clipboard.writeText(message);
         setCopied(true);
@@ -43,7 +43,7 @@ export function Receive() {
       <Grab />
       <SheetHeader title="Receive money" onClose={close} />
       <SheetBody style={{ alignItems: 'center' }}>
-        <Txt style={[type.lead, { textAlign: 'center', marginBottom: 18 }]}>Scan this to pay me on Tabroad.</Txt>
+        <Txt style={[type.lead, { textAlign: 'center', marginBottom: 18 }]}>Scan this to pay me on fpay.</Txt>
         <View style={styles.qrCard}>
           {value ? (
             <QRCodeSVG value={value} size={208} bgColor="#FFFFFF" fgColor={colors.ink} level="M" />
