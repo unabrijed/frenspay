@@ -92,4 +92,6 @@ dialing defaults; unified pay targets (QR / address / @handle / phone incl. `tel
 routes split into domain modules with keyset pagination on the list endpoints; three-tier env config
 (local/stage/prod, separate databases); chain list = Solana live + 12 CCTP-reachable EVM networks
 "coming soon", with the chain-surface rule codified (network names only at external send /
-on-ramp / off-ramp). Pending: Privy dashboard SMS method, Helius key, runtime matrices in 17/18.
+on-ramp / off-ramp). Pending: the **parked OTP-channel decision** (Privy SMS = US/CA-only on all
+plans vs WhatsApp = all regions; irreversible dashboard choice — see 02), Helius key, runtime
+matrices in 17/18.

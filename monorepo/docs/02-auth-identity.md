@@ -88,7 +88,11 @@ Privy. `requireUserId(req)` throws 401 if unmapped.
   verification, dev `x-dev-user-id` fallback.
 - ✅ **UPI-style directory (docs 17/18)** — canonical immutable handles, opt-in pay-by-phone with
   Privy-verified numbers, country dialing default with Settings override. 🟡 Privy-mode phone
-  enrollment needs the SMS login method enabled in the Privy dashboard.
+  enrollment is pending the **OTP channel decision (deliberately parked, 2026-07-22)**: Privy SMS is
+  US/Canada-only on every plan (international = Enterprise), Privy WhatsApp covers all WhatsApp
+  regions incl. India, and the dashboard choice is **irreversible** ("either SMS or WhatsApp …
+  cannot be switched") — so nothing gets enabled until Bridge decides. Both channels use the same
+  SDK hooks, so no code is blocked. Fallback option: own OTP vendor (Twilio Verify / MSG91) at M7.
 - ✅ **KYC tiers enforced (M5)** — `kyc_tier` per-tier caps enforced at the money-movement endpoints
   (structured `limit_exceeded`), a simulated verification upgrade, `/me` returns the tier, sanctions
   screening + a fraud score, and the Verify UI reflects the real tier.

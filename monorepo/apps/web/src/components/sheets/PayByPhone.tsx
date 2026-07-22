@@ -112,8 +112,10 @@ export function PayByPhone() {
                 style={inputStyle}
               />
             </Field>
+            {/* Channel-neutral on purpose: the Privy OTP channel (SMS = US/CA-only vs WhatsApp =
+                global) is an irreversible dashboard choice that's deliberately still undecided. */}
             <Txt style={[type.sub, { color: colors.muted, marginTop: 12 }]}>
-              We’ll text a code to confirm it’s yours. Your number is never shown to anyone.
+              We’ll send a code to confirm it’s yours. Your number is never shown to anyone.
             </Txt>
             {error ? <Txt style={[type.sub, { color: colors.danger, marginTop: 10 }]}>{error}</Txt> : null}
             <Btn
@@ -125,7 +127,7 @@ export function PayByPhone() {
           </>
         ) : (
           <>
-            <Txt style={type.lead}>Enter the code we texted to {normalized}.</Txt>
+            <Txt style={type.lead}>Enter the code we sent to {normalized}.</Txt>
             <Field style={{ marginTop: 16 }}>
               <input
                 value={code}
