@@ -62,6 +62,24 @@ function isValidPubkey(s: string): boolean {
   }
 }
 
+/**
+ * Can this string receive a direct USDC send? Decodes to 32 bytes AND is on the ed25519 curve —
+ * off-curve accounts (token accounts users copy off explorers, PDAs, program ids) can't own an ATA;
+ * without this check they'd die inside buildUsdcTransfer as a misleading "solana unavailable" 503.
+ */
+export function isValidRecipientOwner(s: string): boolean {
+  try {
+    return PublicKey.isOnCurve(new PublicKey(s).toBytes());
+  } catch {
+    return false;
+  }
+}
+
+/** Fee-payer public address — exposed so the send path can refuse it as a recipient. */
+export function feePayerAddress(): string {
+  return feePayer().publicKey.toBase58();
+}
+
 function toBaseUnits(amountUsd: number, dec: number): bigint {
   return BigInt(Math.round(amountUsd * 10 ** dec));
 }

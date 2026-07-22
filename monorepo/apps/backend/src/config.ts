@@ -1,10 +1,24 @@
-import 'dotenv/config';
+import { config as loadDotenv } from 'dotenv';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
-// Env config — the ONE place backend env is read. NODE_ENV decides where each value comes from:
-//   local / development / stage  → isDevelopment → STAGE_<KEY> (falling back to <KEY>)
-//   production                   → <KEY>  (unprefixed)
-// So development + stage share one set of STAGE_* values; production uses the bare names. Every
-// backend env read must go through `config`.
+// Load this app's own .env first (works from any cwd — a stray root .env must not shadow it),
+// falling back to cwd/.env for non-standard launches.
+const envPath = [
+  resolve(import.meta.dirname ?? process.cwd(), '../.env'),
+  resolve(process.cwd(), '.env'),
+].find((p) => existsSync(p));
+if (envPath) loadDotenv({ path: envPath });
+
+// Env config — the ONE place backend env is read. NODE_ENV picks the tier; each tier reads its
+// prefixed vars DIRECTLY from .env:
+//   local / development  → LOCAL_<KEY> → STAGE_<KEY>   (LOCAL_ overrides what differs — DB, CORS;
+//                          everything else deliberately shares the STAGE_ values)
+//   stage                → STAGE_<KEY>
+//   production           → <KEY>  (bare names exist ONLY on the production host, never in a local
+//                          file — so dev tiers never fall back to them and a stray prod var in the
+//                          shell can't leak into a dev run)
+// Every backend env read must go through `config`.
 export enum Environment {
   LOCAL = 'local',
   DEVELOPMENT = 'development',
@@ -13,14 +27,23 @@ export enum Environment {
 }
 
 const node_env = (process.env.NODE_ENV ?? Environment.DEVELOPMENT).toLowerCase();
-const isStaging = node_env === Environment.STAGE;
+const isStage = node_env === Environment.STAGE;
 const isLocal = node_env === Environment.LOCAL || node_env === Environment.DEVELOPMENT;
-const isDevelopment = isStaging || isLocal;
+const isDevelopment = isStage || isLocal;
+const isProduction = !isDevelopment;
 
-/** Read an env var: dev/stage prefer STAGE_<KEY> then fall back to <KEY>; production uses <KEY>. */
+/** Read an env var through the tier chain (see header). */
 function env(key: string, fallback = ''): string {
-  if (isDevelopment) return process.env[`STAGE_${key}`] || process.env[key] || fallback;
+  if (isLocal) return process.env[`LOCAL_${key}`] || process.env[`STAGE_${key}`] || fallback;
+  if (isStage) return process.env[`STAGE_${key}`] || fallback;
   return process.env[key] || fallback;
+}
+
+/** Which concrete var name `env(key)` resolved from (for boot visibility only). */
+function envSource(key: string): string {
+  if (isLocal && process.env[`LOCAL_${key}`]) return `LOCAL_${key}`;
+  if (isDevelopment) return `STAGE_${key}`;
+  return key;
 }
 
 /** Read a numeric env var, returning `def` if it's missing / non-finite / outside [min,max]. Prevents a
@@ -36,6 +59,11 @@ function num(key: string, def: number, range?: { min?: number; max?: number }): 
 export const config = {
   nodeEnv: node_env,
   isDevelopment,
+  // True only for local/development — NOT stage. Stage shares dev config values but serves real
+  // (if test) users, so client-spoofable dev shims must key off this, not isDevelopment.
+  isLocal,
+  isStage,
+  isProduction,
   // PORT is injected unprefixed by the host platform (e.g. Railway); keep it that way.
   port: Number(process.env.PORT ?? 3000),
 
@@ -68,9 +96,9 @@ export const config = {
   privyVerificationKey: env('PRIVY_VERIFICATION_KEY'),
 
   // M7: KYC vendor. 'sim' = the dev instant-promote (no documents); 'didit' = real document+liveness
-  // via Didit's hosted flow + signed webhook. Defaults to sim in dev, didit in prod (prod must never
-  // self-promote). Flip to a real vendor by setting STAGE_KYC_PROVIDER=didit + the DIDIT_* creds.
-  kycProvider: env('KYC_PROVIDER', isDevelopment ? 'sim' : 'didit'),
+  // via Didit's hosted flow + signed webhook. NODE_ENV decides: local → sim, stage/prod → didit
+  // (prod must never self-promote). Override per tier via <PREFIX>_KYC_PROVIDER if needed.
+  kycProvider: env('KYC_PROVIDER', isLocal ? 'sim' : 'didit'),
   diditApiKey: env('DIDIT_API_KEY'),
   diditWorkflowId: env('DIDIT_WORKFLOW_ID'),
   diditWebhookSecret: env('DIDIT_WEBHOOK_SECRET'),
@@ -85,3 +113,20 @@ export const config = {
   fxFallbackRate: num('FX_FALLBACK_RATE', 87.55, { min: 50, max: 150 }),
   fxRefreshMs: num('FX_REFRESH_MS', 600_000, { min: 1000 }), // 10 min default
 };
+
+// Boot visibility: which tier + which DATABASE_URL var won (host only — never credentials).
+const dbSource = envSource('DATABASE_URL');
+const dbHost = (() => {
+  try {
+    return new URL(config.databaseUrl).host;
+  } catch {
+    return '(unset)';
+  }
+})();
+console.log(`[config] env=${node_env} database=${dbSource} host=${dbHost}`);
+if (isLocal && dbSource.startsWith('STAGE_')) {
+  console.warn(
+    `[config] WARNING: NODE_ENV=${node_env} is using the STAGE database (${dbHost}). ` +
+      'Set LOCAL_DATABASE_URL to point local runs at their own Postgres.',
+  );
+}

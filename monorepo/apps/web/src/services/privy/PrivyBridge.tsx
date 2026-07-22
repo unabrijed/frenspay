@@ -3,7 +3,7 @@
 // PrivyBridge — the ONE place Privy hooks are called. Bridges Privy's hook state into the
 // imperative zustand store (so screens never import Privy) and registers the PrivySigner.
 // Web SDK: @privy-io/react-auth (+ /solana for the embedded Solana wallet).
-import { useLinkWithPasskey, useLoginWithEmail, usePrivy } from '@privy-io/react-auth';
+import { useLinkPhone, useLinkWithPasskey, useLoginWithEmail, usePrivy } from '@privy-io/react-auth';
 import { useCreateWallet, useSignAndSendTransaction, useWallets } from '@privy-io/react-auth/solana';
 import { useEffect, useRef } from 'react';
 
@@ -23,6 +23,7 @@ export function PrivyBridge(): null {
   const { createWallet } = useCreateWallet();
   const { signAndSendTransaction } = useSignAndSendTransaction();
   const { linkWithPasskey } = useLinkWithPasskey();
+  const { sendCode: sendPhoneCode, linkWithCode: linkPhoneWithCode } = useLinkPhone();
 
   // Register imperative auth actions into the store (screens call these, not Privy hooks).
   useEffect(() => {
@@ -43,8 +44,15 @@ export function PrivyBridge(): null {
       linkPasskey: async () => {
         await linkWithPasskey();
       },
+      // Pay-by-phone: Privy owns the SMS OTP; the backend then reads the linked number.
+      sendPhoneCode: async (phoneNumber) => {
+        await sendPhoneCode({ phoneNumber });
+      },
+      linkPhoneCode: async (code) => {
+        await linkPhoneWithCode({ code });
+      },
     });
-  }, [sendCode, loginWithCode, logout, linkWithPasskey]);
+  }, [sendCode, loginWithCode, logout, linkWithPasskey, sendPhoneCode, linkPhoneWithCode]);
 
   // Publish real recovery status (linked email + passkey) for the Recovery sheet + Settings.
   useEffect(() => {

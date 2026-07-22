@@ -11,7 +11,19 @@ verification vendor for now.
 Three identities are tracked per person:
 - **Privy DID** — the login identity (`did:privy:…`), the source of truth for "who is this request."
 - **DB user id** — our internal `users.id`, created on first `/auth/sync`.
-- **`@handle`** — the human-facing name; unique, used for resolve/pay.
+- **`@handle`** — the human-facing payment ID; unique, canonical (`'@' + [a-z0-9_.]{3,30}`, lowercased
+  and validated server-side at `/auth/sync`), and **immutable after first sync** — a freed handle could
+  be re-claimed and misdirect payments.
+
+Two optional aliases extend the directory UPI-mapper-style (docs 17/18):
+- **Phone (E.164)** — strict opt-in: enrolling IS the consent (`users.phone IS NOT NULL` is the flag).
+  The number always comes from the caller's own Privy-verified account (`POST /me/phone`; Privy runs
+  the SMS OTP). Resolution never returns the phone — reverse lookup is structurally impossible — and
+  `?phone=` lookups are authenticated + rate-limited against enumeration.
+- **Country (ISO alpha-2)** — a *dialing default only* (a local-format number typed in the search box
+  assumes this country's code). Learned silently: browser locale fills-if-null at sync → verified
+  phone's code overwrites on enroll → manual Settings pick overwrites (`POST /me/country`). KYC
+  document country is deliberately NOT a source (expats' passports diverge from dialing country).
 
 ## Flow — login → sync → authenticated requests
 
@@ -66,13 +78,17 @@ Privy. `requireUserId(req)` throws 401 if unmapped.
 - **Custody of credentials.** By delegating auth + key management to Privy, we avoid storing passwords
   or private keys ourselves — smaller breach surface and smaller compliance burden. See
   [03-custody-and-gas](03-custody-and-gas.md).
-- **Data/PII.** `users` stores email/phone/handle. Minimal today; a real launch needs a privacy policy,
+- **Data/PII.** `users` stores handle + opt-in E.164 phone (unique, removable via `DELETE /me/phone`)
+  + best-effort country; email column exists but is unwritten. A real launch needs a privacy policy,
   data-retention rules, and regional handling (e.g. India DPDP, GDPR).
 
 ## Status
 
 - ✅ Privy email-OTP login + embedded wallet creation, `@handle` selection, `/auth/sync`, bearer-token
   verification, dev `x-dev-user-id` fallback.
+- ✅ **UPI-style directory (docs 17/18)** — canonical immutable handles, opt-in pay-by-phone with
+  Privy-verified numbers, country dialing default with Settings override. 🟡 Privy-mode phone
+  enrollment needs the SMS login method enabled in the Privy dashboard.
 - ✅ **KYC tiers enforced (M5)** — `kyc_tier` per-tier caps enforced at the money-movement endpoints
   (structured `limit_exceeded`), a simulated verification upgrade, `/me` returns the tier, sanctions
   screening + a fraud score, and the Verify UI reflects the real tier.
@@ -80,8 +96,9 @@ Privy. `requireUserId(req)` throws 401 if unmapped.
 
 ## Key files
 
-- Backend: `apps/backend/src/auth.ts`, `services/privy.ts`, route `/auth/sync` + `/me` in
-  `routes/index.ts`, `db/queries.ts` (`upsertUserByPrivyDid`, `findUserByPrivyDid`).
+- Backend: `apps/backend/src/auth.ts`, `services/privy.ts`, identity + directory routes in
+  `routes/auth.ts` (`/auth/sync`, `/me`, `/users/resolve`, `/me/phone`, `/me/country`),
+  `db/queries.ts` (`upsertUserByPrivyDid`, `canonicalHandle`, `normalizePhone`, `findUserByPhone`).
 - Web: `src/services/privy/PrivyBridge.tsx`, `app/onboarding/{faceid,handle}/page.tsx`,
   `components/sheets/identity.tsx` (the KYC/recovery sheets).
 - Schema: `users`, `wallets` (see [10-data-model](10-data-model.md)).

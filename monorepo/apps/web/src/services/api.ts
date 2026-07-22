@@ -96,6 +96,16 @@ export const api = {
   transactions: () => req<TransactionsResponse>('/transactions'),
   resolve: (handle: string) =>
     req<ResolveHandleResponse>(`/users/resolve?handle=${encodeURIComponent(handle)}`),
+  resolvePhone: (phone: string) =>
+    req<ResolveHandleResponse>(`/users/resolve?phone=${encodeURIComponent(phone)}`),
+  // Pay-by-phone enrollment. The number comes from the caller's Privy account server-side;
+  // the body phone is only honored by the dev shim (no Privy configured).
+  registerPhone: (phone?: string) =>
+    req<{ phone: string }>('/me/phone', { method: 'POST', body: JSON.stringify(phone ? { phone } : {}) }),
+  deregisterPhone: () => req<{ ok: true }>('/me/phone', { method: 'DELETE' }),
+  // Dialing-default country (ISO alpha-2) — tunes local-format phone lookups only.
+  setCountry: (country: string) =>
+    req<{ country: string }>('/me/country', { method: 'POST', body: JSON.stringify({ country }) }),
   requests: () => req<RequestsResponse>('/requests'),
   createRequest: (body: CreateRequestRequest) =>
     req<ApiPaymentRequest>('/requests', { method: 'POST', body: JSON.stringify(body) }),

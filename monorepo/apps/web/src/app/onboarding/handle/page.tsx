@@ -40,7 +40,8 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
   const [avail, setAvail] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const clean = h.trim().replace(/^@/, '');
+  // Mirror the server's canonical form (lowercase, [a-z0-9_.]) so what you see is what registers.
+  const clean = h.trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_.]/g, '');
 
   // Debounced availability check via the resolve endpoint (null result = available).
   useEffect(() => {

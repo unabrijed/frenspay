@@ -39,7 +39,15 @@ export interface WalletProvider {
   getBalanceUsd(): Promise<number>;
   getTransactions(): Promise<Txn[]>;
   resolveHandle(handle: string): Promise<Friend | null>;
-  transfer(input: { toHandle: string; amountUsd: number; note?: string }): Promise<Txn>;
+  /** Pay-by-phone directory lookup (normalized E.164). Optional — mock/mobile providers omit it. */
+  resolvePhone?(phone: string): Promise<Friend | null>;
+  transfer(input: {
+    toHandle?: string;
+    toAddress?: string;
+    amountUsd: number;
+    note?: string;
+    idempotencyKey?: string;
+  }): Promise<Txn>;
   depositAddress(): string;
   /** Devnet faucet: mint test USDC into the caller's own wallet. Optional (real/devnet only). */
   addMoney?(amountUsd: number): Promise<Txn>;
@@ -66,6 +74,10 @@ export interface MeResponse {
   walletAddress: string;
   kycTier: number; // M5: 0 restricted · 1 basic/P2P · 2 verified/merchant-pay · 3 enhanced
   kycStatus?: KycStatus; // M7: vendor verification lifecycle (undefined when no check has started)
+  /** E.164 pay-by-phone alias — present iff the user opted in. Only ever the caller's OWN number. */
+  phone?: string;
+  /** Dialing-default country (ISO alpha-2) — drives local-format phone normalization client-side. */
+  country?: string;
 }
 
 /** M7: lifecycle of a real-vendor identity check. */
@@ -110,12 +122,16 @@ export interface Notification {
 export interface NotificationsResponse {
   notifications: Notification[];
   unread: number;
+  /** Keyset cursor for the next page; absent on the last page. Pass back as ?cursor=. */
+  nextCursor?: string;
 }
 
 /** POST /auth/sync body — token in the Authorization header identifies the Privy user. */
 export interface AuthSyncRequest {
   handle: string;
   walletAddress: string;
+  /** ISO 3166-1 alpha-2 browser-locale guess; server fills only when unset (weakest source). */
+  country?: string;
 }
 
 export interface BalanceResponse {
@@ -137,6 +153,10 @@ export interface ApiTxn {
   direction: 'in' | 'out';
   amountUsd: number; // unsigned magnitude
   counterpartyHandle?: string;
+  /** Raw wallet address of the other side when it isn't an fpay user (external sends). */
+  counterpartyAddress?: string;
+  /** Network the transfer settled on ('solana' today; EVM ids arrive with v2). */
+  chain?: string;
   note?: string;
   status: 'pending' | 'confirmed' | 'failed';
   createdAt: string; // ISO 8601
@@ -145,6 +165,8 @@ export interface ApiTxn {
 
 export interface TransactionsResponse {
   transactions: ApiTxn[];
+  /** Keyset cursor for the next page; absent on the last page. Pass back as ?cursor=. */
+  nextCursor?: string;
 }
 
 export interface ApiPaymentRequest {
@@ -168,9 +190,14 @@ export interface CreateRequestRequest {
 }
 
 export interface PrepareTransferRequest {
-  toHandle: string;
+  /** In-app recipient by @handle. Exactly one of toHandle / toAddress must be set. */
+  toHandle?: string;
+  /** External recipient by raw wallet address (v1: Solana only; server re-validates + gates on KYC tier). */
+  toAddress?: string;
   amountUsd: number;
   note?: string;
+  /** Client-generated UUID; the server dedupes prepares on it (double-tap / manual-retry guard). */
+  idempotencyKey?: string;
 }
 
 export interface PrepareTransferResponse {
@@ -318,4 +345,6 @@ export interface OrderResponse {
 
 export interface OrdersResponse {
   orders: Order[];
+  /** Keyset cursor for the next page; absent on the last page. Pass back as ?cursor=. */
+  nextCursor?: string;
 }

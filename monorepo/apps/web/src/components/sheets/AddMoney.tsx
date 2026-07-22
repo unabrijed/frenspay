@@ -64,6 +64,9 @@ export function AddMoney() {
                   <Txt style={{ ...fonts.mono400, fontSize: 14, color: colors.ink }}>
                     {`${walletAddress.slice(0, 6)}…${walletAddress.slice(-4)}`}
                   </Txt>
+                  {/* On-ramp is an allowed chain-surface context — and the label prevents
+                      wrong-network deposits (money sent on another chain is unrecoverable). */}
+                  <Txt style={[type.rowTime, { marginTop: 2 }]}>Solana · only send on this network</Txt>
                 </RowMeta>
                 <Pressable onPress={copy} hitSlop={8} style={({ pressed }) => [{ flexDirection: 'row', alignItems: 'center', gap: 6 }, pressed && { opacity: 0.6 }]}>
                   <Icons.Copy size={16} color={colors.accent} strokeWidth={1.6} />

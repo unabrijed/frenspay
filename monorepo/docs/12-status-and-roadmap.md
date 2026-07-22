@@ -85,3 +85,11 @@ Committed on branch `sacred`: anchor program, backend (M1–M6), web+mobile + de
 **final** milestone: **M7 — Real rails** (live FX, real payout + KYC/AML vendors, mainnet) — the one that
 flips every simulated component to production. See [13-future-milestones](13-future-milestones.md) for
 the M7 detail and [11-compliance](11-compliance-and-legalities.md) for the risk map.
+
+**2026-07-22 increment (docs 16–18):** direct external-address sends (tier-2 gated, idempotent
+prepare); UPI-style directory — canonical immutable handles + opt-in pay-by-phone with country
+dialing defaults; unified pay targets (QR / address / @handle / phone incl. `tel:` QRs); backend
+routes split into domain modules with keyset pagination on the list endpoints; three-tier env config
+(local/stage/prod, separate databases); chain list = Solana live + 12 CCTP-reachable EVM networks
+"coming soon", with the chain-surface rule codified (network names only at external send /
+on-ramp / off-ramp). Pending: Privy dashboard SMS method, Helius key, runtime matrices in 17/18.

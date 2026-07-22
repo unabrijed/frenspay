@@ -123,9 +123,9 @@ erDiagram
 
 | Table | Purpose | Notes |
 |---|---|---|
-| **users** | one row per person | keyed to Privy DID; unique `handle`; `kyc_tier` drives M5 limits |
+| **users** | one row per person | keyed to Privy DID; unique canonical **immutable** `handle`; opt-in E.164 `phone` (partial unique index `uq_users_phone` = the pay-by-phone mapper); best-effort `country` (dialing default); `kyc_tier` drives M5 limits |
 | **wallets** | a user's chain address(es) | `chain='solana'`; unique `address` |
-| **transfers** | the money ledger | `kind ∈ send/add/pay/escrow_fund/escrow_release`; `status ∈ pending/confirmed/failed`; unique `signature` |
+| **transfers** | the money ledger | `kind ∈ send/add/pay/escrow_fund/escrow_release`; `status ∈ pending/confirmed/failed`; unique `signature`; `chain` (confirmer polls `'solana'` only); `idempotency_key` (unique per sender — prepare replay/dedupe) |
 | **payment_requests** | "you owe me $X" | `status ∈ open/paid/cancelled`; links the fulfilling `transfer_id` |
 | **merchants** | the LP network (simulated) | ranking signals (`success_rate`/`dispute_rate`/`avg_completion_secs`/`spread_bps`/`float_usdc`) kept **live by M4** + `base_*` seed priors; lifecycle (`status` incl. `suspended`, `kyb_status`), `bond_usdc`, `sim_behavior` |
 | **quotes** | a 45s-locked price | INR + USDC legs, `rate`, fees, ETA, `route_quality`, `expires_at` |

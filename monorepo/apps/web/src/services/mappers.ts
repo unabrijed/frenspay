@@ -1,5 +1,6 @@
 // mappers.ts — convert the API wire shape (ApiTxn) to the UI shape (Txn).
 import type { ApiTxn, Txn } from '@fpay/shared';
+import { truncateAddress } from '@fpay/shared';
 
 /** Human-friendly relative time for the activity rows. */
 export function relTime(iso: string): string {
@@ -16,9 +17,11 @@ export function relTime(iso: string): string {
 
 export function apiTxnToTxn(t: ApiTxn): Txn {
   const usd = t.direction === 'out' ? -t.amountUsd : t.amountUsd;
+  // External counterparties (no fpay handle) render as a truncated wallet address.
+  const who = t.counterpartyHandle ?? (t.counterpartyAddress ? truncateAddress(t.counterpartyAddress) : undefined);
   let title: string;
   if (t.kind === 'add') title = 'Added money';
-  else if (t.kind === 'send') title = (t.direction === 'out' ? 'To ' : 'From ') + (t.counterpartyHandle ?? '');
-  else title = t.counterpartyHandle ?? t.note ?? 'Payment';
+  else if (t.kind === 'send') title = (t.direction === 'out' ? 'To ' : 'From ') + (who ?? 'wallet');
+  else title = who ?? t.note ?? 'Payment';
   return { id: t.id, type: t.kind, title, time: relTime(t.createdAt), usd, status: t.status };
 }

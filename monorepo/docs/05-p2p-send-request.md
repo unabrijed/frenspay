@@ -7,6 +7,17 @@ Sends are real on-chain USDC transfers, gas-sponsored so they feel instant and f
 lightweight DB records that, when paid, link to the transfer that fulfilled them. This is the **M0
 base wallet** — the oldest, most complete part of the app.
 
+**Who you can pay (docs 16–18)** — four target kinds, every one reachable from both the search box
+and the QR scanner, all funneling into the same resolve → **verified payee name** → confirm → send
+flow (the UPI anti-wrong-send model):
+- **`@handle`** — exact directory match (canonical, case-insensitive input).
+- **Phone number** — opt-in directory alias; `+`-prefixed input resolves directly, local-format input
+  defaults to the sender's country dialing code (`98765 43210` in India → `+91…`), incl. `tel:` QRs
+  and bare printed numbers. Unknown country → the UI asks for the `+code`, never guesses.
+- **Wallet address** — external send (tier-2 gated, Solana executes; EVM-family addresses get the
+  honest "coming soon" network sheet). The ONLY place chain names appear besides on/off-ramp.
+- **Merchant UPI QR** — routes to the order lifecycle (docs 06), not P2P.
+
 ## Flow — send money
 
 ```mermaid

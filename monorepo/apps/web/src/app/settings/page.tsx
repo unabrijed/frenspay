@@ -19,6 +19,8 @@ export default function Settings() {
   const router = useRouter();
   const open = usePayStore((s) => s.open);
   const handle = usePayStore((s) => s.handle);
+  const phone = usePayStore((s) => s.phone);
+  const country = usePayStore((s) => s.country);
   const displayCurrency = usePayStore((s) => s.displayCurrency);
   const recoveryPasskey = usePayStore((s) => s.recoveryPasskey);
   const kycTier = usePayStore((s) => s.kycTier);
@@ -42,6 +44,8 @@ export default function Settings() {
         <List>
           <SettingsRow k="Verification" v={`Tier ${kycTier}`} onPress={() => open('verify')} />
           <SettingsRow k="Recovery" v={recoveryPasskey ? 'Passkey set' : 'Email'} onPress={() => open('recovery')} />
+          <SettingsRow k="Pay by phone" v={phone ? 'On' : 'Off'} onPress={() => open('payByPhone')} />
+          <SettingsRow k="Country" v={country || 'Not set'} onPress={() => open('country')} />
           <SettingsRow k="Display currency" v={displayCurrency} accent onPress={() => open('currency')} />
           <SettingsRow k="Help and support" onPress={() => open('help')} />
         </List>

@@ -21,3 +21,13 @@ export async function verifyAccessToken(token: string): Promise<{ privyDid: stri
   const claims = await client().verifyAuthToken(token, config.privyVerificationKey || undefined);
   return { privyDid: claims.userId };
 }
+
+/** The user's Privy-verified linked phone (raw, pre-normalization), or null if none linked.
+ *  This is the ONLY source for pay-by-phone enrollment — the number always comes from the
+ *  caller's own Privy account (UPI's own-number-only mapper rule for free). */
+export async function getLinkedPhone(privyDid: string): Promise<string | null> {
+  // ponytail: getUser(id) is the rate-limit-deprecated lookup; switch to identity-token reads
+  // if Privy volume ever matters.
+  const user = await client().getUser(privyDid);
+  return user.phone?.number ?? null;
+}

@@ -7,23 +7,29 @@ import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 
 import { AddMoney } from '@/components/sheets/AddMoney';
+import { Country } from '@/components/sheets/Country';
 import { Currency } from '@/components/sheets/Currency';
 import { Help } from '@/components/sheets/Help';
 import { Request, RequestPick, RequestSent, Send, SendAmount, SendFailed, Sent } from '@/components/sheets/friends';
 import { Recovery, Verify } from '@/components/sheets/identity';
 import { Notifications } from '@/components/sheets/notifications';
 import { OrderTracking } from '@/components/sheets/OrderTracking';
+import { PayByPhone } from '@/components/sheets/PayByPhone';
 import { Amount, Scan } from '@/components/sheets/pay';
 import { QuoteSheet } from '@/components/sheets/Quote';
 import { Receive } from '@/components/sheets/Receive';
+import { SendAddressAmount, SendAddressConfirm, SendNetwork } from '@/components/sheets/sendAddress';
 import { colors, radii, shadows } from '@/lib/theme';
 import { type SheetId, usePayStore } from '@/store/usePayStore';
 
 const TALL = new Set<SheetId>([
+  'country',
   'scan',
   'amount',
   'send',
   'sendAmount',
+  'sendAddressAmount',
+  'sendAddressConfirm',
   'request',
   'requestPick',
   'requestSent',
@@ -47,6 +53,12 @@ function renderSheet(id: SheetId) {
       return <Send />;
     case 'sendAmount':
       return <SendAmount />;
+    case 'sendAddressAmount':
+      return <SendAddressAmount />;
+    case 'sendAddressConfirm':
+      return <SendAddressConfirm />;
+    case 'sendNetwork':
+      return <SendNetwork />;
     case 'request':
       return <Request />;
     case 'requestPick':
@@ -61,10 +73,14 @@ function renderSheet(id: SheetId) {
       return <Verify />;
     case 'recovery':
       return <Recovery />;
+    case 'payByPhone':
+      return <PayByPhone />;
     case 'receive':
       return <Receive />;
     case 'currency':
       return <Currency />;
+    case 'country':
+      return <Country />;
     case 'quote':
       return <QuoteSheet />;
     case 'tracking':

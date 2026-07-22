@@ -4,6 +4,8 @@
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 
+import { classifyAddress, looksLikePhone, phoneCandidates, truncateAddress } from '@fpay/shared';
+
 import { Icons } from '@/components/icons';
 import { ResultBlock } from '@/components/ResultBlock';
 import { Btn, TextLink } from '@/components/ui/Button';
@@ -21,16 +23,18 @@ export function Send() {
   const close = usePayStore((s) => s.close);
   const open = usePayStore((s) => s.open);
   const setFriend = usePayStore((s) => s.setFriend);
+  const startExternalSend = usePayStore((s) => s.startExternalSend);
   return (
     <>
       <Grab />
-      <SheetHeader title="Send to a friend" onClose={close} />
+      <SheetHeader title="Send" onClose={close} />
       <SheetBody>
         <PeopleSearch
           onPick={(fr) => {
             setFriend(fr);
             open('sendAmount');
           }}
+          onPickAddress={startExternalSend}
         />
       </SheetBody>
     </>
@@ -59,7 +63,9 @@ export function SendAmount() {
         <View style={styles.payee}>
           <Fav label={ini} />
           <Txt style={[type.sub, { marginTop: 8 }]}>Sending to</Txt>
-          <Txt style={type.payeeWho}>{friend.handle}</Txt>
+          {/* Verified payee name (UPI-style confirm): the server-resolved name, not what was typed. */}
+          <Txt style={type.payeeWho}>{friend.name}</Txt>
+          <Txt style={[type.sub, { color: colors.muted }]}>{friend.handle}</Txt>
         </View>
         <View style={styles.amountWrap}>
           <View style={styles.amountRow}>
@@ -257,10 +263,19 @@ function ContactsPrompt({ onAllow }: { onAllow: () => void }) {
   );
 }
 
-function PeopleSearch({ onPick }: { onPick: (f: Friend) => void }) {
+function PeopleSearch({
+  onPick,
+  onPickAddress,
+}: {
+  onPick: (f: Friend) => void;
+  /** When provided, a typed/pasted wallet address becomes a tappable "send to this wallet" row. */
+  onPickAddress?: (address: string, network: 'solana' | 'evm') => void;
+}) {
   const [query, setQuery] = useState('');
   const [resolved, setResolved] = useState<Friend | null>(null);
   const [checking, setChecking] = useState(false);
+  const ownPhone = usePayStore((s) => s.phone);
+  const country = usePayStore((s) => s.country);
 
   const q = query.trim().toLowerCase();
   const filtered = q
@@ -269,10 +284,19 @@ function PeopleSearch({ onPick }: { onPick: (f: Friend) => void }) {
 
   const handle = queryHandle(query);
   const alreadyListed = handle ? filtered.some((f) => f.handle.toLowerCase() === handle) : true;
+  const address = onPickAddress ? classifyAddress(query) : ({ kind: 'invalid' } as const);
+  // Pay-by-phone: '+' input → 1 candidate; local format defaults to the sender's country code
+  // (UPI model), falling back to own-phone-prefix guesses. Wrong candidate = lookup miss only.
+  const phoneQuery = !handle && looksLikePhone(query);
+  const candidates = phoneQuery
+    ? phoneCandidates(query, { country: country || undefined, ownPhone: ownPhone || undefined })
+    : [];
+  const candKey = candidates.join(',');
 
-  // Debounced resolve of a typed @handle that isn't already in the local list.
+  // Debounced directory resolve: @handle first, else phone candidates (first hit wins).
   useEffect(() => {
-    if (!handle || alreadyListed) {
+    const wantsPhone = candKey.length > 0;
+    if ((!handle || alreadyListed) && !wantsPhone) {
       setResolved(null);
       setChecking(false);
       return;
@@ -281,7 +305,15 @@ function PeopleSearch({ onPick }: { onPick: (f: Friend) => void }) {
     setChecking(true);
     const t = setTimeout(async () => {
       try {
-        const f = await wallet.resolveHandle(handle);
+        let f: Friend | null = null;
+        if (handle && !alreadyListed) {
+          f = await wallet.resolveHandle(handle);
+        } else {
+          for (const c of candKey.split(',')) {
+            f = (await wallet.resolvePhone?.(c)) ?? null;
+            if (f) break;
+          }
+        }
         if (!cancelled) setResolved(f);
       } catch {
         if (!cancelled) setResolved(null);
@@ -293,7 +325,7 @@ function PeopleSearch({ onPick }: { onPick: (f: Friend) => void }) {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [handle, alreadyListed]);
+  }, [handle, alreadyListed, candKey]);
 
   const rows: Friend[] = [...filtered];
   if (resolved && !filtered.some((f) => f.handle.toLowerCase() === resolved.handle.toLowerCase())) {
@@ -302,14 +334,36 @@ function PeopleSearch({ onPick }: { onPick: (f: Friend) => void }) {
 
   const allowContacts = async () => {
     const c = await pickContact();
-    if (c?.name) setQuery(c.name);
+    // Prefer the number (it resolves through the directory, UPI-style); fall back to name prefill.
+    if (c?.tel) setQuery(c.tel);
+    else if (c?.name) setQuery(c.name);
   };
 
   return (
     <>
-      <SearchBar placeholder="Search a name or @handle" value={query} onChangeText={setQuery} />
+      <SearchBar
+        placeholder={onPickAddress ? 'Name, @handle, phone, or wallet address' : 'Name, @handle, or phone'}
+        value={query}
+        onChangeText={setQuery}
+      />
       {contactsSupported() ? <ContactsPrompt onAllow={allowContacts} /> : null}
-      {rows.length > 0 ? (
+      {address.kind !== 'invalid' ? (
+        <List>
+          <Row onPress={() => onPickAddress?.(address.address, address.kind)}>
+            <View style={styles.contactsIcon}>
+              <Icons.Wallet size={18} color={colors.accent} />
+            </View>
+            <RowMeta>
+              <Txt style={type.rowName}>Send to this wallet address</Txt>
+              <Txt style={[type.rowTime, { marginTop: 3 }]}>
+                {truncateAddress(address.address)}
+                {address.kind === 'solana' ? ' · Solana' : ''}
+              </Txt>
+            </RowMeta>
+            <Icons.Chevron size={18} color={colors.muted} />
+          </Row>
+        </List>
+      ) : rows.length > 0 ? (
         <List>
           {rows.map((fr) => (
             <Row key={fr.handle} onPress={() => onPick(fr)}>
@@ -324,7 +378,15 @@ function PeopleSearch({ onPick }: { onPick: (f: Friend) => void }) {
         </List>
       ) : (
         <Txt style={[type.rowTime, { textAlign: 'center', marginTop: 18 }]}>
-          {checking ? 'Checking…' : handle ? `${handle} isn’t on fpay yet — invite them from Receive` : 'No matches'}
+          {checking
+            ? 'Checking…'
+            : handle
+              ? `${handle} isn’t on fpay yet — invite them from Receive`
+              : phoneQuery
+                ? candidates.length
+                  ? 'That number isn’t on fpay yet'
+                  : 'Use international format, like +91 98765 43210'
+                : 'No matches'}
         </Txt>
       )}
     </>

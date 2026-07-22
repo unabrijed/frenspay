@@ -97,7 +97,7 @@ the user's key**. The same seam carries the on-chain escrow `deposit` unchanged 
 
 ```mermaid
 flowchart LR
-    subgraph routes["routes/index.ts (HTTP)"]
+    subgraph routes["routes/* (HTTP, one module per domain)"]
       direction TB
       r1["/auth/sync · /me"]
       r2["/balance · /transactions"]
@@ -129,8 +129,14 @@ flowchart LR
 **Who calls whom, in words:**
 - **`server.ts`** boots Fastify, registers routes, starts the **confirmer** poller (8s), and registers
   the **Helius** webhook (no-op locally).
-- **`routes/index.ts`** is the only HTTP surface. An `authPreHandler` populates `req.userId` from a
-  Privy bearer token (or `x-dev-user-id` in dev).
+- **`routes/`** is the HTTP surface, split by domain — `system, auth, money, orders, kyc,
+  notifications, webhooks` — with `routes/index.ts` as a thin registrar that attaches the shared
+  hooks (rate limit → auth) before any module registers. The `authPreHandler` populates `req.userId`
+  from a Privy bearer token (or `x-dev-user-id` in dev). List endpoints (`/transactions`, `/orders`,
+  `/notifications`) use keyset pagination (`?limit=&cursor=` → `nextCursor`).
+- **`config.ts`** is the only env reader; NODE_ENV picks the tier — local/development →
+  `LOCAL_*` → `STAGE_*`, stage → `STAGE_*`, production → bare names that exist ONLY on the prod
+  host. Boot logs which var the database came from and warns when a local run resolves the stage DB.
 - **`solana.ts`** owns the chain primitives: `connection()`, `feePayer()`, `buildUsdcTransfer`,
   `mintUsdcTo` (faucet), `getUsdcBalance`, `getTransferStatus`.
 - **`escrowProgram.ts`** owns the Anchor program: `buildDepositTx`, `releaseEscrow`, `refundEscrow`.

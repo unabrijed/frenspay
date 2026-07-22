@@ -25,16 +25,22 @@ export const RATE_LIMIT_RULES: Rule[] = [
   { method: 'POST', path: '/auth/sync', bucket: 'auth', limit: 10, windowMs: 60_000 },
   // Each verify spends a paid KYC vendor session — cap it so a client can't burn the quota / run up cost.
   { method: 'POST', path: '/kyc/verify', bucket: 'kyc', limit: 5, windowMs: 60_000 },
+  // Directory lookups: enough for typing-debounced resolves, useless for alias-space scraping.
+  { method: 'GET', path: '/users/resolve', bucket: 'resolve', limit: 30, windowMs: 60_000 },
+  // Each enroll round-trips to the Privy API — keep it capped.
+  { method: 'POST', path: '/me/phone', bucket: 'auth', limit: 10, windowMs: 60_000 },
+  { method: 'POST', path: '/me/country', bucket: 'auth', limit: 10, windowMs: 60_000 },
 ];
 
 type Window = { count: number; resetAt: number };
 const windows = new Map<string, Window>();
 
 function identity(req: FastifyRequest): string {
-  // `x-dev-user-id` is a client-spoofable dev shim — honoring it in prod would let an attacker mint a
-  // fresh bucket per request and defeat every cap. Only trust it in development; otherwise key on the
-  // bearer token (stable per user) then the peer IP.
-  const dev = config.isDevelopment ? (req.headers['x-dev-user-id'] as string | undefined) : undefined;
+  // `x-dev-user-id` is a client-spoofable dev shim — honoring it beyond a local machine lets an
+  // authenticated attacker rotate the header to mint a fresh bucket per request and defeat every cap
+  // (stage runs with isDevelopment=true, so gate on isLocal). Otherwise key on the bearer token
+  // (stable per user) then the peer IP.
+  const dev = config.isLocal ? (req.headers['x-dev-user-id'] as string | undefined) : undefined;
   return dev || (req.headers['authorization'] as string) || req.ip || 'anon';
 }
 

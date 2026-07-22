@@ -18,12 +18,19 @@ export function getKycProvider(): KycProvider {
 export function assertKycConfig(): void {
   if (config.kycProvider !== 'didit') return;
   const missing: string[] = [];
-  if (!config.diditApiKey.trim()) missing.push('DIDIT_API_KEY');
-  if (!config.diditWorkflowId.trim()) missing.push('DIDIT_WORKFLOW_ID');
-  if (!config.isDevelopment && !config.diditWebhookSecret.trim()) missing.push('DIDIT_WEBHOOK_SECRET');
+  if (!usableSecret(config.diditApiKey)) missing.push('DIDIT_API_KEY');
+  if (!usableSecret(config.diditWorkflowId)) missing.push('DIDIT_WORKFLOW_ID');
+  if (!config.isDevelopment && !usableSecret(config.diditWebhookSecret)) missing.push('DIDIT_WEBHOOK_SECRET');
   if (missing.length) {
-    throw new Error(`KYC_PROVIDER=didit but missing required env: ${missing.join(', ')}`);
+    throw new Error(`KYC_PROVIDER=didit but missing/placeholder required env: ${missing.join(', ')}`);
   }
+}
+
+/** A value like `<your workflow id>` is set-but-unusable: it passes an empty-check, boots the server
+ *  "healthy", then 503s every /kyc/verify at the vendor. Treat template-looking values as missing. */
+function usableSecret(value: string): boolean {
+  const v = value.trim();
+  return v.length > 0 && !/[<>]|your[-_ ]/i.test(v);
 }
 
 export type { KycProvider, KycDecision, KycStartResult, KycOutcome } from './provider';

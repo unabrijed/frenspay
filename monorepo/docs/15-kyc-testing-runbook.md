@@ -5,15 +5,18 @@ How to exercise identity verification locally. There are **two providers** behin
 
 | Provider | When | Behaviour |
 | --- | --- | --- |
-| `sim`   | default in dev/stage | Instant tier‑2 promote, no documents. `verifyDone()` gets `{ ok, kycTier: 2 }` and continues the pay flow immediately. |
-| `didit` | default in prod; opt‑in locally | Real hosted document + liveness flow. `verifyDone()` gets `{ url, sessionId }`, redirects the browser to Didit; the tier is raised later by the reconciler poller / webhook. |
+| `sim`   | default in local/development | Instant tier‑2 promote, no documents. `verifyDone()` gets `{ ok, kycTier: 2 }` and continues the pay flow immediately. |
+| `didit` | default in stage/prod | Real hosted document + liveness flow. `verifyDone()` gets `{ url, sessionId }`, redirects the browser to Didit; the tier is raised later by the reconciler poller / webhook. |
+
+NODE_ENV picks the default; override per tier with `<PREFIX>_KYC_PROVIDER` (e.g.
+`STAGE_KYC_PROVIDER=sim` to force sim on stage, `LOCAL_KYC_PROVIDER=didit` for the real flow locally).
 
 KYC gates **merchant pay** (needs tier ≥ 2). A tier‑1 user who scans a merchant/UPI QR is routed to
 the Verify sheet first (`payMerchant` → `open('verify')`).
 
 ---
 
-## A. Sim flow (default — zero setup)
+## A. Sim flow (zero setup — local default, or `STAGE_KYC_PROVIDER=sim` on stage)
 
 1. `yarn backend` and `yarn web`.
 2. Sign up through onboarding → land on Home.
@@ -27,9 +30,9 @@ the Verify sheet first (`payMerchant` → `open('verify')`).
 **Credentials** — Didit Business Console → *API & Webhooks* for the API key; the workflow id comes
 from the Verifications workflow you build in the no‑code editor.
 
-1. In `apps/backend/.env`:
+1. In `apps/backend/.env` (didit is already the default under `NODE_ENV=stage` — no
+   `STAGE_KYC_PROVIDER` line needed):
    ```
-   STAGE_KYC_PROVIDER=didit
    STAGE_DIDIT_API_KEY=<your key>
    STAGE_DIDIT_WORKFLOW_ID=<your workflow id>
    # STAGE_DIDIT_WEBHOOK_SECRET=<optional locally — poller reconciles without it>

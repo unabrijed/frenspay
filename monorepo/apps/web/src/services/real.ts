@@ -1,6 +1,7 @@
 // real.ts — RealWalletProvider: the WalletProvider backed by the Railway API + active Signer.
 // transfer() = prepare (server builds + fee-payer-signs) → signAndSend (client) → submit (record).
 import type { ApiPaymentRequest, CreateRequestRequest, Txn, WalletProvider } from '@fpay/shared';
+import { truncateAddress } from '@fpay/shared';
 
 import { api } from './api';
 import { DEV_SECRET_KEY, SOLANA_RPC_URL } from './env';
@@ -30,9 +31,25 @@ export class RealWalletProvider implements WalletProvider {
     return (await api.resolve(handle)).user;
   }
 
-  async transfer({ toHandle, amountUsd, note }: { toHandle: string; amountUsd: number; note?: string }): Promise<Txn> {
+  async resolvePhone(phone: string) {
+    return (await api.resolvePhone(phone)).user;
+  }
+
+  async transfer({
+    toHandle,
+    toAddress,
+    amountUsd,
+    note,
+    idempotencyKey,
+  }: {
+    toHandle?: string;
+    toAddress?: string;
+    amountUsd: number;
+    note?: string;
+    idempotencyKey?: string;
+  }): Promise<Txn> {
     const attempt = async (): Promise<string> => {
-      const prep = await api.prepareTransfer({ toHandle, amountUsd, note });
+      const prep = await api.prepareTransfer({ toHandle, toAddress, amountUsd, note, idempotencyKey });
       const signature = await getActiveSigner().signAndSend(prep.unsignedTx);
       await api.submitTransfer({ transferId: prep.transferId, signature });
       return prep.transferId;
@@ -41,12 +58,15 @@ export class RealWalletProvider implements WalletProvider {
     try {
       transferId = await attempt();
     } catch (e) {
-      // A prepared blockhash can expire before the user signs; re-prepare + retry once.
+      // A prepared blockhash can expire before the user signs (preflight rejects it — nothing was
+      // broadcast, so the retry can't double-send); re-prepare + retry once. The same idempotency
+      // key replays the abandoned row server-side (fresh blockhash, same transfer) rather than 409ing.
       if (/blockhash/i.test(e instanceof Error ? e.message : String(e))) transferId = await attempt();
       else throw e;
     }
+    const counterparty = toHandle ?? truncateAddress(toAddress ?? '');
     // Optimistic row; status flips + amount/time reconcile via getTransactions() (post-send poll).
-    return { id: transferId, type: 'send', title: 'To ' + toHandle, time: 'Just now', usd: -amountUsd, status: 'pending' };
+    return { id: transferId, type: 'send', title: 'To ' + counterparty, time: 'Just now', usd: -amountUsd, status: 'pending' };
   }
 
   depositAddress(): string {

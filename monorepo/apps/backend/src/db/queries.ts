@@ -26,6 +26,7 @@ export interface UserRow {
   display_name: string | null;
   email: string | null;
   phone: string | null;
+  country: string | null;
 }
 
 export interface WalletRow {
@@ -46,13 +47,50 @@ const toFriend = (u: { handle: string; display_name: string | null }): Friend =>
   ini: initial(u.display_name ?? u.handle),
 });
 
+// --- alias validators (backend-local; the client has its own copies — shared exports no runtime
+// values to the backend by invariant). Handle is the payment ID; phone is the pay-by-phone alias.
+const HANDLE_BODY_RE = /^[a-z0-9_.]{3,30}$/;
+
+/** '@Bridge ' → '@bridge'; null if not a valid handle. Canonical stored form keeps the '@'. */
+export function canonicalHandle(raw: string): string | null {
+  const body = raw.trim().replace(/^@/, '').toLowerCase();
+  return HANDLE_BODY_RE.test(body) ? '@' + body : null;
+}
+
+const E164_RE = /^\+[1-9]\d{6,14}$/;
+
+/** ' +91 98765-43210' → '+919876543210'; null if not E.164. */
+export function normalizePhone(raw: string): string | null {
+  const s = raw.trim().replace(/[\s().-]/g, '').replace(/^00/, '+');
+  return E164_RE.test(s) ? s : null;
+}
+
+// --- keyset pagination: cursor = '<createdAtISO>|<id>' of the last row of the previous page.
+export interface Page<T> {
+  items: T[];
+  nextCursor?: string;
+}
+
+function parseCursor(cursor?: string): { at: string; id: string } | null {
+  if (!cursor) return null;
+  const i = cursor.lastIndexOf('|');
+  if (i <= 0) return null;
+  const at = cursor.slice(0, i);
+  return Number.isNaN(Date.parse(at)) ? null : { at, id: cursor.slice(i + 1) };
+}
+
+const clampLimit = (limit: number, def: number, max: number): number =>
+  Number.isFinite(limit) && limit >= 1 ? Math.min(Math.floor(limit), max) : def;
+
 export async function findUserById(id: string): Promise<UserRow | null> {
   const { rows } = await getPool().query<UserRow>('select * from users where id = $1', [id]);
   return rows[0] ?? null;
 }
 
 export async function findUserByHandle(handle: string): Promise<UserRow | null> {
-  const { rows } = await getPool().query<UserRow>('select * from users where handle = $1', [handle]);
+  const h = canonicalHandle(handle);
+  if (!h) return null;
+  const { rows } = await getPool().query<UserRow>('select * from users where handle = $1', [h]);
   return rows[0] ?? null;
 }
 
@@ -71,16 +109,23 @@ export async function upsertUserByPrivyDid(input: {
   handle: string;
   displayName?: string;
   walletAddress: string;
+  country?: string;
 }): Promise<UserRow> {
   const client = await getPool().connect();
   try {
     await client.query('begin');
+    // Handle is IMMUTABLE after first sync (the onboarding UI promises "can't be changed later",
+    // and a freed handle could be re-claimed → payments misdirected). display_name coalesces so a
+    // sync without one doesn't null it out. country is the browser-locale guess — the WEAKEST
+    // source, so it fills only when NULL (verified-phone/manual picks overwrite via /me/country).
     const { rows } = await client.query<UserRow>(
-      `insert into users (privy_did, handle, display_name)
-       values ($1, $2, $3)
-       on conflict (privy_did) do update set handle = excluded.handle, display_name = excluded.display_name
+      `insert into users (privy_did, handle, display_name, country)
+       values ($1, $2, $3, $4)
+       on conflict (privy_did) do update
+         set display_name = coalesce(excluded.display_name, users.display_name),
+             country = coalesce(users.country, excluded.country)
        returning *`,
-      [input.privyDid, input.handle, input.displayName ?? null],
+      [input.privyDid, input.handle, input.displayName ?? null, input.country ?? null],
     );
     const user = rows[0];
     await client.query(
@@ -98,20 +143,42 @@ export async function upsertUserByPrivyDid(input: {
   }
 }
 
-export async function getWalletForUser(userId: string): Promise<WalletRow | null> {
+export async function getWalletForUser(userId: string, chain = 'solana'): Promise<WalletRow | null> {
   const { rows } = await getPool().query<WalletRow>(
-    'select * from wallets where user_id = $1 order by created_at asc limit 1',
-    [userId],
+    'select * from wallets where user_id = $1 and chain = $2 order by created_at asc limit 1',
+    [userId, chain],
   );
   return rows[0] ?? null;
 }
 
 export async function resolveHandleToFriend(handle: string): Promise<Friend | null> {
+  const h = canonicalHandle(handle);
+  if (!h) return null;
   const { rows } = await getPool().query<{ handle: string; display_name: string | null }>(
     'select handle, display_name from users where handle = $1',
-    [handle],
+    [h],
   );
   return rows[0] ? toFriend(rows[0]) : null;
+}
+
+/** Pay-by-phone mapper lookup. Input must already be normalized E.164. Never returns the phone
+ *  itself — reverse lookup (alias → number) is structurally impossible, like UPI's mapper. */
+export async function findUserByPhone(phone: string): Promise<Friend | null> {
+  const { rows } = await getPool().query<{ handle: string; display_name: string | null }>(
+    'select handle, display_name from users where phone = $1',
+    [phone],
+  );
+  return rows[0] ? toFriend(rows[0]) : null;
+}
+
+/** Enroll (E.164) or de-enroll (null) the user in pay-by-phone. 23505 = number already enrolled. */
+export async function setUserPhone(userId: string, phone: string | null): Promise<void> {
+  await getPool().query('update users set phone = $2 where id = $1', [userId, phone]);
+}
+
+/** Set the dialing-default country (validated ISO alpha-2). Strong sources last-write-wins. */
+export async function setUserCountry(userId: string, country: string): Promise<void> {
+  await getPool().query('update users set country = $2 where id = $1', [userId, country]);
 }
 
 interface TransferJoinRow {
@@ -126,37 +193,62 @@ interface TransferJoinRow {
   to_user_id: string | null;
   from_handle: string | null;
   to_handle: string | null;
+  from_address: string | null;
+  to_address: string | null;
+  chain: string | null;
 }
 
-export async function listTransactionsForUser(userId: string, limit = 100): Promise<ApiTxn[]> {
+export async function listTransactionsForUser(
+  userId: string,
+  limit = 50,
+  cursor?: string,
+): Promise<Page<ApiTxn>> {
+  const n = clampLimit(limit, 50, 100);
+  const c = parseCursor(cursor);
+  // Keyset on (created_at, id): stable under new inserts, rides the created_at ordering. Fetch
+  // n+1 rows to learn whether a next page exists without a count.
   const { rows } = await getPool().query<TransferJoinRow>(
     `select t.id, t.kind, t.amount_usdc, t.note, t.status, t.created_at, t.signature,
-            t.from_user_id, t.to_user_id,
+            t.from_user_id, t.to_user_id, t.from_address, t.to_address, t.chain,
             fu.handle as from_handle, tu.handle as to_handle
        from transfers t
        left join users fu on fu.id = t.from_user_id
        left join users tu on tu.id = t.to_user_id
-      where t.from_user_id = $1 or t.to_user_id = $1
-      order by t.created_at desc
+      where (t.from_user_id = $1 or t.to_user_id = $1)
+        and ($3::timestamptz is null or (t.created_at, t.id) < ($3::timestamptz, $4::uuid))
+      order by t.created_at desc, t.id desc
       limit $2`,
-    [userId, limit],
+    [userId, n + 1, c?.at ?? null, c?.id ?? null],
   );
 
-  return rows.map((r): ApiTxn => {
+  const pageRows = rows.slice(0, n);
+  const last = pageRows[pageRows.length - 1];
+  const nextCursor =
+    rows.length > n && last ? `${last.created_at.toISOString()}|${last.id}` : undefined;
+
+  const items = pageRows.map((r): ApiTxn => {
     const direction: 'in' | 'out' = r.from_user_id === userId ? 'out' : 'in';
     const counterpartyHandle = (direction === 'out' ? r.to_handle : r.from_handle) ?? undefined;
+    // External counterparty (no fpay user on the other side) → surface the raw address so the
+    // feed can render something better than a blank "To ".
+    const counterpartyAddress = counterpartyHandle
+      ? undefined
+      : ((direction === 'out' ? r.to_address : r.from_address) ?? undefined);
     return {
       id: r.id,
       kind: r.kind,
       direction,
       amountUsd: Number(r.amount_usdc),
       counterpartyHandle,
+      counterpartyAddress,
+      chain: r.chain ?? undefined,
       note: r.note ?? undefined,
       status: r.status as ApiTxn['status'],
       createdAt: r.created_at.toISOString(),
       signature: r.signature ?? undefined,
     };
   });
+  return { items, nextCursor };
 }
 
 interface RequestJoinRow {
@@ -269,10 +361,12 @@ export async function createPendingTransfer(input: {
   amountUsd: number;
   kind?: TransferKind;
   note?: string;
+  chain?: string;
+  idempotencyKey?: string;
 }): Promise<{ id: string }> {
   const { rows } = await getPool().query<{ id: string }>(
-    `insert into transfers (from_user_id, to_user_id, from_address, to_address, amount_usdc, kind, note, status)
-     values ($1, $2, $3, $4, $5, $6, $7, 'pending')
+    `insert into transfers (from_user_id, to_user_id, from_address, to_address, amount_usdc, kind, note, status, chain, idempotency_key)
+     values ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, $9)
      returning id`,
     [
       input.fromUserId,
@@ -282,9 +376,61 @@ export async function createPendingTransfer(input: {
       input.amountUsd,
       input.kind ?? 'send',
       input.note ?? null,
+      input.chain ?? 'solana',
+      input.idempotencyKey ?? null,
     ],
   );
   return rows[0];
+}
+
+/** Prepare-dedupe lookup: the transfer a sender already created under this idempotency key.
+ *  Returns enough of the row to rebuild the unsigned tx for an idempotent replay. */
+export async function findTransferByIdempotencyKey(
+  fromUserId: string,
+  idempotencyKey: string,
+): Promise<{ id: string; status: string; signature: string | null; fromAddress: string; toAddress: string; amountUsd: number } | null> {
+  const { rows } = await getPool().query<{
+    id: string;
+    status: string;
+    signature: string | null;
+    from_address: string;
+    to_address: string;
+    amount_usdc: string;
+  }>(
+    `select id, status, signature, from_address, to_address, amount_usdc
+       from transfers where from_user_id = $1 and idempotency_key = $2`,
+    [fromUserId, idempotencyKey],
+  );
+  const r = rows[0];
+  return r
+    ? {
+        id: r.id,
+        status: r.status,
+        signature: r.signature,
+        fromAddress: r.from_address,
+        toAddress: r.to_address,
+        amountUsd: Number(r.amount_usdc),
+      }
+    : null;
+}
+
+/** Distinct external (non-fpay) recipients this sender used in the last `hours`. Bounds the
+ *  fee-payer ATA-rent drain: each fresh external recipient can cost ~0.002 SOL in rent. */
+export async function countRecentExternalRecipients(fromUserId: string, hours: number): Promise<number> {
+  const { rows } = await getPool().query<{ total: string }>(
+    `select count(distinct to_address) as total
+       from transfers
+      where from_user_id = $1 and to_user_id is null and kind = 'send' and status <> 'failed'
+        and created_at > now() - make_interval(hours => $2)`,
+    [fromUserId, hours],
+  );
+  return Number(rows[0].total);
+}
+
+/** Is this address a merchant settlement treasury? Untracked deposits there are effectively lost. */
+export async function isMerchantTreasuryAddress(address: string): Promise<boolean> {
+  const { rowCount } = await getPool().query('select 1 from merchants where treasury_address = $1', [address]);
+  return (rowCount ?? 0) > 0;
 }
 
 /**
@@ -357,8 +503,11 @@ export async function setTransferStatusBySignature(
 }
 
 export async function getPendingSignatures(): Promise<{ id: string; signature: string }[]> {
+  // chain filter is load-bearing: this feeds the SOLANA poller only — a foreign-chain signature
+  // followed here would sit permanent-pending (see the transfers.chain comment in schema.sql).
   const { rows } = await getPool().query<{ id: string; signature: string }>(
-    `select id, signature from transfers where status = 'pending' and signature is not null`,
+    `select id, signature from transfers
+      where status = 'pending' and signature is not null and chain = 'solana'`,
   );
   return rows;
 }
@@ -691,12 +840,26 @@ export async function getOrderForUser(orderId: string, userId: string): Promise<
   return toOrder(rows[0], events);
 }
 
-export async function listOrdersForUser(userId: string, limit = 50): Promise<Order[]> {
+export async function listOrdersForUser(
+  userId: string,
+  limit = 50,
+  cursor?: string,
+): Promise<Page<Order>> {
+  const n = clampLimit(limit, 50, 100);
+  const c = parseCursor(cursor);
   const { rows } = await getPool().query<OrderJoinRow>(
-    `${ORDER_SELECT} where o.user_id = $1 order by o.created_at desc limit $2`,
-    [userId, limit],
+    `${ORDER_SELECT}
+      where o.user_id = $1
+        and ($3::timestamptz is null or (o.created_at, o.id) < ($3::timestamptz, $4::uuid))
+      order by o.created_at desc, o.id desc limit $2`,
+    [userId, n + 1, c?.at ?? null, c?.id ?? null],
   );
-  return rows.map((r) => toOrder(r));
+  const pageRows = rows.slice(0, n);
+  const last = pageRows[pageRows.length - 1];
+  return {
+    items: pageRows.map((r) => toOrder(r)),
+    nextCursor: rows.length > n && last ? `${last.created_at.toISOString()}|${last.id}` : undefined,
+  };
 }
 
 /** State patch with bumped updated_at. Pass only the fields to change; `clearResolution` nulls it. */
@@ -1208,10 +1371,11 @@ export async function insertRiskEvent(input: {
   decision: 'allow' | 'review' | 'block';
   score: number;
   reason?: string;
+  counterparty?: string;
 }): Promise<void> {
   await getPool().query(
-    `insert into risk_events (user_id, kind, amount_usdc, decision, score, reason) values ($1,$2,$3,$4,$5,$6)`,
-    [input.userId, input.kind, input.amountUsd ?? null, input.decision, input.score, input.reason ?? null],
+    `insert into risk_events (user_id, kind, amount_usdc, decision, score, reason, counterparty) values ($1,$2,$3,$4,$5,$6,$7)`,
+    [input.userId, input.kind, input.amountUsd ?? null, input.decision, input.score, input.reason ?? null, input.counterparty ?? null],
   );
 }
 
@@ -1230,7 +1394,13 @@ export async function insertNotification(input: {
   );
 }
 
-export async function listNotifications(userId: string, limit = 30): Promise<Notification[]> {
+export async function listNotifications(
+  userId: string,
+  limit = 30,
+  cursor?: string,
+): Promise<Page<Notification>> {
+  const n = clampLimit(limit, 30, 100);
+  const c = parseCursor(cursor);
   const { rows } = await getPool().query<{
     id: string;
     kind: string;
@@ -1241,18 +1411,26 @@ export async function listNotifications(userId: string, limit = 30): Promise<Not
     created_at: Date;
   }>(
     `select id, kind, title, body, meta, read, created_at
-       from notifications where user_id = $1 order by created_at desc limit $2`,
-    [userId, limit],
+       from notifications
+      where user_id = $1
+        and ($3::timestamptz is null or (created_at, id) < ($3::timestamptz, $4::uuid))
+      order by created_at desc, id desc limit $2`,
+    [userId, n + 1, c?.at ?? null, c?.id ?? null],
   );
-  return rows.map((r) => ({
-    id: r.id,
-    kind: r.kind,
-    title: r.title,
-    body: r.body,
-    meta: r.meta ?? undefined,
-    read: r.read,
-    createdAt: r.created_at.toISOString(),
-  }));
+  const pageRows = rows.slice(0, n);
+  const last = pageRows[pageRows.length - 1];
+  return {
+    items: pageRows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      title: r.title,
+      body: r.body,
+      meta: r.meta ?? undefined,
+      read: r.read,
+      createdAt: r.created_at.toISOString(),
+    })),
+    nextCursor: rows.length > n && last ? `${last.created_at.toISOString()}|${last.id}` : undefined,
+  };
 }
 
 export async function unreadNotificationCount(userId: string): Promise<number> {

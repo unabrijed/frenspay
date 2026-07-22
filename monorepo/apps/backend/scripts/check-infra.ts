@@ -55,7 +55,7 @@ async function main() {
 
   // 1) notifications write → list → unread → read.
   await insertNotification({ userId, kind: 'received', title: 'Test', body: 'hi' });
-  const list = await listNotifications(userId);
+  const list = (await listNotifications(userId)).items;
   check('notification written + listed', list.length === 1 && list[0].title === 'Test', `${list.length} row(s)`);
   check('unread count reflects it', (await unreadNotificationCount(userId)) === 1);
   await markAllNotificationsRead(userId);

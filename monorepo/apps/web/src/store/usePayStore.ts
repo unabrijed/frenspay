@@ -5,6 +5,7 @@
 // Money flows delegate to the RealWalletProvider (@/services/wallet) → the backend API + on-device
 // signing. The app is always real; balance/activity load from the backend once signed in.
 import type { ApiPaymentRequest, KycStatus, Notification, Order, Quote } from '@fpay/shared';
+import { isoFromE164, phoneCandidates, truncateAddress } from '@fpay/shared';
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -23,6 +24,9 @@ export type SheetId =
   | 'add'
   | 'send'
   | 'sendAmount'
+  | 'sendAddressAmount'
+  | 'sendAddressConfirm'
+  | 'sendNetwork'
   | 'request'
   | 'requestPick'
   | 'requestSent'
@@ -30,8 +34,10 @@ export type SheetId =
   | 'sendFailed'
   | 'verify'
   | 'recovery'
+  | 'payByPhone'
   | 'receive'
   | 'currency'
+  | 'country'
   | 'quote'
   | 'tracking'
   | 'help'
@@ -47,6 +53,9 @@ interface AuthBridge {
   logout: () => Promise<void>;
   /** Link a passkey to the Privy user — a cross-device recovery factor. */
   linkPasskey: () => Promise<void>;
+  /** Pay-by-phone: Privy sends the SMS OTP to link the number to the account. */
+  sendPhoneCode: (phoneNumber: string) => Promise<void>;
+  linkPhoneCode: (code: string) => Promise<void>;
 }
 
 interface PayState {
@@ -62,6 +71,10 @@ interface PayState {
   unread: number;
   displayCurrency: DisplayCurrency;
   handle: string;
+  /** Own pay-by-phone alias (E.164) — '' when not enrolled. Server truth via /me. */
+  phone: string;
+  /** Dialing-default country (ISO alpha-2) — '' when unknown. Server truth via /me. */
+  country: string;
 
   // ---- ephemeral ----
   sheet: SheetId | null;
@@ -75,6 +88,8 @@ interface PayState {
   pendingPay: boolean;
   /** Real-vendor verification lifecycle (M7): 'pending' while the user is in/returning from the flow. */
   kycStatus: KycStatus;
+  /** In-flight direct send to a raw wallet address (outside fpay). Solana-only in v1. */
+  externalSend: { address: string; amountUsd: number } | null;
   lastSend: { u: number; handle: string };
   lastRequest: { u: number; handle: string };
   requestDraftUsd: number;
@@ -143,11 +158,28 @@ interface PayState {
   recoveryDone: () => void;
   /** Publish real recovery status from the Privy bridge. */
   setRecoveryStatus: (s: { email: string; passkey: boolean }) => void;
+  // ---- pay-by-phone (UPI-mapper consent model: enrolling IS the consent) ----
+  /** Step 1: send the SMS code via Privy. Dev mode (no Privy) enrolls directly. */
+  startPhoneLink: (phoneNumber: string) => Promise<'code_sent' | 'enrolled'>;
+  /** Step 2: confirm the SMS code, then enroll server-side (number read from Privy). */
+  confirmPhoneLink: (code: string) => Promise<void>;
+  /** Opt out: remove the number from the directory. */
+  disablePayByPhone: () => Promise<void>;
+  /** Set the dialing-default country (Settings pick or derived from the enrolled phone). */
+  setCountry: (iso: string) => Promise<void>;
   /** Link a passkey as a second-device recovery factor (delegates to Privy). */
   addPasskey: () => Promise<void>;
   finishPay: () => void;
   doSend: (u: number) => Promise<Txn | null>;
   doAdd: (amt: number) => Promise<void>;
+
+  // ---- direct send to a raw wallet address (docs/16) ----
+  /** Route a detected wallet address: Solana → amount entry; EVM family → network "coming soon". */
+  startExternalSend: (address: string, network: 'solana' | 'evm') => void;
+  /** Stash the amount from the external amount sheet and advance to the confirm step. */
+  setExternalAmount: (u: number) => void;
+  /** Execute the confirmed external send (tier-gated + validated server-side). */
+  doSendExternal: () => Promise<Txn | null>;
 
   // ---- order lifecycle: quote → confirm (sign escrow funding) → poll ----
   /** Request a locked quote for a rupee amount and open the Quote screen. */
@@ -177,6 +209,8 @@ export const usePayStore = create<PayState>()(
       unread: 0,
       displayCurrency: 'INR',
       handle: '',
+      phone: '',
+      country: '',
 
       sheet: null,
       closing: false,
@@ -187,6 +221,7 @@ export const usePayStore = create<PayState>()(
       detail: null,
       pendingPay: false,
       kycStatus: 'none',
+      externalSend: null,
       lastSend: { u: 12, handle: '@neha' },
       lastRequest: { u: 20, handle: '@neha' },
       requestDraftUsd: 20,
@@ -252,6 +287,8 @@ export const usePayStore = create<PayState>()(
           set({
             walletAddress: me.walletAddress,
             handle: me.handle,
+            phone: me.phone ?? '',
+            country: me.country ?? '',
             kycTier: me.kycTier,
             kycStatus: me.kycStatus ?? 'none',
             balanceUSD: bal,
@@ -332,6 +369,8 @@ export const usePayStore = create<PayState>()(
           walletAddress: '',
           authEmail: '',
           handle: '',
+          phone: '',
+          country: '',
           balanceUSD: 0,
           transactions: [],
           notifications: [],
@@ -361,7 +400,15 @@ export const usePayStore = create<PayState>()(
         await get().logout();
       },
       authSync: async (handle) => {
-        const me = await api.authSync({ handle, walletAddress: get().walletAddress });
+        // Browser-locale country guess — weakest source, server fills only when unset.
+        // Deliberately no .maximize(): a bare "en" locale must send nothing, not US.
+        let country: string | undefined;
+        try {
+          country = new Intl.Locale(navigator.language).region;
+        } catch {
+          /* no guess */
+        }
+        const me = await api.authSync({ handle, walletAddress: get().walletAddress, country });
         set({ walletAddress: me.walletAddress });
         await get().load();
       },
@@ -392,9 +439,100 @@ export const usePayStore = create<PayState>()(
           set({ error: null });
           get().payMerchant({ name: res.name ?? res.payee ?? 'Merchant' }, res.amountInr ?? 0);
         } else if (res.kind === 'address') {
-          set({ error: 'That wallet isn’t an fpay user yet — ask them to join fpay.' });
+          set({ error: null });
+          get().startExternalSend(res.address, res.network);
+        } else if (res.kind === 'phone') {
+          const candidates = phoneCandidates(res.number, {
+            country: get().country || undefined,
+            ownPhone: get().phone || undefined,
+          });
+          if (get().phone && candidates.includes(get().phone)) {
+            set({ error: "That's your own number" });
+            return;
+          }
+          try {
+            let friend: Friend | null = null;
+            for (const c of candidates) {
+              friend = (await wallet.resolvePhone?.(c)) ?? null;
+              if (friend) break;
+            }
+            if (!friend) {
+              set({ error: "That number isn't on fpay yet" });
+              return;
+            }
+            set({ error: null });
+            get().setFriend(friend);
+            get().open('sendAmount');
+          } catch (e) {
+            set({ error: e instanceof Error ? e.message : String(e) });
+          }
+        } else if (res.kind === 'unsupported') {
+          set({ error: res.reason });
         } else {
           set({ error: 'Unrecognized QR' });
+        }
+      },
+
+      // ---- direct send to a raw wallet address (docs/16) ----
+      startExternalSend: (address, network) => {
+        if (address === get().walletAddress) {
+          set({ error: "That's your own wallet" });
+          return;
+        }
+        if (network === 'evm') {
+          // Real address, rail we don't run yet — the network sheet names the options honestly
+          // ("coming soon") instead of failing generically.
+          get().open('sendNetwork');
+          return;
+        }
+        set({ externalSend: { address, amountUsd: 0 }, error: null });
+        get().open('sendAddressAmount');
+      },
+      setExternalAmount: (u) => {
+        const ext = get().externalSend;
+        if (!ext) return;
+        set({ externalSend: { ...ext, amountUsd: u } });
+        get().open('sendAddressConfirm');
+      },
+      doSendExternal: async () => {
+        const ext = get().externalSend;
+        if (!ext || ext.amountUsd <= 0) return null;
+        set({ busy: true, error: null });
+        try {
+          const tx = await wallet.transfer({
+            toAddress: ext.address,
+            amountUsd: ext.amountUsd,
+            idempotencyKey: crypto.randomUUID(),
+          });
+          set((s) => ({
+            balanceUSD: +(s.balanceUSD - ext.amountUsd).toFixed(2),
+            transactions: [tx, ...s.transactions],
+            lastSend: { u: ext.amountUsd, handle: truncateAddress(ext.address) },
+            externalSend: null,
+            busy: false,
+          }));
+          get().open('sent');
+          void get().refresh();
+          [3000, 7000, 12000].forEach((ms) => setTimeout(() => void get().refresh(), ms));
+          return tx;
+        } catch (e) {
+          if (e instanceof ApiError && e.code === 'limit_exceeded') {
+            set({ busy: false, error: 'Verify your identity to send to outside wallets.' });
+            get().open('verify');
+            return null;
+          }
+          const friendlyByCode: Record<string, string> = {
+            invalid_recipient: 'That address can’t receive money. Double-check it.',
+            self_send_not_allowed: "That's your own wallet",
+            unsupported_network: 'fpay can only send on Solana right now.',
+            amount_too_small: 'Sends to outside wallets need to be at least $1.',
+            too_many_new_recipients: 'You’ve reached today’s limit for new wallets. Try tomorrow.',
+            duplicate_request: 'That send is already in progress.',
+          };
+          const friendly = e instanceof ApiError ? friendlyByCode[e.code] : undefined;
+          set({ busy: false, error: friendly ?? (e instanceof Error ? e.message : String(e)) });
+          get().open('sendFailed');
+          return null;
         }
       },
 
@@ -489,6 +627,40 @@ export const usePayStore = create<PayState>()(
         get().close();
       },
       setRecoveryStatus: ({ email, passkey }) => set({ recoveryEmail: email, recoveryPasskey: passkey }),
+
+      // ---- pay-by-phone (enrolling IS the consent; the server reads the number from Privy) ----
+      startPhoneLink: async (phoneNumber) => {
+        if (USE_PRIVY) {
+          await get()._authBridge?.sendPhoneCode(phoneNumber);
+          return 'code_sent';
+        }
+        // Dev mode (no Privy): the backend dev shim accepts the number directly.
+        const { phone } = await api.registerPhone(phoneNumber);
+        set({ phone });
+        const iso = isoFromE164(phone);
+        if (iso) void get().setCountry(iso); // verified own number → authoritative dialing default
+        return 'enrolled';
+      },
+      confirmPhoneLink: async (code) => {
+        await get()._authBridge?.linkPhoneCode(code);
+        const { phone } = await api.registerPhone(); // server pulls the now-linked number from Privy
+        set({ phone });
+        const iso = isoFromE164(phone);
+        if (iso) void get().setCountry(iso);
+      },
+      disablePayByPhone: async () => {
+        await api.deregisterPhone();
+        set({ phone: '' });
+      },
+      setCountry: async (iso) => {
+        if (!/^[A-Z]{2}$/.test(iso)) return;
+        set({ country: iso }); // optimistic; /me reconciles
+        try {
+          await api.setCountry(iso);
+        } catch {
+          /* best-effort — a failed write leaves the previous server value until next load() */
+        }
+      },
       addPasskey: async () => {
         const bridge = get()._authBridge;
         if (!bridge) {

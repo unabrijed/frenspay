@@ -43,6 +43,11 @@ create table if not exists transfers (
   note         text,
   status       text not null default 'pending' constraint transfers_status_chk check (status in ('pending','confirmed','failed')),
   request_id   uuid,
+  -- Network the transfer settles on. 'solana' today; the confirmer must filter on this before any
+  -- non-Solana rail lands (a foreign signature in the Solana poller = permanent-pending zombie row).
+  chain        text not null default 'solana',
+  -- Client-generated prepare dedupe key (double-tap / manual-retry guard). Unique per sender.
+  idempotency_key text,
   created_at   timestamptz not null default now(),
   confirmed_at timestamptz
 );
@@ -179,6 +184,9 @@ create table if not exists risk_events (
   decision    text not null default 'allow' constraint risk_decision_chk check (decision in ('allow','review','block')),
   score       integer not null default 0,
   reason      text,
+  -- Who the money was going to (handle or raw address). For external sends this is the whole
+  -- point of the audit row — a screened/blocked decision is meaningless without the counterparty.
+  counterparty text,
   created_at  timestamptz not null default now()
 );
 
@@ -236,4 +244,33 @@ do $$ begin
   end if;
   -- M5: KYC tier on existing user rows.
   alter table users add column if not exists kyc_tier integer not null default 1;
+  -- Direct-address send (docs/16): chain identity + prepare idempotency + risk counterparty
+  -- on existing DBs.
+  alter table transfers add column if not exists chain text not null default 'solana';
+  alter table transfers add column if not exists idempotency_key text;
+  alter table risk_events add column if not exists counterparty text;
 end $$;
+
+-- After the do-block so the columns exist on pre-existing DBs before the index is built.
+create unique index if not exists uq_transfers_idempotency
+  on transfers (from_user_id, idempotency_key) where idempotency_key is not null;
+
+-- UPI-style aliases (docs/16 follow-up): handle is the payment ID (canonical '@' + [a-z0-9_.]{3,30},
+-- enforced server-side at /auth/sync); users.phone is the pay-by-phone mapper entry — E.164,
+-- present iff the user opted in (enrollment IS the consent, like NPCI's numeric mapper).
+do $$ begin
+  -- Legacy canonicalization: ensure the leading '@', then lowercase. Case-collisions are skipped
+  -- to preserve the unique constraint (expected 0; they stay exact-match-only until resolved).
+  update users set handle = '@' || handle where handle not like '@%';
+  update users u set handle = lower(u.handle)
+   where u.handle <> lower(u.handle)
+     and not exists (select 1 from users v where v.id <> u.id and v.handle = lower(u.handle));
+end $$;
+
+-- One account per phone. Partial so non-enrolled rows (null) don't collide.
+create unique index if not exists uq_users_phone on users (phone) where phone is not null;
+
+-- Dialing-default country (ISO 3166-1 alpha-2), best-effort. Write strength: browser locale
+-- fills only when NULL (/auth/sync coalesce); verified-phone-derived and manual Settings picks
+-- overwrite via /me/country. A UX default only — never a compliance/identity attribute.
+alter table users add column if not exists country text;

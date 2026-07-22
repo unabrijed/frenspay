@@ -57,7 +57,8 @@ function EmailOtp() {
             <Icons.Face size={44} color={colors.muted} strokeWidth={1.6} />
           </GlyphCircle>
           <Txt style={type.onbH1}>Setting up your account</Txt>
-          <Txt style={[type.lead, styles.sub, { fontSize: 15 }]}>Creating your secure wallet…</Txt>
+          {/* De-crypto: "wallet" was the last crypto-adjacent word outside the allowed contexts. */}
+          <Txt style={[type.lead, styles.sub, { fontSize: 15 }]}>Getting things ready…</Txt>
           <Skeleton w={168} h={6} r={999} style={{ marginTop: 4 }} />
         </View>
       </Screen>

@@ -2,6 +2,7 @@
 // on money movement, a simulated sanctions denylist, and a simple per-action fraud score with an audit
 // trail. Simulated rails — tier upgrades + screening are sim (no real KYC/AML vendor; that lands at M7).
 import {
+  canonicalHandle,
   getUserKycTier,
   insertRiskEvent,
   isDenylisted,
@@ -85,12 +86,18 @@ export async function checkCashOutLimit(userId: string, amountUsd: number): Prom
   return { ok: true };
 }
 
-/** Sanctions/denylist screening (simulated). */
+/** Sanctions/denylist screening (simulated). EVM addresses are case-insensitive hex (EIP-55
+ *  checksumming re-cases them), so an exact-match lookup is trivially bypassed by case variation —
+ *  normalize to lowercase before matching (denylist rows for 0x addresses must be seeded lowercase).
+ *  Solana base58 is case-significant: match exact. */
 export function screenAddress(address: string): Promise<boolean> {
-  return isDenylisted('address', address);
+  const normalized = address.startsWith('0x') ? address.toLowerCase() : address;
+  return isDenylisted('address', normalized);
 }
 export function screenHandle(handle: string): Promise<boolean> {
-  return isDenylisted('handle', handle);
+  // Canonical form ('@' + lowercase) so '@Sanctioned' can't sidestep a denylist row seeded
+  // canonically; uncanonicalizable input screens as-typed (it can't resolve to a user anyway).
+  return isDenylisted('handle', canonicalHandle(handle) ?? handle);
 }
 
 /**
@@ -102,12 +109,20 @@ export async function scoreAndRecord(input: {
   kind: 'send' | 'cash_out';
   amountUsd: number;
   denylisted?: boolean;
+  /** Who the money is going to (handle or raw address) — recorded for the audit trail. */
+  counterparty?: string;
+  /** Recipient is a raw wallet outside fpay (unhosted-wallet withdrawal — higher risk class). */
+  externalRecipient?: boolean;
 }): Promise<{ decision: 'allow' | 'review' | 'block'; score: number; reason: string }> {
   const reasons: string[] = [];
   let score = 0;
   if (input.denylisted) {
     score += 100;
     reasons.push('denylisted counterparty');
+  }
+  if (input.externalRecipient) {
+    score += 15;
+    reasons.push('external wallet destination');
   }
   const lim = tierLimits(await getUserKycTier(input.userId));
   const cap = input.kind === 'send' ? lim.sendPerTx : lim.cashOutPerTx;
@@ -117,6 +132,14 @@ export async function scoreAndRecord(input: {
   }
   const decision = score >= 100 ? 'block' : score >= 40 ? 'review' : 'allow';
   const reason = reasons.join('; ') || 'ok';
-  await insertRiskEvent({ userId: input.userId, kind: input.kind, amountUsd: input.amountUsd, decision, score, reason });
+  await insertRiskEvent({
+    userId: input.userId,
+    kind: input.kind,
+    amountUsd: input.amountUsd,
+    decision,
+    score,
+    reason,
+    counterparty: input.counterparty,
+  });
   return { decision, score, reason };
 }
