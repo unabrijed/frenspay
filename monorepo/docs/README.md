@@ -53,6 +53,7 @@ Every integration/flow doc follows the **same six-part shape**, so you always kn
 | 16 | [Direct address send](16-direct-address-send-plan.md) | send to any Solana address; EVM detect ("coming soon"); tier-2 gate; idempotent prepare | ✅ |
 | 17 | [UPI aliases, pagination & env](17-upi-aliases-pagination-env.md) | pay by @handle/phone (opt-in mapper), domain route split, keyset pagination, 3-tier env | ✅ |
 | 18 | [Unified pay, chains & country](18-unified-pay-chains-country.md) | QR/address/handle/phone in one flow, country dialing default, CCTP chain list, chain-surface rule | ✅ |
+| 19 | [Cross-chain USDC rails](19-crosschain-cctp-rails.md) | CCTP V2 behind a rail abstraction: outbound sends to Base/Eth/Arb + inbound deposits (smart-wallet, sponsored), full Sepolia staging | ✅ / 🟡 funding |
 
 ---
 

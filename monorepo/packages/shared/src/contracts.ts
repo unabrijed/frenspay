@@ -78,6 +78,8 @@ export interface MeResponse {
   phone?: string;
   /** Dialing-default country (ISO alpha-2) — drives local-format phone normalization client-side. */
   country?: string;
+  /** The user's EVM deposit address (smart wallet; same on every supported network), once synced. */
+  evmDepositAddress?: string;
 }
 
 /** M7: lifecycle of a real-vendor identity check. */
@@ -167,6 +169,86 @@ export interface TransactionsResponse {
   transactions: ApiTxn[];
   /** Keyset cursor for the next page; absent on the last page. Pass back as ?cursor=. */
   nextCursor?: string;
+}
+
+/* ---- v2 cross-chain (docs/19): USDC moves between chains; the UI still only ever shows dollars,
+   with network names appearing ONLY in the external-send / add-money contexts. ---- */
+
+export interface CrosschainQuoteResponse {
+  source: string;
+  destination: string;
+  amountUsd: number;
+  /** fpay's per-destination fee (config). */
+  feeUsd: number;
+  /** The protocol's own cut (e.g. fast-lane bps), broken out for transparency; UI may combine. */
+  railFeeUsd: number;
+  totalFeeUsd: number;
+  etaSecs: number;
+}
+
+export interface PrepareCrosschainRequest {
+  network: string; // destination NetworkId
+  toAddress: string;
+  amountUsd: number;
+  note?: string;
+  idempotencyKey?: string;
+}
+
+export interface PrepareCrosschainResponse {
+  unsignedTx: string;
+  feePayer: string;
+  transferId: string;
+  feeUsd: number;
+  railFeeUsd: number;
+  totalFeeUsd: number;
+  etaSecs: number;
+}
+
+export interface SubmitCrosschainRequest {
+  transferId: string;
+  signature: string;
+}
+
+/** Add money from another wallet (inbound): the user's own EVM deposit address + per-network terms. */
+export interface DepositInfoResponse {
+  /** The user's own smart-wallet deposit address (same on every listed network); absent until synced. */
+  evmAddress?: string;
+  options: Array<{ network: string; feeUsd: number; etaSecs: number }>;
+}
+
+export interface DepositBalancesResponse {
+  /** USDC sitting at the deposit address, per network (UI units/dollars). */
+  balances: Record<string, number>;
+}
+
+/** Server-built calldata for the sponsored move-to-balance userOp (client stays EVM-lib-free). */
+export interface DepositPrepareRequest {
+  sourceChain: string;
+  /** Total USDC to move off the source chain (our fee is carved out of it server-side). */
+  amountUsd: number;
+}
+
+export interface DepositPrepareResponse {
+  chainId: number;
+  calls: Array<{ to: string; data: string; value: string }>;
+  /** What actually gets bridged after fpay's fee. */
+  burnAmountUsd: number;
+  feeUsd: number;
+  railFeeUsd: number;
+  totalFeeUsd: number;
+  etaSecs: number;
+}
+
+export interface ReportDepositRequest {
+  sourceChain: string;
+  txHash: string;
+  /** Client-asserted, PROVISIONAL — the server reconciles from the attested message. */
+  amountUsd: number;
+}
+
+export interface ReportDepositResponse {
+  transferId: string;
+  etaSecs: number;
 }
 
 export interface ApiPaymentRequest {

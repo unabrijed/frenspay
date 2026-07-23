@@ -93,9 +93,31 @@ export function SendAddressConfirm() {
           <View style={styles.kvRow}>
             <Txt style={[type.tierTag, { color: colors.muted }]}>NETWORK</Txt>
             <View style={styles.netPill}>
-              <Txt style={[type.sub, { color: colors.ink }]}>Solana</Txt>
+              <Txt style={[type.sub, { color: colors.ink }]}>
+                {SUPPORTED_NETWORKS.find((n) => n.id === ext.network)?.displayName ?? 'Solana'}
+              </Txt>
             </View>
           </View>
+          {ext.network !== 'solana' ? (
+            <>
+              <View style={styles.hr} />
+              <View style={styles.kvRow}>
+                <Txt style={[type.tierTag, { color: colors.muted }]}>NETWORK FEE</Txt>
+                <Txt style={type.rowName}>{ext.totalFeeUsd > 0 ? `$${ext.totalFeeUsd.toFixed(2)}` : 'Free'}</Txt>
+              </View>
+              {ext.etaSecs > 0 ? (
+                <>
+                  <View style={styles.hr} />
+                  <View style={styles.kvRow}>
+                    <Txt style={[type.tierTag, { color: colors.muted }]}>ARRIVES</Txt>
+                    <Txt style={type.rowName}>
+                      {ext.etaSecs <= 90 ? 'in about a minute' : `in ~${Math.round(ext.etaSecs / 60)} minutes`}
+                    </Txt>
+                  </View>
+                </>
+              ) : null}
+            </>
+          ) : null}
         </View>
         <Txt style={[type.rowTime, styles.warn]}>
           Double-check the address — money sent to the wrong place can’t be recovered.
@@ -112,16 +134,29 @@ export function SendAddressConfirm() {
 
 export function SendNetwork() {
   const close = usePayStore((s) => s.close);
+  const selectNetwork = usePayStore((s) => s.selectNetwork);
+  // An EVM address is identical on every EVM chain — the user tells us which network they mean.
+  const live = SUPPORTED_NETWORKS.filter((n) => n.status === 'live' && n.id !== 'solana');
   const comingSoon = SUPPORTED_NETWORKS.filter((n) => n.status === 'coming_soon');
   return (
     <>
       <Grab />
       <SheetHeader title="Which network?" onClose={close} />
-      {/* 12 coming-soon rows — the list must scroll inside the sheet's max height. */}
       <SheetBody style={{ overflowY: 'auto' }}>
         <Txt style={[type.lead, { marginBottom: 12 }]}>
-          That address lives on one of these networks. fpay sends on Solana today — these are coming soon.
+          That address works on several networks — pick the one the recipient uses.
         </Txt>
+        <List>
+          {live.map((n) => (
+            <Row key={n.id} onPress={() => selectNetwork(n.id)}>
+              <RowMeta>
+                <Txt style={type.rowName}>{n.displayName}</Txt>
+              </RowMeta>
+              <Icons.Chevron size={18} color={colors.muted} />
+            </Row>
+          ))}
+        </List>
+        <Txt style={[type.rowTime, { color: colors.muted, marginTop: 14, marginBottom: 6 }]}>Coming soon</Txt>
         <List>
           {comingSoon.map((n) => (
             <Row key={n.id}>
@@ -136,7 +171,7 @@ export function SendNetwork() {
         </List>
         <Spacer />
         <View style={styles.cta}>
-          <Btn label="OK" variant="ink" onPress={close} />
+          <TextLink label="Cancel" onPress={close} />
         </View>
       </SheetBody>
     </>

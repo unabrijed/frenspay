@@ -106,7 +106,7 @@ export function screenHandle(handle: string): Promise<boolean> {
  */
 export async function scoreAndRecord(input: {
   userId: string;
-  kind: 'send' | 'cash_out';
+  kind: 'send' | 'cash_out' | 'deposit';
   amountUsd: number;
   denylisted?: boolean;
   /** Who the money is going to (handle or raw address) — recorded for the audit trail. */

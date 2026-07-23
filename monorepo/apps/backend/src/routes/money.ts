@@ -46,7 +46,7 @@ import {
   feePayerAddress,
   getUsdcBalance,
   isValidRecipientOwner,
-  mintUsdcTo,
+  sendUsdcFromTreasury,
 } from '../services/solana';
 
 // External (raw-address) send guards — both bound the fee-payer ATA-rent drain (~0.002 SOL per
@@ -308,16 +308,21 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
     }
     const userId = requireUserId(req);
     const requested = req.body?.amountUsd;
-    const amountUsd = requested && requested > 0 ? Math.min(requested, 1000) : 100;
+    // Official-USDC treasury faucet (docs/19): defaults sized to Circle's faucet drip rate so one
+    // request can't drain the treasury (was 100/1000 when we held the mint authority).
+    const amountUsd = requested && requested > 0 ? Math.min(requested, 50) : 10;
 
     const wallet = await getWalletForUser(userId);
     if (!wallet?.address) return reply.code(404).send({ error: 'wallet_not_found' });
 
     let signature: string;
     try {
-      signature = await mintUsdcTo(wallet.address, amountUsd);
+      signature = await sendUsdcFromTreasury(wallet.address, amountUsd);
     } catch (e) {
-      req.log.error({ err: e }, 'faucet mint failed');
+      if (e instanceof Error && e.message === 'faucet_empty') {
+        return reply.code(503).send({ error: 'faucet_empty' });
+      }
+      req.log.error({ err: e }, 'faucet transfer failed');
       return reply.code(503).send({ error: 'solana_unavailable' });
     }
     await recordDeposit({ toUserId: userId, toAddress: wallet.address, amountUsd, signature });

@@ -6,6 +6,16 @@ import type {
   CreateOrderRequest,
   CreateOrderResponse,
   CreateRequestRequest,
+  CrosschainQuoteResponse,
+  DepositBalancesResponse,
+  DepositInfoResponse,
+  DepositPrepareRequest,
+  DepositPrepareResponse,
+  PrepareCrosschainRequest,
+  PrepareCrosschainResponse,
+  ReportDepositRequest,
+  ReportDepositResponse,
+  SubmitCrosschainRequest,
   FaucetRequest,
   FaucetResponse,
   FundSubmitRequest,
@@ -133,4 +143,21 @@ export const api = {
   readAllNotifications: () => req<{ ok: true }>('/notifications/read-all', { method: 'POST' }),
   // M7: live FX mid rate (INR per USD) for standalone display; quotes carry their own locked rate.
   fxRate: () => req<{ rate: number; asOf: string | null }>('/fx/rate'),
+  // ---- v2 cross-chain (docs/19) ----
+  crosschainQuote: (network: string, amountUsd: number, source?: string) =>
+    req<CrosschainQuoteResponse>(
+      `/crosschain/quote?network=${encodeURIComponent(network)}&amountUsd=${amountUsd}${source ? `&source=${encodeURIComponent(source)}` : ''}`,
+    ),
+  prepareCrosschain: (body: PrepareCrosschainRequest) =>
+    req<PrepareCrosschainResponse>('/crosschain/prepare', { method: 'POST', body: JSON.stringify(body) }),
+  submitCrosschain: (body: SubmitCrosschainRequest) =>
+    req<SubmitTransferResponse>('/crosschain/submit', { method: 'POST', body: JSON.stringify(body) }),
+  setEvmAddress: (address: string) =>
+    req<{ address: string }>('/me/evm-address', { method: 'POST', body: JSON.stringify({ address }) }),
+  depositInfo: () => req<DepositInfoResponse>('/crosschain/deposit-info'),
+  depositPrepare: (body: DepositPrepareRequest) =>
+    req<DepositPrepareResponse>('/crosschain/deposit-prepare', { method: 'POST', body: JSON.stringify(body) }),
+  depositBalances: () => req<DepositBalancesResponse>('/crosschain/deposit-balances'),
+  reportDeposit: (body: ReportDepositRequest) =>
+    req<ReportDepositResponse>('/crosschain/deposit', { method: 'POST', body: JSON.stringify(body) }),
 };

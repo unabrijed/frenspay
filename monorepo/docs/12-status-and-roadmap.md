@@ -95,3 +95,14 @@ routes split into domain modules with keyset pagination on the list endpoints; t
 on-ramp / off-ramp). Pending: the **parked OTP-channel decision** (Privy SMS = US/CA-only on all
 plans vs WhatsApp = all regions; irreversible dashboard choice — see 02), Helius key, runtime
 matrices in 17/18.
+
+**2026-07-23 increment (docs/19): cross-chain USDC is BUILT.** CCTP V2 behind a rail abstraction
+(`bridge_transfers` + rail registry; `cctp_standard` free outbound, `cctp_fast` seconds-fast
+inbound; protocol mix is env config). Outbound: send to any Base/Ethereum/Arbitrum address —
+user-signed Solana burn (self-custody), platform settles destination gas; free on L2s, visible $2
+on Ethereum. Inbound: the user's Privy smart wallet is the deposit address; "Move to balance" runs
+a paymaster-sponsored burn; the fee-payer mints on Solana. Devnet cutover to OFFICIAL Circle USDC
+(faucet = treasury transfers). Preflight (`scripts/check-cctp.ts`) passes: IDL burn build, Iris
+sandbox, all 3 Sepolia RPCs. Pending funding/ops: Circle-faucet the treasury, Sepolia-ETH the
+minter wallet, Privy dashboard smart-wallets + Pimlico paymaster URLs; then the docs/19 runtime
+matrix.

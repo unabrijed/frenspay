@@ -4,6 +4,7 @@
 // imperative zustand store (so screens never import Privy) and registers the PrivySigner.
 // Web SDK: @privy-io/react-auth (+ /solana for the embedded Solana wallet).
 import { useLinkPhone, useLinkWithPasskey, useLoginWithEmail, usePrivy } from '@privy-io/react-auth';
+import { useSmartWallets } from '@privy-io/react-auth/smart-wallets';
 import { useCreateWallet, useSignAndSendTransaction, useWallets } from '@privy-io/react-auth/solana';
 import { useEffect, useRef } from 'react';
 
@@ -24,6 +25,7 @@ export function PrivyBridge(): null {
   const { signAndSendTransaction } = useSignAndSendTransaction();
   const { linkWithPasskey } = useLinkWithPasskey();
   const { sendCode: sendPhoneCode, linkWithCode: linkPhoneWithCode } = useLinkPhone();
+  const { client: smartClient, getClientForChain } = useSmartWallets();
 
   // Register imperative auth actions into the store (screens call these, not Privy hooks).
   useEffect(() => {
@@ -53,6 +55,27 @@ export function PrivyBridge(): null {
       },
     });
   }, [sendCode, loginWithCode, logout, linkWithPasskey, sendPhoneCode, linkPhoneWithCode]);
+
+  // Inbound cross-chain (docs/19): the smart wallet IS the deposit address (same 0x on every
+  // chain). Publish it to the backend once known, and register the sponsored-call sender.
+  const smartAddress = smartClient?.account?.address;
+  useEffect(() => {
+    if (!user || !smartAddress) return;
+    void usePayStore.getState().syncEvmAddress(smartAddress);
+    usePayStore.getState().setDepositBridge({
+      sendSponsoredCalls: async (chainId, calls) => {
+        const chainClient = await getClientForChain({ id: chainId });
+        if (!chainClient) throw new Error('smart wallet unavailable for this network');
+        return chainClient.sendTransaction({
+          calls: calls.map((c) => ({
+            to: c.to as `0x${string}`,
+            data: c.data as `0x${string}`,
+            value: BigInt(c.value || '0'),
+          })),
+        });
+      },
+    });
+  }, [user, smartAddress, getClientForChain]);
 
   // Publish real recovery status (linked email + passkey) for the Recovery sheet + Settings.
   useEffect(() => {

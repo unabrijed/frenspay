@@ -37,9 +37,9 @@ export interface NetworkInfo {
 /** v1: Solana executes; the EVM set is detect-only (v2 = platform-side cross-chain USDC via CCTP). */
 export const SUPPORTED_NETWORKS: NetworkInfo[] = [
   { id: 'solana', displayName: 'Solana', status: 'live' },
-  { id: 'ethereum', displayName: 'Ethereum', status: 'coming_soon' },
-  { id: 'base', displayName: 'Base', status: 'coming_soon' },
-  { id: 'arbitrum', displayName: 'Arbitrum', status: 'coming_soon' },
+  { id: 'ethereum', displayName: 'Ethereum', status: 'live' },
+  { id: 'base', displayName: 'Base', status: 'live' },
+  { id: 'arbitrum', displayName: 'Arbitrum', status: 'live' },
   { id: 'optimism', displayName: 'Optimism', status: 'coming_soon' },
   { id: 'polygon', displayName: 'Polygon', status: 'coming_soon' },
   { id: 'avalanche', displayName: 'Avalanche', status: 'coming_soon' },
@@ -102,6 +102,14 @@ function base58DecodedLength(s: string): number {
   }
   return leadingZeros + bytes.length;
 }
+
+/** Circle CCTP domain IDs — protocol constants, NOT chain ids (v2 cross-chain rail). */
+export const CCTP_DOMAINS: Partial<Record<NetworkId, number>> = {
+  ethereum: 0,
+  arbitrum: 3,
+  solana: 5,
+  base: 6,
+};
 
 /** "7dHb…k9Qz" — the only way an address may appear in UI (full addresses live on detail/confirm). */
 export function truncateAddress(address: string): string {

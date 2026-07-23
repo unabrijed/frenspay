@@ -28,6 +28,7 @@ import {
   updateOrder,
 } from '../db/queries';
 
+import { onBridgeCompanionConfirmed } from './bridge/machine';
 import { checkCashOutLimit, scoreAndRecord, type LimitCheck } from './compliance';
 import { buildDepositTx, escrowAddress, refundEscrow, releaseEscrow } from './escrowProgram';
 import { metrics } from './metrics';
@@ -138,6 +139,9 @@ export async function onTransferConfirmed(transferId: string): Promise<void> {
  *  linked order, then notify the recipient of a P2P send. Keeps both confirmation paths in sync. */
 export async function onTransferConfirmedAndNotify(transferId: string): Promise<void> {
   await onTransferConfirmed(transferId);
+  // Cross-chain companion legs (docs/19): outbound burn confirmed → start attestation; inbound
+  // mint confirmed → settled. No-op for non-bridge transfers.
+  await onBridgeCompanionConfirmed(transferId);
   const recv = await getSendNotifyInfo(transferId);
   if (recv) await notifyReceived(recv.toUserId, recv.amountUsd, recv.fromHandle);
 }

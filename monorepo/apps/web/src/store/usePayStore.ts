@@ -5,6 +5,7 @@
 // Money flows delegate to the RealWalletProvider (@/services/wallet) → the backend API + on-device
 // signing. The app is always real; balance/activity load from the backend once signed in.
 import type { ApiPaymentRequest, KycStatus, Notification, Order, Quote } from '@fpay/shared';
+import type { NetworkId } from '@fpay/shared';
 import { isoFromE164, phoneCandidates, truncateAddress } from '@fpay/shared';
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
@@ -14,6 +15,7 @@ import { bootTrace } from '@/lib/boot';
 import type { DisplayCurrency } from '@/lib/money';
 import { parseScannedQR } from '@/lib/qr';
 import { api, ApiError, setAuthToken } from '@/services/api';
+import { getActiveSigner } from '@/services/signer';
 import { USE_PRIVY } from '@/services/env';
 import { confirmOrder as apiConfirmOrder, createQuote as apiCreateQuote, getOrder as apiGetOrder } from '@/services/orders';
 import { FRIENDS, wallet, type Friend, type Merchant, type Txn } from '@/services/wallet';
@@ -75,6 +77,11 @@ interface PayState {
   phone: string;
   /** Dialing-default country (ISO alpha-2) — '' when unknown. Server truth via /me. */
   country: string;
+  /** Own EVM deposit address (smart wallet) — '' until Privy creates + we sync it. */
+  evmDepositAddress: string;
+  /** USDC found at the deposit address per network (from "Check for money"). */
+  depositBalances: Record<string, number> | null;
+  depositBusy: boolean;
 
   // ---- ephemeral ----
   sheet: SheetId | null;
@@ -88,8 +95,17 @@ interface PayState {
   pendingPay: boolean;
   /** Real-vendor verification lifecycle (M7): 'pending' while the user is in/returning from the flow. */
   kycStatus: KycStatus;
-  /** In-flight direct send to a raw wallet address (outside fpay). Solana-only in v1. */
-  externalSend: { address: string; amountUsd: number } | null;
+  /** In-flight direct send to a raw wallet address (outside fpay). network 'evm' = family
+   *  detected, user hasn't picked the chain yet; fees populate once amount + network are known. */
+  externalSend: {
+    address: string;
+    amountUsd: number;
+    network: NetworkId | 'evm';
+    feeUsd: number;
+    railFeeUsd: number;
+    totalFeeUsd: number;
+    etaSecs: number;
+  } | null;
   lastSend: { u: number; handle: string };
   lastRequest: { u: number; handle: string };
   requestDraftUsd: number;
@@ -167,17 +183,31 @@ interface PayState {
   disablePayByPhone: () => Promise<void>;
   /** Set the dialing-default country (Settings pick or derived from the enrolled phone). */
   setCountry: (iso: string) => Promise<void>;
+  // ---- inbound cross-chain deposits (docs/19) ----
+  /** Registered by the Privy bridge: sends a paymaster-sponsored batched userOp. */
+  setDepositBridge: (b: { sendSponsoredCalls: (chainId: number, calls: Array<{ to: string; data: string; value: string }>) => Promise<string> }) => void;
+  _depositBridge?: { sendSponsoredCalls: (chainId: number, calls: Array<{ to: string; data: string; value: string }>) => Promise<string> };
+  /** Publish the smart-wallet deposit address to the backend (idempotent). */
+  syncEvmAddress: (address: string) => Promise<void>;
+  /** Read USDC balances at the deposit address across networks. */
+  checkDeposits: () => Promise<void>;
+  /** Burn the detected balance on `network` (sponsored, user-signed) and report it for settling. */
+  doMoveToBalance: (network: string) => Promise<void>;
+  /** Re-report a burn whose report never reached the server (localStorage stash). */
+  resumePendingDeposit: () => Promise<void>;
   /** Link a passkey as a second-device recovery factor (delegates to Privy). */
   addPasskey: () => Promise<void>;
   finishPay: () => void;
   doSend: (u: number) => Promise<Txn | null>;
   doAdd: (amt: number) => Promise<void>;
 
-  // ---- direct send to a raw wallet address (docs/16) ----
-  /** Route a detected wallet address: Solana → amount entry; EVM family → network "coming soon". */
+  // ---- direct send to a raw wallet address (docs/16 + cross-chain docs/19) ----
+  /** Route a detected wallet address: Solana → amount entry; EVM family → network picker. */
   startExternalSend: (address: string, network: 'solana' | 'evm') => void;
-  /** Stash the amount from the external amount sheet and advance to the confirm step. */
-  setExternalAmount: (u: number) => void;
+  /** Pick the destination network for an EVM-family address (live rails only). */
+  selectNetwork: (id: NetworkId) => void;
+  /** Stash the amount and advance to confirm; cross-chain fetches the fee/ETA quote here. */
+  setExternalAmount: (u: number) => Promise<void>;
   /** Execute the confirmed external send (tier-gated + validated server-side). */
   doSendExternal: () => Promise<Txn | null>;
 
@@ -211,6 +241,9 @@ export const usePayStore = create<PayState>()(
       handle: '',
       phone: '',
       country: '',
+      evmDepositAddress: '',
+      depositBalances: null,
+      depositBusy: false,
 
       sheet: null,
       closing: false,
@@ -289,6 +322,7 @@ export const usePayStore = create<PayState>()(
             handle: me.handle,
             phone: me.phone ?? '',
             country: me.country ?? '',
+            evmDepositAddress: me.evmDepositAddress ?? '',
             kycTier: me.kycTier,
             kycStatus: me.kycStatus ?? 'none',
             balanceUSD: bal,
@@ -300,6 +334,7 @@ export const usePayStore = create<PayState>()(
             busy: false,
             firstLoadDone: true,
           });
+          void get().resumePendingDeposit(); // lost-burn-hash recovery (docs/19 inbound)
         } catch (e) {
           // Mark firstLoadDone even on failure so skeletons resolve to the empty/error state
           // rather than spinning forever.
@@ -371,6 +406,8 @@ export const usePayStore = create<PayState>()(
           handle: '',
           phone: '',
           country: '',
+          evmDepositAddress: '',
+          depositBalances: null,
           balanceUSD: 0,
           transactions: [],
           notifications: [],
@@ -479,33 +516,86 @@ export const usePayStore = create<PayState>()(
           set({ error: "That's your own wallet" });
           return;
         }
+        const blank = { amountUsd: 0, feeUsd: 0, railFeeUsd: 0, totalFeeUsd: 0, etaSecs: 0 };
         if (network === 'evm') {
-          // Real address, rail we don't run yet — the network sheet names the options honestly
-          // ("coming soon") instead of failing generically.
+          // EVM family detected — the address is identical on every EVM chain, so the user picks
+          // the network (live rails on top, coming-soon below).
+          set({ externalSend: { address, network: 'evm', ...blank }, error: null });
           get().open('sendNetwork');
           return;
         }
-        set({ externalSend: { address, amountUsd: 0 }, error: null });
+        set({ externalSend: { address, network: 'solana', ...blank }, error: null });
         get().open('sendAddressAmount');
       },
-      setExternalAmount: (u) => {
+      selectNetwork: (id) => {
         const ext = get().externalSend;
         if (!ext) return;
-        set({ externalSend: { ...ext, amountUsd: u } });
+        set({ externalSend: { ...ext, network: id } });
+        get().open('sendAddressAmount');
+      },
+      setExternalAmount: async (u) => {
+        const ext = get().externalSend;
+        if (!ext) return;
+        let fees = { feeUsd: 0, railFeeUsd: 0, totalFeeUsd: 0, etaSecs: 0 };
+        if (ext.network !== 'solana' && ext.network !== 'evm') {
+          // Best-effort preview; /crosschain/prepare recomputes authoritatively at send time.
+          try {
+            const q = await api.crosschainQuote(ext.network, u);
+            fees = { feeUsd: q.feeUsd, railFeeUsd: q.railFeeUsd, totalFeeUsd: q.totalFeeUsd, etaSecs: q.etaSecs };
+          } catch {
+            /* quote is display-only — confirm still shows the network without a fee row */
+          }
+        }
+        set({ externalSend: { ...ext, amountUsd: u, ...fees } });
         get().open('sendAddressConfirm');
       },
       doSendExternal: async () => {
         const ext = get().externalSend;
-        if (!ext || ext.amountUsd <= 0) return null;
+        if (!ext || ext.amountUsd <= 0 || ext.network === 'evm') return null;
         set({ busy: true, error: null });
         try {
-          const tx = await wallet.transfer({
-            toAddress: ext.address,
-            amountUsd: ext.amountUsd,
-            idempotencyKey: crypto.randomUUID(),
-          });
+          let tx: Txn;
+          if (ext.network === 'solana') {
+            tx = await wallet.transfer({
+              toAddress: ext.address,
+              amountUsd: ext.amountUsd,
+              idempotencyKey: crypto.randomUUID(),
+            });
+          } else {
+            // Cross-chain: server builds the Solana burn (same signer as every send); the bridge
+            // poller delivers on the destination. Blockhash retry reuses the key — the server
+            // replays the same transfer with a fresh tx instead of double-sending.
+            const idempotencyKey = crypto.randomUUID();
+            const attempt = async (): Promise<string> => {
+              const prep = await api.prepareCrosschain({
+                network: ext.network,
+                toAddress: ext.address,
+                amountUsd: ext.amountUsd,
+                idempotencyKey,
+              });
+              const signature = await getActiveSigner().signAndSend(prep.unsignedTx);
+              await api.submitCrosschain({ transferId: prep.transferId, signature });
+              return prep.transferId;
+            };
+            let transferId: string;
+            try {
+              transferId = await attempt();
+            } catch (e) {
+              if (/blockhash/i.test(e instanceof Error ? e.message : String(e))) transferId = await attempt();
+              else throw e;
+            }
+            tx = {
+              id: transferId,
+              type: 'send',
+              title: 'To ' + truncateAddress(ext.address),
+              time: 'Just now',
+              usd: -(ext.amountUsd + ext.totalFeeUsd),
+              status: 'pending',
+            };
+          }
+          const debit = ext.amountUsd + (ext.network === 'solana' ? 0 : ext.totalFeeUsd);
           set((s) => ({
-            balanceUSD: +(s.balanceUSD - ext.amountUsd).toFixed(2),
+            balanceUSD: +(s.balanceUSD - debit).toFixed(2),
             transactions: [tx, ...s.transactions],
             lastSend: { u: ext.amountUsd, handle: truncateAddress(ext.address) },
             externalSend: null,
@@ -524,10 +614,11 @@ export const usePayStore = create<PayState>()(
           const friendlyByCode: Record<string, string> = {
             invalid_recipient: 'That address can’t receive money. Double-check it.',
             self_send_not_allowed: "That's your own wallet",
-            unsupported_network: 'fpay can only send on Solana right now.',
+            unsupported_network: 'fpay can’t send on that network yet.',
             amount_too_small: 'Sends to outside wallets need to be at least $1.',
             too_many_new_recipients: 'You’ve reached today’s limit for new wallets. Try tomorrow.',
             duplicate_request: 'That send is already in progress.',
+            crosschain_unavailable: 'Sends to other networks are briefly unavailable. Try again soon.',
           };
           const friendly = e instanceof ApiError ? friendlyByCode[e.code] : undefined;
           set({ busy: false, error: friendly ?? (e instanceof Error ? e.message : String(e)) });
@@ -659,6 +750,99 @@ export const usePayStore = create<PayState>()(
           await api.setCountry(iso);
         } catch {
           /* best-effort — a failed write leaves the previous server value until next load() */
+        }
+      },
+
+      // ---- inbound cross-chain deposits (docs/19) ----
+      setDepositBridge: (b) => set({ _depositBridge: b }),
+      syncEvmAddress: async (address) => {
+        const a = address.toLowerCase();
+        if (get().evmDepositAddress === a) return;
+        try {
+          await api.setEvmAddress(a);
+          set({ evmDepositAddress: a });
+        } catch {
+          /* best-effort; retried on next bridge mount */
+        }
+      },
+      checkDeposits: async () => {
+        set({ depositBusy: true });
+        try {
+          const { balances } = await api.depositBalances();
+          set({ depositBalances: balances, depositBusy: false });
+        } catch {
+          set({ depositBalances: {}, depositBusy: false });
+        }
+      },
+      doMoveToBalance: async (network) => {
+        const amount = get().depositBalances?.[network] ?? 0;
+        const bridge = get()._depositBridge;
+        if (amount <= 0 || !bridge) return;
+        set({ depositBusy: true, error: null });
+        try {
+          const prep = await api.depositPrepare({ sourceChain: network, amountUsd: amount });
+          const txHash = await bridge.sendSponsoredCalls(prep.chainId, prep.calls);
+          // The burn is real the moment it's signed — stash it so a crash before the report
+          // can't lose the deposit (resumePendingDeposit re-reports on next open).
+          const stash = { sourceChain: network, txHash, amountUsd: prep.burnAmountUsd };
+          try {
+            localStorage.setItem('fpay:pendingDeposit', JSON.stringify(stash));
+          } catch {
+            /* storage blocked — the report below almost always lands anyway */
+          }
+          await api.reportDeposit(stash);
+          try {
+            localStorage.removeItem('fpay:pendingDeposit');
+          } catch {
+            /* ignore */
+          }
+          set((s) => ({
+            depositBusy: false,
+            depositBalances: { ...(s.depositBalances ?? {}), [network]: 0 },
+            transactions: [
+              {
+                id: txHash,
+                type: 'add',
+                title: 'Added money',
+                time: 'Just now',
+                usd: prep.burnAmountUsd,
+                status: 'pending',
+              },
+              ...s.transactions,
+            ],
+          }));
+          [5000, 15000, 40000].forEach((ms) => setTimeout(() => void get().refresh(), ms));
+        } catch (e) {
+          const friendly =
+            e instanceof ApiError && e.code === 'crosschain_unavailable'
+              ? 'Moving money is briefly unavailable. Try again soon.'
+              : e instanceof Error
+                ? e.message
+                : String(e);
+          set({ depositBusy: false, error: friendly });
+        }
+      },
+      resumePendingDeposit: async () => {
+        let stash: { sourceChain: string; txHash: string; amountUsd: number } | null = null;
+        try {
+          const raw = localStorage.getItem('fpay:pendingDeposit');
+          stash = raw ? JSON.parse(raw) : null;
+        } catch {
+          return;
+        }
+        if (!stash) return;
+        try {
+          await api.reportDeposit(stash);
+          localStorage.removeItem('fpay:pendingDeposit');
+        } catch (e) {
+          // Already reported → clear; anything else keeps the stash for the next open.
+          if (e instanceof ApiError && e.code === 'duplicate_request') {
+            try {
+              localStorage.removeItem('fpay:pendingDeposit');
+            } catch {
+              /* ignore */
+            }
+          }
         }
       },
       addPasskey: async () => {

@@ -9,7 +9,6 @@ import {
   getAssociatedTokenAddress,
   getMint,
   getOrCreateAssociatedTokenAccount,
-  mintTo,
   TokenAccountNotFoundError,
 } from '@solana/spl-token';
 import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
@@ -145,17 +144,33 @@ export async function buildUsdcTransfer(input: {
 }
 
 /**
- * Devnet faucet: mint controlled USDC to an owner's wallet (creating their ATA if needed).
- * The fee-payer is the mint authority (see scripts/setup-devnet.ts), so it both pays + mints.
- * Returns the mint transaction signature. Devnet/dev only — gated at the route.
+ * Devnet faucet: transfer OFFICIAL devnet USDC from the fee-payer's own ATA (the treasury) to an
+ * owner's wallet, creating their ATA if needed. Replaced the old self-minted-USDC faucet when
+ * cross-chain landed (docs/19) — CCTP only burns Circle's official mint, so staging now uses it
+ * end-to-end; the treasury is seeded from https://faucet.circle.com (Solana Devnet).
+ * Throws Error('faucet_empty') when the treasury can't cover the request. Dev-only — route-gated.
  */
-export async function mintUsdcTo(owner: string, amountUsd: number): Promise<string> {
+export async function sendUsdcFromTreasury(owner: string, amountUsd: number): Promise<string> {
   const ownerPk = new PublicKey(owner);
   const mint = usdcMint();
   const payer = feePayer();
   const dec = await decimals();
+  const treasuryAta = await getAssociatedTokenAddress(mint, payer.publicKey);
+  try {
+    const treasury = await getAccount(connection(), treasuryAta);
+    if (treasury.amount < toBaseUnits(amountUsd, dec)) throw new Error('faucet_empty');
+  } catch (err) {
+    if (err instanceof TokenAccountNotFoundError) throw new Error('faucet_empty');
+    throw err;
+  }
   const ata = await getOrCreateAssociatedTokenAccount(connection(), payer, mint, ownerPk);
-  return mintTo(connection(), payer, mint, ata.address, payer, toBaseUnits(amountUsd, dec));
+  const tx = new Transaction().add(
+    createTransferCheckedInstruction(treasuryAta, mint, ata.address, payer.publicKey, toBaseUnits(amountUsd, dec), dec),
+  );
+  tx.feePayer = payer.publicKey;
+  tx.recentBlockhash = (await connection().getLatestBlockhash()).blockhash;
+  tx.sign(payer);
+  return connection().sendRawTransaction(tx.serialize());
 }
 
 /** Poll on-chain status for a signature (used by M2 confirmation). */

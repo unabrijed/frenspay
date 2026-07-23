@@ -3,6 +3,7 @@
 // PrivyRoot — wraps the app in PrivyProvider + mounts the bridge. Default export so it can be
 // dynamically imported only when USE_PRIVY (keeps Privy out of the mock-mode bundle).
 import { PrivyProvider, usePrivy } from '@privy-io/react-auth';
+import { SmartWalletsProvider } from '@privy-io/react-auth/smart-wallets';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 
@@ -44,9 +45,19 @@ function PrivyGate({ children }: { children: ReactNode }) {
 
 export default function PrivyRoot({ children }: { children: ReactNode }) {
   return (
-    <PrivyProvider appId={PRIVY_APP_ID} clientId={PRIVY_CLIENT_ID || undefined}>
-      <PrivyBridge />
-      <PrivyGate>{children}</PrivyGate>
+    <PrivyProvider
+      appId={PRIVY_APP_ID}
+      clientId={PRIVY_CLIENT_ID || undefined}
+      config={{
+        // Inbound cross-chain (docs/19): the user's own EVM smart wallet is the deposit address.
+        // Requires smart wallets enabled in the Privy dashboard + per-chain paymaster URLs.
+        embeddedWallets: { ethereum: { createOnLogin: 'users-without-wallets' } },
+      }}
+    >
+      <SmartWalletsProvider>
+        <PrivyBridge />
+        <PrivyGate>{children}</PrivyGate>
+      </SmartWalletsProvider>
     </PrivyProvider>
   );
 }

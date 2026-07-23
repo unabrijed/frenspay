@@ -104,6 +104,29 @@ export const config = {
   diditWebhookSecret: env('DIDIT_WEBHOOK_SECRET'),
   diditBaseUrl: env('DIDIT_BASE_URL', 'https://verification.didit.me'),
 
+  // v2 cross-chain (docs/19): per-EVM-chain RPCs (Sepolias on dev/stage, mainnets in prod).
+  ethereumRpcUrl: env('ETHEREUM_RPC_URL'),
+  baseRpcUrl: env('BASE_RPC_URL'),
+  arbitrumRpcUrl: env('ARBITRUM_RPC_URL'),
+  // Platform EVM signer for the settle (mint) leg — 0x-hex private key, one key for all chains.
+  evmMinterPrivateKey: env('EVM_MINTER_PRIVATE_KEY'),
+  // Circle Iris attestation API; tier default keeps staging on the sandbox.
+  irisApiUrl: env('IRIS_API_URL', isProduction ? 'https://iris-api.circle.com' : 'https://iris-api-sandbox.circle.com'),
+  // Our per-destination fee (dollars) ON TOP of protocol costs. Absorb L2 cents, pass through L1.
+  cctpFeeUsd: {
+    ethereum: num('CCTP_FEE_USD_ETHEREUM', 2, { min: 0, max: 50 }),
+    base: num('CCTP_FEE_USD_BASE', 0, { min: 0, max: 50 }),
+    arbitrum: num('CCTP_FEE_USD_ARBITRUM', 0, { min: 0, max: 50 }),
+  } as Record<string, number>,
+  cctpInFeeUsd: {
+    ethereum: num('CCTP_IN_FEE_USD_ETHEREUM', 2, { min: 0, max: 50 }),
+    base: num('CCTP_IN_FEE_USD_BASE', 0, { min: 0, max: 50 }),
+    arbitrum: num('CCTP_IN_FEE_USD_ARBITRUM', 0, { min: 0, max: 50 }),
+  } as Record<string, number>,
+  // Which rail serves each direction (the protocol-mix knobs; see services/bridge/registry.ts).
+  bridgeRailOut: env('BRIDGE_RAIL_OUT', 'cctp_standard'),
+  bridgeRailIn: env('BRIDGE_RAIL_IN', 'cctp_fast'),
+
   // M7: live FX. A free, no-key source returning `rates.INR`; cached + range-validated, falling back to
   // FX_FALLBACK_RATE on any failure. Refreshed in the background so quoting never blocks on the network.
   fxSourceUrl: env('FX_SOURCE_URL', 'https://open.er-api.com/v6/latest/USD'),

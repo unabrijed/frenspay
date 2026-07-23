@@ -130,7 +130,7 @@ export async function upsertUserByPrivyDid(input: {
     const user = rows[0];
     await client.query(
       `insert into wallets (user_id, address) values ($1, $2)
-       on conflict (address) do nothing`,
+       on conflict (user_id, chain) do update set address = excluded.address`,
       [user.id, input.walletAddress],
     );
     await client.query('commit');
@@ -196,6 +196,10 @@ interface TransferJoinRow {
   from_address: string | null;
   to_address: string | null;
   chain: string | null;
+  bridge_state: string | null;
+  bridge_direction: string | null;
+  bridge_source_chain: string | null;
+  bridge_dest_chain: string | null;
 }
 
 export async function listTransactionsForUser(
@@ -210,10 +214,13 @@ export async function listTransactionsForUser(
   const { rows } = await getPool().query<TransferJoinRow>(
     `select t.id, t.kind, t.amount_usdc, t.note, t.status, t.created_at, t.signature,
             t.from_user_id, t.to_user_id, t.from_address, t.to_address, t.chain,
-            fu.handle as from_handle, tu.handle as to_handle
+            fu.handle as from_handle, tu.handle as to_handle,
+            b.state as bridge_state, b.direction as bridge_direction,
+            b.source_chain as bridge_source_chain, b.destination_chain as bridge_dest_chain
        from transfers t
        left join users fu on fu.id = t.from_user_id
        left join users tu on tu.id = t.to_user_id
+       left join bridge_transfers b on b.transfer_id = t.id
       where (t.from_user_id = $1 or t.to_user_id = $1)
         and ($3::timestamptz is null or (t.created_at, t.id) < ($3::timestamptz, $4::uuid))
       order by t.created_at desc, t.id desc
@@ -234,6 +241,12 @@ export async function listTransactionsForUser(
     const counterpartyAddress = counterpartyHandle
       ? undefined
       : ((direction === 'out' ? r.to_address : r.from_address) ?? undefined);
+    // Cross-chain rows: the companion transfers row is always the SOLANA leg, but the user-facing
+    // chain is the EVM side, and status stays pending until the money actually lands (settled).
+    const bridged = r.bridge_state != null;
+    const bridgeChain = r.bridge_direction === 'in' ? r.bridge_source_chain : r.bridge_dest_chain;
+    const bridgeStatus: ApiTxn['status'] =
+      r.bridge_state === 'settled' ? 'confirmed' : r.bridge_state === 'failed' ? 'failed' : 'pending';
     return {
       id: r.id,
       kind: r.kind,
@@ -241,9 +254,9 @@ export async function listTransactionsForUser(
       amountUsd: Number(r.amount_usdc),
       counterpartyHandle,
       counterpartyAddress,
-      chain: r.chain ?? undefined,
+      chain: (bridged ? bridgeChain : r.chain) ?? undefined,
       note: r.note ?? undefined,
-      status: r.status as ApiTxn['status'],
+      status: bridged ? bridgeStatus : (r.status as ApiTxn['status']),
       createdAt: r.created_at.toISOString(),
       signature: r.signature ?? undefined,
     };
@@ -518,11 +531,14 @@ export async function getPendingSignatures(): Promise<{ id: string; signature: s
  * this sweep these would stay pending forever. Returns how many were expired.
  */
 export async function expireStaleUnsignedTransfers(maxAgeMin = 15): Promise<number> {
+  // Bridge companions are excluded: an inbound mint leg legitimately sits unsigned-pending for
+  // the whole attestation window; the bridge machine owns that lifecycle (docs/19).
   const { rowCount } = await getPool().query(
     `update transfers
         set status = 'failed'
       where status = 'pending' and signature is null
-        and created_at < now() - make_interval(mins => $1)`,
+        and created_at < now() - make_interval(mins => $1)
+        and not exists (select 1 from bridge_transfers b where b.transfer_id = transfers.id)`,
     [maxAgeMin],
   );
   return rowCount ?? 0;
@@ -1512,4 +1528,194 @@ export async function getRequestNotifyInfo(requestId: string): Promise<{ fromUse
     [requestId],
   );
   return rows[0] ? { fromUserId: rows[0].from_user_id, amountUsd: Number(rows[0].amount_usdc) } : null;
+}
+
+/* ---- v2 cross-chain bridge (docs/19): rail-agnostic transfer companion rows ---- */
+
+export type BridgeState =
+  | 'created'
+  | 'source_submitted'
+  | 'source_confirmed'
+  | 'ready'
+  | 'settling'
+  | 'settled'
+  | 'failed';
+
+export interface BridgeTransferRow {
+  id: string;
+  transfer_id: string;
+  user_id: string;
+  rail: string;
+  direction: 'out' | 'in';
+  source_chain: string;
+  source_domain: number;
+  destination_chain: string;
+  destination_domain: number;
+  recipient: string;
+  amount_usdc: string;
+  fee_usdc: string;
+  rail_fee_usdc: string;
+  state: BridgeState;
+  source_tx: string | null;
+  settle_tx: string | null;
+  rail_data: Record<string, unknown>;
+  retry_count: number;
+  next_attempt_at: Date | null;
+  resolution: 'delayed' | 'needs_action' | null;
+}
+
+export async function insertBridgeTransfer(input: {
+  transferId: string;
+  userId: string;
+  rail: string;
+  direction: 'out' | 'in';
+  sourceChain: string;
+  sourceDomain: number;
+  destinationChain: string;
+  destinationDomain: number;
+  recipient: string;
+  amountUsd: number;
+  feeUsd: number;
+  railFeeUsd?: number;
+  sourceTx?: string;
+  state?: BridgeState;
+  railData?: Record<string, unknown>;
+}): Promise<string> {
+  const { rows } = await getPool().query<{ id: string }>(
+    `insert into bridge_transfers
+       (transfer_id, user_id, rail, direction, source_chain, source_domain,
+        destination_chain, destination_domain, recipient, amount_usdc, fee_usdc, rail_fee_usdc,
+        source_tx, state, rail_data)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,coalesce($15::jsonb,'{}'::jsonb))
+     returning id`,
+    [
+      input.transferId, input.userId, input.rail, input.direction,
+      input.sourceChain, input.sourceDomain, input.destinationChain, input.destinationDomain,
+      input.recipient, input.amountUsd, input.feeUsd, input.railFeeUsd ?? 0,
+      input.sourceTx ?? null, input.state ?? 'created',
+      input.railData ? JSON.stringify(input.railData) : null,
+    ],
+  );
+  return rows[0].id;
+}
+
+export async function getBridgeByTransferId(transferId: string): Promise<BridgeTransferRow | null> {
+  const { rows } = await getPool().query<BridgeTransferRow>(
+    'select * from bridge_transfers where transfer_id = $1',
+    [transferId],
+  );
+  return rows[0] ?? null;
+}
+
+/**
+ * Atomic state claim (casOrderState pattern): advances only if the row is in one of `fromStates`.
+ * `patch` sets columns; `railData` is MERGED into the jsonb (never replaced). Returns claim success.
+ */
+export async function casBridgeState(
+  id: string,
+  fromStates: BridgeState[],
+  toState: BridgeState,
+  patch?: {
+    sourceTx?: string;
+    settleTx?: string;
+    retryCount?: number;
+    nextAttemptAt?: Date | null;
+    resolution?: 'delayed' | 'needs_action' | null;
+    railData?: Record<string, unknown>;
+  },
+): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update bridge_transfers
+        set state = $3,
+            updated_at = now(),
+            settled_at = case when $3 = 'settled' then now() else settled_at end,
+            source_tx = coalesce($4, source_tx),
+            settle_tx = coalesce($5, settle_tx),
+            retry_count = coalesce($6, retry_count),
+            next_attempt_at = case when $7::boolean then $8 else next_attempt_at end,
+            resolution = case when $9::boolean then $10 else resolution end,
+            rail_data = rail_data || coalesce($11::jsonb, '{}'::jsonb)
+      where id = $1 and state = any($2)`,
+    [
+      id, fromStates, toState,
+      patch?.sourceTx ?? null, patch?.settleTx ?? null, patch?.retryCount ?? null,
+      patch?.nextAttemptAt !== undefined, patch?.nextAttemptAt ?? null,
+      patch?.resolution !== undefined, patch?.resolution ?? null,
+      patch?.railData ? JSON.stringify(patch.railData) : null,
+    ],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/** Active rows due for a poller pass (next_attempt_at null or elapsed), oldest first. */
+export async function listBridgeDue(limit = 20): Promise<BridgeTransferRow[]> {
+  const { rows } = await getPool().query<BridgeTransferRow>(
+    `select * from bridge_transfers
+      where state not in ('settled','failed')
+        and (next_attempt_at is null or next_attempt_at <= now())
+      order by created_at asc
+      limit $1`,
+    [limit],
+  );
+  return rows;
+}
+
+export async function appendBridgeEvent(
+  bridgeTransferId: string,
+  fromState: string | null,
+  toState: string,
+  event: string,
+  detail?: Record<string, unknown>,
+): Promise<void> {
+  await getPool().query(
+    `insert into bridge_events (bridge_transfer_id, from_state, to_state, event, detail)
+     values ($1,$2,$3,$4,$5)`,
+    [bridgeTransferId, fromState, toState, event, detail ? JSON.stringify(detail) : null],
+  );
+}
+
+/** Attach a PLATFORM-broadcast signature (inbound mint leg) — no owner scoping, unlike
+ *  attachTransferSignature (users must never reach this path; route handlers don't call it). */
+export async function attachPlatformTransferSignature(transferId: string, signature: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update transfers set signature = $2 where id = $1 and signature is null`,
+    [transferId, signature],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/** Companion-transfer status for bridge self-healing (poller crash between confirm and hook). */
+export async function getTransferStatusById(transferId: string): Promise<string | null> {
+  const { rows } = await getPool().query<{ status: string }>('select status from transfers where id = $1', [transferId]);
+  return rows[0]?.status ?? null;
+}
+
+/** Reconcile a bridge row's (and its companion transfer's) amount from the attested message. */
+export async function reconcileBridgeAmount(bridgeId: string, transferId: string, amountUsd: number): Promise<void> {
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+    await client.query('update bridge_transfers set amount_usdc = $2, updated_at = now() where id = $1', [bridgeId, amountUsd]);
+    await client.query('update transfers set amount_usdc = $2 where id = $1', [transferId, amountUsd]);
+    await client.query('commit');
+  } catch (e) {
+    await client.query('rollback');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** Fail an unsigned companion transfer (inbound burn reverted — nothing will ever mint). */
+export async function failUnsignedTransfer(transferId: string): Promise<void> {
+  await getPool().query(`update transfers set status = 'failed' where id = $1 and signature is null`, [transferId]);
+}
+
+/** Upsert a per-chain wallet row (EVM deposit address capture; (user_id, chain) unique). */
+export async function upsertWalletForChain(userId: string, chain: string, address: string): Promise<void> {
+  await getPool().query(
+    `insert into wallets (user_id, chain, address) values ($1, $2, $3)
+     on conflict (user_id, chain) do update set address = excluded.address`,
+    [userId, chain, address],
+  );
 }

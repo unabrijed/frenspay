@@ -27,3 +27,9 @@ export const notifyRequestPaid = (userId: string, amountUsd: number, byHandle: s
 
 export const notifyKycUpgraded = (userId: string, tier: number) =>
   notify(userId, 'kyc_upgraded', 'You’re verified', tier >= 2 ? 'You can now pay merchants.' : `Tier ${tier} unlocked.`);
+
+/** Cross-chain settle: out = your send landed on the destination; in = your deposit arrived. */
+export const notifyBridgeSettled = (userId: string, amountUsd: number, networkName: string, direction: 'out' | 'in') =>
+  direction === 'out'
+    ? notify(userId, 'payment_sent', 'Payment delivered', `${usd(amountUsd)} arrived on ${networkName}`)
+    : notify(userId, 'received', 'Money added', `${usd(amountUsd)} from ${networkName} is in your balance`);

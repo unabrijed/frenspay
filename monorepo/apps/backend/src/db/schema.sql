@@ -31,6 +31,10 @@ create table if not exists wallets (
   created_at  timestamptz not null default now()
 );
 
+-- One wallet per user per chain; upserts target this so a re-sync updates the address in place
+-- instead of accumulating rows (duplicate rows made getWalletForUser pick nondeterministically).
+create unique index if not exists uq_wallets_user_chain on wallets (user_id, chain);
+
 create table if not exists transfers (
   id           uuid primary key default gen_random_uuid(),
   signature    text unique,
@@ -274,3 +278,54 @@ create unique index if not exists uq_users_phone on users (phone) where phone is
 -- fills only when NULL (/auth/sync coalesce); verified-phone-derived and manual Settings picks
 -- overwrite via /me/country. A UX default only — never a compliance/identity attribute.
 alter table users add column if not exists country text;
+
+-- v2 cross-chain bridge (docs/19). Rail-agnostic: `rail` names the protocol implementation
+-- (cctp_standard / cctp_fast / future), rail_data holds rail-specific artifacts (CCTP: message
+-- hex, attestation, nonce) so new rails need no schema change. Companion to ONE transfers row —
+-- always the SOLANA leg (outbound: the burn, kind='send'; inbound: the mint, kind='add') so the
+-- existing chain='solana' confirmer and the send daily-cap work unchanged. Generic states:
+--   created -> source_submitted -> source_confirmed -> ready -> settling -> settled / failed
+-- (CCTP mapping: attested=ready, minting=settling, minted=settled.) Post-source-confirmed states
+-- NEVER expire: once burned, the attestation is permissionless + replayable — funds can be
+-- delayed, never stranded.
+create table if not exists bridge_transfers (
+  id                 uuid primary key default gen_random_uuid(),
+  transfer_id        uuid unique not null references transfers(id),
+  user_id            uuid not null references users(id),
+  rail               text not null,
+  direction          text not null default 'out' constraint bridge_direction_chk check (direction in ('out','in')),
+  source_chain       text not null,
+  source_domain      integer not null,
+  destination_chain  text not null,
+  destination_domain integer not null,
+  recipient          text not null,            -- lowercase 0x (out) or Solana ATA (in)
+  amount_usdc        numeric(20,6) not null,
+  fee_usdc           numeric(20,6) not null default 0,
+  rail_fee_usdc      numeric(20,6) not null default 0,
+  state              text not null default 'created' constraint bridge_state_chk
+    check (state in ('created','source_submitted','source_confirmed','ready','settling','settled','failed')),
+  source_tx          text,
+  settle_tx          text,
+  rail_data          jsonb not null default '{}'::jsonb,
+  retry_count        integer not null default 0,
+  next_attempt_at    timestamptz,
+  resolution         text constraint bridge_resolution_chk check (resolution in ('delayed','needs_action')),
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now(),
+  settled_at         timestamptz
+);
+create index if not exists idx_bridge_active on bridge_transfers (state, next_attempt_at)
+  where state not in ('settled','failed');
+-- Dedupes re-reported inbound burns (source_tx = the EVM burn hash reported by the client).
+create unique index if not exists uq_bridge_source_tx on bridge_transfers (source_tx)
+  where source_tx is not null;
+
+create table if not exists bridge_events (
+  id                 uuid primary key default gen_random_uuid(),
+  bridge_transfer_id uuid not null references bridge_transfers(id) on delete cascade,
+  from_state         text,
+  to_state           text not null,
+  event              text not null,
+  detail             jsonb,
+  created_at         timestamptz not null default now()
+);

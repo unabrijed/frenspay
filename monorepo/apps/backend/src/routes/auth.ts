@@ -19,6 +19,7 @@ import {
   setUserCountry,
   setUserPhone,
   upsertUserByPrivyDid,
+  upsertWalletForChain,
 } from '../db/queries';
 import { screenHandle } from '../services/compliance';
 import { getLinkedPhone, privyConfigured } from '../services/privy';
@@ -66,6 +67,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     const user = await findUserById(userId);
     if (!user) return reply.code(404).send({ error: 'user_not_found' });
     const wallet = await getWalletForUser(userId);
+    const evmWallet = await getWalletForUser(userId, 'ethereum');
     return {
       id: user.id,
       handle: user.handle,
@@ -75,6 +77,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       kycStatus: toKycStatus(await getUserKycStatus(userId)),
       phone: user.phone ?? undefined,
       country: user.country ?? undefined,
+      evmDepositAddress: evmWallet?.address ?? undefined,
     };
   });
 
@@ -126,6 +129,18 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     const userId = requireUserId(req);
     await setUserPhone(userId, null);
     return { ok: true };
+  });
+
+  // EVM deposit address (docs/19 inbound): the user's own Privy smart wallet, captured once the
+  // client creates it. Client-asserted but self-affecting only — deposits land AT this address
+  // in the user's own custody; a wrong value just means the app shows a dead deposit address.
+  app.post<{ Body: { address?: string } }>('/me/evm-address', async (req, reply) => {
+    const userId = requireUserId(req);
+    const raw = (req.body?.address ?? '').trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(raw)) return reply.code(400).send({ error: 'invalid_address' });
+    const address = raw.toLowerCase();
+    await upsertWalletForChain(userId, 'ethereum', address);
+    return { address };
   });
 
   // Dialing-default country. Client-asserted by design: it only tunes the caller's OWN

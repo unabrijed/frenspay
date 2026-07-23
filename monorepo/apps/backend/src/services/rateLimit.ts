@@ -27,6 +27,9 @@ export const RATE_LIMIT_RULES: Rule[] = [
   { method: 'POST', path: '/kyc/verify', bucket: 'kyc', limit: 5, windowMs: 60_000 },
   // Directory lookups: enough for typing-debounced resolves, useless for alias-space scraping.
   { method: 'GET', path: '/users/resolve', bucket: 'resolve', limit: 30, windowMs: 60_000 },
+  // Cross-chain money movement shares the send bucket; deposit reports get their own modest cap.
+  { method: 'POST', path: '/crosschain/prepare', bucket: 'send', limit: 20, windowMs: 60_000 },
+  { method: 'POST', path: '/crosschain/deposit', bucket: 'send', limit: 20, windowMs: 60_000 },
   // Each enroll round-trips to the Privy API — keep it capped.
   { method: 'POST', path: '/me/phone', bucket: 'auth', limit: 10, windowMs: 60_000 },
   { method: 'POST', path: '/me/country', bucket: 'auth', limit: 10, windowMs: 60_000 },
