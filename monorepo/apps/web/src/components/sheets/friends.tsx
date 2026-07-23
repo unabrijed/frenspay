@@ -16,7 +16,7 @@ import { Pressable, View } from '@/components/ui/rn';
 import { contactsSupported, pickContact } from '@/lib/contacts';
 import { inr } from '@/lib/money';
 import { colors, fonts, type } from '@/lib/theme';
-import { FRIENDS, wallet, type Friend } from '@/services/wallet';
+import { wallet, type Friend } from '@/services/wallet';
 import { usePayStore } from '@/store/usePayStore';
 
 export function Send() {
@@ -277,10 +277,9 @@ function PeopleSearch({
   const ownPhone = usePayStore((s) => s.phone);
   const country = usePayStore((s) => s.country);
 
-  const q = query.trim().toLowerCase();
-  const filtered = q
-    ? FRIENDS.filter((f) => f.name.toLowerCase().includes(q) || f.handle.toLowerCase().includes(q))
-    : FRIENDS;
+  // No client-side name index — the directory resolves only by @handle/phone. So the
+  // list is just the live-resolved hit (if any); nothing shows until the user types.
+  const filtered: Friend[] = [];
 
   const handle = queryHandle(query);
   const alreadyListed = handle ? filtered.some((f) => f.handle.toLowerCase() === handle) : true;
@@ -342,7 +341,7 @@ function PeopleSearch({
   return (
     <>
       <SearchBar
-        placeholder={onPickAddress ? 'Name, @handle, phone, or wallet address' : 'Name, @handle, or phone'}
+        placeholder={onPickAddress ? '@handle, phone, or wallet address' : '@handle or phone'}
         value={query}
         onChangeText={setQuery}
       />
@@ -386,7 +385,7 @@ function PeopleSearch({
                 ? candidates.length
                   ? 'That number isn’t on fpay yet'
                   : 'Use international format, like +91 98765 43210'
-                : 'No matches'}
+                : 'Search by @handle or phone'}
         </Txt>
       )}
     </>

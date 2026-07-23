@@ -18,7 +18,7 @@ import { api, ApiError, setAuthToken } from '@/services/api';
 import { getActiveSigner } from '@/services/signer';
 import { USE_PRIVY } from '@/services/env';
 import { confirmOrder as apiConfirmOrder, createQuote as apiCreateQuote, getOrder as apiGetOrder } from '@/services/orders';
-import { FRIENDS, wallet, type Friend, type Merchant, type Txn } from '@/services/wallet';
+import { wallet, type Friend, type Merchant, type Txn } from '@/services/wallet';
 
 export type SheetId =
   | 'scan'
@@ -248,7 +248,7 @@ export const usePayStore = create<PayState>()(
       sheet: null,
       closing: false,
       merchant: { name: 'Anjuna Beach Cafe' },
-      friend: FRIENDS[0],
+      friend: { name: '', handle: '', ini: '' },
       payRupees: 500,
       scannedRupees: 0,
       detail: null,
