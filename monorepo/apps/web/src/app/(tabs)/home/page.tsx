@@ -26,6 +26,7 @@ export default function Home() {
   const pollKyc = usePayStore((s) => s.pollKyc);
   const bal = usePayStore((s) => s.balanceUSD);
   const fxRate = usePayStore((s) => s.fxRate);
+  const displayCurrency = usePayStore((s) => s.displayCurrency);
   const txns = usePayStore((s) => s.transactions);
   const loaded = usePayStore((s) => s.firstLoadDone);
   const handle = usePayStore((s) => s.handle);
@@ -72,8 +73,8 @@ export default function Home() {
           <Txt style={[type.sub, { marginTop: 18 }]}>Global balance</Txt>
           {loaded ? (
             <View style={styles.heroAmt}>
-              <Txt style={[type.heroBalance, styles.dollar]}>$</Txt>
-              <Txt style={type.heroBalance}>{fmtUsd(bal)}</Txt>
+              <Txt style={[type.heroBalance, styles.dollar]}>{displayCurrency === 'USD' ? '$' : '₹'}</Txt>
+              <Txt style={type.heroBalance}>{displayCurrency === 'USD' ? fmtUsd(bal) : inr(bal, fxRate).slice(1)}</Txt>
             </View>
           ) : (
             <Skeleton w={190} h={44} r={12} style={{ marginTop: 8 }} />

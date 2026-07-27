@@ -9,6 +9,7 @@ import { ISO_TO_DIAL } from '@fpay/shared';
 
 import { Icons } from '@/components/icons';
 import { Grab, List, Row, RowMeta, SearchBar, SheetBody, SheetHeader } from '@/components/ui/primitives';
+import { View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { colors, type } from '@/lib/theme';
 import { usePayStore } from '@/store/usePayStore';
@@ -38,27 +39,31 @@ export function Country() {
     <>
       <Grab />
       <SheetHeader title="Country" onClose={close} />
-      <SheetBody style={{ overflowY: 'auto' }}>
+      {/* Lead + search stay pinned; only the list scrolls (otherwise the search box scrolls away with
+          the full ~240-row list and only reappears once filtering shrinks it). */}
+      <SheetBody>
         <Txt style={[type.lead, { marginBottom: 12 }]}>
           Numbers without a +code are treated as local to this country.
         </Txt>
         <SearchBar placeholder="Search countries" value={query} onChangeText={setQuery} />
-        <List>
-          {rows.map((c) => (
-            <Row
-              key={c.iso}
-              onPress={() => {
-                void setCountry(c.iso);
-                close();
-              }}>
-              <RowMeta>
-                <Txt style={type.rowName}>{c.name}</Txt>
-                <Txt style={[type.rowTime, { marginTop: 3 }]}>{c.dial}</Txt>
-              </RowMeta>
-              {country === c.iso ? <Icons.Check size={18} color={colors.accent} /> : null}
-            </Row>
-          ))}
-        </List>
+        <View style={{ flex: 1, minHeight: 0, overflowY: 'auto', marginTop: 8 }}>
+          <List>
+            {rows.map((c) => (
+              <Row
+                key={c.iso}
+                onPress={() => {
+                  void setCountry(c.iso);
+                  close();
+                }}>
+                <RowMeta>
+                  <Txt style={type.rowName}>{c.name}</Txt>
+                  <Txt style={[type.rowTime, { marginTop: 3 }]}>{c.dial}</Txt>
+                </RowMeta>
+                {country === c.iso ? <Icons.Check size={18} color={colors.accent} /> : null}
+              </Row>
+            ))}
+          </List>
+        </View>
       </SheetBody>
     </>
   );
