@@ -9,6 +9,7 @@ import { rateLimitHook } from '../services/rateLimit';
 import { registerAuthRoutes } from './auth';
 import { registerCrosschainRoutes } from './crosschain';
 import { registerKycRoutes } from './kyc';
+import { registerMerchantRoutes } from './merchant';
 import { registerMoneyRoutes } from './money';
 import { registerNotificationRoutes } from './notifications';
 import { registerOrderRoutes } from './orders';
@@ -27,6 +28,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await registerMoneyRoutes(app);
   await registerCrosschainRoutes(app);
   await registerOrderRoutes(app);
+  await registerMerchantRoutes(app);
   await registerKycRoutes(app);
   await registerNotificationRoutes(app);
   await registerWebhookRoutes(app);

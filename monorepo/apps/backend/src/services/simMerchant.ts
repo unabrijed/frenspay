@@ -1,14 +1,21 @@
-// simMerchant.ts — the simulated merchant/LP + escalation timers (M1 simulated rails, M2-hardened).
-// Runs each confirmer tick. Drives orders in payment_detected / merchant_confirms per the assigned
-// merchant's sim_behavior, exercising the failure-first resolution states from the doc:
-//   happy      → confirm payout, release escrow
-//   slow       → delayed, then recovers and releases
-//   no_receipt → under_review, then refund on grace
-//   timeout    → no response → delayed → under_review → refund
+// simMerchant.ts — the merchant/LP worker + escalation timers (M1 simulated rails, M2-hardened).
+// Runs each confirmer tick over orders in payment_detected / merchant_confirms.
+//
+// TWO KINDS OF MERCHANT, told apart by `sim_behavior`:
+//   sim_behavior NOT NULL → a seeded SIMULATED LP; this worker plays its part per the behaviour:
+//     happy      → confirm payout, release escrow
+//     slow       → delayed, then recovers and releases
+//     no_receipt → under_review, then refund on grace
+//     timeout    → no response → delayed → under_review → refund
+//   sim_behavior NULL     → a REAL (human) merchant. The worker never pays on their behalf; it only
+//     releases escrow once they've marked the order paid AND the dispute window closed clean, or
+//     escalates when they go silent. Applying a sim behaviour here would release a real merchant's
+//     escrow seconds after funding, before they ever saw the order.
+//
 // Escalation gates on the order's expires_at (an absolute deadline, immune to unrelated updated_at
 // bumps); short LP-action delays use time-in-state. Also recovers orders stuck mid-release and
 // retires orders abandoned before funding.
-import { casOrderState, expireStaleOrders, listWorkerOrders } from '../db/queries';
+import { casOrderState, expireStaleOrders, hasOpenDispute, listWorkerOrders, withUserLock } from '../db/queries';
 
 import { flagResolution, refundToUser, releaseToMerchant, rerouteOrder } from './orderMachine';
 
@@ -26,7 +33,7 @@ export async function runOrderWorkerOnce(log?: (m: string) => void): Promise<voi
     const elapsed = now - o.updated_at.getTime();
     const slaReached = o.expires_at ? now >= o.expires_at.getTime() : false;
     const amountUsdc = Number(o.amount_usdc);
-    const behavior = o.sim_behavior ?? 'happy';
+    const behavior = o.sim_behavior; // null = a real (human) merchant, not a simulated one
     const release = () =>
       o.treasury_address
         ? releaseToMerchant({ orderId: o.id, reference: o.reference_code, amountUsdc, treasuryAddress: o.treasury_address })
@@ -46,8 +53,32 @@ export async function runOrderWorkerOnce(log?: (m: string) => void): Promise<voi
         continue;
       }
 
+      // REAL (human) merchant — sim_behavior is NULL. The sim behaviours must never touch these:
+      // a real merchant row inheriting 'happy' would get its escrow auto-released ~4s after
+      // payment_detected and the person would never even see the order.
+      if (o.sim_behavior == null && o.state === 'payment_detected') {
+        if (o.payout_claimed_at) {
+          // They reported paying — release when the dispute window closes clean. The dispute is
+          // re-read INSIDE the per-user lock so a dispute landing mid-tick can't lose the race.
+          if (slaReached && !o.dispute_open) {
+            await withUserLock(o.user_id, async () => {
+              if (!(await hasOpenDispute(o.id))) await release();
+            });
+            log?.(`order ${o.id} → funds_released (real LP, dispute window closed)`);
+          }
+          continue;
+        }
+        // Never claimed → start the shared escalation ladder so a silent LP still refunds the payer.
+        if (o.resolution == null && slaReached) {
+          await flagResolution(o.id, 'payment_detected', 'delayed', 'no_response');
+          log?.(`order ${o.id} → delayed (real LP hasn't marked it paid)`);
+          continue;
+        }
+        // Already escalating → fall through to the shared delayed/under_review ladder below.
+      }
+
       // Clean payment_detected: the LP picks the order up (or stalls, per behavior).
-      if (o.state === 'payment_detected' && o.resolution == null) {
+      if (o.sim_behavior != null && o.state === 'payment_detected' && o.resolution == null) {
         if (behavior === 'happy' && elapsed >= SIM_DELAY_MS) {
           await release();
           log?.(`order ${o.id} → funds_released (happy LP)`);
@@ -64,7 +95,8 @@ export async function runOrderWorkerOnce(log?: (m: string) => void): Promise<voi
         continue;
       }
 
-      // Delayed: slow LPs recover and release; everyone else escalates to review at the SLA.
+      // Delayed: slow SIM LPs recover and release; everyone else — including a silent real merchant
+      // (behavior null) — escalates to review at the SLA, then reroutes or refunds below.
       if (o.resolution === 'delayed') {
         if (behavior === 'slow' && elapsed >= SIM_DELAY_MS) {
           await release();

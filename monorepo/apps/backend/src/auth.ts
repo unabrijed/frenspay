@@ -6,7 +6,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { config } from './config';
-import { findUserByPrivyDid } from './db/queries';
+import { findUserByPrivyDid, getMerchantForUser, type MerchantRow } from './db/queries';
 import { privyConfigured, verifyAccessToken } from './services/privy';
 
 declare module 'fastify' {
@@ -55,4 +55,21 @@ export function requireUserId(req: FastifyRequest): string {
 export function requirePrivyDid(req: FastifyRequest): string {
   if (!req.privyDid) throw unauthorized();
   return req.privyDid;
+}
+
+/**
+ * Throw 403 unless this user runs a merchant/LP account. Returns `kybStatus` instead of filtering on
+ * 'approved' here: the dashboard and the stake-deposit routes must work while still pending (staking
+ * is part of how an LP becomes routable), while order-serving routes require approved. One helper,
+ * callers check the field — two helpers would be an abstraction over a single branch.
+ */
+export async function requireMerchant(req: FastifyRequest): Promise<MerchantRow> {
+  const userId = requireUserId(req);
+  const merchant = await getMerchantForUser(userId);
+  if (!merchant) {
+    const err = new Error('not_a_merchant') as Error & { statusCode?: number };
+    err.statusCode = 403;
+    throw err;
+  }
+  return merchant;
 }

@@ -23,7 +23,14 @@ function routeQuality(score: number): RouteQuality {
 
 export async function createQuote(
   userId: string,
-  input: { direction: OrderDirection; amountInr: number; payoutMethod: PayoutMethod },
+  input: {
+    direction: OrderDirection;
+    amountInr: number;
+    payoutMethod: PayoutMethod;
+    /** WHO the merchant pays (validated VPA). `payoutMethod` is only the rail. */
+    payoutDestination?: string;
+    payoutName?: string;
+  },
 ): Promise<Quote | { error: 'no_merchant' }> {
   // Rank on a provisional USDC amount (live mid rate, no spread) for the float hard-filter; the winning
   // LP's spread then sets the final rate. Capture the mid once so both legs use the same value.
@@ -52,6 +59,8 @@ export async function createQuote(
     etaMaxSecs: merchant.avg_completion_secs * 2,
     payoutMethod: input.payoutMethod,
     routeQuality: routeQuality(top.score),
+    payoutDestination: input.payoutDestination,
+    payoutName: input.payoutName,
     expiresAt: new Date(Date.now() + QUOTE_TTL_MS),
   });
 }

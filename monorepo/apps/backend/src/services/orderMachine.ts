@@ -8,10 +8,12 @@ import { randomBytes } from 'node:crypto';
 
 import type { Order, OrderResolution, OrderState, PayoutMethod } from '@fpay/shared';
 
+import { config } from '../config';
 import {
   appendOrderEvent,
   casOrderState,
   createPendingTransfer,
+  creditStakeOnConfirm,
   getOrderByEscrowFundTransfer,
   getOrderByEscrowReleaseTransfer,
   getOrderForUser,
@@ -37,6 +39,17 @@ import { rankMerchants } from './routing';
 
 /** Time a stuck order sits in a state before the worker begins escalating it. Demo-tuned. */
 export const ORDER_SLA_MS = 30_000;
+
+/**
+ * How long a REAL (human) merchant has to notice an order and mark it paid before escalation starts.
+ * ORDER_SLA_MS is 30s — fine for a worker that reacts in one tick, absurd for a person who has to
+ * open a banking app. A real LP that blows this still escalates delayed → under_review → reroute/
+ * refund through the existing ladder, so the payer is protected either way.
+ */
+export const MERCHANT_CLAIM_MS = 600_000; // 10 min
+
+/** After the merchant reports paying, how long the payer has to dispute before the escrow releases. */
+export const DISPUTE_WINDOW_MS = 120_000; // 2 min
 
 /** M3: cap on routing attempts per order (initial assignment + up to 2 reroutes) before refunding. */
 export const MAX_ROUTING_ATTEMPTS = 3;
@@ -121,7 +134,10 @@ export async function onTransferConfirmed(transferId: string): Promise<void> {
   // Advance from waiting_payment OR pay_instructions: a confirmed deposit is authoritative even if the
   // user's /fund-submit call dropped (otherwise the escrow funds while the order stays stuck → stranded).
   if (funded && (funded.state === 'waiting_payment' || funded.state === 'pay_instructions')) {
-    await updateOrder(funded.id, { state: 'payment_detected', expiresAt: new Date(Date.now() + ORDER_SLA_MS) });
+    // A real merchant (sim_behavior NULL) is a person who has to open a banking app — give them the
+    // human-sized claim SLA, not the 30s a simulated worker needs.
+    const slaMs = funded.sim_behavior == null ? MERCHANT_CLAIM_MS : ORDER_SLA_MS;
+    await updateOrder(funded.id, { state: 'payment_detected', expiresAt: new Date(Date.now() + slaMs) });
     await appendOrderEvent(funded.id, funded.state, 'payment_detected', 'fund_confirmed');
     return;
   }
@@ -139,6 +155,9 @@ export async function onTransferConfirmed(transferId: string): Promise<void> {
  *  linked order, then notify the recipient of a P2P send. Keeps both confirmation paths in sync. */
 export async function onTransferConfirmedAndNotify(transferId: string): Promise<void> {
   await onTransferConfirmed(transferId);
+  // Merchant stake deposits land here too — a plain send whose recipient is the stake treasury.
+  // No-op for everything else. Credited on confirmation, never on submit.
+  await creditStakeOnConfirm(transferId, config.stakeTreasuryAddress);
   // Cross-chain companion legs (docs/19): outbound burn confirmed → start attestation; inbound
   // mint confirmed → settled. No-op for non-bridge transfers.
   await onBridgeCompanionConfirmed(transferId);

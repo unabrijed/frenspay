@@ -107,15 +107,25 @@ async function main() {
     );
   }
 
+  // Merchant/LP stake vault. Deliberately its OWN keypair, not the fee-payer: the fee-payer's ATA
+  // doubles as the faucet treasury, so stake held there would be handed out as faucet inventory.
+  // Only the ADDRESS goes in .env — nothing in the app signs from this account (deposits are
+  // user-signed, slashing is a bond decrement). The secret is kept here for a future offboard path.
+  const stakeTreasury = Keypair.generate();
+
   const out: {
     feePayerSecretKey: number[];
     feePayerAddress: string;
     usdcMint: string;
+    stakeTreasurySecretKey: number[];
+    stakeTreasuryAddress: string;
     users: Record<string, { secretKey: number[]; address: string; userId: string }>;
   } = {
     feePayerSecretKey: Array.from(feePayer.secretKey),
     feePayerAddress: feePayer.publicKey.toBase58(),
     usdcMint: mint.toBase58(),
+    stakeTreasurySecretKey: Array.from(stakeTreasury.secretKey),
+    stakeTreasuryAddress: stakeTreasury.publicKey.toBase58(),
     users: {},
   };
 
@@ -150,6 +160,8 @@ async function main() {
   console.log('\nAdd these to apps/backend/.env:');
   console.log('  USDC_MINT=' + out.usdcMint);
   console.log('  FEE_PAYER_SECRET_KEY=' + JSON.stringify(out.feePayerSecretKey));
+  // Address only — the app never signs from the stake vault (see the keypair comment above).
+  console.log('  STAKE_TREASURY_ADDRESS=' + out.stakeTreasuryAddress);
   console.log('\nSeed the faucet treasury: https://faucet.circle.com → Solana Devnet → ' + out.feePayerAddress);
   console.log('\nFor the DevKeypairSigner, use a user secretKey from', keysPath);
   console.log('\nM2 escrow program: `cd anchor && anchor deploy --provider.cluster devnet`.');

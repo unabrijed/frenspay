@@ -14,9 +14,20 @@ export interface Txn {
   status?: 'pending' | 'confirmed' | 'failed'; // real-mode only; optional so mobile (never sets it) is unaffected
 }
 
-export interface Merchant {
+/**
+ * Who receives the fiat leg — the shop/person behind a scanned UPI QR. NOT the same thing as the
+ * `merchants` table, which is the LP/agent that settles that leg (`Quote.merchantName`). Two meanings
+ * of "merchant" on one money path is a bug waiting to happen, so the payee side is named `Payee`.
+ * `vpa` is optional because a payee can come from a mock/demo with no UPI ID; the server re-validates
+ * it at quote time, which is the actual trust boundary.
+ */
+export interface Payee {
   name: string;
+  vpa?: string;
 }
+
+/** @deprecated Use {@link Payee}. Retained so apps/mobile (mock settlement path) compiles unchanged. */
+export type Merchant = Payee;
 
 export interface Friend {
   name: string;
@@ -80,6 +91,60 @@ export interface MeResponse {
   country?: string;
   /** The user's EVM deposit address (smart wallet; same on every supported network), once synced. */
   evmDepositAddress?: string;
+  /** Present iff this user also runs a merchant/LP account — the whole merchant-role signal. Rides
+   *  on /me (already fetched on boot and on the KYC poll) rather than a second endpoint, so the 99%
+   *  who aren't merchants pay nothing for it. */
+  merchant?: MerchantProfile;
+}
+
+/* ---- merchant (LP) DTOs ---- */
+
+export interface MerchantProfile {
+  id: string;
+  name: string;
+  kybStatus: 'pending' | 'approved' | 'rejected';
+  status: 'online' | 'offline' | 'suspended';
+  payoutRail: PayoutMethod;
+  treasuryAddress: string;
+  /** Staked USDC — skin in the game. Slashed on an upheld dispute; below the floor the LP is
+   *  auto-suspended out of routing. */
+  bondUsdc: number;
+  minBondUsdc: number;
+  /** How much the LP can have in flight at once. */
+  floatUsdc: number;
+}
+
+/** One order assigned to this merchant, flattened for the queue screen (fiat leg + payee). */
+export interface MerchantOrder {
+  id: string;
+  referenceCode: string;
+  state: OrderState;
+  resolution: OrderResolution | null;
+  amountInr: number;
+  amountUsdc: number;
+  /** The payee's real UPI ID — what the merchant actually pays. */
+  payoutDestination?: string;
+  payoutName?: string;
+  payoutMethod: PayoutMethod;
+  payoutUtr?: string;
+  payoutClaimedAt?: string; // ISO 8601
+  /** When the escrow auto-releases (dispute window) or when the claim SLA runs out. */
+  expiresAt?: string; // ISO 8601
+  createdAt: string; // ISO 8601
+}
+
+export interface MerchantOrdersResponse {
+  orders: MerchantOrder[];
+}
+
+/** The merchant's hand-entered proof that they paid the fiat leg out-of-band. */
+export interface SubmitPayoutRequest {
+  /** UTR / bank reference. Typed by hand — no real payout rail is integrated (docs/11). */
+  reference: string;
+}
+
+export interface StakePrepareRequest {
+  amountUsd: number;
 }
 
 /** M7: lifecycle of a real-vendor identity check. */
@@ -344,6 +409,11 @@ export interface Quote {
   payoutMethod: PayoutMethod;
   routeQuality: RouteQuality;
   merchantName: string;
+  /** The payee's real payout address on the rail (a UPI VPA like 'shop@okhdfcbank'). The merchant
+   *  pays THIS; `payoutMethod` only names the rail. Absent on legacy rows quoted before it existed. */
+  payoutDestination?: string;
+  /** Payee name as printed on the QR — shown pre-pay so the user can catch a wrong-send. */
+  payoutName?: string;
   quotedAt: number; // epoch ms
   expiresAt: number; // epoch ms (quotedAt + 45_000)
 }
@@ -384,6 +454,9 @@ export interface Order {
   quote: Quote;
   merchantName: string;
   payoutMethod: PayoutMethod;
+  /** Set once a real (human) merchant reports paying the fiat leg. The order stays
+   *  `payment_detected` while the dispute window runs; this is what says "the LP claims it paid". */
+  payoutClaimedAt?: string; // ISO 8601
   createdAt: string; // ISO 8601
   updatedAt: string; // ISO 8601
   /** Append-only transition log powering the live timeline (present on GET /orders/:id). */
@@ -396,6 +469,9 @@ export interface QuoteRequest {
   direction: OrderDirection;
   amountInr: number;
   payoutMethod?: PayoutMethod;
+  /** Where the fiat actually goes (UPI VPA). Server-validated; required for a `spend` quote. */
+  payoutDestination?: string;
+  payoutName?: string;
 }
 
 export interface QuoteResponse {

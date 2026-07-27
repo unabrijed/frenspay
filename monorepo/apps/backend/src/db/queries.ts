@@ -592,7 +592,9 @@ export interface MerchantRow {
   base_success_rate: string;
   base_avg_completion_secs: number;
   base_dispute_rate: string;
-  sim_behavior: 'happy' | 'slow' | 'no_receipt' | 'timeout';
+  /** NULL = a REAL (human) merchant — the sim worker must not drive it. */
+  sim_behavior: 'happy' | 'slow' | 'no_receipt' | 'timeout' | null;
+  user_id: string | null;
 }
 
 /** Merchants eligible for routing: online AND KYB-approved (M4). */
@@ -623,6 +625,8 @@ interface QuoteRow {
   eta_max_secs: number;
   payout_method: PayoutMethod;
   route_quality: RouteQuality;
+  payout_destination: string | null;
+  payout_name: string | null;
   created_at: Date;
   expires_at: Date;
   merchant_name: string | null;
@@ -642,6 +646,8 @@ function toQuote(r: QuoteRow): Quote {
     payoutMethod: r.payout_method,
     routeQuality: r.route_quality,
     merchantName: r.merchant_name ?? 'Best route',
+    payoutDestination: r.payout_destination ?? undefined,
+    payoutName: r.payout_name ?? undefined,
     quotedAt: r.created_at.getTime(),
     expiresAt: r.expires_at.getTime(),
   };
@@ -660,14 +666,16 @@ export async function insertQuote(input: {
   etaMaxSecs: number;
   payoutMethod: PayoutMethod;
   routeQuality: RouteQuality;
+  payoutDestination?: string | null;
+  payoutName?: string | null;
   expiresAt: Date;
 }): Promise<Quote> {
   const { rows } = await getPool().query<QuoteRow>(
     `with ins as (
        insert into quotes (user_id, merchant_id, direction, amount_inr, amount_usdc, rate,
                            fee_inr, network_fee_inr, eta_min_secs, eta_max_secs,
-                           payout_method, route_quality, expires_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                           payout_method, route_quality, payout_destination, payout_name, expires_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        returning *
      )
      select ins.*, m.name as merchant_name
@@ -685,6 +693,8 @@ export async function insertQuote(input: {
       input.etaMaxSecs,
       input.payoutMethod,
       input.routeQuality,
+      input.payoutDestination ?? null,
+      input.payoutName ?? null,
       input.expiresAt,
     ],
   );
@@ -718,6 +728,7 @@ interface OrderJoinRow {
   resolution: OrderResolution | null;
   amount_usdc: string;
   reference_code: string;
+  payout_claimed_at: Date | null;
   created_at: Date;
   updated_at: Date;
   quote_id: string;
@@ -732,6 +743,8 @@ interface OrderJoinRow {
   q_eta_max_secs: number;
   q_payout_method: PayoutMethod;
   q_route_quality: RouteQuality;
+  q_payout_destination: string | null;
+  q_payout_name: string | null;
   q_created_at: Date;
   q_expires_at: Date;
   merchant_name: string | null;
@@ -739,11 +752,12 @@ interface OrderJoinRow {
 
 const ORDER_SELECT = `
   select o.id, o.user_id, o.state, o.resolution, o.amount_usdc, o.reference_code,
-         o.created_at, o.updated_at, o.quote_id,
+         o.payout_claimed_at, o.created_at, o.updated_at, o.quote_id,
          q.direction as q_direction, q.amount_inr as q_amount_inr, q.amount_usdc as q_amount_usdc,
          q.rate as q_rate, q.fee_inr as q_fee_inr, q.network_fee_inr as q_network_fee_inr,
          q.eta_min_secs as q_eta_min_secs, q.eta_max_secs as q_eta_max_secs,
          q.payout_method as q_payout_method, q.route_quality as q_route_quality,
+         q.payout_destination as q_payout_destination, q.payout_name as q_payout_name,
          q.created_at as q_created_at, q.expires_at as q_expires_at,
          m.name as merchant_name
     from orders o
@@ -764,6 +778,8 @@ function toOrder(r: OrderJoinRow, events?: OrderEvent[]): Order {
     payoutMethod: r.q_payout_method,
     routeQuality: r.q_route_quality,
     merchantName: r.merchant_name ?? 'Best route',
+    payoutDestination: r.q_payout_destination ?? undefined,
+    payoutName: r.q_payout_name ?? undefined,
     quotedAt: r.q_created_at.getTime(),
     expiresAt: r.q_expires_at.getTime(),
   };
@@ -777,6 +793,7 @@ function toOrder(r: OrderJoinRow, events?: OrderEvent[]): Order {
     quote,
     merchantName: quote.merchantName,
     payoutMethod: r.q_payout_method,
+    payoutClaimedAt: r.payout_claimed_at?.toISOString(),
     createdAt: r.created_at.toISOString(),
     updatedAt: r.updated_at.toISOString(),
     events,
@@ -923,16 +940,22 @@ export interface WorkerOrderRow {
   escrow_release_transfer_id: string | null;
   merchant_id: string | null;
   treasury_address: string | null;
+  /** NULL = a real (human) merchant — the sim behaviours must not be applied to it. */
   sim_behavior: 'happy' | 'slow' | 'no_receipt' | 'timeout' | null;
   payout_method: PayoutMethod | null;
+  /** Non-null once a real merchant reported paying the fiat leg (the dispute window is running). */
+  payout_claimed_at: Date | null;
+  /** Live, so the worker never releases escrow on an order the payer is actively disputing. */
+  dispute_open: boolean;
 }
 
-/** Orders the simulated-merchant worker drives (mid-flow, awaiting the LP). */
+/** Orders the merchant worker drives (mid-flow, awaiting the LP) — simulated and real alike. */
 export async function listWorkerOrders(): Promise<WorkerOrderRow[]> {
   const { rows } = await getPool().query<WorkerOrderRow>(
     `select o.id, o.user_id, o.reference_code, o.state, o.resolution, o.amount_usdc, o.updated_at,
-            o.expires_at, o.escrow_release_transfer_id, o.merchant_id,
-            m.treasury_address, m.sim_behavior, q.payout_method
+            o.expires_at, o.escrow_release_transfer_id, o.merchant_id, o.payout_claimed_at,
+            m.treasury_address, m.sim_behavior, q.payout_method,
+            exists (select 1 from disputes d where d.order_id = o.id and d.status = 'open') as dispute_open
        from orders o
        left join merchants m on m.id = o.merchant_id
        join quotes q on q.id = o.quote_id
@@ -941,9 +964,14 @@ export async function listWorkerOrders(): Promise<WorkerOrderRow[]> {
   return rows;
 }
 
-export async function getOrderByEscrowFundTransfer(transferId: string): Promise<{ id: string; state: OrderState } | null> {
-  const { rows } = await getPool().query<{ id: string; state: OrderState }>(
-    'select id, state from orders where escrow_fund_transfer_id = $1',
+/** Includes the merchant's sim_behavior so the caller can pick a human-sized SLA (NULL = real). */
+export async function getOrderByEscrowFundTransfer(
+  transferId: string,
+): Promise<{ id: string; state: OrderState; sim_behavior: string | null } | null> {
+  const { rows } = await getPool().query<{ id: string; state: OrderState; sim_behavior: string | null }>(
+    `select o.id, o.state, m.sim_behavior
+       from orders o left join merchants m on m.id = o.merchant_id
+      where o.escrow_fund_transfer_id = $1`,
     [transferId],
   );
   return rows[0] ?? null;
@@ -1215,19 +1243,148 @@ export async function setMerchantStatus(id: string, status: 'online' | 'offline'
   await getPool().query(`update merchants set status = $2 where id = $1`, [id, status]);
 }
 
-/** Onboarding: create a pending-KYB merchant application (offline until approved). */
+/**
+ * Onboarding: create a pending-KYB merchant application (offline until approved), owned by a real
+ * user. `sim_behavior` is left NULL on purpose — that NULL is what tells the worker this is a human
+ * who must act. Inheriting the old 'happy' default would make the worker auto-release the escrow ~4s
+ * after payment_detected and the merchant would never see the order. Starts with zero float and zero
+ * bond: a real LP has no capacity until it actually stakes.
+ */
 export async function insertMerchantApplication(input: {
+  userId: string;
   name: string;
   payoutRail: PayoutMethod;
   treasuryAddress: string;
 }): Promise<string> {
   const { rows } = await getPool().query<{ id: string }>(
-    `insert into merchants (name, payout_rail, status, treasury_address, kyb_status)
-     values ($1, $2, 'offline', $3, 'pending')
+    `insert into merchants (user_id, name, payout_rail, status, treasury_address, kyb_status,
+                            sim_behavior, bond_usdc, float_usdc)
+     values ($1, $2, $3, 'offline', $4, 'pending', null, 0, 0)
      returning id`,
-    [input.name, input.payoutRail, input.treasuryAddress],
+    [input.userId, input.name, input.payoutRail, input.treasuryAddress],
   );
   return rows[0].id;
+}
+
+/** The merchant account this user runs, if any — the entire merchant-role signal. */
+export async function getMerchantForUser(userId: string): Promise<MerchantRow | null> {
+  const { rows } = await getPool().query<MerchantRow>('select * from merchants where user_id = $1', [userId]);
+  return rows[0] ?? null;
+}
+
+/** Set how much the LP can have in flight at once (its own honest capacity). */
+export async function setMerchantFloat(merchantId: string, floatUsdc: number): Promise<void> {
+  await getPool().query('update merchants set float_usdc = $2 where id = $1', [merchantId, floatUsdc]);
+}
+
+/**
+ * Credit a just-confirmed stake deposit to the sender's bond. A stake deposit is an ordinary
+ * `kind='send'` transfer (so it still counts against the sender's daily send cap — real USDC leaving
+ * their wallet is exactly what that cap measures); the STAKE TREASURY ADDRESS is the discriminator,
+ * mirroring how `isMerchantTreasuryAddress` already works. A no-op for every other transfer.
+ *
+ * Idempotency comes free from the caller: `setTransferStatus` is transition-gated and only reports
+ * success on the real pending→confirmed transition, so both the poller and the Helius webhook can
+ * race here and only one will have advanced the row. Same guarantee `notifyReceived` relies on.
+ */
+export async function creditStakeOnConfirm(transferId: string, stakeTreasuryAddress: string): Promise<number> {
+  if (!stakeTreasuryAddress) return 0;
+  const { rows } = await getPool().query<{ amount_usdc: string }>(
+    `update merchants m
+        set bond_usdc = m.bond_usdc + t.amount_usdc
+       from transfers t
+      where t.id = $1 and t.to_address = $2 and t.status = 'confirmed'
+        and m.user_id = t.from_user_id
+      returning t.amount_usdc`,
+    [transferId, stakeTreasuryAddress],
+  );
+  return rows[0] ? Number(rows[0].amount_usdc) : 0;
+}
+
+/**
+ * The merchant reports paying the fiat leg. One guarded UPDATE that IS the compare-and-set: the
+ * `payout_claimed_at is null` predicate makes a double-tap idempotent (second call affects 0 rows),
+ * and `state = 'payment_detected'` means a released/refunded/rerouted order can't be claimed.
+ * Opens the dispute window by moving expires_at — the worker releases escrow at that deadline.
+ */
+export async function claimOrderPayout(input: {
+  orderId: string;
+  merchantId: string;
+  reference: string;
+  windowMs: number;
+}): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update orders
+        set payout_utr = $3, payout_claimed_at = now(), updated_at = now(),
+            expires_at = now() + make_interval(secs => $4)
+      where id = $1 and merchant_id = $2
+        and state = 'payment_detected' and payout_claimed_at is null`,
+    [input.orderId, input.merchantId, input.reference, Math.round(input.windowMs / 1000)],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+export async function hasOpenDispute(orderId: string): Promise<boolean> {
+  const { rows } = await getPool().query<{ n: string }>(
+    `select count(*) as n from disputes where order_id = $1 and status = 'open'`,
+    [orderId],
+  );
+  return Number(rows[0].n) > 0;
+}
+
+/**
+ * Freeze an order the payer is disputing. Nulling `expires_at` is the whole trick: the worker
+ * computes `slaReached` as `expires_at ? now >= expires_at : false`, so a null deadline makes BOTH
+ * the claimed-release branch and the under_review reroute/refund branch permanently unreachable.
+ * The order waits for a human, and the payer sees the existing "under review" copy.
+ */
+export async function freezeOrderForDispute(orderId: string): Promise<void> {
+  await getPool().query(
+    `update orders set resolution = 'under_review', expires_at = null, updated_at = now()
+      where id = $1 and state = 'payment_detected'`,
+    [orderId],
+  );
+}
+
+/** Un-freeze after a dispute is rejected — a past deadline makes the next tick release. */
+export async function unfreezeOrderAfterDispute(orderId: string): Promise<void> {
+  await getPool().query(
+    `update orders set resolution = null, expires_at = now(), updated_at = now()
+      where id = $1 and state = 'payment_detected'`,
+    [orderId],
+  );
+}
+
+export interface MerchantOrderRow {
+  id: string;
+  reference_code: string;
+  state: OrderState;
+  resolution: OrderResolution | null;
+  amount_usdc: string;
+  payout_utr: string | null;
+  payout_claimed_at: Date | null;
+  expires_at: Date | null;
+  created_at: Date;
+  amount_inr: string;
+  payout_method: PayoutMethod;
+  payout_destination: string | null;
+  payout_name: string | null;
+}
+
+/** The merchant's work queue: orders assigned to them that are still live. */
+export async function listMerchantOrders(merchantId: string, limit = 50): Promise<MerchantOrderRow[]> {
+  const { rows } = await getPool().query<MerchantOrderRow>(
+    `select o.id, o.reference_code, o.state, o.resolution, o.amount_usdc, o.payout_utr,
+            o.payout_claimed_at, o.expires_at, o.created_at,
+            q.amount_inr, q.payout_method, q.payout_destination, q.payout_name
+       from orders o join quotes q on q.id = o.quote_id
+      where o.merchant_id = $1
+        and o.state in ('payment_detected','merchant_confirms','funds_released','completed')
+      order by o.created_at desc
+      limit $2`,
+    [merchantId, limit],
+  );
+  return rows;
 }
 
 /** Approve/reject a pending application; approval flips it online. */
@@ -1281,13 +1438,34 @@ export async function resolveDispute(id: string, resolution: 'upheld' | 'rejecte
 export async function getOrderForDispute(
   orderId: string,
   userId: string,
-): Promise<{ merchantId: string; amountUsdc: number; state: OrderState } | null> {
-  const { rows } = await getPool().query<{ merchant_id: string | null; amount_usdc: string; state: OrderState }>(
-    `select merchant_id, amount_usdc, state from orders where id = $1 and user_id = $2`,
+): Promise<{
+  merchantId: string;
+  amountUsdc: number;
+  state: OrderState;
+  referenceCode: string;
+  payoutClaimedAt: Date | null;
+} | null> {
+  const { rows } = await getPool().query<{
+    merchant_id: string | null;
+    amount_usdc: string;
+    state: OrderState;
+    reference_code: string;
+    payout_claimed_at: Date | null;
+  }>(
+    `select merchant_id, amount_usdc, state, reference_code, payout_claimed_at
+       from orders where id = $1 and user_id = $2`,
     [orderId, userId],
   );
   const r = rows[0];
-  return r && r.merchant_id ? { merchantId: r.merchant_id, amountUsdc: Number(r.amount_usdc), state: r.state } : null;
+  return r && r.merchant_id
+    ? {
+        merchantId: r.merchant_id,
+        amountUsdc: Number(r.amount_usdc),
+        state: r.state,
+        referenceCode: r.reference_code,
+        payoutClaimedAt: r.payout_claimed_at,
+      }
+    : null;
 }
 
 /* ---- M5: KYC tiers, rolling volume, screening, risk audit ---- */

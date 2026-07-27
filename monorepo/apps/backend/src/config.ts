@@ -83,6 +83,12 @@ export const config = {
   escrowProgramId: env('ESCROW_PROGRAM_ID'),
   // SPL mint used as "USDC" (a controlled devnet mint in dev; Circle's USDC mint in prod).
   usdcMint: env('USDC_MINT'),
+  // Where merchant/LP stake (their bond — skin in the game) is held. PUBLIC KEY ONLY: nothing in
+  // this design ever signs FROM the vault — deposits are user-signed and slashing is a bond
+  // decrement, so the platform keeps the USDC. Deliberately NOT the fee-payer's ATA, which doubles
+  // as the faucet treasury (sendUsdcFromTreasury) and would hand merchant stake out as faucet
+  // inventory. Add a secret key here only when merchants can offboard and withdraw.
+  stakeTreasuryAddress: env('STAKE_TREASURY_ADDRESS'),
   // Shared secret for the Helius webhook (?secret=...). Open in dev if unset.
   heliusWebhookSecret: env('HELIUS_WEBHOOK_SECRET'),
   // Public base URL of this backend (e.g. https://api.pay.app) — needed to register the Helius

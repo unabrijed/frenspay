@@ -329,3 +329,36 @@ create table if not exists bridge_events (
   detail             jsonb,
   created_at         timestamptz not null default now()
 );
+
+-- Real (human) merchants. Until now every LP was a seeded simulation driven by `sim_behavior`; a
+-- merchant with a `user_id` is a real person who logs in, sees the assigned order with the payee's
+-- actual UPI ID, pays the fiat leg out-of-band, and reports it. `payout_destination` is the missing
+-- half of the off-ramp: `payout_method` has always named the RAIL ('UPI'), never WHO gets the money.
+do $$ begin
+  -- Who actually receives the fiat. Lives on quotes (not orders) because the merchant's order view
+  -- already joins quotes for amount_inr — orders only carries amount_usdc.
+  alter table quotes add column if not exists payout_destination text;   -- e.g. 'shop@okhdfcbank'
+  alter table quotes add column if not exists payout_name        text;   -- payee name shown pre-pay
+
+  -- The real LP's claim that it paid the fiat leg: a hand-entered UTR + when the dispute window
+  -- opened. Deliberately NOT a new order state — the order stays `payment_detected` (money secured,
+  -- LP holds the obligation) and this is data about it. A `payout_claimed` state would have had to
+  -- be threaded through orders_state_chk, the shared OrderState union, OrderTracking's step index,
+  -- both casOrderState call sites AND committedFloatByMerchant's state list — miss that last one and
+  -- the LP's float silently stops being committed mid-window, so routing over-commits it.
+  alter table orders add column if not exists payout_utr        text;
+  alter table orders add column if not exists payout_claimed_at timestamptz;
+
+  -- A merchant is now a real logged-in user. Nullable: the seeded sim LPs keep user_id null.
+  alter table merchants add column if not exists user_id uuid references users(id);
+  -- sim_behavior NULL now means "a REAL merchant the sim worker must not drive". Without dropping
+  -- the 'happy' default, every merchant created via /merchants/apply would inherit it and the sim
+  -- worker would auto-release the escrow ~4s after payment_detected — the human would never even
+  -- see the order. merchants_sim_chk needs no change: a NULL in `in (...)` is unknown, and CHECK
+  -- only rejects FALSE. Both DROPs are idempotent, and seed.ts lists sim_behavior explicitly.
+  alter table merchants alter column sim_behavior drop not null;
+  alter table merchants alter column sim_behavior drop default;
+end $$;
+
+-- One merchant account per user. Partial so the seeded sim LPs (user_id null) don't collide.
+create unique index if not exists uq_merchants_user on merchants (user_id) where user_id is not null;

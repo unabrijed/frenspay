@@ -155,9 +155,13 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
       if (addr === fromWallet.address) return reply.code(400).send({ error: 'self_send_not_allowed' });
       // The app's operational wallets are valid on-curve recipients; deposits there are lost funds.
       // Same for known program ids and the mint itself (all on-curve encodings, none can sign).
+      // The stake treasury is included on purpose: staking has its own route that records the
+      // merchant it belongs to. USDC sent here through the plain send path would be credited to
+      // nobody's bond and silently lost.
       if (
         addr === feePayerAddress() ||
         addr === config.usdcMint ||
+        (config.stakeTreasuryAddress && addr === config.stakeTreasuryAddress) ||
         KNOWN_UNSPENDABLE.has(addr) ||
         (await isMerchantTreasuryAddress(addr))
       ) {

@@ -11,6 +11,7 @@ import {
   canonicalHandle,
   findUserById,
   findUserByPhone,
+  getMerchantForUser,
   getUserKycStatus,
   getUserKycTier,
   getWalletForUser,
@@ -23,6 +24,8 @@ import {
 } from '../db/queries';
 import { screenHandle } from '../services/compliance';
 import { getLinkedPhone, privyConfigured } from '../services/privy';
+
+import { toMerchantProfile } from './merchant';
 
 const KYC_STATUSES = ['none', 'pending', 'in_review', 'approved', 'declined'] as const;
 /** Map a raw DB value to the typed KYC status, defaulting unknown values to 'none'. */
@@ -68,6 +71,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     if (!user) return reply.code(404).send({ error: 'user_not_found' });
     const wallet = await getWalletForUser(userId);
     const evmWallet = await getWalletForUser(userId, 'ethereum');
+    const merchant = await getMerchantForUser(userId);
     return {
       id: user.id,
       handle: user.handle,
@@ -78,6 +82,9 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       phone: user.phone ?? undefined,
       country: user.country ?? undefined,
       evmDepositAddress: evmWallet?.address ?? undefined,
+      // Rides on /me (already fetched on boot and on the KYC poll) rather than its own endpoint —
+      // one extra query here beats a second round trip + loading state for the 99% who aren't LPs.
+      merchant: merchant ? toMerchantProfile(merchant) : undefined,
     };
   });
 

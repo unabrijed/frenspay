@@ -22,15 +22,16 @@ import {
   attachTransferSignature,
   cancelOrder,
   drawDownBond,
+  freezeOrderForDispute,
   getDisputeRow,
   getOrderForDispute,
   getOrderForUser,
   getOrderSimRow,
   insertDispute,
-  insertMerchantApplication,
   listOrdersForUser,
   resolveDispute,
   setMerchantKyb,
+  unfreezeOrderAfterDispute,
   updateOrder,
   withUserLock,
 } from '../db/queries';
@@ -47,12 +48,27 @@ import {
 } from '../services/orderMachine';
 import { createQuote } from '../services/quoteEngine';
 
+/**
+ * A UPI VPA: local@psp, e.g. 'shop@okhdfcbank'. MIRRORS `VPA_RE` in apps/web/src/lib/qr.ts — the
+ * backend can only `import type` from @fpay/shared (tsx won't transpile the workspace's raw .ts), so
+ * shared runtime values are copied at the trust boundary rather than imported. Same precedent as
+ * `canonicalHandle` / `normalizePhone` in db/queries.ts.
+ */
+const VPA_RE = /^[a-z0-9.\-_]{2,}@[a-z0-9.\-_]{2,}$/i;
+
 export async function registerOrderRoutes(app: FastifyInstance) {
   // Quote Engine: a locked rate+fee+ETA, valid 45s. Routing picks the best simulated merchant/LP.
   app.post<{ Body: QuoteRequest }>('/orders/quote', async (req, reply) => {
     const userId = requireUserId(req);
-    const { direction, amountInr, payoutMethod } = req.body ?? ({} as QuoteRequest);
+    const { direction, amountInr, payoutMethod, payoutDestination, payoutName } =
+      req.body ?? ({} as QuoteRequest);
     if (!amountInr || amountInr <= 0) return reply.code(400).send({ error: 'invalid_amount' });
+    // WHO gets the rupees. The client parsed it out of a QR, but that's a hint — this is the trust
+    // boundary, and a merchant will act on this string by hand.
+    const destination = payoutDestination?.trim().toLowerCase();
+    if (destination && !VPA_RE.test(destination)) {
+      return reply.code(400).send({ error: 'invalid_payout_destination' });
+    }
     // M5: enforce cash-out (merchant-pay) KYC limits before pricing. Estimate USD from the live mid
     // rate (M7); blocks under-tier users.
     const cashLimit = await checkCashOutLimit(userId, amountInr / getMidRate());
@@ -70,6 +86,8 @@ export async function registerOrderRoutes(app: FastifyInstance) {
       direction: direction === 'cash_out' ? 'cash_out' : 'spend',
       amountInr,
       payoutMethod: payoutMethod ?? 'UPI',
+      payoutDestination: destination,
+      payoutName: payoutName?.trim().slice(0, 80),
     });
     if ('error' in quote) return reply.code(503).send({ error: quote.error });
     return { quote } satisfies QuoteResponse;
@@ -221,39 +239,38 @@ export async function registerOrderRoutes(app: FastifyInstance) {
   });
 
   // --- M4: merchant lifecycle (onboarding KYB sim) + disputes ---
-
-  // Onboarding: a prospective LP applies (KYB pending → offline until approved). Public.
-  app.post<{ Body: { name?: string; payoutMethod?: PayoutMethod; treasuryAddress?: string } }>(
-    '/merchants/apply',
-    async (req, reply) => {
-      const { name, payoutMethod, treasuryAddress } = req.body ?? {};
-      const rail = payoutMethod ?? 'UPI';
-      if (!name || !treasuryAddress) return reply.code(400).send({ error: 'missing_fields' });
-      if (!['UPI', 'Pix', 'bank'].includes(rail)) return reply.code(400).send({ error: 'invalid_rail' });
-      try {
-        new PublicKey(treasuryAddress); // release target — must be a valid Solana address
-      } catch {
-        return reply.code(400).send({ error: 'invalid_treasury_address' });
-      }
-      const id = await insertMerchantApplication({ name, payoutRail: rail, treasuryAddress });
-      return reply.code(201).send({ id, kybStatus: 'pending' });
-    },
-  );
+  // Onboarding (`POST /merchants/apply`) moved to routes/merchant.ts, where it is authenticated and
+  // bound to a user — it used to be anonymous.
 
   // A user disputes a completed order, opening a dispute against the merchant who filled it.
   app.post<{ Params: { id: string }; Body: { reason?: string } }>('/orders/:id/dispute', async (req, reply) => {
     const userId = requireUserId(req);
-    const order = await getOrderForDispute(req.params.id, userId);
-    if (!order) return reply.code(404).send({ error: 'order_not_found' });
-    if (order.state !== 'completed') return reply.code(409).send({ error: 'order_not_disputable' });
-    let id: string;
-    try {
-      id = await insertDispute({ orderId: req.params.id, merchantId: order.merchantId, reason: req.body?.reason });
-    } catch (e) {
-      if ((e as { code?: string }).code === '23505') return reply.code(409).send({ error: 'already_disputed' });
-      throw e;
-    }
-    return reply.code(201).send({ id, status: 'open' });
+    // Serialize against the worker: it re-reads the dispute INSIDE this same per-user lock before
+    // releasing escrow, so "payer disputes" and "window closes" can't both win. Whoever takes the
+    // lock first decides; if the worker got there, the re-check below sees a released state and 409s
+    // (the payer can still dispute post-completion, which is the unchanged path).
+    return withUserLock(userId, async () => {
+      const order = await getOrderForDispute(req.params.id, userId);
+      if (!order) return reply.code(404).send({ error: 'order_not_found' });
+      // Disputable once the money is out of the payer's hands: either the order completed, or a real
+      // merchant has CLAIMED to have paid and the release window is still running.
+      const inReleaseWindow = order.state === 'payment_detected' && order.payoutClaimedAt != null;
+      if (order.state !== 'completed' && !inReleaseWindow) {
+        return reply.code(409).send({ error: 'order_not_disputable' });
+      }
+      let id: string;
+      try {
+        id = await insertDispute({ orderId: req.params.id, merchantId: order.merchantId, reason: req.body?.reason });
+      } catch (e) {
+        if ((e as { code?: string }).code === '23505') return reply.code(409).send({ error: 'already_disputed' });
+        throw e;
+      }
+      // Freeze the auto-release so a human decides. Nulling expires_at makes the worker's
+      // `slaReached` permanently false, which disables BOTH the release and the reroute/refund
+      // branches — no new state, no new worker code.
+      if (inReleaseWindow) await freezeOrderForDispute(req.params.id);
+      return reply.code(201).send({ id, status: 'open' });
+    });
   });
 
   // --- dev-only M4 controls (KYB decision, stats recompute, dispute resolution) ---
@@ -286,7 +303,25 @@ export async function registerOrderRoutes(app: FastifyInstance) {
       // can't fine the bond twice for one dispute.
       const resolved = await resolveDispute(req.params.id, forUser ? 'upheld' : 'rejected');
       if (!resolved) return reply.code(409).send({ error: 'dispute_resolved' });
-      if (forUser) await drawDownBond(dispute.merchantId, DISPUTE_PENALTY_USDC); // fine the LP's bond
+
+      // The order was frozen mid-flight by the dispute; resolving it has to unfreeze the escrow too,
+      // or the money sits in the vault forever. (A dispute opened on an already-completed order has
+      // no escrow left to move — the refund branch simply finds no claimable state.)
+      const order = await getOrderSimRow(dispute.orderId);
+      if (forUser) {
+        await drawDownBond(dispute.merchantId, DISPUTE_PENALTY_USDC); // fine the LP's bond
+        if (order && order.state === 'payment_detected') {
+          await refundToUser({
+            orderId: order.id,
+            userId: order.userId,
+            reference: order.reference,
+            amountUsdc: order.amountUsdc,
+          });
+        }
+      } else if (order && order.state === 'payment_detected') {
+        // Merchant cleared → un-freeze with a past deadline so the next worker tick releases.
+        await unfreezeOrderAfterDispute(order.id);
+      }
       return { ok: true, resolution: forUser ? 'upheld' : 'rejected' };
     },
   );

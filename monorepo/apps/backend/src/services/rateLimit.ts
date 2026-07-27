@@ -33,6 +33,11 @@ export const RATE_LIMIT_RULES: Rule[] = [
   // Each enroll round-trips to the Privy API — keep it capped.
   { method: 'POST', path: '/me/phone', bucket: 'auth', limit: 10, windowMs: 60_000 },
   { method: 'POST', path: '/me/country', bucket: 'auth', limit: 10, windowMs: 60_000 },
+  // Merchant/LP writes. `apply` inserts a row that the stats recompute pass walks on the same tick
+  // as the order worker, so unbounded inserts would starve settlement — cap it hard.
+  { method: 'POST', path: '/merchants/apply', bucket: 'auth', limit: 5, windowMs: 60_000 },
+  { method: 'POST', path: '/merchants/orders/:id/paid', bucket: 'order', limit: 20, windowMs: 60_000 },
+  { method: 'POST', path: '/merchants/stake/prepare', bucket: 'send', limit: 20, windowMs: 60_000 },
 ];
 
 type Window = { count: number; resetAt: number };
