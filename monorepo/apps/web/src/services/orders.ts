@@ -11,6 +11,9 @@ export async function createQuote(input: {
   direction: OrderDirection;
   amountInr: number;
   payoutMethod?: PayoutMethod;
+  /** The payee's real UPI ID — WHO the merchant pays. `payoutMethod` is only the rail. */
+  payoutDestination?: string;
+  payoutName?: string;
 }): Promise<Quote> {
   return (await api.createQuote(input)).quote;
 }

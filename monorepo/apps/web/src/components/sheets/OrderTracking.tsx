@@ -97,6 +97,8 @@ export function OrderTracking() {
   const order = usePayStore((s) => s.order);
   const close = usePayStore((s) => s.close);
   const refreshOrder = usePayStore((s) => s.refreshOrder);
+  const disputeOrder = usePayStore((s) => s.disputeOrder);
+  const busy = usePayStore((s) => s.busy);
 
   const terminal = order ? order.state === 'completed' || order.state === 'refunded' || order.state === 'failed' : false;
 
@@ -150,6 +152,15 @@ export function OrderTracking() {
 
         <Spacer />
         <View style={styles.cta}>
+          {/* The payer's half of the trust model: while the recipient hasn't confirmed, they can
+              say so. This freezes the release and puts a human on it — and it's what makes the
+              merchant's stake mean something. */}
+          {order.payoutClaimedAt && !order.resolution ? (
+            <TextLink
+              label={busy ? 'Reporting…' : "I didn't receive this"}
+              onPress={() => void disputeOrder()}
+            />
+          ) : null}
           <TextLink label="Run in background" onPress={close} />
         </View>
       </SheetBody>

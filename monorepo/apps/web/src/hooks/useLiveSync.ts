@@ -11,10 +11,12 @@ import { usePayStore } from '@/store/usePayStore';
 const INTERVAL_MS = 12_000;
 
 export function useLiveSync(): void {
-  const signedIn = usePayStore((s) => s.authStatus === 'signedIn');
+  // Only poll once the backend user exists (synced this session, or a returning onboarded user).
+  // Gating on raw signedIn would start the poller mid-onboarding, before /auth/sync, and 401.
+  const ready = usePayStore((s) => s.authStatus === 'signedIn' && (s.provisioned || s.onboarded));
 
   useEffect(() => {
-    if (!signedIn) return;
+    if (!ready) return;
 
     const refresh = () => void usePayStore.getState().refresh();
     let timer: ReturnType<typeof setInterval> | null = null;
@@ -43,7 +45,7 @@ export function useLiveSync(): void {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('focus', refresh);
     };
-  }, [signedIn]);
+  }, [ready]);
 }
 
 /** Null component so the hook can be mounted once at the app root. */

@@ -37,7 +37,7 @@ const lineStyle: CSSProperties = {
 
 export function QuoteSheet() {
   const quote = usePayStore((s) => s.quote);
-  const merchant = usePayStore((s) => s.merchant);
+  const payee = usePayStore((s) => s.payee);
   const busy = usePayStore((s) => s.busy);
   const error = usePayStore((s) => s.error);
   const close = usePayStore((s) => s.close);
@@ -60,7 +60,7 @@ export function QuoteSheet() {
     <>
       <Grab />
       <SheetHeader
-        eyebrow={`Paying ${merchant.name}`}
+        eyebrow={`Paying ${payee.name}`}
         title={expired ? 'Quote expired' : `Quote · valid ${secsLeft}s`}
         onClose={close}
       />
@@ -71,6 +71,9 @@ export function QuoteSheet() {
         </View>
 
         <List>
+          {/* Show the destination the payment will actually reach. This is the anti-wrong-send
+              confirmation every UPI app does — the last chance to catch a bad scan. */}
+          {quote.payoutDestination ? <Line k="Paying to" v={quote.payoutDestination} /> : null}
           <Line k="Today's rate" v={`$1 = ₹${quote.rate.toFixed(2)}`} />
           <Line k="Fee" v={inrRaw(quote.feeInr + quote.networkFeeInr)} />
           <Line k="Total time" v={fmtEta(quote.etaMinSecs, quote.etaMaxSecs)} />

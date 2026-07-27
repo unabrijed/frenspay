@@ -4,7 +4,7 @@
 //
 // Money flows delegate to the RealWalletProvider (@/services/wallet) → the backend API + on-device
 // signing. The app is always real; balance/activity load from the backend once signed in.
-import type { ApiPaymentRequest, KycStatus, Notification, Order, Quote } from '@fpay/shared';
+import type { ApiPaymentRequest, KycStatus, MerchantProfile, Notification, Order, Quote } from '@fpay/shared';
 import type { NetworkId } from '@fpay/shared';
 import { isoFromE164, phoneCandidates, truncateAddress } from '@fpay/shared';
 import { useEffect, useState } from 'react';
@@ -12,13 +12,14 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
 import { bootTrace } from '@/lib/boot';
+import { friendlyError } from '@/lib/errors';
 import type { DisplayCurrency } from '@/lib/money';
 import { parseScannedQR } from '@/lib/qr';
 import { api, ApiError, setAuthToken } from '@/services/api';
 import { getActiveSigner } from '@/services/signer';
 import { USE_PRIVY } from '@/services/env';
 import { confirmOrder as apiConfirmOrder, createQuote as apiCreateQuote, getOrder as apiGetOrder } from '@/services/orders';
-import { wallet, type Friend, type Merchant, type Txn } from '@/services/wallet';
+import { wallet, type Friend, type Payee, type Txn } from '@/services/wallet';
 
 export type SheetId =
   | 'scan'
@@ -47,6 +48,9 @@ export type SheetId =
 
 const SHEET_EXIT_MS = 280;
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
+const TOAST_MS = 3500;
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+let toastSeq = 0;
 
 /** Imperative auth actions registered by the Privy bridge (real mode only). */
 interface AuthBridge {
@@ -86,7 +90,8 @@ interface PayState {
   // ---- ephemeral ----
   sheet: SheetId | null;
   closing: boolean;
-  merchant: Merchant;
+  /** The shop/person being paid — from a scanned UPI QR. NOT the LP that settles it. */
+  payee: Payee;
   friend: Friend;
   payRupees: number;
   /** Rupee amount carried in from a scanned (dynamic) UPI QR; 0 = enter manually. */
@@ -95,6 +100,8 @@ interface PayState {
   pendingPay: boolean;
   /** Real-vendor verification lifecycle (M7): 'pending' while the user is in/returning from the flow. */
   kycStatus: KycStatus;
+  /** This user's merchant/LP account, if they run one. null = an ordinary payer. From /me. */
+  merchant: MerchantProfile | null;
   /** In-flight direct send to a raw wallet address (outside fpay). network 'evm' = family
    *  detected, user hasn't picked the chain yet; fees populate once amount + network are known. */
   externalSend: {
@@ -115,7 +122,13 @@ interface PayState {
    *  so every fresh app load starts false → screens show skeletons until live data arrives, instead
    *  of flashing persisted (possibly stale / prior-session) balance + activity. */
   firstLoadDone: boolean;
+  /** True once /auth/sync has provisioned the backend user for this SESSION. Ephemeral (never
+   *  persisted); combined with the persisted `onboarded` it gates data fetches so an onboarding user
+   *  who is signed in with Privy but not yet synced doesn't fire (and 401) /balance etc. */
+  provisioned: boolean;
   error: string | null;
+  /** Transient snackbar (money-app toast). Shown by ToastHost, set via notify(), auto-clears. */
+  toast: { id: number; msg: string; tone: 'error' | 'success' } | null;
   walletAddress: string;
   // ---- M1 order lifecycle (quote engine + order state machine) ----
   quote: Quote | null;
@@ -133,9 +146,10 @@ interface PayState {
   // ---- sheet control ----
   open: (id: SheetId) => void;
   close: () => void;
+  /** Show a transient snackbar. Default tone is 'error'; auto-dismisses. */
+  notify: (msg: string, tone?: 'error' | 'success') => void;
 
   // ---- in-flight context ----
-  setMerchant: (m: Merchant) => void;
   setFriend: (f: Friend) => void;
   setPayRupees: (r: number) => void;
   setRequestDraft: (u: number) => void;
@@ -165,7 +179,7 @@ interface PayState {
   // ---- flows (mirror app.jsx) ----
   /** Decode a scanned QR and route to the right flow (send / merchant-pay). */
   handleScan: (text: string) => Promise<void>;
-  payMerchant: (m: Merchant, rupees?: number) => void;
+  payPayee: (p: Payee, rupees?: number) => void;
   verifyDone: () => void;
   /** After returning from the hosted KYC flow: poll /me until the vendor decision lands. */
   pollKyc: () => Promise<void>;
@@ -218,6 +232,8 @@ interface PayState {
   confirmOrder: () => Promise<void>;
   /** Poll the in-flight order; refreshes balance once it reaches a terminal state. */
   refreshOrder: () => Promise<void>;
+  /** Payer reports the money never arrived, while the merchant's release window is still open. */
+  disputeOrder: (reason?: string) => Promise<void>;
   /** Discard the quote and go back to amount entry. */
   editQuote: () => void;
 
@@ -247,13 +263,14 @@ export const usePayStore = create<PayState>()(
 
       sheet: null,
       closing: false,
-      merchant: { name: 'Anjuna Beach Cafe' },
+      payee: { name: 'Anjuna Beach Cafe' },
       friend: { name: '', handle: '', ini: '' },
       payRupees: 500,
       scannedRupees: 0,
       detail: null,
       pendingPay: false,
       kycStatus: 'none',
+      merchant: null,
       externalSend: null,
       lastSend: { u: 12, handle: '@neha' },
       lastRequest: { u: 20, handle: '@neha' },
@@ -261,7 +278,9 @@ export const usePayStore = create<PayState>()(
       requests: [],
       busy: false,
       firstLoadDone: false,
+      provisioned: false,
       error: null,
+      toast: null,
       walletAddress: '',
       quote: null,
       order: null,
@@ -289,8 +308,17 @@ export const usePayStore = create<PayState>()(
           closeTimer = null;
         }, SHEET_EXIT_MS);
       },
+      notify: (msg, tone = 'error') => {
+        const id = ++toastSeq;
+        set({ toast: { id, msg, tone } });
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+          // Only clear if this toast is still the current one (a newer notify() supersedes it).
+          if (get().toast?.id === id) set({ toast: null });
+          toastTimer = null;
+        }, TOAST_MS);
+      },
 
-      setMerchant: (m) => set({ merchant: m }),
       setFriend: (f) => set({ friend: f }),
       setPayRupees: (r) => set({ payRupees: r }),
       setRequestDraft: (u) => set({ requestDraftUsd: u }),
@@ -299,7 +327,17 @@ export const usePayStore = create<PayState>()(
 
       // Pull identity + balance + activity from the backend (no-op in mock mode).
       load: async () => {
-        if (USE_PRIVY && get().authStatus !== 'signedIn') return; // wait for the Privy bridge to sign in
+        // Wait for the Privy bridge to sign in AND for the backend user to exist (synced this session,
+        // or a returning onboarded user). Without the provisioned/onboarded check, the post-sign-in
+        // load() during onboarding fires before /auth/sync and 401s. See `provisioned`.
+        if (USE_PRIVY && !(get().authStatus === 'signedIn' && (get().provisioned || get().onboarded))) {
+          // Signed in but not yet provisioned (mid-onboarding, pre /auth/sync): skip the fetch (it would
+          // 401) but still mark this session's first load "done" so screens gated on firstLoadDone — the
+          // faceid step routes to /onboarding/handle on `signedIn && firstLoadDone` — advance instead of
+          // hanging on the splash. (Pre-sign-in we leave it false so the splash stays.)
+          if (get().authStatus === 'signedIn') set({ firstLoadDone: true });
+          return;
+        }
         // First load of this session: drop any persisted prior-session financials so they can't flash
         // before the fresh fetch resolves. Skeletons (gated on firstLoadDone) cover the gap. Identity
         // (handle/kycTier) is left intact — load() repopulates it and losing it would break routing.
@@ -325,6 +363,7 @@ export const usePayStore = create<PayState>()(
             evmDepositAddress: me.evmDepositAddress ?? '',
             kycTier: me.kycTier,
             kycStatus: me.kycStatus ?? 'none',
+            merchant: me.merchant ?? null,
             balanceUSD: bal,
             fxRate: fx.rate,
             transactions: txns,
@@ -342,6 +381,8 @@ export const usePayStore = create<PayState>()(
         }
       },
       refresh: async () => {
+        // Same gate as load(): never poll before the backend user exists (onboarding pre-sync → 401).
+        if (USE_PRIVY && !(get().authStatus === 'signedIn' && (get().provisioned || get().onboarded))) return;
         try {
           const [bal, txns, reqs, notifs] = await Promise.all([
             wallet.getBalanceUsd(),
@@ -358,8 +399,9 @@ export const usePayStore = create<PayState>()(
             requests: reqs,
             ...(keepInbox ? {} : { notifications: notifs.notifications, unread: notifs.unread }),
           });
-        } catch (e) {
-          set({ error: e instanceof Error ? e.message : String(e) });
+        } catch {
+          // Background poll — stay quiet; the next tick recovers. Don't pollute the shared error slot
+          // or spam a toast every interval. User-initiated actions surface their own errors.
         }
       },
       // M6: mark the inbox read (optimistic; the next refresh reconciles).
@@ -418,6 +460,7 @@ export const usePayStore = create<PayState>()(
           recoveryPrompted: false,
           onboarded: false,
           firstLoadDone: false,
+          provisioned: false,
         });
       },
       // Dev-only full reset for re-testing onboarding + KYC from scratch. Order matters: reset the
@@ -446,7 +489,8 @@ export const usePayStore = create<PayState>()(
           /* no guess */
         }
         const me = await api.authSync({ handle, walletAddress: get().walletAddress, country });
-        set({ walletAddress: me.walletAddress });
+        // Backend user now exists for this Privy identity — unblock data fetches (see `provisioned`).
+        set({ walletAddress: me.walletAddress, provisioned: true });
         await get().load();
       },
 
@@ -473,8 +517,10 @@ export const usePayStore = create<PayState>()(
           }
         } else if (res.kind === 'upi') {
           // Merchant pay → the real order lifecycle: quote (rate+fee+ETA, 45s lock) → escrow → settle.
+          // Keep the VPA: it's WHO the merchant actually pays. Dropping it (as this used to) left the
+          // order with a rail but no destination, so no merchant could have settled it.
           set({ error: null });
-          get().payMerchant({ name: res.name ?? res.payee ?? 'Merchant' }, res.amountInr ?? 0);
+          get().payPayee({ name: res.name ?? res.payee ?? 'Merchant', vpa: res.payee }, res.amountInr ?? 0);
         } else if (res.kind === 'address') {
           set({ error: null });
           get().startExternalSend(res.address, res.network);
@@ -611,24 +657,14 @@ export const usePayStore = create<PayState>()(
             get().open('verify');
             return null;
           }
-          const friendlyByCode: Record<string, string> = {
-            invalid_recipient: 'That address can’t receive money. Double-check it.',
-            self_send_not_allowed: "That's your own wallet",
-            unsupported_network: 'fpay can’t send on that network yet.',
-            amount_too_small: 'Sends to outside wallets need to be at least $1.',
-            too_many_new_recipients: 'You’ve reached today’s limit for new wallets. Try tomorrow.',
-            duplicate_request: 'That send is already in progress.',
-            crosschain_unavailable: 'Sends to other networks are briefly unavailable. Try again soon.',
-          };
-          const friendly = e instanceof ApiError ? friendlyByCode[e.code] : undefined;
-          set({ busy: false, error: friendly ?? (e instanceof Error ? e.message : String(e)) });
+          set({ busy: false, error: friendlyError(e) });
           get().open('sendFailed');
           return null;
         }
       },
 
-      payMerchant: (m, rupees = 0) => {
-        set({ merchant: m, scannedRupees: rupees });
+      payPayee: (m, rupees = 0) => {
+        set({ payee: m, scannedRupees: rupees });
         if (get().kycTier >= 2) {
           get().open('amount');
         } else {
@@ -654,7 +690,7 @@ export const usePayStore = create<PayState>()(
               try {
                 sessionStorage.setItem(
                   'fpay:resumePay',
-                  JSON.stringify({ merchant: get().merchant, rupees: get().scannedRupees }),
+                  JSON.stringify({ payee: get().payee, rupees: get().scannedRupees }),
                 );
               } catch {
                 /* sessionStorage blocked — resume is best-effort */
@@ -706,8 +742,8 @@ export const usePayStore = create<PayState>()(
           const raw = sessionStorage.getItem('fpay:resumePay');
           if (!raw) return;
           sessionStorage.removeItem('fpay:resumePay');
-          const { merchant, rupees } = JSON.parse(raw) as { merchant: Merchant; rupees: number };
-          set({ merchant, scannedRupees: rupees ?? 0 });
+          const { payee, rupees } = JSON.parse(raw) as { payee: Payee; rupees: number };
+          set({ payee, scannedRupees: rupees ?? 0 });
           get().open('amount');
         } catch {
           /* best-effort resume */
@@ -901,7 +937,15 @@ export const usePayStore = create<PayState>()(
       getQuote: async (rupees) => {
         set({ busy: true, error: null });
         try {
-          const quote = await apiCreateQuote({ direction: 'spend', amountInr: rupees, payoutMethod: 'UPI' });
+          const payee = get().payee;
+          const quote = await apiCreateQuote({
+            direction: 'spend',
+            amountInr: rupees,
+            payoutMethod: 'UPI',
+            // WHO the merchant pays. The server re-validates it — this is only the hint.
+            payoutDestination: payee.vpa,
+            payoutName: payee.name,
+          });
           set({ quote, payRupees: rupees, busy: false });
           get().open('quote');
         } catch (e) {
@@ -942,8 +986,28 @@ export const usePayStore = create<PayState>()(
           set({ order });
           // Once settled or refunded, reconcile the on-chain balance + activity.
           if (order.state === 'completed' || order.state === 'refunded') void get().refresh();
+        } catch {
+          // Background order poll (runs on an interval while tracking) — quiet; the next tick recovers.
+        }
+      },
+
+      /**
+       * "I didn't receive this" — raise a dispute while the merchant's payout is in its release
+       * window. The server freezes the auto-release so the escrow can't pay out to the merchant
+       * until a human resolves it; an upheld dispute refunds the payer and slashes the merchant's
+       * stake.
+       */
+      disputeOrder: async (reason) => {
+        const current = get().order;
+        if (!current) return;
+        set({ busy: true, error: null });
+        try {
+          await api.disputeOrder(current.id, reason);
+          set({ busy: false });
+          get().notify("Reported. We'll review and get back to you.", 'success');
+          await get().refreshOrder();
         } catch (e) {
-          set({ error: e instanceof Error ? e.message : String(e) });
+          set({ busy: false, error: friendlyError(e) });
         }
       },
 
@@ -983,7 +1047,7 @@ export const usePayStore = create<PayState>()(
           }));
           void get().refresh();
         } catch (e) {
-          set({ error: e instanceof Error ? e.message : String(e) });
+          get().notify(friendlyError(e));
         }
       },
 
@@ -994,19 +1058,21 @@ export const usePayStore = create<PayState>()(
             requests: s.requests.map((x) => (x.id === id ? { ...x, status: 'cancelled' } : x)),
           }));
         } catch (e) {
-          set({ error: e instanceof Error ? e.message : String(e) });
+          get().notify(friendlyError(e));
         }
       },
 
       doAdd: async (amt) => {
-        // Mint test USDC to the user's wallet via the devnet faucet, then refresh.
+        // Fund via the devnet faucet. Keep the sheet open (button shows "Adding…") until the balance
+        // settles, then close on the updated number. On failure (e.g. faucet_empty) toast a friendly
+        // line and leave the sheet open so the user can retry.
         set({ busy: true, error: null });
         try {
           await wallet.addMoney?.(amt);
-          get().close();
           await get().refresh();
+          get().close();
         } catch (e) {
-          set({ error: e instanceof Error ? e.message : String(e) });
+          get().notify(friendlyError(e));
         } finally {
           set({ busy: false });
         }

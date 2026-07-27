@@ -49,7 +49,7 @@ export function setTokenRefresher(fn: (() => Promise<string | null>) | null): vo
   refreshToken = fn;
 }
 
-async function req<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
+export async function req<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
   const headers: Record<string, string> = {
     'content-type': 'application/json',
     ...((init?.headers as Record<string, string>) ?? {}),
@@ -138,6 +138,11 @@ export const api = {
   getOrder: (id: string) => req<OrderResponse>(`/orders/${id}`),
   listOrders: () => req<OrdersResponse>('/orders'),
   cancelOrder: (id: string) => req<{ ok: true }>(`/orders/${id}/cancel`, { method: 'POST' }),
+  disputeOrder: (id: string, reason?: string) =>
+    req<{ id: string; status: 'open' }>(`/orders/${id}/dispute`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
   // M6: notifications inbox
   getNotifications: () => req<NotificationsResponse>('/notifications'),
   readAllNotifications: () => req<{ ok: true }>('/notifications/read-all', { method: 'POST' }),

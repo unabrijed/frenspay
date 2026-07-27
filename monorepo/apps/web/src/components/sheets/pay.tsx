@@ -9,7 +9,7 @@ import dynamic from 'next/dynamic';
 import { Icons } from '@/components/icons';
 import { Btn } from '@/components/ui/Button';
 import { Keypad } from '@/components/ui/Keypad';
-import { Grab, SheetBody, SheetHeader } from '@/components/ui/primitives';
+import { Grab, SearchBar, SheetBody, SheetHeader } from '@/components/ui/primitives';
 import { Pressable, View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { inrRaw, RATE, usd } from '@/lib/money';
@@ -49,6 +49,7 @@ export function Scan() {
   const error = usePayStore((s) => s.error);
   const [handled, setHandled] = useState(false);
   const [camErr, setCamErr] = useState<CamErr | null>(null);
+  const [typed, setTyped] = useState('');
   // Bumped on Try-again; used as the Scanner's `key` to force a fresh mount → a fresh getUserMedia
   // (re-prompts for the not-yet-decided state, and recovers instantly if the user just un-blocked).
   const [attempt, setAttempt] = useState(0);
@@ -76,7 +77,7 @@ export function Scan() {
   return (
     <>
       <Grab />
-      <SheetHeader title="Scan to pay a friend" onClose={close} />
+      <SheetHeader title="Scan to pay" onClose={close} />
       <SheetBody>
         <View style={styles.viewport}>
           {camErr ? (
@@ -102,7 +103,7 @@ export function Scan() {
           <Txt style={[type.lead, styles.scanError]}>{error}</Txt>
         ) : (
           <Txt style={[type.lead, styles.scanLead]}>
-            {camErr ? CAM_MESSAGES[camErr] : "Point at a friend's fpay QR."}
+            {camErr ? CAM_MESSAGES[camErr] : 'Point at any UPI QR, or a friend’s fpay code.'}
           </Txt>
         )}
         {camErr ? (
@@ -110,6 +111,14 @@ export function Scan() {
             <Btn label="Try again" onPress={retry} />
           </View>
         ) : null}
+        {/* Typing the ID beats scanning whenever the QR is on a screen you're holding, printed
+            badly, or simply not in front of you. Same parser as the camera path. */}
+        <View style={styles.manual}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <SearchBar placeholder="Or enter a UPI ID" value={typed} onChangeText={setTyped} />
+          </View>
+          <Btn label="Pay" disabled={!typed.trim()} onPress={() => void handleScan(typed.trim())} />
+        </View>
         <Pressable onPress={() => open('receive')} style={({ pressed }) => [styles.myqr, pressed ? { opacity: 0.7 } : null]}>
           <Icons.Qr size={16} color={colors.accent} />
           <Txt style={{ ...fonts.body500, fontSize: 14.5, color: colors.accent }}>Show my QR</Txt>
@@ -134,7 +143,7 @@ export function Amount() {
   const close = usePayStore((s) => s.close);
   const getQuote = usePayStore((s) => s.getQuote);
   const busy = usePayStore((s) => s.busy);
-  const merchant = usePayStore((s) => s.merchant);
+  const payee = usePayStore((s) => s.payee);
   const scannedRupees = usePayStore((s) => s.scannedRupees);
   // Dynamic UPI QRs carry the amount → seed it; static QRs (am absent) start blank-ish for entry.
   const [d, setD] = useState(() => (scannedRupees > 0 ? String(scannedRupees) : '500'));
@@ -147,7 +156,7 @@ export function Amount() {
   return (
     <>
       <Grab />
-      <SheetHeader eyebrow="Paying" title={merchant.name} onClose={close} />
+      <SheetHeader eyebrow="Paying" title={payee.name} onClose={close} />
       <SheetBody>
         <View style={styles.amountbig}>
           <Txt style={[type.bigAmount, { color: colors.ink }]}>{inrRaw(rupees)}</Txt>
@@ -175,6 +184,7 @@ const styles = {
     marginBottom: 14,
   },
   viewportFallback: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center', opacity: 0.6 },
+  manual: { flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 12 },
   scanLead: { textAlign: 'center', marginBottom: 14 },
   scanError: { textAlign: 'center', marginBottom: 14, color: colors.danger },
   retryRow: { alignItems: 'center', marginBottom: 14 },
