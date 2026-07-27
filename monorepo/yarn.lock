@@ -8299,6 +8299,11 @@ path-scurry@^2.0.2:
     lru-cache "^11.0.0"
     minipass "^7.1.2"
 
+permissionless@^0.2.47:
+  version "0.2.57"
+  resolved "https://registry.yarnpkg.com/permissionless/-/permissionless-0.2.57.tgz#52d9698e6b122483d5fb0ba5faef5cf40a167f1a"
+  integrity sha512-QrzAoQGYPV/NJ2x5Sj18h7qed6f+kCyQAojrncN091UPiGqHjFNjgdsgreiv8pxlQgF4UcpuJUvsHLpOEBd6cQ==
+
 pg-cloudflare@^1.4.0:
   version "1.4.0"
   resolved "https://registry.yarnpkg.com/pg-cloudflare/-/pg-cloudflare-1.4.0.tgz#4b4c20e6d8ae531d400730f4804571a8d62f1497"
