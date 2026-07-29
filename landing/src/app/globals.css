@@ -1,0 +1,124 @@
+@import "tailwindcss";
+
+/* fpay brand tokens — mirrors monorepo/packages/shared/src/tokens.ts (terracotta Material-3) */
+@theme {
+  --font-sans: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
+
+  --color-canvas: #fff8f4;
+  --color-ink: #1e1b19;
+  --color-muted: #58413d;
+  --color-hair: #e8e1dd;
+  --color-terra: #a6341f;
+  --color-terra-deep: #aa3621;
+  --color-terra-ctr: #c84b34;
+  --color-peach: #ffdad3;
+  --color-peach-dim: #ffb4a5;
+  --color-teal: #416467;
+  --color-teal-soft: #c1e7ea;
+  --color-teal-on: #294c4f;
+  --color-surface-low: #faf2ee;
+  --color-surface-ctr: #f4ece8;
+  --color-outline-var: #e0bfb9;
+
+  --ease-soft: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --shadow-tactile: 0 4px 20px rgba(74, 70, 67, 0.05), inset 0 1px 0 rgba(255, 255, 255, 1);
+  --shadow-lift: 0 8px 30px rgba(140, 113, 108, 0.15);
+  --shadow-phone: 0 18px 50px rgba(28, 22, 16, 0.14);
+  --shadow-btn: 0 4px 14px rgba(166, 52, 31, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+.eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scroll reveals + decorative motion. Everything lives inside the media query so
+   reduced-motion users get a fully visible, still page. */
+.reveal {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  .reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition:
+      opacity 0.7s var(--ease-soft),
+      transform 0.7s var(--ease-soft);
+  }
+  .reveal.in {
+    opacity: 1;
+    transform: none;
+  }
+
+  .hero-rise {
+    opacity: 0;
+    animation: fade-rise 0.8s var(--ease-soft) forwards;
+  }
+  @keyframes fade-rise {
+    from {
+      opacity: 0;
+      transform: translateY(24px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .floaty {
+    animation: floaty 7s ease-in-out infinite alternate;
+  }
+  .floaty-slow {
+    animation: floaty 9s ease-in-out infinite alternate;
+  }
+  .floaty-fast {
+    animation: floaty 5s ease-in-out infinite alternate;
+  }
+  @keyframes floaty {
+    from {
+      transform: translateY(-6px);
+    }
+    to {
+      transform: translateY(6px);
+    }
+  }
+
+  .marquee {
+    animation: mqx 40s linear infinite;
+  }
+  @keyframes mqx {
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  .flash-peach {
+    animation: flash-peach 1.2s var(--ease-soft);
+  }
+  @keyframes flash-peach {
+    0% {
+      background-color: var(--color-peach);
+    }
+    100% {
+      background-color: transparent;
+    }
+  }
+}
