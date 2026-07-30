@@ -31,11 +31,11 @@ function Action({ label, d }: { label: string; d: keyof typeof glyphs }) {
 function Row({ initial, name, sub, amount, positive }: { initial: string; name: string; sub: string; amount: string; positive?: boolean }) {
   return (
     <div className="flex items-center gap-3 rounded-[14px] border border-outline-var/60 bg-white px-3.5 py-3 shadow-tactile">
-      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-ctr text-[12px] font-bold text-muted">
+      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-ctr text-[12px] font-semibold text-muted">
         {initial}
       </span>
       <span className="flex-1">
-        <span className="block text-[13px] font-medium leading-tight">{name}</span>
+        <span className="block text-[13px] font-semibold leading-tight">{name}</span>
         <span className="block text-[11px] text-muted">{sub}</span>
       </span>
       <span className={`tabular text-[13px] font-semibold ${positive ? 'text-teal' : ''}`}>{amount}</span>
@@ -48,8 +48,8 @@ export function PhoneMockup() {
     <div className="w-[300px] rounded-[26px] bg-canvas px-4 pb-5 pt-4 shadow-phone ring-1 ring-white/50 sm:w-[340px]">
       {/* top bar */}
       <div className="flex items-center justify-between px-0.5">
-        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-ctr text-[13px] font-bold text-muted">A</span>
-        <span className="text-[18px] font-bold tracking-[-0.02em] text-terra">fpay</span>
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-ctr text-[13px] font-semibold text-muted">A</span>
+        <span className="text-[18px] font-extrabold tracking-[-0.02em] text-terra">fpay</span>
         <span className="relative flex h-8 w-8 items-center justify-center text-terra">
           <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden {...stroke}>
             <path d="M18 9a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7M10.5 20a1.7 1.7 0 0 0 3 0" />
@@ -68,7 +68,7 @@ export function PhoneMockup() {
           <span className="eyebrow text-muted">Active in India</span>
         </span>
         <span className="mt-3.5 text-[12px] text-muted">Global balance</span>
-        <span className="tabular mt-0.5 text-[40px] font-bold leading-[1.1] tracking-[-0.02em]">
+        <span className="tabular mt-0.5 text-[40px] font-extrabold leading-[1.1] tracking-[-0.02em]">
           <span className="mr-0.5 text-[24px] font-semibold text-muted/70">$</span>1,284.60
         </span>
       </div>
@@ -89,18 +89,18 @@ export function PhoneMockup() {
               <path d="M20 7H5a2 2 0 0 1 0-4h13v4M20 7a1 1 0 0 1 1 1v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5M16.5 14h.01" />
             </svg>
           </span>
-          <span className="rounded-lg bg-teal-soft px-2 py-1 text-[10px] font-bold tracking-wide text-teal">PRIMARY</span>
+          <span className="rounded-lg bg-teal-soft px-2 py-1 text-[10px] font-semibold tracking-wide text-teal">PRIMARY</span>
         </div>
         <div className="mt-3">
           <span className="block text-[12px] text-muted">US Dollars</span>
-          <span className="tabular block text-[19px] font-bold">$1,284.60</span>
+          <span className="tabular block text-[19px] font-semibold">$1,284.60</span>
         </div>
       </div>
 
       {/* recent activity */}
       <div className="mt-4">
         <div className="flex items-center justify-between px-0.5 pb-2">
-          <span className="text-[14px] font-bold">Recent activity</span>
+          <span className="text-[14px] font-semibold">Recent activity</span>
           <span className="text-[11px] font-semibold text-terra">See all</span>
         </div>
         <div className="flex flex-col gap-2">

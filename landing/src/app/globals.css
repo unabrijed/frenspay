@@ -12,7 +12,6 @@
   --color-terra-deep: #aa3621;
   --color-terra-ctr: #c84b34;
   --color-peach: #ffdad3;
-  --color-peach-dim: #ffb4a5;
   --color-teal: #416467;
   --color-teal-soft: #c1e7ea;
   --color-teal-on: #294c4f;
@@ -49,6 +48,20 @@ button:not(:disabled),
 
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* Film-grain overlay for brand-gradient surfaces (texture instead of decoration). */
+.grain {
+  position: relative;
+}
+.grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.05;
+  mix-blend-mode: overlay;
 }
 
 /* Scroll reveals + decorative motion. Everything lives inside the media query so
@@ -89,42 +102,4 @@ button:not(:disabled),
     }
   }
 
-  .floaty {
-    animation: floaty 7s ease-in-out infinite alternate;
-  }
-  .floaty-slow {
-    animation: floaty 9s ease-in-out infinite alternate;
-  }
-  .floaty-fast {
-    animation: floaty 5s ease-in-out infinite alternate;
-  }
-  @keyframes floaty {
-    from {
-      transform: translateY(-6px);
-    }
-    to {
-      transform: translateY(6px);
-    }
-  }
-
-  .marquee {
-    animation: mqx 40s linear infinite;
-  }
-  @keyframes mqx {
-    to {
-      transform: translateX(-50%);
-    }
-  }
-
-  .flash-peach {
-    animation: flash-peach 1.2s var(--ease-soft);
-  }
-  @keyframes flash-peach {
-    0% {
-      background-color: var(--color-peach);
-    }
-    100% {
-      background-color: transparent;
-    }
-  }
 }
