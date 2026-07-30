@@ -1,0 +1,65 @@
+# Prism project model — fpay (payments)
+
+> Seeded 2026-07-02 by /prism-plan (direct-address send). Verify entries with /prism-prune as code evolves.
+
+## Architecture (verified 2026-07-02)
+
+- Monorepo `monorepo/`: `apps/backend` (Fastify-style routes + Postgres), `apps/web` (Next.js, the real client), `apps/mobile` (Expo, **lags web: mock pay flow, no order API, boolean KYC**), `packages/shared` (types/contracts), `anchor/` (Solana escrow program).
+- **Rails are 100% Solana devnet SPL-USDC.** No EVM deps/signers/RPC anywhere. Privy wired Solana-only (`apps/web/src/services/privy/PrivyBridge.tsx:7,17,84`) even though installed `@privy-io/react-auth@3.32.1` is EVM-first (Solana is the opt-in subpath) and ships a `smart-wallets` (ERC-4337) entrypoint.
+- Send path (P2P): client `wallet.transfer({toHandle})` → `POST /transfer/prepare` (`routes/index.ts:238-298`) → server builds SPL transfer + fee-payer `partialSign` (`services/solana.ts:85-127`) → client signs via Privy → `POST /transfer/submit` → poller confirms (`confirmer.ts`; Helius webhook only when `PUBLIC_BASE_URL` set — poller is the designed fallback).
+- Compliance controls are **inline in the prepare handler** (`routes/index.ts:249-281`): `withUserLock` + `checkSendLimit` + `screenHandle/screenAddress` + `scoreAndRecord`. Not middleware — any new money-moving route must re-attach them explicitly.
+- Ledger: `transfers` table; `to_user_id`/`from_user_id` nullable, free-text `to_address` (`schema.sql:34-48`) — external recipients representable. `signature text unique` (`schema.sql:36`). Amounts are `amount_usdc numeric(20,6)` USD-decimal.
+
+## Invariants (cited)
+
+1. **Server-authoritative sends:** recipient/amount are bound by the fee-payer partial signature (`solana.ts:121`); the client can only co-sign, never alter or pre-build the tx. Never accept a client-built tx.
+2. **Backend imports only TYPES from `packages/shared`** (`import type`) — runtime value imports fail under tsx. Runtime helpers used by the backend must live in the backend.
+3. **USDC is the only asset, permanently for now (Bridge, 2026-07-02).** No token pickers, no token names in any UI; amounts render as dollars. Network names are the only permitted crypto surface.
+4. **De-crypto UX:** the app must feel like a normal money app; no crypto jargon/mechanics shown to users.
+5. **Daily send caps aggregate over `kind='send'` and `status <> 'failed'`** (`queries.ts:1176-1185`) — any new send-like row MUST use `kind='send'` or it escapes the cap.
+6. **Confirmer is Solana-only** (`confirmer.ts:19-31`); any non-Solana signature reaching `transfers.signature` becomes a permanent-pending zombie row (stale sweep only reaps unsigned rows, `queries.ts:371-380`). Gate by `chain` column before v2.
+7. Env config: NODE_ENV→prefix (dev/stage→STAGE_, prod→none), one envConfig per app, always-real (no mock toggles).
+8. Never auto-start servers; give Bridge the command.
+
+## Danger zones
+
+- `/transfer/prepare` error collapse: build failures surface as retryable-looking `503 solana_unavailable` (`routes/index.ts:265-268,296`) — masks invalid recipients (plan 16 fixes).
+- No idempotency key on prepare; UI double-tap / manual retry after Privy "confirmation timed out" can double-send (plan 16 adds key). The `/blockhash/i` auto-retry in `real.ts:44-45` is safe (preflight rejection).
+- Fee-payer pays ~0.00204 SOL ATA rent per fresh recipient (`solana.ts:102-110`) — external sends open a drain vector; keep min-amount + daily new-recipient caps.
+- Rate limiter honors `x-dev-user-id` whenever `isDevelopment` (incl. NODE_ENV=stage) (`rateLimit.ts:37`) — bucket rotation bypass (plan 16 fixes).
+- Denylist match is exact-string (`queries.ts:1199-1202`) — EVM case variation bypasses; normalize per network.
+- `assertKycConfig` accepts placeholder-looking non-empty values (`kyc/index.ts:22`) — a literal `<your workflow id>` boots "healthy" and 503s at runtime.
+- Plaintext secrets in `apps/backend/.env` (DB password, fee-payer secret, Privy secret) — rotate/move to a secret manager eventually.
+- `review` risk decisions do NOT block sends — only `block` does (`routes/index.ts:260`). Known gap, deliberately unchanged in plan 16.
+
+## Lessons
+
+- "Payment system feels broken" (2026-07-02) had TWO causes, found only under adversarial verification: deterministic Didit workflow-id placeholder killing all KYC/tier-2 flows (primary), and commented-out Helius RPC env → public devnet fallback → intermittent 503s (secondary). The initially-blamed missing webhook was designed poller-mode. Lesson: verify "root cause" claims adversarially; the first plausible config smell may not be the dominant one.
+- Address "network detection" can only classify Solana (base58→32 bytes) vs EVM-family (0x+40hex); a 0x address is identical across all EVM chains — the UX must ask, not guess.
+
+## Decision log
+
+- 2026-07-02 — **Direct-address send v1 = Solana execute + honest EVM detect ("coming soon"); tier-2 KYC gate on external sends; web-first; USDC-only forever-for-now; v2 cross-chain = platform-side CCTP (burn Solana → mint destination), Monad last** → `monorepo/docs/16-direct-address-send-plan.md`. Open items for prism-retro: CCTP chain coverage (esp. Monad) unverified; `review`-decision enforcement deferred; mobile parity deferred; A3 (external sends desired) and A4 (devnet + Helius key available) assumed.
+- 2026-07-03 — **Implemented** (all workstreams, typecheck-clean, stage-DB schema migrated). Deltas vs plan discovered while building: idempotency needed *replay* semantics (unsigned row → rebuilt tx, same transferId), not a flat 409 — a 409 would break the legit blockhash retry; on-curve check does NOT reject 32-zero-bytes (system program is a valid curve encoding) → added a known-unspendable blocklist (system/token/ATA program ids + the USDC mint). Runtime verify matrix (docs/16 §7) pending — needs servers up + a Helius key.
+- 2026-07-22 — **UPI-style aliases + routes split + 3-tier env** (`docs/17`, implemented same day, typecheck-clean, stage DB migrated). Decisions: keep `@bridge` format (`bridge@fpay` deferred — collides with the merchant-VPA parser `qr.ts:14,82`); pay-by-phone strict opt-in, `users.phone IS NOT NULL` **is** the consent flag (no boolean); phone verification = Privy linked phone only (server `getUser(did).phone.number` — own-number rule free, zero OTP infra); handle **immutable** after first sync (upsert no longer updates it; also fixed the display_name-nulling bug — sync carried no displayName so every re-sync nulled it); handles canonicalized `'@'+[a-z0-9_.]{3,30}` server-side, normalization lives INSIDE findUserByHandle/resolveHandleToFriend/screenHandle so all callers are covered. `routes/index.ts` split into domain modules (system/auth/money/orders/kyc/notifications/webhooks — index.ts is just hooks + registrar; path renames deliberately NOT done). Keyset pagination (`cursor='<iso>|<id>'`, Page<T>) on transactions/orders/notifications. Multi-chain guards landed: getWalletForUser takes chain (default solana), getPendingSignatures filters chain='solana'. Env: local→LOCAL_→STAGE_→bare, stage→STAGE_→bare, prod→bare; boot log names the DATABASE_URL source + warns when local resolves a STAGE_ DB; web tier via NEXT_PUBLIC_APP_ENV (Next forces NODE_ENV). Phone search uses candidate country codes from the searcher's own number (≤3 exact-match lookups, no libphonenumber; wrong candidate = miss, never mis-pay). Pending: Privy dashboard must enable the SMS/phone login method before the toggle works in Privy mode; runtime matrix docs/17.
+
+- 2026-07-22 (later) — **Unified pay + country dialing default + CCTP chain list** (`docs/18`, implemented same day, typecheck-clean, stage DB migrated). Chains: SUPPORTED_NETWORKS = Solana live + 12 EVM coming_soon (CCTP V2 set: +optimism/avalanche/unichain/worldchain/linea/sonic/hyperevm); list principle = native USDC ∧ CCTP-reachable; Sui/Aptos deferred (need 0x+64hex classifier). **Chain-surface rule codified in chains.ts header**: network names render ONLY at external-address send / on-ramp / off-ramp (audit found zero violations; AddMoney deposit row now labeled "Solana · only send on this network" — unlabeled address invited wrong-chain deposits). Phone: `users.country` (ISO-2) dialing default — locale fills-if-null via /auth/sync coalesce, verified-phone/manual overwrite via POST /me/country (client-asserted BY DESIGN: only tunes own candidate guessing, wrong value = own lookup miss; resolve stays strict E.164); `dialCodes.ts` in shared (ISO_TO_DIAL ~244 entries, DIAL_TO_ISO w/ +1→US +7→RU pins, isoFromE164 longest-prefix); `phoneCandidates(raw, {country, ownPhone})`. **KYC document country REJECTED as a source** (expat wrong-default + alpha-3 mapping + unverifiable Didit fields). QR: `tel:` + bare-digit payloads → phone kind → directory resolve. No-country fallback = prompt for +code, never guess (Bridge). Privy dashboard SMS method still pending for Privy-mode enrollment.
+
+- 2026-07-22 (latest) — **Phone-OTP channel decision PARKED by Bridge** ("hold for this, will come back to number verification later"). Facts to not re-research: Privy SMS = US/Canada-only on ALL plans (international = Enterprise + approval); Privy WhatsApp = every WhatsApp region incl. India; the dashboard choice is **IRREVERSIBLE** ("either SMS or WhatsApp, cannot utilize both; once enabled for SMS it cannot be switched") — never enable a channel without Bridge's explicit go; both channels share the same SDK hooks (react-auth `useLinkPhone` — no WhatsApp-specific API in 3.32.1), so the shipped wiring works unchanged whichever way it goes. Third option: own OTP vendor (Twilio Verify / MSG91, India DLT hassle) at M7. Pay-by-phone remains fully testable via the dev shim; PayByPhone sheet copy made channel-neutral.
+
+- 2026-07-23 — **Cross-chain USDC v2 SHIPPED (docs/19)**: CCTP V2 behind a rail abstraction (Bridge's "mix of protocols" call). Facts that must not be re-derived: rails = `services/bridge/rails/cctp.ts` factory (`cctp_standard` out / `cctp_fast` in; corridor→rail = `BRIDGE_RAIL_OUT/IN` env); generic states `created→source_submitted→source_confirmed→ready→settling→settled/failed` in `bridge_transfers` (rail artifacts in `rail_data` jsonb; companion `transfers` row is ALWAYS the Solana leg — out: burn `kind='send'`, in: mint `kind='add'` — so confirmer + daily-cap work unchanged); post-burn states NEVER expire (attestation permissionless/replayable — funds delayed, never stranded); claim-first CAS before settle broadcast; stale-unsigned sweep EXCLUDES bridge companions. Devnet cutover: official Circle USDC `4zMMC…DncDU`, faucet = treasury `transferChecked` (`sendUsdcFromTreasury`; `mintUsdcTo` is GONE), treasury = fee-payer ATA seeded via faucet.circle.com. Inbound = user's Privy smart wallet (self-custody; SmartWalletsProvider + `createOnLogin`), server-built calldata (`buildDepositCalls`), Iris-attested message is the trust boundary (amount reconcile + mintRecipient≡caller's ATA). Preflight `scripts/check-cctp.ts` PASSED incl. dummy burn build (vendored IDLs verified against devnet). Ops pending: fund treasury (fee-payer `47mWnfd9…ackC`) + minter Sepolia ETH (`0x2a3274c541d9b641db9275cd6806b25fab17fe00`), Privy dashboard smart wallets + Pimlico Sepolia paymaster URLs.
+
+## Telemetry (2026-07-02 plan run)
+
+- divergence: 0.57 (evidence 0.78, conclusion 0.25) | threshold 0.30 UNCALIBRATED
+- models: draft=fable · skeptics=2x-opus+1x-sonnet (cross-tier; version axis unavailable)
+- claims: C1 cross-tier-survived (anchors grounded) · C2 grounded · C3′ grounded (replaced struck C3) · C4 grounded (mechanism corrected)
+- fleet: 8 lenses + 1 grounding verifier + 3 skeptics; grounding 23/26 verified, 3 corrected, 0 struck
+
+## File concern map (W1 cache)
+
+- Send flow/UX: `apps/web/src/components/sheets/{pay,friends}.tsx`, `apps/web/src/store/usePayStore.ts`, `apps/web/src/lib/{qr,contacts,base58}.ts`, `apps/web/src/components/SheetHost.tsx`
+- Money movement: `apps/backend/src/services/{solana,routing,quoteEngine,orderMachine,confirmer}.ts`, `apps/backend/src/routes/index.ts`
+- Compliance: `apps/backend/src/services/compliance.ts`, `apps/backend/src/services/kyc/*`, `india-legal-compliance-brief.md` (repo root)
+- Data/ledger: `apps/backend/src/db/{schema.sql,queries.ts}`, `packages/shared/src/contracts.ts`
+- Custody/signing: `apps/web/src/services/{wallet,signer,real}.ts`, `apps/web/src/services/privy/*`, `apps/backend/src/services/{privy,escrowProgram}.ts`, `apps/backend/src/auth.ts`
