@@ -13,6 +13,8 @@ export type KycOutcome = 'approved' | 'declined' | 'in_review' | 'pending' | 'ex
 export interface KycDecision {
   sessionId: string;
   status: KycOutcome;
+  /** Document's issuing country (ISO 3166-1 alpha-2), when the vendor reports one. Best-effort. */
+  country?: string;
 }
 
 export interface KycProvider {

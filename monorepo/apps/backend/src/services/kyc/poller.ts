@@ -9,6 +9,7 @@ import {
   getUserByKycSession,
   setKycApproved,
   setKycStatus,
+  setUserCountry,
 } from '../../db/queries';
 import { notifyKycUpgraded } from '../notify';
 
@@ -26,6 +27,8 @@ export async function applyKycForSession(sessionId: string, log?: (m: string) =>
 
   if (decision.status === 'approved') {
     await setKycApproved(user.id, KYC_APPROVED_TIER);
+    // The document's issuing country is the strongest write source for the dialing default.
+    if (decision.country) await setUserCountry(user.id, decision.country);
     await notifyKycUpgraded(user.id, KYC_APPROVED_TIER);
     log?.(`kyc ${sessionId} → approved (user ${user.id}, tier ${KYC_APPROVED_TIER})`);
   } else if (decision.status === 'declined') {

@@ -721,7 +721,8 @@ export const usePayStore = create<PayState>()(
         for (let i = 0; i < 20; i++) {
           try {
             const me = await api.me();
-            set({ kycTier: me.kycTier, kycStatus: me.kycStatus ?? get().kycStatus });
+            // country too: approval may have set it from the KYC document (see kyc/poller.ts).
+            set({ kycTier: me.kycTier, kycStatus: me.kycStatus ?? get().kycStatus, country: me.country || get().country });
             if (me.kycTier >= 2) {
               set({ pendingPay: false });
               get().resumePayAfterKyc();
