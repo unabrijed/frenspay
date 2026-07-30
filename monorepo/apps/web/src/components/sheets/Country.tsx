@@ -8,7 +8,7 @@ import { useMemo, useState } from 'react';
 import { ISO_TO_DIAL } from '@fpay/shared';
 
 import { Icons } from '@/components/icons';
-import { Grab, List, Row, RowMeta, SearchBar, SheetBody, SheetHeader } from '@/components/ui/primitives';
+import { Flag, Grab, List, Row, RowMeta, SearchBar, SheetBody, SheetHeader } from '@/components/ui/primitives';
 import { View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { colors, type } from '@/lib/theme';
@@ -55,6 +55,7 @@ export function Country() {
                   void setCountry(c.iso);
                   close();
                 }}>
+                <Flag iso={c.iso} />
                 <RowMeta>
                   <Txt style={type.rowName}>{c.name}</Txt>
                   <Txt style={[type.rowTime, { marginTop: 3 }]}>{c.dial}</Txt>

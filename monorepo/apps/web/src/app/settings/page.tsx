@@ -2,12 +2,12 @@
 
 // Settings — profile, account rows, replay onboarding. Per screens-more.jsx.
 import { useRouter } from 'next/navigation';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 import { Icons } from '@/components/icons';
 import { BackButton } from '@/components/ui/BackButton';
 import { Btn, TextLink } from '@/components/ui/Button';
-import { List, ProfileAvatar, Row, RowMeta, Spacer } from '@/components/ui/primitives';
+import { Flag, List, ProfileAvatar, Row, RowMeta, Spacer } from '@/components/ui/primitives';
 import { Pressable, View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
 import { Txt } from '@/components/ui/Txt';
@@ -48,7 +48,13 @@ export default function Settings() {
         <List>
           <SettingsRow k="Recovery" v={recoveryPasskey ? 'Passkey set' : 'Email'} onPress={() => open('recovery')} />
           <SettingsRow k="Pay by phone" v={phone ? 'On' : 'Off'} onPress={() => open('payByPhone')} />
-          <SettingsRow k="Country" v={country || 'Not set'} onPress={() => open('country')} />
+          {/* Verified users' country comes from their KYC document — read-only, no picker. */}
+          <SettingsRow
+            k="Country"
+            v={country || 'Not set'}
+            icon={country ? <Flag iso={country} size={20} /> : null}
+            onPress={kycTier >= 2 && country ? undefined : () => open('country')}
+          />
           <SettingsRow k="Display currency" v={displayCurrency} accent onPress={() => open('currency')} />
           <SettingsRow k="Help and support" onPress={() => open('help')} />
           {/* Only surfaced once they run a merchant account — an ordinary payer never sees it. */}
@@ -90,17 +96,18 @@ export default function Settings() {
   );
 }
 
-function SettingsRow({ k, v, accent, onPress }: { k: string; v?: string; accent?: boolean; onPress?: () => void }) {
+function SettingsRow({ k, v, icon, accent, onPress }: { k: string; v?: string; icon?: ReactNode; accent?: boolean; onPress?: () => void }) {
   return (
     <Row onPress={onPress}>
       <RowMeta>
         <Txt style={type.rowName}>{k}</Txt>
       </RowMeta>
       <View style={styles.value}>
+        {icon}
         {v ? (
           <Txt style={{ ...fonts.mono400, fontSize: 15, color: accent ? colors.accent : colors.muted }}>{v}</Txt>
         ) : null}
-        <Icons.Chevron size={16} color={colors.muted} />
+        {onPress ? <Icons.Chevron size={16} color={colors.muted} /> : null}
       </View>
     </Row>
   );
@@ -150,7 +157,7 @@ const styles = {
   badgeOk: { width: 40, height: 40, borderRadius: 999, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   badgeOff: { width: 40, height: 40, borderRadius: 999, borderWidth: 2, borderStyle: 'dashed', borderColor: colors.muted },
   safe: { flex: 1, backgroundColor: colors.canvas },
-  scroll: { flex: 1, paddingLeft: GUTTER, paddingRight: GUTTER, paddingTop: 4, paddingBottom: 24 },
+  scroll: { flex: 1, overflowY: 'auto', paddingLeft: GUTTER, paddingRight: GUTTER, paddingTop: 4, paddingBottom: 24 },
   fhead: { paddingTop: 8, paddingBottom: 6, paddingLeft: 2, paddingRight: 2 },
   profile: { flexDirection: 'row', alignItems: 'center', gap: 13, paddingLeft: 2, paddingRight: 2, paddingTop: 10, paddingBottom: 18 },
   value: { flexDirection: 'row', alignItems: 'center', gap: 8 },

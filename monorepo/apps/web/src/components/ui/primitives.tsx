@@ -166,6 +166,25 @@ export function Fav({ label }: { label: string }) {
     </View>
   );
 }
+/** Circular country flag (circle-flags SVGs off jsDelivr — remote like Material Symbols, never
+ *  self-hosted). Decorative: the country name/code is always adjacent text, and a load failure
+ *  (offline, unknown ISO) hides the img so rows degrade to text-only. */
+export function Flag({ iso, size = 40 }: { iso: string; size?: number }) {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- tiny remote SVGs; next/image adds nothing
+    <img
+      src={`https://cdn.jsdelivr.net/gh/HatScripts/circle-flags@2.7.0/flags/${iso.toLowerCase()}.svg`}
+      width={size}
+      height={size}
+      alt=""
+      loading="lazy"
+      style={{ borderRadius: '50%', flexShrink: 0 }}
+      onError={(e) => {
+        e.currentTarget.style.display = 'none';
+      }}
+    />
+  );
+}
 export function ProfileAvatar({ label }: { label: string }) {
   return (
     <View style={styles.profileAvatar}>
