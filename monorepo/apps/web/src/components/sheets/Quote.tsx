@@ -1,10 +1,11 @@
 'use client';
 
 // Quote.tsx — the "highest-leverage UI": one quote, two choices (Continue / Edit).
-// You pay / from balance · today's rate · fee · total time · payout method, under a live 45s lock.
-// Continue confirms the payment and opens the tracker.
+// You pay / from balance · today's rate · fee · total time · payout method. The rate hold is
+// invisible: the quote silently re-fetches near expiry, so the ₹ amount the user typed never
+// changes — only the internal rate/USDC recalculate. Continue confirms and opens the tracker.
 import type { CSSProperties } from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 
 import { Btn, TextLink } from '@/components/ui/Button';
 import { Grab, List, SheetBody, SheetHeader, Spacer } from '@/components/ui/primitives';
@@ -43,27 +44,21 @@ export function QuoteSheet() {
   const close = usePayStore((s) => s.close);
   const confirmOrder = usePayStore((s) => s.confirmOrder);
   const editQuote = usePayStore((s) => s.editQuote);
-  const getQuote = usePayStore((s) => s.getQuote);
+  const refreshQuote = usePayStore((s) => s.refreshQuote);
 
-  // Tick the 45s lock countdown.
-  const [now, setNow] = useState(() => Date.now());
+  // Keep the quote fresh under the user — the store no-ops until near expiry, then swaps the
+  // quote in place. Also self-heals after background-tab throttling: first tick back refreshes.
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 250);
+    const t = setInterval(() => void refreshQuote(), 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [refreshQuote]);
 
   if (!quote) return null;
-  const secsLeft = Math.max(0, Math.ceil((quote.expiresAt - now) / 1000));
-  const expired = secsLeft <= 0;
 
   return (
     <>
       <Grab />
-      <SheetHeader
-        eyebrow={`Paying ${payee.name}`}
-        title={expired ? 'Quote expired' : `Quote · valid ${secsLeft}s`}
-        onClose={close}
-      />
+      <SheetHeader eyebrow={`Paying ${payee.name}`} title="Review payment" onClose={close} />
       <SheetBody>
         <View style={styles.headline}>
           <Txt style={[type.bigAmount, { color: colors.ink }]}>{inrRaw(quote.amountInr)}</Txt>
@@ -81,19 +76,15 @@ export function QuoteSheet() {
         </List>
 
         <View style={styles.lock}>
-          <View style={[styles.dot, expired ? { backgroundColor: colors.muted } : null]} />
-          <Txt style={type.inst}>{expired ? 'Rate expired — refresh for a live price' : 'Real price, locked — never stale'}</Txt>
+          <View style={styles.dot} />
+          <Txt style={type.inst}>Real price, locked — never stale</Txt>
         </View>
 
         {error ? <Txt style={[type.lead, { color: colors.danger, marginTop: 10 }]}>{error}</Txt> : null}
 
         <Spacer />
         <View style={styles.cta}>
-          {expired ? (
-            <Btn label="Refresh quote" onPress={() => getQuote(quote.amountInr)} disabled={busy} />
-          ) : (
-            <Btn label="Continue" onPress={confirmOrder} disabled={busy} />
-          )}
+          <Btn label="Continue" onPress={confirmOrder} disabled={busy} />
           <TextLink label="Edit" onPress={editQuote} />
         </View>
       </SheetBody>

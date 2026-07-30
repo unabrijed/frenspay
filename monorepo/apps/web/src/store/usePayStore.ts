@@ -21,6 +21,9 @@ import { USE_PRIVY } from '@/services/env';
 import { confirmOrder as apiConfirmOrder, createQuote as apiCreateQuote, getOrder as apiGetOrder } from '@/services/orders';
 import { wallet, type Friend, type Payee, type Txn } from '@/services/wallet';
 
+// In-flight guard for the silent background re-quote (see refreshQuote).
+let refreshingQuote = false;
+
 export type SheetId =
   | 'scan'
   | 'amount'
@@ -230,6 +233,8 @@ interface PayState {
   // ---- order lifecycle: quote → confirm (sign escrow funding) → poll ----
   /** Request a locked quote for a rupee amount and open the Quote screen. */
   getQuote: (rupees: number) => Promise<void>;
+  /** Silently re-quote the same rupee amount when the held rate nears expiry. No busy/sheet/error. */
+  refreshQuote: () => Promise<void>;
   /** Confirm the live quote: create the order, sign the escrow funding, open the timeline. */
   confirmOrder: () => Promise<void>;
   /** Poll the in-flight order; refreshes balance once it reaches a terminal state. */
@@ -964,23 +969,72 @@ export const usePayStore = create<PayState>()(
         }
       },
 
-      confirmOrder: async () => {
+      refreshQuote: async () => {
         const q = get().quote;
-        if (!q) return;
-        set({ busy: true, error: null });
+        // Only when near/past expiry, not mid-payment, not already refreshing. The hold window is
+        // deliberately invisible to the user — the quote just stays fresh under them.
+        if (!q || get().busy || refreshingQuote) return;
+        if (q.expiresAt - Date.now() > 5_000) return;
+        refreshingQuote = true;
         try {
-          const order = await apiConfirmOrder(q.id);
-          // Optimistically debit the escrowed USDC so a second order can't see the same balance;
-          // refreshOrder() reconciles against the chain on completion/refund.
-          set((s) => ({ order, balanceUSD: +(s.balanceUSD - q.amountUsdc).toFixed(2), busy: false }));
-          get().open('tracking');
-        } catch (e) {
-          if (e instanceof ApiError && e.code === 'limit_exceeded') {
-            set({ busy: false, error: 'Verify your identity to raise your limit.', pendingPay: true });
-            get().open('verify');
+          const payee = get().payee;
+          const quote = await apiCreateQuote({
+            direction: 'spend',
+            amountInr: q.amountInr,
+            payoutMethod: 'UPI',
+            payoutDestination: payee.vpa,
+            payoutName: payee.name,
+          });
+          set({ quote });
+        } catch {
+          // Keep the stale quote; confirmOrder's quote_expired retry is the backstop.
+        } finally {
+          refreshingQuote = false;
+        }
+      },
+
+      confirmOrder: async () => {
+        set({ busy: true, error: null });
+        // Two passes: if the quote expired between refresh ticks, silently re-quote the same
+        // rupee amount and retry once. Safe — the 409 fires before any order or tx exists.
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const q = get().quote;
+          if (!q) {
+            set({ busy: false });
             return;
           }
-          set({ busy: false, error: e instanceof Error ? e.message : String(e) });
+          try {
+            const order = await apiConfirmOrder(q.id);
+            // Optimistically debit the escrowed USDC so a second order can't see the same balance;
+            // refreshOrder() reconciles against the chain on completion/refund.
+            set((s) => ({ order, balanceUSD: +(s.balanceUSD - q.amountUsdc).toFixed(2), busy: false }));
+            get().open('tracking');
+            return;
+          } catch (e) {
+            if (e instanceof ApiError && e.code === 'quote_expired' && attempt === 0) {
+              try {
+                const payee = get().payee;
+                const quote = await apiCreateQuote({
+                  direction: 'spend',
+                  amountInr: q.amountInr,
+                  payoutMethod: 'UPI',
+                  payoutDestination: payee.vpa,
+                  payoutName: payee.name,
+                });
+                set({ quote });
+                continue;
+              } catch {
+                // Re-quote failed; fall through and report the original error.
+              }
+            }
+            if (e instanceof ApiError && e.code === 'limit_exceeded') {
+              set({ busy: false, error: 'Verify your identity to raise your limit.', pendingPay: true });
+              get().open('verify');
+              return;
+            }
+            set({ busy: false, error: e instanceof Error ? e.message : String(e) });
+            return;
+          }
         }
       },
 
