@@ -4,7 +4,7 @@
 //   2. an in-flight order commits live float and saturates the LP out of routing;
 //   3. drawing the bond below MIN_BOND suspends the LP (absent from routing).
 // Run: yarn workspace @fpay/backend tsx scripts/check-merchant.ts   (needs DATABASE_URL + `db:init`)
-import { committedFloatByMerchant, drawDownBond } from '../src/db/queries';
+import { committedFloatByMerchant, drawDownBond, setOrderFeedback } from '../src/db/queries';
 import { getPool } from '../src/db/pool';
 import { DISPUTE_PENALTY_USDC, MIN_BOND, recomputeMerchantStats } from '../src/services/merchantStats';
 import { rankMerchants } from '../src/services/routing';
@@ -86,6 +86,41 @@ async function main() {
   const idx = (id: string) => ranked.findIndex((r) => r.merchant.id === id);
   check('failing LP ranks below the healthy LP', idx(big.id) >= 0 && idx(fail.id) > idx(big.id),
     `FAIL@${idx(fail.id)} BIG@${idx(big.id)}`);
+
+  // 1b) Payer feedback: the guarded UPDATE is the whole policy — wrong user / not-completed / repeat
+  //     all affect 0 rows — and enough 👎 drags positive_rate below its 0.9 code prior.
+  const fbOrder = (
+    await pool.query<{ id: string }>(
+      `insert into orders (user_id, quote_id, merchant_id, amount_usdc, reference_code, state)
+       values ($1,$2,$3,11.4,'ZZH-FB-0','completed') returning id`,
+      [user.id, quote.id, fail.id],
+    )
+  ).rows[0];
+  check("someone else's order can't be rated",
+    !(await setOrderFeedback(fbOrder.id, '00000000-0000-0000-0000-000000000000', true)));
+  check('feedback records once on a completed order', await setOrderFeedback(fbOrder.id, user.id, false));
+  check('repeat feedback is a no-op', !(await setOrderFeedback(fbOrder.id, user.id, true)));
+  const failedOrder = (
+    await pool.query<{ id: string }>(
+      `insert into orders (user_id, quote_id, merchant_id, amount_usdc, reference_code, state)
+       values ($1,$2,$3,11.4,'ZZH-FB-X','failed') returning id`,
+      [user.id, quote.id, fail.id],
+    )
+  ).rows[0];
+  check('a non-completed order rejects feedback', !(await setOrderFeedback(failedOrder.id, user.id, true)));
+  for (let i = 1; i <= 5; i++) {
+    await pool.query(
+      `insert into orders (user_id, quote_id, merchant_id, amount_usdc, reference_code, state, feedback_up)
+       values ($1,$2,$3,11.4,$4,'completed',false)`,
+      [user.id, quote.id, fail.id, `ZZH-FB-${i}`],
+    );
+  }
+  await recomputeMerchantStats();
+  const f1b = (
+    await pool.query<{ positive_rate: string }>(`select positive_rate from merchants where id=$1`, [fail.id])
+  ).rows[0];
+  check('6× 👎 drags positive_rate below the 0.9 prior', Number(f1b.positive_rate) < 0.9,
+    `positive_rate=${f1b.positive_rate}`);
 
   // 2) Live float: a 950-USDC in-flight order on FAIL (float 1000) leaves only ~50 available → it is
   //    filtered out for a 100-USDC order (BIG still covers it).

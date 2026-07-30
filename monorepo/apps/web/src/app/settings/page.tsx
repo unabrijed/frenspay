@@ -25,6 +25,7 @@ export default function Settings() {
   const recoveryPasskey = usePayStore((s) => s.recoveryPasskey);
   const kycTier = usePayStore((s) => s.kycTier);
   const merchant = usePayStore((s) => s.merchant);
+  const role = usePayStore((s) => s.role);
   const logout = usePayStore((s) => s.logout);
   const resetForTesting = usePayStore((s) => s.resetForTesting);
   return (
@@ -59,6 +60,8 @@ export default function Settings() {
               onPress={() => router.push('/merchant')}
             />
           ) : null}
+          {/* Operator-only: the read-only flow viewer. The backend 403s non-admins anyway. */}
+          {role === 'admin' ? <SettingsRow k="Admin" accent onPress={() => router.push('/admin')} /> : null}
         </List>
 
         <Spacer />

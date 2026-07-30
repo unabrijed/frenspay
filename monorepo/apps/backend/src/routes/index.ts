@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import { authPreHandler } from '../auth';
 import { rateLimitHook } from '../services/rateLimit';
 
+import { registerAdminRoutes } from './admin';
 import { registerAuthRoutes } from './auth';
 import { registerCrosschainRoutes } from './crosschain';
 import { registerKycRoutes } from './kyc';
@@ -32,4 +33,5 @@ export async function registerRoutes(app: FastifyInstance) {
   await registerKycRoutes(app);
   await registerNotificationRoutes(app);
   await registerWebhookRoutes(app);
+  await registerAdminRoutes(app);
 }

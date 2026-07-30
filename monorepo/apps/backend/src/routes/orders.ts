@@ -31,6 +31,7 @@ import {
   listOrdersForUser,
   resolveDispute,
   setMerchantKyb,
+  setOrderFeedback,
   unfreezeOrderAfterDispute,
   updateOrder,
   withUserLock,
@@ -271,6 +272,18 @@ export async function registerOrderRoutes(app: FastifyInstance) {
       if (inReleaseWindow) await freezeOrderForDispute(req.params.id);
       return reply.code(201).send({ id, status: 'open' });
     });
+  });
+
+  // One-tap 👍/👎 after completion — feeds the merchant's positive_rate. No withUserLock: the
+  // guarded UPDATE in setOrderFeedback is the compare-and-set. 409 covers not-found / not-yours /
+  // not-completed / already-answered alike; the client treats it as "already recorded".
+  app.post<{ Params: { id: string }; Body: { up?: boolean } }>('/orders/:id/feedback', async (req, reply) => {
+    const userId = requireUserId(req);
+    if (typeof req.body?.up !== 'boolean') return reply.code(400).send({ error: 'missing_fields' });
+    if (!(await setOrderFeedback(req.params.id, userId, req.body.up))) {
+      return reply.code(409).send({ error: 'feedback_not_recorded' });
+    }
+    return { ok: true };
   });
 
   // --- dev-only M4 controls (KYB decision, stats recompute, dispute resolution) ---

@@ -15,7 +15,14 @@
 // Escalation gates on the order's expires_at (an absolute deadline, immune to unrelated updated_at
 // bumps); short LP-action delays use time-in-state. Also recovers orders stuck mid-release and
 // retires orders abandoned before funding.
-import { casOrderState, expireStaleOrders, hasOpenDispute, listWorkerOrders, withUserLock } from '../db/queries';
+import {
+  appendOrderEvent,
+  casOrderState,
+  expireStaleOrders,
+  hasOpenDispute,
+  listWorkerOrders,
+  withUserLock,
+} from '../db/queries';
 
 import { flagResolution, refundToUser, releaseToMerchant, rerouteOrder } from './orderMachine';
 
@@ -44,11 +51,15 @@ export async function runOrderWorkerOnce(log?: (m: string) => void): Promise<voi
       // retry) or the final transition didn't land (tx recorded → finish advancing).
       if (o.state === 'merchant_confirms') {
         if (o.escrow_release_transfer_id) {
-          if (await casOrderState(o.id, ['merchant_confirms'], 'funds_released'))
+          if (await casOrderState(o.id, ['merchant_confirms'], 'funds_released')) {
+            await appendOrderEvent(o.id, 'merchant_confirms', 'funds_released', 'release_recovered');
             log?.(`order ${o.id} recovered: merchant_confirms → funds_released`);
+          }
         } else if (elapsed >= STUCK_RELEASE_MS) {
-          if (await casOrderState(o.id, ['merchant_confirms'], 'payment_detected'))
+          if (await casOrderState(o.id, ['merchant_confirms'], 'payment_detected')) {
+            await appendOrderEvent(o.id, 'merchant_confirms', 'payment_detected', 'release_retry');
             log?.(`order ${o.id} recovered: merchant_confirms → payment_detected (retry)`);
+          }
         }
         continue;
       }

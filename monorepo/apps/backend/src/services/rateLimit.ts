@@ -38,6 +38,7 @@ export const RATE_LIMIT_RULES: Rule[] = [
   { method: 'POST', path: '/merchants/apply', bucket: 'auth', limit: 5, windowMs: 60_000 },
   { method: 'POST', path: '/merchants/orders/:id/paid', bucket: 'order', limit: 20, windowMs: 60_000 },
   { method: 'POST', path: '/merchants/stake/prepare', bucket: 'send', limit: 20, windowMs: 60_000 },
+  { method: 'POST', path: '/orders/:id/feedback', bucket: 'order', limit: 20, windowMs: 60_000 },
 ];
 
 type Window = { count: number; resetAt: number };
@@ -55,7 +56,10 @@ function identity(req: FastifyRequest): string {
 /** Build the Fastify onRequest hook. Returns 429 (with retry-after) past a route's per-window cap. */
 export function rateLimitHook(rules: Rule[] = RATE_LIMIT_RULES) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
-    const path = req.url.split('?')[0];
+    // Match on the ROUTE pattern (`/orders/:id/feedback`), not the raw URL — raw-URL matching made
+    // every param-path rule dead code. 404s (and the check-infra fake req) have no routeOptions.url
+    // and fall back to the literal path, which is all they can match anyway.
+    const path = req.routeOptions?.url ?? req.url.split('?')[0];
     const rule = rules.find((r) => r.method === req.method && r.path === path);
     if (!rule) return;
 

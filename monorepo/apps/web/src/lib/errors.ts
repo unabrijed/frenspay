@@ -14,6 +14,7 @@ const BY_CODE: Record<string, string> = {
   crosschain_unavailable: 'Sends to other networks are briefly unavailable. Try again soon.',
   // limits / verification
   limit_exceeded: 'Verify your identity to raise your limits.',
+  kyc_required: 'Verify your identity first — merchants need a verified account.',
   // funding / faucet
   faucet_empty: 'Test funds are temporarily out. Try again shortly.',
   faucet_disabled: 'Adding test money isn’t available here.',

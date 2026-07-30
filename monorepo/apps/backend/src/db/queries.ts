@@ -1,6 +1,9 @@
 // queries.ts — typed data access over the lazy pg pool (db/pool.ts).
 // Maps rows to the @fpay/shared wire DTOs. Phase 1 is USDC-only, so no rupee column.
 import type {
+  AdminOrder,
+  AdminOrderDetailResponse,
+  AdminOverviewResponse,
   ApiPaymentRequest,
   ApiTxn,
   Friend,
@@ -27,6 +30,7 @@ export interface UserRow {
   email: string | null;
   phone: string | null;
   country: string | null;
+  role: 'user' | 'merchant' | 'admin';
 }
 
 export interface WalletRow {
@@ -587,6 +591,7 @@ export interface MerchantRow {
   spread_bps: number;
   float_usdc: string;
   dispute_rate: string;
+  positive_rate: string;
   kyb_status: 'pending' | 'approved' | 'rejected';
   bond_usdc: string;
   base_success_rate: string;
@@ -729,6 +734,7 @@ interface OrderJoinRow {
   amount_usdc: string;
   reference_code: string;
   payout_claimed_at: Date | null;
+  feedback_up: boolean | null;
   created_at: Date;
   updated_at: Date;
   quote_id: string;
@@ -752,7 +758,7 @@ interface OrderJoinRow {
 
 const ORDER_SELECT = `
   select o.id, o.user_id, o.state, o.resolution, o.amount_usdc, o.reference_code,
-         o.payout_claimed_at, o.created_at, o.updated_at, o.quote_id,
+         o.payout_claimed_at, o.feedback_up, o.created_at, o.updated_at, o.quote_id,
          q.direction as q_direction, q.amount_inr as q_amount_inr, q.amount_usdc as q_amount_usdc,
          q.rate as q_rate, q.fee_inr as q_fee_inr, q.network_fee_inr as q_network_fee_inr,
          q.eta_min_secs as q_eta_min_secs, q.eta_max_secs as q_eta_max_secs,
@@ -794,6 +800,7 @@ function toOrder(r: OrderJoinRow, events?: OrderEvent[]): Order {
     merchantName: quote.merchantName,
     payoutMethod: r.q_payout_method,
     payoutClaimedAt: r.payout_claimed_at?.toISOString(),
+    feedbackUp: r.feedback_up ?? undefined,
     createdAt: r.created_at.toISOString(),
     updatedAt: r.updated_at.toISOString(),
     events,
@@ -1060,6 +1067,7 @@ export async function cancelOrder(orderId: string, userId: string): Promise<bool
         )`,
     [orderId, userId],
   );
+  if ((rowCount ?? 0) > 0) await appendOrderEvent(orderId, null, 'failed', 'canceled_by_user');
   return (rowCount ?? 0) > 0;
 }
 
@@ -1071,16 +1079,18 @@ export async function expireStaleOrders(maxAgeMin = 15): Promise<number> {
   // Only retire orders that never funded (still pay_instructions AND no broadcast deposit). A
   // waiting_payment order means the deposit IS broadcast — leave it for the confirmer, never auto-fail
   // it (that would strand funded escrow on-chain).
-  const { rowCount } = await getPool().query(
+  const { rows } = await getPool().query<{ id: string }>(
     `update orders set state = 'failed', updated_at = now()
       where state = 'pay_instructions'
         and created_at < now() - make_interval(mins => $1)
         and not exists (
           select 1 from transfers t where t.id = orders.escrow_fund_transfer_id and t.signature is not null
-        )`,
+        )
+      returning id`,
     [maxAgeMin],
   );
-  return rowCount ?? 0;
+  for (const r of rows) await appendOrderEvent(r.id, 'pay_instructions', 'failed', 'expired_unfunded');
+  return rows.length;
 }
 
 /* ---- M3: routing signals + reroute audit ---- */
@@ -1228,14 +1238,29 @@ export async function merchantDisputeStats(): Promise<Record<string, { upheld: n
   return out;
 }
 
+/** 👍/👎 counts per merchant (drives positive_rate). Groups by orders.merchant_id, which reroute
+ *  rewrites — so feedback lands on the FINAL merchant, same convention as merchantDisputeStats. */
+export async function merchantFeedbackStats(): Promise<Record<string, { up: number; n: number }>> {
+  const { rows } = await getPool().query<{ merchant_id: string; up: string; n: string }>(
+    `select merchant_id, count(*) filter (where feedback_up) as up, count(*) as n
+       from orders
+      where feedback_up is not null and merchant_id is not null
+      group by merchant_id`,
+  );
+  const out: Record<string, { up: number; n: number }> = {};
+  for (const r of rows) out[r.merchant_id] = { up: Number(r.up), n: Number(r.n) };
+  return out;
+}
+
 /** Write recomputed live signals back to a merchant. */
 export async function updateMerchantStats(
   id: string,
-  s: { successRate: number; avgCompletionSecs: number; disputeRate: number },
+  s: { successRate: number; avgCompletionSecs: number; disputeRate: number; positiveRate: number },
 ): Promise<void> {
   await getPool().query(
-    `update merchants set success_rate = $2, avg_completion_secs = $3, dispute_rate = $4 where id = $1`,
-    [id, s.successRate, Math.round(s.avgCompletionSecs), s.disputeRate],
+    `update merchants set success_rate = $2, avg_completion_secs = $3, dispute_rate = $4, positive_rate = $5
+      where id = $1`,
+    [id, s.successRate, Math.round(s.avgCompletionSecs), s.disputeRate, s.positiveRate],
   );
 }
 
@@ -1263,6 +1288,8 @@ export async function insertMerchantApplication(input: {
      returning id`,
     [input.userId, input.name, input.payoutRail, input.treasuryAddress],
   );
+  // Informational role mirror (capability stays merchants.user_id); never demotes an admin.
+  await getPool().query(`update users set role = 'merchant' where id = $1 and role = 'user'`, [input.userId]);
   return rows[0].id;
 }
 
@@ -1321,6 +1348,24 @@ export async function claimOrderPayout(input: {
         and state = 'payment_detected' and payout_claimed_at is null`,
     [input.orderId, input.merchantId, input.reference, Math.round(input.windowMs / 1000)],
   );
+  if ((rowCount ?? 0) > 0) {
+    await appendOrderEvent(input.orderId, 'payment_detected', 'payment_detected', 'payout_claimed', {
+      utr: input.reference,
+    });
+  }
+  return (rowCount ?? 0) > 0;
+}
+
+/**
+ * The payer's one-tap 👍/👎 after completion. The predicate is the whole policy: payer-only,
+ * completed-only (refunds excluded), once-only — a repeat tap or a race affects 0 rows.
+ */
+export async function setOrderFeedback(orderId: string, userId: string, up: boolean): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update orders set feedback_up = $3, updated_at = now()
+      where id = $1 and user_id = $2 and state = 'completed' and feedback_up is null`,
+    [orderId, userId, up],
+  );
   return (rowCount ?? 0) > 0;
 }
 
@@ -1339,20 +1384,26 @@ export async function hasOpenDispute(orderId: string): Promise<boolean> {
  * The order waits for a human, and the payer sees the existing "under review" copy.
  */
 export async function freezeOrderForDispute(orderId: string): Promise<void> {
-  await getPool().query(
+  const { rowCount } = await getPool().query(
     `update orders set resolution = 'under_review', expires_at = null, updated_at = now()
       where id = $1 and state = 'payment_detected'`,
     [orderId],
   );
+  if ((rowCount ?? 0) > 0) {
+    await appendOrderEvent(orderId, 'payment_detected', 'payment_detected', 'dispute_frozen');
+  }
 }
 
 /** Un-freeze after a dispute is rejected — a past deadline makes the next tick release. */
 export async function unfreezeOrderAfterDispute(orderId: string): Promise<void> {
-  await getPool().query(
+  const { rowCount } = await getPool().query(
     `update orders set resolution = null, expires_at = now(), updated_at = now()
       where id = $1 and state = 'payment_detected'`,
     [orderId],
   );
+  if ((rowCount ?? 0) > 0) {
+    await appendOrderEvent(orderId, 'payment_detected', 'payment_detected', 'dispute_unfrozen');
+  }
 }
 
 export interface MerchantOrderRow {
@@ -1896,4 +1947,177 @@ export async function upsertWalletForChain(userId: string, chain: string, addres
      on conflict (user_id, chain) do update set address = excluded.address`,
     [userId, chain, address],
   );
+}
+
+/* ---- admin (read-only flow visibility) ---- */
+
+// Wraps ORDER_SELECT as a subquery to bolt on the payer's handle without select-list surgery.
+const ADMIN_ORDER_SELECT = `select x.*, u.handle as user_handle from (${ORDER_SELECT}) x join users u on u.id = x.user_id`;
+
+type AdminOrderJoinRow = OrderJoinRow & { user_handle: string };
+
+const toAdminOrder = (r: AdminOrderJoinRow, events?: OrderEvent[]): AdminOrder => ({
+  ...toOrder(r, events),
+  userHandle: r.user_handle,
+});
+
+/** All orders across all users, newest first — the operator's flow list. */
+export async function listOrdersAdmin(limit = 50, cursor?: string): Promise<Page<AdminOrder>> {
+  const n = clampLimit(limit, 50, 100);
+  const c = parseCursor(cursor);
+  const { rows } = await getPool().query<AdminOrderJoinRow>(
+    `${ADMIN_ORDER_SELECT}
+      where ($2::timestamptz is null or (x.created_at, x.id) < ($2::timestamptz, $3::uuid))
+      order by x.created_at desc, x.id desc limit $1`,
+    [n + 1, c?.at ?? null, c?.id ?? null],
+  );
+  const pageRows = rows.slice(0, n);
+  const last = pageRows[pageRows.length - 1];
+  return {
+    items: pageRows.map((r) => toAdminOrder(r)),
+    nextCursor: rows.length > n && last ? `${last.created_at.toISOString()}|${last.id}` : undefined,
+  };
+}
+
+/** One order, unscoped, with its full event timeline. */
+export async function getOrderAdmin(orderId: string): Promise<AdminOrder | null> {
+  const { rows } = await getPool().query<AdminOrderJoinRow>(`${ADMIN_ORDER_SELECT} where x.id = $1`, [orderId]);
+  if (!rows[0]) return null;
+  return toAdminOrder(rows[0], await listOrderEvents(orderId));
+}
+
+export async function listRoutingAttemptsAdmin(
+  orderId: string,
+): Promise<AdminOrderDetailResponse['routingAttempts']> {
+  const { rows } = await getPool().query<{
+    sequence: number;
+    merchant_name: string;
+    outcome: 'assigned' | 'released' | 'failed' | 'rerouted';
+    reason: string | null;
+    created_at: Date;
+  }>(
+    `select a.sequence, m.name as merchant_name, a.outcome, a.reason, a.created_at
+       from order_routing_attempts a join merchants m on m.id = a.merchant_id
+      where a.order_id = $1 order by a.sequence asc`,
+    [orderId],
+  );
+  return rows.map((r) => ({
+    sequence: r.sequence,
+    merchantName: r.merchant_name,
+    outcome: r.outcome,
+    reason: r.reason,
+    createdAt: r.created_at.toISOString(),
+  }));
+}
+
+export async function getDisputeForOrder(orderId: string): Promise<AdminOrderDetailResponse['dispute']> {
+  const { rows } = await getPool().query<{
+    id: string;
+    reason: string | null;
+    status: 'open' | 'resolved';
+    resolution: 'upheld' | 'rejected' | null;
+    created_at: Date;
+    resolved_at: Date | null;
+  }>(`select id, reason, status, resolution, created_at, resolved_at from disputes where order_id = $1`, [orderId]);
+  const d = rows[0];
+  if (!d) return null;
+  return {
+    id: d.id,
+    reason: d.reason,
+    status: d.status,
+    resolution: d.resolution,
+    createdAt: d.created_at.toISOString(),
+    resolvedAt: d.resolved_at?.toISOString() ?? null,
+  };
+}
+
+/** The order's escrow legs (fund + release), if created. */
+export async function listOrderTransfersAdmin(orderId: string): Promise<AdminOrderDetailResponse['transfers']> {
+  const { rows } = await getPool().query<{
+    id: string;
+    kind: string;
+    status: 'pending' | 'confirmed' | 'failed';
+    signature: string | null;
+  }>(
+    `select t.id, t.kind, t.status, t.signature
+       from orders o join transfers t on t.id in (o.escrow_fund_transfer_id, o.escrow_release_transfer_id)
+      where o.id = $1 order by t.created_at asc`,
+    [orderId],
+  );
+  return rows;
+}
+
+/** One health read: order counts by state + everything currently needing a human. */
+export async function adminOverview(): Promise<AdminOverviewResponse> {
+  const pool = getPool();
+  const [counts, disputes, stuck, risk, merchants, bridge] = await Promise.all([
+    pool.query<{ state: OrderState; n: string }>(`select state, count(*) as n from orders group by state`),
+    pool.query<{ id: string; order_id: string; merchant_name: string; amount_usdc: string; created_at: Date }>(
+      `select d.id, d.order_id, m.name as merchant_name, o.amount_usdc, d.created_at
+         from disputes d join merchants m on m.id = d.merchant_id join orders o on o.id = d.order_id
+        where d.status = 'open' order by d.created_at desc limit 20`,
+    ),
+    pool.query<{
+      id: string;
+      state: OrderState;
+      resolution: OrderResolution;
+      handle: string;
+      amount_usdc: string;
+      updated_at: Date;
+    }>(
+      `select o.id, o.state, o.resolution, u.handle, o.amount_usdc, o.updated_at
+         from orders o join users u on u.id = o.user_id
+        where o.resolution is not null and o.state not in ('completed','refunded','failed')
+        order by o.updated_at desc limit 20`,
+    ),
+    pool.query<{
+      id: string;
+      handle: string | null;
+      kind: string;
+      decision: 'review' | 'block';
+      amount_usdc: string | null;
+      reason: string | null;
+      created_at: Date;
+    }>(
+      `select r.id, u.handle, r.kind, r.decision, r.amount_usdc, r.reason, r.created_at
+         from risk_events r left join users u on u.id = r.user_id
+        where r.decision <> 'allow' order by r.created_at desc limit 20`,
+    ),
+    pool.query<{ id: string; name: string; status: string; kyb_status: string }>(
+      `select id, name, status, kyb_status from merchants
+        where status = 'suspended' or kyb_status = 'pending' order by name`,
+    ),
+    pool.query<{ n: string }>(`select count(*) as n from bridge_transfers where state = 'failed'`),
+  ]);
+  const orderCounts: Partial<Record<OrderState, number>> = {};
+  for (const r of counts.rows) orderCounts[r.state] = Number(r.n);
+  return {
+    orderCounts,
+    openDisputes: disputes.rows.map((r) => ({
+      id: r.id,
+      orderId: r.order_id,
+      merchantName: r.merchant_name,
+      amountUsdc: Number(r.amount_usdc),
+      createdAt: r.created_at.toISOString(),
+    })),
+    stuckOrders: stuck.rows.map((r) => ({
+      id: r.id,
+      state: r.state,
+      resolution: r.resolution,
+      userHandle: r.handle,
+      amountUsdc: Number(r.amount_usdc),
+      updatedAt: r.updated_at.toISOString(),
+    })),
+    riskFlags: risk.rows.map((r) => ({
+      id: r.id,
+      userHandle: r.handle,
+      kind: r.kind,
+      decision: r.decision,
+      amountUsdc: r.amount_usdc == null ? null : Number(r.amount_usdc),
+      reason: r.reason,
+      createdAt: r.created_at.toISOString(),
+    })),
+    merchantAlerts: merchants.rows.map((r) => ({ id: r.id, name: r.name, status: r.status, kybStatus: r.kyb_status })),
+    failedBridgeCount: Number(bridge.rows[0].n),
+  };
 }

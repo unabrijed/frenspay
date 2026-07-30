@@ -6,7 +6,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { config } from './config';
-import { findUserByPrivyDid, getMerchantForUser, type MerchantRow } from './db/queries';
+import { findUserById, findUserByPrivyDid, getMerchantForUser, type MerchantRow } from './db/queries';
 import { privyConfigured, verifyAccessToken } from './services/privy';
 
 declare module 'fastify' {
@@ -72,4 +72,16 @@ export async function requireMerchant(req: FastifyRequest): Promise<MerchantRow>
     throw err;
   }
   return merchant;
+}
+
+/** Throw 403 unless the user carries role='admin' (set by hand / dev seed — read-only viewer gate). */
+export async function requireAdmin(req: FastifyRequest): Promise<string> {
+  const userId = requireUserId(req);
+  const user = await findUserById(userId);
+  if (user?.role !== 'admin') {
+    const err = new Error('not_admin') as Error & { statusCode?: number };
+    err.statusCode = 403;
+    throw err;
+  }
+  return userId;
 }

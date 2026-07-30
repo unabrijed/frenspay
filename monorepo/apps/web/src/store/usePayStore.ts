@@ -102,6 +102,8 @@ interface PayState {
   kycStatus: KycStatus;
   /** This user's merchant/LP account, if they run one. null = an ordinary payer. From /me. */
   merchant: MerchantProfile | null;
+  /** Coarse role from /me — gates the Settings → Admin link ('merchant' is informational). */
+  role: 'user' | 'merchant' | 'admin';
   /** In-flight direct send to a raw wallet address (outside fpay). network 'evm' = family
    *  detected, user hasn't picked the chain yet; fees populate once amount + network are known. */
   externalSend: {
@@ -234,6 +236,7 @@ interface PayState {
   refreshOrder: () => Promise<void>;
   /** Payer reports the money never arrived, while the merchant's release window is still open. */
   disputeOrder: (reason?: string) => Promise<void>;
+  feedbackOrder: (up: boolean) => Promise<void>;
   /** Discard the quote and go back to amount entry. */
   editQuote: () => void;
 
@@ -271,6 +274,7 @@ export const usePayStore = create<PayState>()(
       pendingPay: false,
       kycStatus: 'none',
       merchant: null,
+      role: 'user',
       externalSend: null,
       lastSend: { u: 12, handle: '@neha' },
       lastRequest: { u: 20, handle: '@neha' },
@@ -364,6 +368,7 @@ export const usePayStore = create<PayState>()(
             kycTier: me.kycTier,
             kycStatus: me.kycStatus ?? 'none',
             merchant: me.merchant ?? null,
+            role: me.role ?? 'user',
             balanceUSD: bal,
             fxRate: fx.rate,
             transactions: txns,
@@ -1008,6 +1013,19 @@ export const usePayStore = create<PayState>()(
           await get().refreshOrder();
         } catch (e) {
           set({ busy: false, error: friendlyError(e) });
+        }
+      },
+
+      // One-tap 👍/👎 on the Paid card. Errors are swallowed: a 409 means it's already recorded,
+      // and there's nothing for the user to fix either way — patch the local order and move on.
+      feedbackOrder: async (up) => {
+        const current = get().order;
+        if (!current) return;
+        set({ order: { ...current, feedbackUp: up } });
+        try {
+          await api.orderFeedback(current.id, up);
+        } catch {
+          // best-effort; the prompt simply won't reappear for this order
         }
       },
 

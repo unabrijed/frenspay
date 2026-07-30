@@ -362,3 +362,21 @@ end $$;
 
 -- One merchant account per user. Partial so the seeded sim LPs (user_id null) don't collide.
 create unique index if not exists uq_merchants_user on merchants (user_id) where user_id is not null;
+
+-- Merchant legitimacy: one-tap payer feedback (👍/👎) and the smoothed signal it feeds. A column on
+-- orders, not a table — one feedback per order mirrors one dispute per order (uq_disputes_order).
+-- The smoothing prior is a code constant (merchantStats.ts), so no base_positive_rate column.
+do $$ begin
+  alter table orders    add column if not exists feedback_up   boolean;              -- null = not answered
+  alter table merchants add column if not exists positive_rate numeric(5,4) not null default 0.9;
+end $$;
+
+-- Admin flow-visibility: coarse role for the read-only admin viewer. Merchant CAPABILITY stays
+-- derived from merchants.user_id (requireMerchant needs the row); role='merchant' is an
+-- informational mirror set at apply-time. 'admin' is only ever set by hand or the dev seed:
+--   update users set role='admin' where handle='@you';
+alter table users add column if not exists role text not null default 'user'
+  constraint users_role_chk check (role in ('user','merchant','admin'));
+-- Backfill existing real merchants; never demotes an admin. Idempotent (runs on every db:init).
+update users set role = 'merchant'
+  where role = 'user' and id in (select user_id from merchants where user_id is not null);

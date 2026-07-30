@@ -95,6 +95,8 @@ export interface MeResponse {
    *  on /me (already fetched on boot and on the KYC poll) rather than a second endpoint, so the 99%
    *  who aren't merchants pay nothing for it. */
   merchant?: MerchantProfile;
+  /** Coarse role for the admin viewer; 'merchant' is informational (capability = `merchant` field). */
+  role?: 'user' | 'merchant' | 'admin';
 }
 
 /* ---- merchant (LP) DTOs ---- */
@@ -112,6 +114,10 @@ export interface MerchantProfile {
   minBondUsdc: number;
   /** How much the LP can have in flight at once. */
   floatUsdc: number;
+  /** Live smoothed reputation signals (fractions 0–1) — shown only to the merchant themselves. */
+  successRate: number;
+  disputeRate: number;
+  positiveRate: number;
 }
 
 /** One order assigned to this merchant, flattened for the queue screen (fiat leg + payee). */
@@ -457,6 +463,8 @@ export interface Order {
   /** Set once a real (human) merchant reports paying the fiat leg. The order stays
    *  `payment_detected` while the dispute window runs; this is what says "the LP claims it paid". */
   payoutClaimedAt?: string; // ISO 8601
+  /** The payer's one-tap 👍/👎 after completion; absent = not yet answered. */
+  feedbackUp?: boolean;
   createdAt: string; // ISO 8601
   updatedAt: string; // ISO 8601
   /** Append-only transition log powering the live timeline (present on GET /orders/:id). */
@@ -505,4 +513,70 @@ export interface OrdersResponse {
   orders: Order[];
   /** Keyset cursor for the next page; absent on the last page. Pass back as ?cursor=. */
   nextCursor?: string;
+}
+
+/* ---- admin (read-only flow visibility) DTOs ---- */
+
+/** An order as the operator sees it: cross-user, so the payer's handle rides along. */
+export interface AdminOrder extends Order {
+  userHandle: string;
+}
+
+export interface AdminOrdersResponse {
+  orders: AdminOrder[];
+  nextCursor?: string;
+}
+
+/** Drill-down: the full flow record — timeline events ride on `order.events`. */
+export interface AdminOrderDetailResponse {
+  order: AdminOrder;
+  routingAttempts: Array<{
+    sequence: number;
+    merchantName: string;
+    outcome: 'assigned' | 'released' | 'failed' | 'rerouted';
+    reason: string | null;
+    createdAt: string; // ISO 8601
+  }>;
+  dispute: {
+    id: string;
+    reason: string | null;
+    status: 'open' | 'resolved';
+    resolution: 'upheld' | 'rejected' | null;
+    createdAt: string; // ISO 8601
+    resolvedAt: string | null;
+  } | null;
+  transfers: Array<{
+    id: string;
+    kind: string;
+    status: 'pending' | 'confirmed' | 'failed';
+    signature: string | null;
+  }>;
+}
+
+/** One health read: what's flowing, what's stuck, what needs a human. */
+export interface AdminOverviewResponse {
+  orderCounts: Partial<Record<OrderState, number>>;
+  openDisputes: Array<{ id: string; orderId: string; merchantName: string; amountUsdc: number; createdAt: string }>;
+  /** Non-terminal orders carrying a resolution overlay (delayed / needs_action / under_review). */
+  stuckOrders: Array<{
+    id: string;
+    state: OrderState;
+    resolution: OrderResolution;
+    userHandle: string;
+    amountUsdc: number;
+    updatedAt: string; // ISO 8601
+  }>;
+  /** Recent compliance decisions that weren't a plain allow. */
+  riskFlags: Array<{
+    id: string;
+    userHandle: string | null;
+    kind: string;
+    decision: 'review' | 'block';
+    amountUsdc: number | null;
+    reason: string | null;
+    createdAt: string; // ISO 8601
+  }>;
+  /** Merchants needing attention: suspended, or KYB still pending. */
+  merchantAlerts: Array<{ id: string; name: string; status: string; kybStatus: string }>;
+  failedBridgeCount: number;
 }

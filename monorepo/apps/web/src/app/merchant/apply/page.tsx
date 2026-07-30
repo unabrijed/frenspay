@@ -20,6 +20,8 @@ import { usePayStore } from '@/store/usePayStore';
 export default function MerchantApply() {
   const router = useRouter();
   const walletAddress = usePayStore((s) => s.walletAddress);
+  const kycTier = usePayStore((s) => s.kycTier);
+  const open = usePayStore((s) => s.open);
   const load = usePayStore((s) => s.load);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -52,22 +54,38 @@ export default function MerchantApply() {
           put up a stake first — if you don’t pay someone, it covers them.
         </Txt>
 
-        <Txt style={[type.kvKey, { marginBottom: 8 }]}>Business name</Txt>
-        <SearchBar placeholder="e.g. Anjuna Exchange" value={name} onChangeText={setName} />
+        {/* Merchant KYC: the human behind the merchant must be identity-verified before the form.
+            The server enforces the same gate (403 kyc_required); this is just the friendly path.
+            The store's KYC poll flips kycTier on approval, so the form appears without a reload. */}
+        {kycTier < 2 ? (
+          <>
+            <Txt style={type.inst}>
+              Merchants handle other people’s money, so we verify who you are first — the same quick
+              identity check that unlocks higher limits.
+            </Txt>
+            <Spacer />
+            <Btn label="Verify your identity" variant="ink" onPress={() => open('verify')} />
+          </>
+        ) : (
+          <>
+            <Txt style={[type.kvKey, { marginBottom: 8 }]}>Business name</Txt>
+            <SearchBar placeholder="e.g. Anjuna Exchange" value={name} onChangeText={setName} />
 
-        <Txt style={[type.inst, { marginTop: 18 }]}>
-          Payouts settle to your fpay balance. We’ll review your application before you can take orders.
-        </Txt>
+            <Txt style={[type.inst, { marginTop: 18 }]}>
+              Payouts settle to your fpay balance. We’ll review your application before you can take orders.
+            </Txt>
 
-        {err ? <Txt style={[type.lead, { color: colors.danger, marginTop: 14 }]}>{err}</Txt> : null}
+            {err ? <Txt style={[type.lead, { color: colors.danger, marginTop: 14 }]}>{err}</Txt> : null}
 
-        <Spacer />
-        <Btn
-          label={busy ? 'Submitting…' : 'Apply'}
-          variant="ink"
-          disabled={busy || name.trim().length < 2 || !walletAddress}
-          onPress={() => void submit()}
-        />
+            <Spacer />
+            <Btn
+              label={busy ? 'Submitting…' : 'Apply'}
+              variant="ink"
+              disabled={busy || name.trim().length < 2 || !walletAddress}
+              onPress={() => void submit()}
+            />
+          </>
+        )}
       </View>
     </Screen>
   );

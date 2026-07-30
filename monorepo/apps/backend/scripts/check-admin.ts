@@ -1,0 +1,135 @@
+// check-admin.ts — admin flow-visibility verification. Self-contained (throwaway users/LP/orders,
+// asserts, cleans up), so it only needs a *migrated* DB (`db:init`), not the demo seed. Proves:
+//   1. users.role: default 'user'; merchant apply mirrors role='merchant' but never demotes an admin;
+//   2. the event-gap fixes: cancel / expiry / payout claim / dispute freeze+unfreeze all write order_events;
+//   3. the admin reads: listOrdersAdmin is cross-user with userHandle, getOrderAdmin is unscoped with
+//      events, adminOverview surfaces the open dispute + the stuck (frozen) order.
+// Run: yarn workspace @fpay/backend tsx scripts/check-admin.ts   (needs DATABASE_URL + `db:init`)
+import { getPool } from '../src/db/pool';
+import {
+  adminOverview,
+  cancelOrder,
+  claimOrderPayout,
+  expireStaleOrders,
+  findUserById,
+  freezeOrderForDispute,
+  getOrderAdmin,
+  insertMerchantApplication,
+  listOrdersAdmin,
+  unfreezeOrderAfterDispute,
+} from '../src/db/queries';
+
+let failures = 0;
+function check(name: string, cond: boolean, detail?: string) {
+  console.log(`${cond ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
+  if (!cond) failures++;
+}
+
+type Pool = ReturnType<typeof getPool>;
+
+async function clean(pool: Pool) {
+  // FK order: orders→quotes→merchants→users (quotes reference merchants, merchants reference users).
+  const zza = `(select id from users where privy_did like 'zza:%')`;
+  await pool.query(`delete from orders where user_id in ${zza}`); // cascades events/attempts/disputes
+  await pool.query(`delete from quotes where user_id in ${zza}`);
+  await pool.query(`delete from merchants where name like 'ZZ-ADMIN%'`);
+  await pool.query(`delete from users where privy_did like 'zza:%'`);
+}
+
+const events = async (pool: Pool, orderId: string): Promise<string[]> =>
+  (await pool.query<{ event: string }>(`select event from order_events where order_id=$1 order by created_at`, [orderId]))
+    .rows.map((r) => r.event);
+
+async function main() {
+  const pool = getPool();
+  await clean(pool);
+
+  const mkUser = async (did: string, handle: string) =>
+    (
+      await pool.query<{ id: string }>(
+        `insert into users (privy_did, handle, display_name) values ($1,$2,$3) returning id`,
+        [did, handle, handle],
+      )
+    ).rows[0].id;
+  const payer = await mkUser('zza:payer', '@zza_payer');
+  const applicant = await mkUser('zza:applicant', '@zza_applicant');
+  const admin = await mkUser('zza:admin', '@zza_admin');
+  await pool.query(`update users set role='admin' where id=$1`, [admin]);
+
+  // 1) Roles.
+  check("new user defaults to role 'user'", (await findUserById(payer))?.role === 'user');
+  check("manual grant reads back as 'admin'", (await findUserById(admin))?.role === 'admin');
+  await insertMerchantApplication({ userId: applicant, name: 'ZZ-ADMIN-LP', payoutRail: 'UPI', treasuryAddress: 'ZZAtreasury000000000000000000000000000000' });
+  check("merchant apply mirrors role='merchant'", (await findUserById(applicant))?.role === 'merchant');
+  await insertMerchantApplication({ userId: admin, name: 'ZZ-ADMIN-LP2', payoutRail: 'UPI', treasuryAddress: 'ZZAtreasury200000000000000000000000000000' });
+  check('merchant apply never demotes an admin', (await findUserById(admin))?.role === 'admin');
+
+  const lp = (
+    await pool.query<{ id: string }>(`select id from merchants where name='ZZ-ADMIN-LP'`)
+  ).rows[0];
+  const quote = (
+    await pool.query<{ id: string }>(
+      `insert into quotes (user_id, merchant_id, direction, amount_inr, amount_usdc, rate, eta_min_secs, eta_max_secs, payout_method, route_quality, expires_at)
+       values ($1,$2,'spend',1000,11.4,87.55,100,200,'UPI','high', now() + interval '1 hour') returning id`,
+      [payer, lp.id],
+    )
+  ).rows[0];
+  const mkOrder = async (ref: string, state: string, createdAgoMin = 0) =>
+    (
+      await pool.query<{ id: string }>(
+        `insert into orders (user_id, quote_id, merchant_id, amount_usdc, reference_code, state, created_at)
+         values ($1,$2,$3,11.4,$4,$5, now() - make_interval(mins => $6)) returning id`,
+        [payer, quote.id, lp.id, ref, state, createdAgoMin],
+      )
+    ).rows[0].id;
+
+  // 2) Event-gap fixes.
+  const cancelled = await mkOrder('ZZA-CANCEL', 'pay_instructions');
+  check('cancelOrder cancels an unfunded order', await cancelOrder(cancelled, payer));
+  check('…and writes canceled_by_user', (await events(pool, cancelled)).includes('canceled_by_user'));
+
+  const stale = await mkOrder('ZZA-STALE', 'pay_instructions', 20);
+  await expireStaleOrders();
+  check('expireStaleOrders writes expired_unfunded', (await events(pool, stale)).includes('expired_unfunded'));
+
+  const claimed = await mkOrder('ZZA-CLAIM', 'payment_detected');
+  check('claimOrderPayout claims', await claimOrderPayout({ orderId: claimed, merchantId: lp.id, reference: 'UTR-ZZA-1', windowMs: 60_000 }));
+  check('…and writes payout_claimed', (await events(pool, claimed)).includes('payout_claimed'));
+
+  await freezeOrderForDispute(claimed);
+  check('freeze writes dispute_frozen', (await events(pool, claimed)).includes('dispute_frozen'));
+  const dispute = (
+    await pool.query<{ id: string }>(
+      `insert into disputes (order_id, merchant_id, reason, status) values ($1,$2,'zza harness','open') returning id`,
+      [claimed, lp.id],
+    )
+  ).rows[0];
+
+  // 3) Admin reads (while the dispute is open and the order frozen).
+  const page = await listOrdersAdmin(100);
+  const mine = page.items.filter((o) => o.userHandle === '@zza_payer');
+  check('listOrdersAdmin returns cross-user orders with userHandle', mine.length >= 3, `found ${mine.length}`);
+
+  const detail = await getOrderAdmin(cancelled);
+  check('getOrderAdmin is unscoped and carries events',
+    detail?.userHandle === '@zza_payer' && (detail.events ?? []).some((e) => e.event === 'canceled_by_user'));
+
+  const ov = await adminOverview();
+  check('overview counts the fixture failed orders', (ov.orderCounts.failed ?? 0) >= 2, `failed=${ov.orderCounts.failed}`);
+  check('overview surfaces the open dispute', ov.openDisputes.some((d) => d.id === dispute.id));
+  check('overview surfaces the frozen order as stuck',
+    ov.stuckOrders.some((o) => o.id === claimed && o.resolution === 'under_review'));
+
+  await unfreezeOrderAfterDispute(claimed);
+  check('unfreeze writes dispute_unfrozen', (await events(pool, claimed)).includes('dispute_unfrozen'));
+
+  await clean(pool);
+  await pool.end();
+  console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`);
+  process.exit(failures === 0 ? 0 : 1);
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

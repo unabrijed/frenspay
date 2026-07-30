@@ -27,6 +27,7 @@ import {
   claimOrderPayout,
   createPendingTransfer,
   getMerchantForUser,
+  getUserKycTier,
   getWalletForUser,
   insertMerchantApplication,
   listMerchantOrders,
@@ -34,6 +35,7 @@ import {
   type MerchantOrderRow,
   type MerchantRow,
 } from '../db/queries';
+import { KYC_APPROVED_TIER } from '../services/kyc';
 import { DISPUTE_WINDOW_MS } from '../services/orderMachine';
 import { MIN_BOND } from '../services/merchantStats';
 import { buildUsdcTransfer } from '../services/solana';
@@ -52,6 +54,9 @@ export function toMerchantProfile(m: MerchantRow): MerchantProfile {
     bondUsdc: Number(m.bond_usdc),
     minBondUsdc: MIN_BOND,
     floatUsdc: Number(m.float_usdc),
+    successRate: Number(m.success_rate),
+    disputeRate: Number(m.dispute_rate),
+    positiveRate: Number(m.positive_rate),
   };
 }
 
@@ -87,6 +92,11 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
     '/merchants/apply',
     async (req, reply) => {
       const userId = requireUserId(req);
+      // Merchant KYC: the human behind the merchant must be identity-verified (the same personal
+      // tier-2 KYC that gates cash-out). KYB approval is a separate, later step on top of this.
+      if ((await getUserKycTier(userId)) < KYC_APPROVED_TIER) {
+        return reply.code(403).send({ error: 'kyc_required' });
+      }
       const { name, payoutMethod, treasuryAddress } = req.body ?? {};
       const rail = payoutMethod ?? 'UPI';
       if (!name || !treasuryAddress) return reply.code(400).send({ error: 'missing_fields' });

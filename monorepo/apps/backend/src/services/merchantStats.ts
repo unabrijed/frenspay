@@ -6,12 +6,14 @@ import {
   listAllMerchants,
   merchantCompletionStats,
   merchantDisputeStats,
+  merchantFeedbackStats,
   merchantOutcomeCounts,
   setMerchantStatus,
   updateMerchantStats,
 } from '../db/queries';
 
 const PRIOR_WEIGHT = 10; // k: pseudo-count of the seed prior (Bayesian smoothing)
+const POSITIVE_PRIOR = 0.9; // payer-👍 prior — a code constant, unlike the per-merchant base_* seeds
 export const MIN_BOND = 2000; // below this, an LP is suspended (out of routing)
 export const DISPUTE_PENALTY_USDC = 1500; // flat bond fine drawn per upheld dispute
 
@@ -23,11 +25,12 @@ function smooth(obsMean: number, n: number, prior: number): number {
 
 /** Recompute every merchant's live signals from history, and suspend any below the bond floor. */
 export async function recomputeMerchantStats(log?: (m: string) => void): Promise<void> {
-  const [merchants, outcomes, completion, disputes] = await Promise.all([
+  const [merchants, outcomes, completion, disputes, feedback] = await Promise.all([
     listAllMerchants(),
     merchantOutcomeCounts(),
     merchantCompletionStats(),
     merchantDisputeStats(),
+    merchantFeedbackStats(),
   ]);
 
   for (const m of merchants) {
@@ -41,7 +44,10 @@ export async function recomputeMerchantStats(log?: (m: string) => void): Promise
     const ds = disputes[m.id] ?? { upheld: 0, completed: 0 };
     const disputeRate = smooth(ds.completed > 0 ? ds.upheld / ds.completed : 0, ds.completed, Number(m.base_dispute_rate));
 
-    await updateMerchantStats(m.id, { successRate, avgCompletionSecs, disputeRate });
+    const fs = feedback[m.id] ?? { up: 0, n: 0 };
+    const positiveRate = smooth(fs.n > 0 ? fs.up / fs.n : 0, fs.n, POSITIVE_PRIOR);
+
+    await updateMerchantStats(m.id, { successRate, avgCompletionSecs, disputeRate, positiveRate });
 
     // Bond enforcement (one-way): an online LP whose bond fell below the floor is suspended out of
     // routing. Reinstatement is manual (dev /sim/merchants/:id/kyb or a status endpoint).

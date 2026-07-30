@@ -45,6 +45,18 @@ function OrderRow({ o, onPress }: { o: MerchantOrder; onPress: () => void }) {
   );
 }
 
+function StatRow({ k, v, sub }: { k: string; v: string; sub?: string }) {
+  return (
+    <Row>
+      <RowMeta>
+        <Txt style={type.rowName}>{k}</Txt>
+        {sub ? <Txt style={[type.rowTime, { marginTop: 2 }]}>{sub}</Txt> : null}
+      </RowMeta>
+      <Txt style={type.rowAmount}>{v}</Txt>
+    </Row>
+  );
+}
+
 function statusText(o: MerchantOrder, claimed: boolean): string {
   if (o.state === 'completed') return 'Settled';
   if (o.state === 'merchant_confirms' || o.state === 'funds_released') return 'Releasing';
@@ -142,6 +154,15 @@ export default function MerchantHome() {
               <Txt style={[type.rowTime, { marginTop: 2 }, clamp1]}>{merchant.treasuryAddress}</Txt>
             </RowMeta>
           </Row>
+        </List>
+
+        {/* Reputation — the real smoothed numbers routing scores them on, no invented composite. */}
+        <Txt style={[type.kvKey, styles.section]}>Reputation</Txt>
+        <List>
+          <StatRow k="Success rate" v={`${(merchant.successRate * 100).toFixed(1)}%`} />
+          <StatRow k="Positive feedback" v={`${(merchant.positiveRate * 100).toFixed(0)}%`} sub="One-tap ratings from people you paid" />
+          <StatRow k="Disputes" v={`${(merchant.disputeRate * 100).toFixed(1)}%`} />
+          <StatRow k="Completed" v={String((orders ?? []).filter((o) => o.state === 'completed').length)} />
         </List>
 
         {err ? <Txt style={[type.lead, { color: colors.danger, marginTop: 12 }]}>{err}</Txt> : null}

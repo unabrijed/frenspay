@@ -85,6 +85,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       // Rides on /me (already fetched on boot and on the KYC poll) rather than its own endpoint —
       // one extra query here beats a second round trip + loading state for the 99% who aren't LPs.
       merchant: merchant ? toMerchantProfile(merchant) : undefined,
+      role: user.role,
     };
   });
 

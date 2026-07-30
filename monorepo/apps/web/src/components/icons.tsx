@@ -54,6 +54,8 @@ export const Icons = {
   QrBig: symbol('qr_code_scanner', colors.white),
   Check: symbol('check', colors.accent),
   XBig: symbol('close', colors.muted),
+  ThumbUp: symbol('thumb_up', colors.accent),
+  ThumbDown: symbol('thumb_down', colors.muted),
   Pin: symbol('location_on', colors.secondary),
   Bell: symbol('notifications', colors.ink),
   Wallet: symbol('account_balance_wallet', colors.accent),

@@ -29,6 +29,7 @@ async function main() {
 
   const bridge = await upsertUser('dev:bridge', '@bridge', 'Bridge');
   const neha = await upsertUser('dev:neha', '@neha', 'Neha R.');
+  await pool.query(`update users set role = 'admin' where id = $1`, [bridge]);
 
   // Simulated merchant/LP network (M1 seed; M3 ranking + failover). Honest, varied profiles so the
   // weighted ranking is meaningful and failover is demonstrable:

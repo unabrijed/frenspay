@@ -14,8 +14,9 @@ export interface RankedMerchant {
 }
 
 // Reliability-weighted, matching the architecture's "expose certainty". Weights sum to 1. (M4 folded the
-// M3 queue-depth signal into liquidity, since available float already reflects an LP's live load.)
-const WEIGHTS = { reliability: 0.35, cost: 0.2, speed: 0.2, dispute: 0.1, liquidity: 0.15 };
+// M3 queue-depth signal into liquidity, since available float already reflects an LP's live load;
+// `rating` is the payer-👍 positive_rate — human-reported, so it gets its own modest term.)
+const WEIGHTS = { reliability: 0.3, cost: 0.2, speed: 0.15, dispute: 0.1, rating: 0.1, liquidity: 0.15 };
 
 /** Min-max normalize to [0,1] across the pool; `invert` for lower-is-better signals. Flat pool → 1. */
 function normalize(values: number[], invert: boolean): number[] {
@@ -62,6 +63,7 @@ export async function rankMerchants(input: {
   const cost = normalize(pool.map((m) => m.spread_bps), true);
   const speed = normalize(pool.map((m) => m.avg_completion_secs), true);
   const dispute = normalize(pool.map((m) => Number(m.dispute_rate)), true);
+  const rating = normalize(pool.map((m) => Number(m.positive_rate)), false);
   // Liquidity headroom: available float relative to the order, capped at 5× (beyond is no real edge).
   const liq = normalize(
     avail.map((a) => Math.min(a / Math.max(input.amountUsdc, 1), 5)),
@@ -77,6 +79,7 @@ export async function rankMerchants(input: {
         WEIGHTS.cost * cost[i] +
         WEIGHTS.speed * speed[i] +
         WEIGHTS.dispute * dispute[i] +
+        WEIGHTS.rating * rating[i] +
         WEIGHTS.liquidity * liq[i],
     }))
     .sort(

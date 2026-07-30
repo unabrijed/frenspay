@@ -12,7 +12,7 @@ import { Icons } from '@/components/icons';
 import { ResultBlock } from '@/components/ResultBlock';
 import { Btn, TextLink } from '@/components/ui/Button';
 import { Grab, SheetBody, SheetHeader, Spacer } from '@/components/ui/primitives';
-import { View } from '@/components/ui/rn';
+import { Pressable, View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { inrRaw } from '@/lib/money';
 import { colors, type } from '@/lib/theme';
@@ -65,6 +65,7 @@ function Outcome({
   headline,
   inst,
   onClose,
+  children,
 }: {
   kind?: 'ok' | 'no';
   icon?: ReactNode;
@@ -72,6 +73,7 @@ function Outcome({
   headline: string;
   inst: string;
   onClose: () => void;
+  children?: ReactNode;
 }) {
   return (
     <>
@@ -84,6 +86,7 @@ function Outcome({
           headline={headline}
           inst={inst}
         />
+        {children}
         <Spacer />
         <View style={styles.cta}>
           <Btn label="Done" variant="ink" onPress={onClose} />
@@ -98,6 +101,7 @@ export function OrderTracking() {
   const close = usePayStore((s) => s.close);
   const refreshOrder = usePayStore((s) => s.refreshOrder);
   const disputeOrder = usePayStore((s) => s.disputeOrder);
+  const feedbackOrder = usePayStore((s) => s.feedbackOrder);
   const busy = usePayStore((s) => s.busy);
 
   const terminal = order ? order.state === 'completed' || order.state === 'refunded' || order.state === 'failed' : false;
@@ -111,7 +115,26 @@ export function OrderTracking() {
 
   if (!order) return null;
   if (order.state === 'completed') {
-    return <Outcome title="Paid" headline={`${inrRaw(order.quote.amountInr)} paid`} inst="Paid from your balance" onClose={close} />;
+    return (
+      <Outcome title="Paid" headline={`${inrRaw(order.quote.amountInr)} paid`} inst="Paid from your balance" onClose={close}>
+        {/* One-tap feedback — never names the merchant (the LP stays invisible per "just pay"). */}
+        {order.feedbackUp === undefined ? (
+          <View style={styles.feedback}>
+            <Txt style={type.inst}>Did everything go smoothly?</Txt>
+            <View style={styles.thumbs}>
+              <Pressable onPress={() => void feedbackOrder(true)} style={({ pressed }) => [styles.thumb, pressed ? { opacity: 0.7 } : null]}>
+                <Icons.ThumbUp size={24} />
+              </Pressable>
+              <Pressable onPress={() => void feedbackOrder(false)} style={({ pressed }) => [styles.thumb, pressed ? { opacity: 0.7 } : null]}>
+                <Icons.ThumbDown size={24} />
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <Txt style={[type.inst, { textAlign: 'center', marginTop: 14 }]}>Thanks for letting us know.</Txt>
+        )}
+      </Outcome>
+    );
   }
   if (order.state === 'refunded') {
     return <Outcome title="Refunded" headline={`${inrRaw(order.quote.amountInr)} refunded`} inst="You’ve been made whole" onClose={close} />;
@@ -178,4 +201,7 @@ const styles = {
   banner: { backgroundColor: colors.inkSoft, borderRadius: 16, padding: 16, marginBottom: 6 },
   steps: { marginTop: 8 },
   cta: { gap: 13, alignItems: 'center' },
+  feedback: { alignItems: 'center', gap: 10, marginTop: 14 },
+  thumbs: { flexDirection: 'row', gap: 28 },
+  thumb: { padding: 8 },
 } satisfies Record<string, CSSProperties>;
