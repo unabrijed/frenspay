@@ -1,24 +1,21 @@
-import type { ReactNode } from 'react';
+'use client';
 
+import { useEffect, useRef, useState } from 'react';
+import type { CSSProperties, PointerEvent, ReactNode } from 'react';
+
+import { useCity } from './CityContext';
 import { HeroQuoteCard } from './HeroQuoteCard';
+import { mulberry32 } from './rand';
 
 // Decorative pixel-QR — deliberately not scannable (aria-hidden, no scan CTA).
 // Upgrade path once DEMO_URL is live: generate a real matrix at build time
 // (`qrcode` devDep, ECC-H) and keep the dissolve away from the finder corners.
 const N = 21; // modules per side
-const M = 12; // px per module
-
-// Seeded PRNG so the scatter is identical on server, client, and every build.
-// Never swap for Math.random()/Date.now() — static export + hydration depend on it.
-function mulberry32(seed: number) {
-  let a = seed;
-  return () => {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+export const M = 12; // px per module
+// The svg viewBox. PixelField rasterises the same geometry at this size, so the
+// particle formation lines up with the SVG it replaces without any tuning.
+export const QR_W = 330;
+export const QR_H = 252;
 
 const FINDERS = [
   [0, 0],
@@ -26,7 +23,9 @@ const FINDERS = [
   [0, 14],
 ] as const;
 
-type Px = { x: number; y: number; o: number; terra: boolean; s?: number };
+// d/dx/dy drive the entrance: delay in ms, and the offset each pixel flies in
+// from. For strays dx/dy are drift amplitudes instead — they never stop moving.
+export type Px = { x: number; y: number; o: number; terra: boolean; s?: number; d: number; dx: number; dy: number; dur?: number };
 
 function qrPixels(): Px[] {
   const rnd = mulberry32(20260731);
@@ -49,11 +48,17 @@ function qrPixels(): Px[] {
       const terra = finder || rnd() < 0.15;
       const t = Math.max(0, (x - 12) / 8); // dissolve strength: 0 on the left → 1 at the right edge
       if (t > 0 && rnd() < t * 0.5) continue; // some modules are already gone
+      const fx = x * M + t * (6 + rnd() * 52);
       px.push({
-        x: x * M + t * (6 + rnd() * 52),
+        x: fx,
         y: y * M + (rnd() - 0.5) * t * 30,
         o: 1 - t * (0.3 + rnd() * 0.5),
         terra,
+        // Delay tracks the final x, so the code assembles as a left-to-right
+        // wave: solid corner first, dissolving edge last.
+        d: Math.round(300 + (fx / 400) * 600 + rnd() * 100),
+        dx: Math.round(18 + rnd() * 46), // flies in from the right, with the flow
+        dy: Math.round((rnd() - 0.5) * 24),
       });
     }
   }
@@ -65,50 +70,116 @@ function qrPixels(): Px[] {
       o: 0.1 + rnd() * 0.35,
       terra: rnd() < 0.3,
       s: 3 + rnd() * 6,
+      d: Math.round(1200 + rnd() * 500),
+      dx: Math.round(4 + rnd() * 8),
+      dy: Math.round((rnd() - 0.5) * 10),
+      // Each stray keeps its own clock, so the field never falls into step.
+      dur: Math.round(6 + rnd() * 7),
     });
   }
   return px;
 }
 
-const PIXELS = qrPixels();
+export const PIXELS = qrPixels();
+// Split once, at module scope: the two groups pan at different rates under the
+// cursor, which is what gives the code depth.
+const BODY = PIXELS.filter((p) => !p.s);
+const STRAYS = PIXELS.filter((p) => p.s);
 
-export function QrHero() {
+function Rect({ p }: { p: Px }) {
   return (
-    <div className="flex flex-col items-center gap-10 lg:flex-row lg:gap-8">
-      <div aria-hidden className="relative w-full max-w-[280px] shrink-0 overflow-hidden sm:max-w-[320px]">
-        <svg viewBox="0 0 330 252" className="w-full">
-          {PIXELS.map((p, i) => (
-            <rect
-              key={i}
-              x={p.x}
-              y={p.y}
-              width={p.s ?? M - 2}
-              height={p.s ?? M - 2}
-              rx="2.5"
-              opacity={p.o}
-              fill={p.terra ? 'var(--color-terra)' : 'var(--color-ink)'}
-            />
+    <rect
+      x={p.x}
+      y={p.y}
+      width={p.s ?? M - 2}
+      height={p.s ?? M - 2}
+      rx="2.5"
+      opacity={p.o}
+      fill={p.terra ? 'var(--color-terra)' : 'var(--color-ink)'}
+      className={p.s ? 'qr-stray' : 'qr-px'}
+      style={
+        {
+          '--d': `${p.d}ms`,
+          '--dx': `${p.dx}px`,
+          '--dy': `${p.dy}px`,
+          ...(p.dur ? { '--dur': `${p.dur}s` } : null),
+        } as CSSProperties
+      }
+    />
+  );
+}
+
+export function QrCode() {
+  const { city } = useCity();
+  // Remounting the svg replays the assembly. The counter (rather than the city
+  // code) keys it so the FIRST paint is a plain mount running the full load
+  // wave — only later changes get the compressed .qr-swap timing.
+  const [swaps, setSwaps] = useState(0);
+  const prev = useRef(city.code);
+
+  useEffect(() => {
+    if (prev.current === city.code) return;
+    prev.current = city.code;
+    setSwaps((s) => s + 1);
+  }, [city.code]);
+
+  const track = (e: PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== 'mouse') return; // a tap would just leave it stuck off-centre
+    const r = e.currentTarget.getBoundingClientRect();
+    e.currentTarget.style.setProperty('--px', String((e.clientX - r.left - r.width / 2) / r.width));
+    e.currentTarget.style.setProperty('--py', String((e.clientY - r.top - r.height / 2) / r.height));
+  };
+  const release = (e: PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.style.setProperty('--px', '0');
+    e.currentTarget.style.setProperty('--py', '0');
+  };
+
+  return (
+    <div
+      aria-hidden
+      onPointerMove={track}
+      onPointerLeave={release}
+      className="relative w-full max-w-[280px] shrink-0 overflow-hidden sm:max-w-[320px]"
+    >
+      <svg key={swaps} viewBox="0 0 330 252" className={`w-full ${swaps ? 'qr-swap' : ''}`}>
+        <g className="qr-body">
+          {BODY.map((p, i) => (
+            <Rect key={i} p={p} />
           ))}
-        </svg>
-        <span className="glint" />
-      </div>
-      <Rail />
+        </g>
+        <g className="qr-dust">
+          {STRAYS.map((p, i) => (
+            <Rect key={i} p={p} />
+          ))}
+        </g>
+      </svg>
+      <span className="glint" />
     </div>
   );
 }
 
-function Rail() {
+/* The four beats of a payment. On desktop these are scrubbed by scroll (see
+   .scrub / .rail-steps in globals.css) — the sequence is the story, so it
+   plays at the reader's pace rather than on a timer they may never see. The
+   --d delays below are what a phone, and any browser without scroll
+   timelines, falls back to. */
+export function Rail() {
   return (
-    <div className="relative flex flex-col gap-6">
-      <span aria-hidden className="absolute bottom-16 left-[13px] top-4 border-l-2 border-dashed border-terra/25" />
-      <Step n={1}>
+    <div className="rail-steps relative flex flex-col gap-6">
+      <span
+        aria-hidden
+        className="rail-line absolute bottom-16 left-[13px] top-4 border-l-2 border-dashed border-terra/25"
+      />
+      <Step n={1} delay={800}>
         <div className="grain brand-gradient w-fit rounded-[16px] px-4 py-3 text-white shadow-btn">
-          <span className="eyebrow block text-peach/80">USD balance</span>
+          {/* White, not peach: on the gradient's light stop peach is ~3.6:1.
+              The hierarchy here comes from size and weight, not opacity. */}
+          <span className="eyebrow block text-white">USD balance</span>
           <span className="tabular text-[18px] font-extrabold tracking-[-0.01em]">$1,240.50</span>
         </div>
       </Step>
-      <Step n={2}>
-        <div className="flex w-fit items-center gap-2.5 rounded-[16px] bg-white px-4 py-3 shadow-tactile ring-1 ring-hair">
+      <Step n={2} delay={950}>
+        <div className="flex w-fit items-center gap-2.5 rounded-[16px] bg-white px-4 py-3 text-ink shadow-tactile ring-1 ring-hair">
           <svg
             width="20"
             height="20"
@@ -126,13 +197,13 @@ function Rail() {
           <span className="text-[14px] font-semibold">Scan any QR</span>
         </div>
       </Step>
-      <Step n={3}>
+      <Step n={3} delay={1100}>
         <span className="mt-0.5 inline-flex items-center gap-1.5 rounded-full bg-peach px-3.5 py-2 text-[13px] font-semibold text-terra">
           <span className="h-1.5 w-1.5 rounded-full bg-terra" />
           Rate locked
         </span>
       </Step>
-      <Step n={4}>
+      <Step n={4} delay={1250}>
         <span className="block pt-1 text-[14px] font-semibold">Merchant paid</span>
         <div className="mt-3">
           <HeroQuoteCard />
@@ -142,9 +213,12 @@ function Rail() {
   );
 }
 
-function Step({ n, children }: { n: number; children: ReactNode }) {
+function Step({ n, delay, children }: { n: number; delay: number; children: ReactNode }) {
   return (
-    <div className="relative flex items-start gap-4">
+    <div
+      className="animate-blur-fade-up scrub relative flex items-start gap-4"
+      style={{ '--d': `${delay}ms` } as CSSProperties}
+    >
       <span className="z-[1] flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-terra text-[13px] font-semibold text-white ring-4 ring-canvas">
         {n}
       </span>

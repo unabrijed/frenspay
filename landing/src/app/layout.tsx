@@ -1,7 +1,7 @@
 import { Analytics } from '@vercel/analytics/next';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import type { Metadata } from 'next';
-import { Hanken_Grotesk, Inter } from 'next/font/google';
+import { Hanken_Grotesk } from 'next/font/google';
 
 import './globals.css';
 
@@ -12,29 +12,22 @@ const hanken = Hanken_Grotesk({
   display: 'swap',
 });
 
-/* Cinematic-hero experiment only (/cinematic, .font-inter). Body stays Hanken. */
-const inter = Inter({
-  subsets: ['latin'],
-  weight: ['300', '400', '500', '600', '700'],
-  variable: '--font-inter',
-  display: 'swap',
-});
-
 export const metadata: Metadata = {
-  title: 'fpay — hold dollars, pay like a local',
+  title: 'fpay — instant global payments from one dollar balance',
   description:
-    'One balance in dollars. Scan any local QR — UPI, PromptPay, Pix, DuitNow — see a locked rate before you pay, and the merchant is paid instantly in their own currency.',
+    'One balance in dollars. Scan any local QR — UPI, PromptPay, Pix, DuitNow — and the merchant is paid instantly in their own currency, at a rate locked before you tap.',
   icons: { icon: '/favicon.svg' },
   openGraph: {
-    title: 'fpay — hold dollars, pay like a local',
-    description: 'Hold dollars. Scan any local QR. Rate locked before you pay.',
+    title: 'fpay — instant global payments from one dollar balance',
+    description: 'Global dollars. Local scan. Paid instantly, at a rate you locked first.',
     type: 'website',
+    images: ['/hero-poster.jpg'],
   },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${hanken.variable} ${inter.variable}`}>
+    <html lang="en" className={hanken.variable}>
       <body className="antialiased">
         {children}
         <Analytics />

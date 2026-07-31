@@ -25,6 +25,13 @@
   --shadow-lift: 0 8px 30px rgba(140, 113, 108, 0.15);
   --shadow-phone: 0 18px 50px rgba(28, 22, 16, 0.14);
   --shadow-btn: 0 4px 14px rgba(166, 52, 31, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  /* The shadow a pressed control collapses into — see .press. */
+  --shadow-pressed: 0 1px 3px rgba(74, 70, 67, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* The nav is sticky, so anchor jumps have to stop clear of it. */
+html {
+  scroll-padding-top: 88px;
 }
 
 body {
@@ -69,9 +76,113 @@ button:not(:disabled),
   mix-blend-mode: overlay;
 }
 
-/* Scroll reveals + decorative motion. Everything lives inside the media query so
-   reduced-motion users get a fully visible, still page. */
-.reveal {
+/* ── Structure (not motion) ───────────────────────────────────────────────
+   Layout for the split-word headlines and the decorative layers. These rules
+   are inert on their own; only the hiding and moving lives in the media query
+   at the bottom. */
+
+/* Headlines split per word so they can arrive in sequence. The mask clips the
+   word's rise; the padding/margin pair keeps descenders from being shaved. */
+.word-mask {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: bottom;
+  padding-bottom: 0.14em;
+  margin-bottom: -0.14em;
+}
+.word {
+  display: inline-block;
+}
+
+/* The currency glyph standing behind the hero — ฿ ₹ R$ RM, switched by city.
+   The Google font is subset to `latin`, so Hanken has no ฿ (U+0E3F) or ₹
+   (U+20B9); the stack below hands those two off to a system sans. Don't try to
+   widen the font subset for a mark that renders at 7% opacity — and keep the
+   fallbacks explicitly sans, so a serif is never substituted. */
+.glyph {
+  font-family: var(--font-hanken), 'Noto Sans Thai', 'Noto Sans', ui-sans-serif, system-ui, sans-serif;
+  font-weight: 800;
+  line-height: 0.78;
+  letter-spacing: -0.04em;
+  color: var(--color-terra);
+  opacity: 0.07;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Money dust: the hero QR's stray pixels, escaped and drifting the whole page.
+   Fixed and above everything (pointer-events: none), in one colour that reads
+   on cream and on the ink/gradient sections alike — so no section needs to know
+   the layer exists. */
+.dust {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  display: none;
+  pointer-events: none;
+  contain: layout paint;
+}
+.dust-layer {
+  position: absolute;
+  inset: 0;
+}
+.dust-layer > span {
+  position: absolute;
+  border-radius: 2px;
+  background: var(--color-terra-ctr);
+}
+
+/* Scroll progress under the nav. */
+.progress {
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  display: none;
+  height: 2px;
+  width: 100%;
+  transform-origin: 0 50%;
+  background: var(--color-terra);
+}
+
+/* The nav's own backdrop. Default is the finished state (solid), so a browser
+   without scroll timelines gets a legible bar rather than text sliding under
+   transparent glass. */
+.nav-bar {
+  position: relative;
+}
+.nav-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: color-mix(in srgb, var(--color-canvas) 82%, transparent);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--color-hair);
+}
+
+.footer-mark {
+  transform: translateY(22%);
+}
+
+/* Press physics — the control shoves into its own shadow. The :active state
+   stays OUT of the reduced-motion block: it is instantaneous feedback on a
+   direct manipulation, not an animation, and removing it would just make the
+   buttons feel dead. */
+.press:active {
+  transform: translateY(3px) scale(0.985);
+  box-shadow: var(--shadow-pressed);
+}
+
+/* ── Motion ───────────────────────────────────────────────────────────────
+   Every rule that hides or moves anything lives in the media query below, so
+   the defaults above are the FINISHED page: reduced-motion users get a
+   complete, still landing rather than a blank one waiting on a trigger.
+
+   .qr-px / .qr-stray / .stag / .rail-line need no defaults at all — their
+   resting state is already the element's own attributes and layout. */
+.reveal,
+.animate-blur-fade-up,
+.word {
   opacity: 1;
 }
 
@@ -83,114 +194,100 @@ button:not(:disabled),
   pointer-events: none;
 }
 
-/* ── Cinematic hero experiment (/cinematic) ──────────────────────────────
-   Self-contained: nothing below is used by the cream landing at /. */
-
-.font-inter {
-  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-}
-
-/* Bottom-only backdrop blur over the hero video — blur, never a dark tint.
-   The mask fades the blur out by 45% up the viewport. */
-.blur-fade-mask {
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
-  -webkit-mask-image: linear-gradient(to top, black 0%, transparent 45%);
-  mask-image: linear-gradient(to top, black 0%, transparent 45%);
-}
-
-/* Translucent control surface. The ::before is a border-only gradient stroke:
-   two masks composited with xor/exclude punch out the fill, leaving the padding ring. */
-.liquid-glass {
-  position: relative;
-  overflow: hidden;
-  border: none;
-  background: rgba(255, 255, 255, 0.01);
-  background-blend-mode: luminosity;
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
-}
-.liquid-glass::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1.4px;
-  pointer-events: none;
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.45) 0%,
-    rgba(255, 255, 255, 0.15) 20%,
-    rgba(255, 255, 255, 0) 40%,
-    rgba(255, 255, 255, 0) 60%,
-    rgba(255, 255, 255, 0.15) 80%,
-    rgba(255, 255, 255, 0.45) 100%
-  );
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-}
-
-/* Visible by default — the entrance itself is opt-in below, so reduced-motion
-   users get the finished hero rather than a permanently blank one. */
-.animate-blur-fade-up {
-  opacity: 1;
-}
-
 @media (prefers-reduced-motion: no-preference) {
   html {
     scroll-behavior: smooth;
   }
 
+  /* ── Section entrances ──────────────────────────────────────────────────
+     Fired once per section by Reveal's observer. The variant attribute picks
+     the choreography: six identical fades is what made the page read as a
+     template, so each section now arrives its own way.
+
+     Variant rules use :not(.in) rather than competing with the .in rules —
+     both selectors carry the same specificity, so this keeps the finished
+     state unambiguous no matter what order they land in. */
   .reveal {
     opacity: 0;
     transform: translateY(24px);
+    filter: blur(8px);
     transition:
       opacity 0.7s var(--ease-soft),
-      transform 0.7s var(--ease-soft);
+      transform 0.7s var(--ease-soft),
+      filter 0.7s var(--ease-soft);
   }
   .reveal.in {
     opacity: 1;
     transform: none;
+    filter: none;
   }
 
-  .hero-rise {
+  /* A section that names a variant has its own inner choreography, so the
+     whole slab no longer moves as well — two motions over the same pixels
+     just reads as mud. */
+  .reveal[data-reveal]:not(.in) {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+
+  /* Items inside a section that arrive in sequence. Index comes from an
+     inline --i, so one class covers every list on the page. */
+  .reveal .stag {
     opacity: 0;
-    animation: fade-rise 0.8s var(--ease-soft) forwards;
+    transform: translateY(16px);
+    filter: blur(6px);
+    transition:
+      opacity 0.6s var(--ease-soft),
+      transform 0.6s var(--ease-soft),
+      filter 0.6s var(--ease-soft);
+    transition-delay: calc(var(--i, 0) * 70ms);
   }
-  @keyframes fade-rise {
-    from {
-      opacity: 0;
-      transform: translateY(24px);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
-  }
-
-  .glint {
-    display: block;
-    background: linear-gradient(105deg, transparent 42%, rgba(255, 255, 255, 0.75) 50%, transparent 58%);
-    transform: translateX(-120%);
-    animation: glint-sweep 1s ease-out 0.8s 1 forwards;
-  }
-  @keyframes glint-sweep {
-    to {
-      transform: translateX(120%);
-    }
+  .reveal.in .stag {
+    opacity: 1;
+    transform: none;
+    filter: none;
   }
 
-  /* Cinematic hero entrance — staggered per element via inline animationDelay. */
+  /* wipe — headline words rise out of their masks, one after another. */
+  .reveal[data-reveal~='wipe'] .word {
+    transition:
+      opacity 0.7s var(--ease-soft),
+      transform 0.7s var(--ease-soft);
+    transition-delay: calc(var(--i, 0) * 45ms);
+  }
+  .reveal[data-reveal~='wipe']:not(.in) .word {
+    opacity: 0;
+    transform: translateY(105%);
+  }
+
+  /* split — the two comparison columns close in from opposite edges. */
+  .reveal[data-reveal~='split'] [data-col] {
+    transition:
+      opacity 0.8s var(--ease-soft),
+      transform 0.8s var(--ease-soft);
+  }
+  .reveal[data-reveal~='split']:not(.in) [data-col] {
+    opacity: 0;
+  }
+  .reveal[data-reveal~='split']:not(.in) [data-col='l'] {
+    transform: translateX(-6%);
+  }
+  .reveal[data-reveal~='split']:not(.in) [data-col='r'] {
+    transform: translateX(6%);
+  }
+
+  /* scale — cards pop rather than slide. */
+  .reveal[data-reveal~='scale']:not(.in) .stag {
+    transform: translateY(20px) scale(0.94);
+  }
+
+  /* ── Hero load timeline ─────────────────────────────────────────────────
+     Delay travels as --d rather than a bare animation-delay, so the scroll-
+     scrubbed variants below can drop it just by re-declaring `animation`. */
   .animate-blur-fade-up {
     opacity: 0;
-    animation: blurFadeUp 1s ease-out forwards;
+    animation: blurFadeUp 1s var(--ease-soft) var(--d, 0ms) both;
   }
   @keyframes blurFadeUp {
     from {
@@ -202,6 +299,270 @@ button:not(:disabled),
       opacity: 1;
       filter: blur(0);
       transform: translateY(0);
+    }
+  }
+
+  /* The h1 arrives a word at a time. */
+  .load-words .word {
+    animation: word-rise 0.9s var(--ease-soft) calc(var(--i, 0) * 65ms) both;
+  }
+  @keyframes word-rise {
+    from {
+      opacity: 0;
+      transform: translateY(105%);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* ── The QR ─────────────────────────────────────────────────────────────
+     Each rect flies in from the right (--dx/--dy) to the position its own x/y
+     attributes already describe — so the end state needs no `to` block, and
+     no-animation IS the finished artwork. Delay ∝ final x makes it a
+     left-to-right wave. Transform + opacity only: animating x/y attributes
+     would relayout the SVG, and 234 blurred rects would jank on mobile. */
+  .qr-px {
+    animation: px-in 0.7s var(--ease-soft) var(--d, 0ms) both;
+  }
+  @keyframes px-in {
+    from {
+      opacity: 0;
+      transform: translate(var(--dx, 24px), var(--dy, 0px));
+    }
+  }
+
+  /* The strays keep drifting after they land — money dust flowing QR → rail.
+     Per-animation delays, since the two need the same start but not the same
+     schedule. */
+  .qr-stray {
+    animation:
+      px-in 0.7s var(--ease-soft) var(--d, 0ms) both,
+      stray-drift var(--dur, 8s) ease-in-out var(--d, 0ms) infinite;
+  }
+  @keyframes stray-drift {
+    0%,
+    100% {
+      transform: none;
+    }
+    50% {
+      transform: translate(var(--dx, 6px), var(--dy, -4px));
+    }
+  }
+
+  /* Switching city re-scatters the code. Compressed to roughly a third of the
+     load wave — the same gesture, but as a reaction rather than an entrance. */
+  .qr-swap .qr-px,
+  .qr-swap .qr-stray {
+    animation-duration: 0.42s;
+    animation-delay: calc(var(--d, 0ms) * 0.3);
+  }
+  .qr-swap .qr-stray {
+    animation-duration: 0.42s, var(--dur, 8s);
+  }
+
+  /* Cursor parallax. Two groups, two rates — the strays lead, so the code
+     reads as sitting behind them.
+     ponytail: whole-group tilt, not per-pixel repulsion. Repulsion needs a
+     distance solve per rect per frame across ~230 rects; upgrade only if the
+     tilt stops feeling like enough. */
+  .qr-body,
+  .qr-dust {
+    transition: transform 0.55s var(--ease-soft);
+  }
+  .qr-body {
+    transform: translate(calc(var(--px, 0) * 9px), calc(var(--py, 0) * 9px));
+  }
+  .qr-dust {
+    transform: translate(calc(var(--px, 0) * 26px), calc(var(--py, 0) * 22px));
+  }
+
+  /* Rail connector draws downward as the steps land. Clip rather than scaleY:
+     scaling would stretch the dash pattern. Both keyframes are required —
+     an implicit `to` would interpolate toward clip-path: none, which snaps,
+     and a scroll timeline needs both ends stated anyway. */
+  .rail-line {
+    animation: line-draw 0.8s var(--ease-soft) 0.85s both;
+  }
+  @keyframes line-draw {
+    from {
+      clip-path: inset(0 0 100% 0);
+    }
+    to {
+      clip-path: inset(0 0 0 0);
+    }
+  }
+
+  /* Fires after the QR has assembled — reads as the scan beat. */
+  .glint {
+    display: block;
+    background: linear-gradient(105deg, transparent 42%, rgba(255, 255, 255, 0.75) 50%, transparent 58%);
+    transform: translateX(-120%);
+    animation: glint-sweep 1s ease-out 1.8s 1 forwards;
+  }
+  @keyframes glint-sweep {
+    to {
+      transform: translateX(120%);
+    }
+  }
+
+  /* ── Ambient ────────────────────────────────────────────────────────────
+     The only two loops that run forever. Both live on brand-gradient
+     surfaces, which is already where texture (rather than decoration) is
+     allowed to sit. */
+  .dust {
+    display: block;
+  }
+  .dust-layer > span {
+    animation: stray-drift var(--dur, 9s) ease-in-out var(--d, 0s) infinite;
+  }
+  /* Mobile carries one layer instead of three. */
+  @media (max-width: 1023px) {
+    .dust-layer:nth-child(n + 2) {
+      display: none;
+    }
+  }
+
+  .gradient-drift {
+    background-size: 190% 190%;
+    animation: gradient-drift 22s ease-in-out infinite alternate;
+  }
+  @keyframes gradient-drift {
+    from {
+      background-position: 0% 20%;
+    }
+    to {
+      background-position: 100% 80%;
+    }
+  }
+
+  .glyph {
+    animation: glyph-in 0.7s var(--ease-soft) both;
+  }
+  @keyframes glyph-in {
+    from {
+      opacity: 0;
+      transform: translateY(0.06em) scale(0.93);
+    }
+    to {
+      opacity: 0.07;
+      transform: none;
+    }
+  }
+
+  /* ── Direct manipulation ────────────────────────────────────────────────
+     Hover lift and the magnetic pull. `translate` is a separate property from
+     `transform`, so the magnet composes with the press without either needing
+     to know about the other. */
+  .press {
+    transition:
+      transform 0.25s var(--ease-soft),
+      box-shadow 0.25s var(--ease-soft),
+      background-color 0.3s var(--ease-soft),
+      color 0.3s var(--ease-soft),
+      translate 0.3s var(--ease-soft);
+  }
+  .magnetic {
+    translate: var(--mx, 0) var(--my, 0);
+  }
+  @media (hover: hover) {
+    .press:hover {
+      transform: translateY(-2px);
+    }
+  }
+
+  /* ── Scroll-driven ──────────────────────────────────────────────────────
+     Everything below is continuous rather than triggered, which is the one
+     thing IntersectionObserver genuinely cannot do. Section entrances stay on
+     Reveal, which works everywhere — so a browser without scroll timelines
+     loses the parallax and the scrub, not the page.
+
+     The `animation` shorthand resets animation-timeline and animation-range,
+     so those two always come after it. */
+  @supports (animation-timeline: view()) {
+    .dust-layer {
+      animation: dust-parallax linear both;
+      animation-timeline: scroll(root);
+    }
+    @keyframes dust-parallax {
+      to {
+        transform: translateY(calc(var(--depth, 200) * -1px));
+      }
+    }
+
+    .progress {
+      display: block;
+      animation: progress-grow linear both;
+      animation-timeline: scroll(root);
+    }
+    @keyframes progress-grow {
+      from {
+        transform: scaleX(0);
+      }
+      to {
+        transform: scaleX(1);
+      }
+    }
+
+    .nav-bar::before {
+      animation: nav-solid linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0 90px;
+    }
+    @keyframes nav-solid {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    .footer-mark {
+      animation: mark-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 65%;
+    }
+    @keyframes mark-rise {
+      from {
+        transform: translateY(62%);
+      }
+      to {
+        transform: translateY(22%);
+      }
+    }
+
+    /* The pinned hero. The headline and the code hold still while the four
+       steps of the payment scroll past them — the sequence IS the story, so
+       scrubbing it beats playing it on a timer nobody is watching.
+
+       Desktop only, by design: pinning on a phone turns a short page into a
+       long one for no gain. */
+    @media (min-width: 1024px) {
+      /* Only the code pins, not the whole column: a pinned block taller than
+         the viewport just scrolls off the top and the pin buys nothing. So the
+         pitch scrolls away, the QR stays, and the steps advance past it. The
+         rail's own vh gaps are what make the section tall enough to pin
+         against — no min-height to keep in sync with it. */
+      .hero-pin {
+        position: sticky;
+        top: 22vh;
+      }
+      .rail-steps {
+        gap: 26vh;
+        padding-bottom: 10vh;
+      }
+      .scrub {
+        animation: blurFadeUp linear both;
+        animation-timeline: view();
+        animation-range: entry 8% cover 38%;
+      }
+      .rail-line {
+        animation: line-draw linear both;
+        animation-timeline: view();
+        animation-range: entry 0% cover 55%;
+      }
     }
   }
 }

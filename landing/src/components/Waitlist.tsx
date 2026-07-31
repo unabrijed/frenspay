@@ -16,7 +16,7 @@ export function Waitlist() {
 
   if (done) {
     return (
-      <p className="rounded-full bg-teal-soft px-6 py-4 text-[16px] font-semibold text-teal-on">
+      <p className="animate-blur-fade-up rounded-full bg-teal-soft px-6 py-4 text-[16px] font-semibold text-teal-on">
         You&apos;re a fren now. We&apos;ll write when it&apos;s time.
       </p>
     );
@@ -56,7 +56,7 @@ export function Waitlist() {
           type="email"
           required
           placeholder="you@somewhere.com"
-          className="h-12 flex-1 rounded-full border border-hair bg-white px-5 text-[15px] shadow-tactile outline-none placeholder:text-muted/50 focus:border-terra"
+          className="h-12 flex-1 rounded-full border border-hair bg-white px-5 text-[15px] text-ink shadow-tactile placeholder:text-muted/60 focus-visible:border-terra focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-terra"
         />
         <Pill submit variant="terra" className="h-12 justify-center">
           {busy ? 'Joining…' : 'Join the f list'}

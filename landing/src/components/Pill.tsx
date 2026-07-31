@@ -1,4 +1,8 @@
+'use client';
+
 import type { ReactNode } from 'react';
+
+import { useMagnetic } from './useMagnetic';
 
 const variants = {
   ink: 'bg-ink text-white',
@@ -25,7 +29,8 @@ export function Pill({
   className?: string;
   children: ReactNode;
 }) {
-  const cls = `group inline-flex items-center gap-2.5 rounded-full py-1.5 pl-5 pr-1.5 text-[16px] font-semibold tracking-[-0.01em] transition-transform duration-300 ease-soft hover:-translate-y-0.5 ${variants[variant]} ${className}`;
+  const magnet = useMagnetic();
+  const cls = `group press magnetic inline-flex items-center gap-2.5 rounded-full py-1.5 pl-5 pr-1.5 text-[16px] font-semibold tracking-[-0.01em] ${variants[variant]} ${className}`;
   const inner = (
     <>
       {children}
@@ -39,11 +44,11 @@ export function Pill({
     </>
   );
   return href ? (
-    <a href={href} className={cls}>
+    <a ref={magnet} href={href} className={cls}>
       {inner}
     </a>
   ) : (
-    <button type={submit ? 'submit' : 'button'} className={cls}>
+    <button ref={magnet} type={submit ? 'submit' : 'button'} className={cls}>
       {inner}
     </button>
   );
