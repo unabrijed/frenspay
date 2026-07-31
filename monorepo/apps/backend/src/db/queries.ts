@@ -1573,12 +1573,57 @@ export async function getReferralStats(userId: string): Promise<{ used: number; 
   return rows[0] ? { used: rows[0].used, limit: rows[0].referral_limit } : { used: 0, limit: 0 };
 }
 
-/** F-list signup (public write). Email PK = dedupe; a re-submit is a silent no-op. */
-export async function addWaitlistEmail(email: string, city?: string): Promise<void> {
-  await getPool().query('insert into waitlist (email, city) values ($1, $2) on conflict (email) do nothing', [
-    email,
-    city ?? null,
-  ]);
+/** F-list signup (public write). Email PK = dedupe. `do update` rather than `do nothing` so one
+ *  round trip also returns verified_at (the route needs it to decide whether to re-send the confirm
+ *  mail) and so coalesce can backfill columns a legacy row is missing. Every coalesce reads
+ *  waitlist.* first: city, attribution and code are write-once — a re-submit can fill a blank but
+ *  never overwrite, so nobody can rewrite who referred them by submitting again with a new ref. */
+export async function addWaitlistEmail(
+  email: string,
+  city?: string,
+  refCode?: string | null,
+  referredBy?: string,
+): Promise<{ verifiedAt: Date | null }> {
+  const { rows } = await getPool().query<{ verified_at: Date | null }>(
+    `insert into waitlist (email, city, ref_code, referred_by) values ($1, $2, $3, $4)
+       on conflict (email) do update
+          set city        = coalesce(waitlist.city, excluded.city),
+              ref_code    = coalesce(waitlist.ref_code, excluded.ref_code),
+              referred_by = coalesce(waitlist.referred_by, excluded.referred_by)
+     returning verified_at`,
+    [email, city ?? null, refCode ?? null, referredBy ?? null],
+  );
+  return { verifiedAt: rows[0]?.verified_at ?? null };
+}
+
+/** 1-based place in the queue. `::int` — pg returns bare count(*) (bigint) as a string.
+ *  ponytail: counts the whole table per signup. Materialize a rank if the f list passes ~100k. */
+export async function waitlistPosition(email: string): Promise<number> {
+  const { rows } = await getPool().query<{ n: number }>(
+    `select count(*)::int as n from waitlist
+      where created_at <= (select created_at from waitlist where email = $1)`,
+    [email],
+  );
+  return rows[0]?.n ?? 0;
+}
+
+/** How many people joined on this member's code — the referral loop's only feedback signal. */
+export async function countWaitlistFrens(code: string): Promise<number> {
+  const { rows } = await getPool().query<{ n: number }>(
+    'select count(*)::int as n from waitlist where referred_by = $1',
+    [code],
+  );
+  return rows[0]?.n ?? 0;
+}
+
+/** Stamp the confirm click. False = already verified; the caller still reports success (clicking the
+ *  link twice is a normal thing a human does, not an error). */
+export async function verifyWaitlistEmail(email: string): Promise<boolean> {
+  const res = await getPool().query(
+    'update waitlist set verified_at = now() where email = $1 and verified_at is null',
+    [email],
+  );
+  return (res.rowCount ?? 0) > 0;
 }
 
 /* ---- M7: real-vendor KYC session lifecycle ---- */
@@ -2177,10 +2222,22 @@ export async function adminOverview(): Promise<AdminOverviewResponse> {
 // (addWaitlistEmail lives with the referral/landing block above — the public write; these are reads.)
 
 export async function listWaitlist(): Promise<AdminWaitlistEntry[]> {
-  const { rows } = await getPool().query<{ email: string; city: string | null; created_at: Date }>(
-    `select email, city, created_at from waitlist order by created_at desc`,
-  );
-  return rows.map((r) => ({ email: r.email, city: r.city, createdAt: r.created_at.toISOString() }));
+  const { rows } = await getPool().query<{
+    email: string;
+    city: string | null;
+    created_at: Date;
+    ref_code: string | null;
+    referred_by: string | null;
+    verified_at: Date | null;
+  }>(`select email, city, created_at, ref_code, referred_by, verified_at from waitlist order by created_at desc`);
+  return rows.map((r) => ({
+    email: r.email,
+    city: r.city,
+    createdAt: r.created_at.toISOString(),
+    code: r.ref_code,
+    referredBy: r.referred_by,
+    verifiedAt: r.verified_at ? r.verified_at.toISOString() : null,
+  }));
 }
 
 /** Every account, newest first — the operator's user directory. */

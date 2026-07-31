@@ -54,6 +54,7 @@ Every integration/flow doc follows the **same six-part shape**, so you always kn
 | 17 | [UPI aliases, pagination & env](17-upi-aliases-pagination-env.md) | pay by @handle/phone (opt-in mapper), domain route split, keyset pagination, 3-tier env | ✅ |
 | 18 | [Unified pay, chains & country](18-unified-pay-chains-country.md) | QR/address/handle/phone in one flow, country dialing default, CCTP chain list, chain-surface rule | ✅ |
 | 19 | [Cross-chain USDC rails](19-crosschain-cctp-rails.md) | CCTP V2 behind a rail abstraction: outbound sends to Base/Eth/Arb + inbound deposits (smart-wallet, sponsored), full Sepolia staging | ✅ / 🟡 funding |
+| 20 | [Waitlist & referral loop](20-waitlist-referral-loop.md) | the f list: one `?ref=` for two referrer kinds, HMAC-derived share codes, double opt-in confirm email | ✅ / ⬜ landing |
 
 ---
 
@@ -64,6 +65,8 @@ flowchart TB
     subgraph Clients
       W["Web app<br/>(Next.js)"]
       M["Mobile app<br/>(Expo) — P2P only"]
+      A["Admin console<br/>(Next.js)"]
+      LP["Landing site<br/>(static export)"]
     end
 
     subgraph Backend["Backend API (Fastify + tsx)"]
@@ -85,9 +88,12 @@ flowchart TB
       MINT["USDC mint<br/>(controlled, devnet)"]
       PRIVY["Privy<br/>(embedded wallets)"]
       HELIUS["Helius<br/>(RPC + webhooks)"]
+      RESEND["Resend<br/>(f-list confirm email)"]
     end
 
-    W & M -->|"REST + bearer token"| Backend
+    W & M & A -->|"REST + bearer token"| Backend
+    LP -->|"POST /waitlist (no auth)"| Backend
+    Backend -->|"confirm link"| RESEND
     W -.->|"sign tx"| PRIVY
     AUTH --> PRIVY
     Backend --> PG

@@ -10,7 +10,8 @@
     "db:init": "tsx src/db/init.ts",
     "db:reset": "tsx src/db/init.ts --drop",
     "db:seed": "tsx src/db/seed.ts",
-    "devnet:setup": "tsx scripts/setup-devnet.ts"
+    "devnet:setup": "tsx scripts/setup-devnet.ts",
+    "check:waitlist": "tsx scripts/check-waitlist.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

@@ -217,6 +217,20 @@ export interface AuthSyncRequest {
 export interface WaitlistJoinRequest {
   email: string;
   city?: string;
+  /** Who sent them: an app user's '@handle' or another f-list member's ref code. Unknown values are
+   *  dropped server-side rather than rejected — a typo'd invite must never block a signup. */
+  ref?: string;
+}
+
+/** POST /waitlist response. Always 201 (duplicates included) so the form can't enumerate the list. */
+export interface WaitlistJoinResponse {
+  ok: true;
+  /** This member's own share code for `?ref=`. Null while WAITLIST_SECRET is unset (no codes minted). */
+  code: string | null;
+  /** 1-based place in the queue. */
+  position: number;
+  /** How many people joined using this member's code. */
+  frens: number;
 }
 
 export interface BalanceResponse {
@@ -600,6 +614,12 @@ export interface AdminWaitlistEntry {
   email: string;
   city: string | null;
   createdAt: string; // ISO 8601
+  /** This member's own share code (null on rows predating the referral loop). */
+  code: string | null;
+  /** '@handle' or another member's ref code. Null = came in cold. */
+  referredBy: string | null;
+  /** When they clicked the confirm link. Null = unverified. */
+  verifiedAt: string | null; // ISO 8601
 }
 
 export interface AdminWaitlistResponse {

@@ -106,3 +106,14 @@ a paymaster-sponsored burn; the fee-payer mints on Solana. Devnet cutover to OFF
 sandbox, all 3 Sepolia RPCs. Pending funding/ops: Circle-faucet the treasury, Sepolia-ETH the
 minter wallet, Privy dashboard smart-wallets + Pimlico paymaster URLs; then the docs/19 runtime
 matrix.
+
+**2026-08-01 increment (docs/20): the f list can grow itself.** One `?ref=` parameter now carries
+either an app user's `@handle` or an f-list member's own 8-char share code; `POST /waitlist` records
+it and answers `{code, position, frens}`, and a new `GET /waitlist/verify` stamps the confirm click
+and redirects back to the landing page. Codes and tokens are both HMAC-derived from the address, so
+nothing is stored, nothing expires, and a re-submit is idempotent. First outbound email in the
+system (Resend over `fetch`, no dependency) — deliberately inert until its env vars are set, so it
+deploys ahead of DNS. The app-side loop closed too: "Share invite" points at the marketing site
+instead of the app origin, and the invite gate offers an f-list exit instead of a dead end. Pending:
+the **landing page half is deferred** while that redesign is in flight (no `?ref=` read, no share
+link, no `?v=1` state), plus Resend domain verification and `db:init` on stage.

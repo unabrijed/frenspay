@@ -141,6 +141,16 @@ export const config = {
   // become a hot loop (floored).
   fxFallbackRate: num('FX_FALLBACK_RATE', 87.55, { min: 50, max: 150 }),
   fxRefreshMs: num('FX_REFRESH_MS', 600_000, { min: 1000 }), // 10 min default
+
+  // Landing f list: transactional email (Resend REST — no SDK, see services/email.ts) plus the HMAC
+  // key that mints share codes and confirm tokens. BOTH unset is the safe default: no codes are
+  // minted and no mail is sent, and /waitlist still accepts signups exactly as it did before. That
+  // is deliberate — this must be deployable before the DNS records and API key exist.
+  resendApiKey: env('RESEND_API_KEY'),
+  emailFrom: env('EMAIL_FROM', 'fpay <frens@frenspay.xyz>'),
+  waitlistSecret: env('WAITLIST_SECRET'),
+  // Where the confirm link bounces the browser back to — the marketing site, not this API.
+  landingUrl: env('LANDING_URL', 'https://frenspay.xyz'),
 };
 
 // Boot visibility: which tier + which DATABASE_URL var won (host only — never credentials).
@@ -157,5 +167,14 @@ if (isLocal && dbSource.startsWith('STAGE_')) {
   console.warn(
     `[config] WARNING: NODE_ENV=${node_env} is using the STAGE database (${dbHost}). ` +
       'Set LOCAL_DATABASE_URL to point local runs at their own Postgres.',
+  );
+}
+// The f-list loop needs both halves: the key to send and the secret to mint a token the confirm
+// endpoint can verify. One without the other is a half-configured deploy, so say so at boot rather
+// than silently dropping every confirm mail.
+if (config.resendApiKey && !config.waitlistSecret) {
+  console.warn(
+    '[config] WARNING: RESEND_API_KEY is set but WAITLIST_SECRET is not — f-list confirm emails ' +
+      'stay disabled (a token minted with no secret could be forged). Set both to enable them.',
   );
 }

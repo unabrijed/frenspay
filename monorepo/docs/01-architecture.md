@@ -107,6 +107,7 @@ flowchart LR
       r6["/orders/quote · /orders · /fund-submit"]
       r7["/webhooks/helius"]
       r8["/sim/* (dev only)"]
+      r9["/waitlist · /waitlist/verify (public)"]
     end
 
     r1 --> AUTH[auth.ts → privy.ts]
@@ -117,6 +118,8 @@ flowchart LR
     r6 --> OM[orderMachine.ts] --> ESC[escrowProgram.ts]
     r7 --> Q[(queries.ts)]
     r8 --> OM
+    r9 --> MAIL[email.ts → Resend]
+    r9 --> Q
 
     OM --> Q
     SOL --> Q
@@ -130,10 +133,13 @@ flowchart LR
 - **`server.ts`** boots Fastify, registers routes, starts the **confirmer** poller (8s), and registers
   the **Helius** webhook (no-op locally).
 - **`routes/`** is the HTTP surface, split by domain — `system, auth, money, orders, kyc,
-  notifications, webhooks` — with `routes/index.ts` as a thin registrar that attaches the shared
-  hooks (rate limit → auth) before any module registers. The `authPreHandler` populates `req.userId`
-  from a Privy bearer token (or `x-dev-user-id` in dev). List endpoints (`/transactions`, `/orders`,
-  `/notifications`) use keyset pagination (`?limit=&cursor=` → `nextCursor`).
+  notifications, webhooks, waitlist` — with `routes/index.ts` as a thin registrar that attaches the
+  shared hooks (rate limit → auth) before any module registers. The `authPreHandler` populates
+  `req.userId` from a Privy bearer token (or `x-dev-user-id` in dev). List endpoints
+  (`/transactions`, `/orders`, `/notifications`) use keyset pagination (`?limit=&cursor=` →
+  `nextCursor`). **`waitlist` is the exception to all of it**: the landing site is not logged in, so
+  those two routes never see `req.userId` and are bounded by the IP-keyed rate limiter alone — see
+  [20 · Waitlist & referral loop](20-waitlist-referral-loop.md).
 - **`config.ts`** is the only env reader; NODE_ENV picks the tier — local/development →
   `LOCAL_*` → `STAGE_*`, stage → `STAGE_*`, production → bare names that exist ONLY on the prod
   host. Boot logs which var the database came from and warns when a local run resolves the stage DB.
@@ -180,7 +186,7 @@ out in its own doc.
 ## Key files
 
 - `apps/backend/src/server.ts` · `routes/index.ts` · `config.ts`
-- `apps/backend/src/services/{solana,escrowProgram,quoteEngine,routing,orderMachine,simMerchant,confirmer,helius}.ts`
+- `apps/backend/src/services/{solana,escrowProgram,quoteEngine,routing,orderMachine,simMerchant,confirmer,helius,email}.ts`
 - `apps/backend/src/db/{schema.sql,queries.ts}`
 - `packages/shared/src/{contracts.ts,money.ts}`
 - `anchor/programs/escrow/src/lib.rs`

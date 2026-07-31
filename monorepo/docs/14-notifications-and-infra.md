@@ -13,7 +13,8 @@ to [M7](13-future-milestones.md).
    header **bell + unread badge + inbox sheet** in the web app.
 2. **Per-user advisory lock** — `withUserLock(userId, fn)` over `pg_advisory_lock(hashtext(userId))`,
    closing the M5 daily-cap **TOCTOU**.
-3. **Rate limiting** — an in-house fixed-window limiter on money-movement + faucet + auth (→ `429`).
+3. **Rate limiting** — an in-house fixed-window limiter on money-movement + faucet + auth, plus the
+   two **unauthenticated** landing-page routes (→ `429`).
 4. **Observability** — in-memory counters at `GET /metrics` (Prometheus text) + a pino latency log.
 
 ## Flow
@@ -50,8 +51,19 @@ mints test USDC, so an unthrottled `/devnet/faucet` or `/transfer/prepare` is a 
 window per identity (`x-dev-user-id` / bearer token / IP) caps each — faucet tightest (5/min), sends
 20/min — returning `429` with `retry-after`.
 
+For the authenticated surface the limiter is defense-in-depth behind auth. For `POST /waitlist` (5/min)
+and `GET /waitlist/verify` (10/min) it is **the entire defense** — the landing site has no session, so
+those buckets key on IP alone. They are the only unauthenticated endpoints in the system that write to
+the database.
+
 **Notifications are best-effort.** `notify()` swallows its own errors: a notification must never fail a
 payment. They populate the in-app inbox today; **real push** (FCM/APNs/web-push) and webhooks are M7.
+
+**Outbound email exists, narrowly.** `services/email.ts` sends the f-list confirmation through Resend's
+REST API — one `fetch`, no SDK dependency. It follows the same best-effort rule as `notify()`: it never
+throws, and callers fire it with `void` so a Resend outage cannot fail a request whose row is already
+committed. With `RESEND_API_KEY` unset it no-ops and logs once, which is the normal local state. This
+is the system's only outbound message channel; transactional mail for *payments* remains M7.
 
 ## Why this way
 
@@ -90,14 +102,16 @@ payment. They populate the in-app inbox today; **real push** (FCM/APNs/web-push)
 ## Key files
 
 - `apps/backend/src/services/notify.ts` (emit helpers), `metrics.ts` (counters), `rateLimit.ts`
-  (`rateLimitHook`, `RATE_LIMIT_RULES`, `sweepRateLimitWindows`).
+  (`rateLimitHook`, `RATE_LIMIT_RULES`, `sweepRateLimitWindows`), `email.ts` (`sendEmail` + the
+  f-list template).
 - `apps/backend/src/db/queries.ts` (`withUserLock`, notification CRUD, `getSendNotifyInfo` /
   `getOrderUserAmount` / `getRequestNotifyInfo`), `db/schema.sql` (`notifications`).
 - Emits in `services/{orderMachine,confirmer}.ts`; `routes/index.ts` (rate-limit hook, `/metrics`,
   `/notifications*`, the two `withUserLock` wraps); `server.ts` (onResponse/onError hooks).
 - Web: `components/sheets/notifications.tsx`, `components/SheetHost.tsx`, `app/(tabs)/home/page.tsx`
   (bell + badge), `store/usePayStore.ts`, `services/api.ts`.
-- Harness: `apps/backend/scripts/check-infra.ts`.
+- Harness: `apps/backend/scripts/check-infra.ts`, `scripts/check-waitlist.ts` (share-code + confirm-token
+  logic; pure, no DB or network).
 
 ## Related
 

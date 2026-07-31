@@ -23,7 +23,7 @@ Home (INR/USD toggle), Send/Request/Add/Pay sheets, Activity, Detail, Settings.
 In `apps/web/.env.local` (see `.env.example`):
 
 ```bash
-NEXT_PUBLIC_APP_STAGE=stage
+NEXT_PUBLIC_APP_ENV=stage
 NEXT_PUBLIC_STAGE_USE_REAL_API=1
 NEXT_PUBLIC_STAGE_API_URL=http://localhost:3001
 NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<your Privy app id>
@@ -35,7 +35,7 @@ Then **allow `http://localhost:3000` as an origin in your Privy dashboard app**,
 `apps/backend/.env`, never here.
 
 ## Notes
-- Env mirrors the stage convention: `NEXT_PUBLIC_APP_STAGE` selects the prefix, values read
+- Env mirrors the stage convention: `NEXT_PUBLIC_APP_ENV` selects the prefix, values read
   under `NEXT_PUBLIC_STAGE_*` (`src/services/env.ts`). Next only inlines **static literal**
   `process.env.NEXT_PUBLIC_*` references.
 - Privy Solana peer deps (`@solana/kit`, `@solana-program/*`) are installed with

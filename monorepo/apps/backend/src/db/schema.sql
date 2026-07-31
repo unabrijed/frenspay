@@ -389,6 +389,22 @@ create table if not exists waitlist (
   city       text,
   created_at timestamptz not null default now()
 );
+-- Referral loop + double opt-in, layered on the original three columns.
+--   ref_code    = this member's OWN share code. Derived HMAC(WAITLIST_SECRET,'ref:'||email) in app
+--                 code, so it is stable across re-submits and costs no storage to mint. Null on rows
+--                 written before this existed (and while WAITLIST_SECRET is unset); backfilled by
+--                 the coalesce in addWaitlistEmail the next time that address is submitted.
+--   referred_by = who brought them: EITHER an app user's '@handle' OR another member's ref_code.
+--                 Both are opaque strings and '@' disambiguates, so one column serves both loops
+--                 with no join and no second FK. First attribution wins, never rewritten (same rule
+--                 as users.referred_by).
+-- ponytail: no FK on referred_by, so renaming a handle orphans old attribution. Acceptable for a
+-- marketing queue; promote to a real FK if referral credit ever pays out money.
+alter table waitlist add column if not exists ref_code    text;
+alter table waitlist add column if not exists referred_by text;
+alter table waitlist add column if not exists verified_at timestamptz;
+create unique index if not exists idx_waitlist_ref_code    on waitlist (ref_code);
+create index        if not exists idx_waitlist_referred_by on waitlist (referred_by);
 
 -- Admin audit trail: one row per admin WRITE action (who did what to which target). Written by
 -- every /admin/* mutation; target_id is text (uuid or 'kind:value' for denylist) so one table

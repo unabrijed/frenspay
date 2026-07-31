@@ -97,6 +97,11 @@ Privy. `requireUserId(req)` throws 401 if unmapped.
   (structured `limit_exceeded`), a simulated verification upgrade, `/me` returns the tier, sanctions
   screening + a fraud score, and the Verify UI reflects the real tier.
 - 🟡 **Vendor leg still simulated** — no real document capture / KYC-AML provider (M7).
+- ✅ **Invite-only** — the code IS the referrer's `@handle`. The gate lives solely in `/auth/sync` and
+  fires only when the sync *creates* the row, so existing users are grandfathered and an empty
+  database founds itself. Settings carries the share card; the handle screen prefills from `?ref=`.
+  Someone who arrives with no code is no longer stuck at the error — the gate now offers an f-list
+  exit to the marketing site. See [20 · Waitlist & referral loop](20-waitlist-referral-loop.md).
 
 ## Key files
 

@@ -8,15 +8,19 @@ import { useEffect, useState } from 'react';
 
 import { Icons } from '@/components/icons';
 import { BackButton } from '@/components/ui/BackButton';
-import { Btn } from '@/components/ui/Button';
+import { Btn, TextLink } from '@/components/ui/Button';
 import { Splash } from '@/components/ui/Splash';
 import { View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { Screen } from '@/components/ui/Screen';
 import { colors, type } from '@/lib/theme';
 import { ApiError } from '@/services/api';
+import { LANDING_URL } from '@/services/env';
 import { wallet } from '@/services/wallet';
 import { usePayStore, useStoreHydrated } from '@/store/usePayStore';
+
+// Server codes meaning "the invite gate stopped you", as opposed to a handle problem they can fix here.
+const GATE_CODES = new Set(['referral_required', 'invalid_referral', 'referral_limit_reached']);
 
 export default function Handle() {
   const router = useRouter();
@@ -42,6 +46,9 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
   const [avail, setAvail] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // True once the invite gate (not a handle problem) is what blocked them — the only case where
+  // there is nothing they can do on this screen, so we offer the f list instead of a dead end.
+  const [gated, setGated] = useState(false);
   // Mirror the server's canonical form (lowercase, [a-z0-9_.]) so what you see is what registers.
   const clean = h.trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_.]/g, '');
 
@@ -79,6 +86,7 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
 
   const onContinue = async () => {
     setErr(null);
+    setGated(false);
     setBusy(true);
     try {
       // Code stays optional CLIENT-side — the server decides. A grandfathered user replaying
@@ -92,6 +100,7 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
       onDone();
     } catch (e) {
       const apiCode = e instanceof ApiError ? e.code : '';
+      setGated(GATE_CODES.has(apiCode));
       setErr(
         apiCode === 'referral_required'
           ? 'fpay is invite-only — ask a friend for their @handle'
@@ -155,6 +164,15 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
             />
           </View>
           {err ? <Txt style={[type.note, { color: colors.danger, marginTop: 8 }]}>{err}</Txt> : null}
+          {gated ? (
+            <TextLink
+              label="No invite? Join the f list →"
+              onPress={() => {
+                window.location.href = `${LANDING_URL}/#flist`;
+              }}
+              style={{ marginTop: 10 }}
+            />
+          ) : null}
         </View>
       </View>
 

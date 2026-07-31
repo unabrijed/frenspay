@@ -31,10 +31,17 @@ selects a prefix and all values are read under it (`stage → STAGE_*`). See `.e
 `POST /transfer/prepare` · `POST /transfer/submit` · `POST /webhooks/helius?secret=…`.
 Request/response types are shared with the app via `@fpay/shared`.
 
+**Public (no auth)** — the landing site's f list: `POST /waitlist` (email + city + optional `ref`)
+and `GET /waitlist/verify?t=…`, which stamps the confirm click and always redirects back to the
+landing page rather than answering JSON. Both are unauthenticated writes, bounded only by the
+IP-keyed rate limiter. See [20 · Waitlist & referral loop](../../docs/20-waitlist-referral-loop.md).
+
 ## Scripts
 - `db:init` — apply the schema · `db:seed` — dev users/activity
 - `devnet:setup` — provision a fee-payer + USDC mint + funded test wallets (writes `.devnet/keys.json`);
   copy the printed `STAGE_USDC_MINT` + `STAGE_FEE_PAYER_SECRET_KEY` into `.env`
+- `check:waitlist` — self-check for the f-list share codes + confirm tokens (pure logic; no DB, no
+  network, no framework — plain `assert`)
 
 ## Transfer flow
 `/transfer/prepare` builds the USDC transfer, **fee-payer partial-signs** it, records a pending
@@ -52,6 +59,9 @@ Request/response types are shared with the app via `@fpay/shared`.
    `STAGE_SOLANA_RPC_URL`, `STAGE_HELIUS_API_KEY`, `STAGE_FEE_PAYER_SECRET_KEY`, `STAGE_USDC_MINT`,
    `STAGE_PRIVY_APP_ID`/`STAGE_PRIVY_APP_SECRET`/`STAGE_PRIVY_VERIFICATION_KEY`,
    `STAGE_HELIUS_WEBHOOK_SECRET`, `STAGE_CORS_ORIGIN`. (`PORT` is injected unprefixed by Railway.)
+   For the f list also set `STAGE_RESEND_API_KEY`, `STAGE_EMAIL_FROM`, `STAGE_WAITLIST_SECRET` and
+   `STAGE_LANDING_URL` — all four, or none: unset means no share codes and no mail, and `/waitlist`
+   behaves exactly as it did before the referral loop existed.
 5. Run the schema once: `yarn workspace @fpay/backend db:init` against the Railway `STAGE_DATABASE_URL`.
 6. Point the Helius webhook at `https://<service>/webhooks/helius?secret=<HELIUS_WEBHOOK_SECRET>`.
 

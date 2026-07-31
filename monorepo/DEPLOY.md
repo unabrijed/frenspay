@@ -64,6 +64,7 @@ A web production build reads unprefixed `NEXT_PUBLIC_*` (see `apps/web/.env.exam
    NEXT_PUBLIC_API_URL=https://<backend>.up.railway.app
    NEXT_PUBLIC_SOLANA_RPC_URL=https://api.devnet.solana.com
    NEXT_PUBLIC_PRIVY_APP_ID=<same privy app id as backend>
+   NEXT_PUBLIC_LANDING_URL=https://frenspay.xyz
    ```
    (`NODE_ENV=production` is set by Vercel automatically → the app reads the unprefixed keys above.)
 3. Deploy → note the URL (e.g. `https://pay.vercel.app`).
@@ -104,6 +105,42 @@ STAGE_CORS_ORIGIN=https://admin.frenspay.xyz,https://frenspay.xyz,https://www.fr
 Forgetting the landing origins silently breaks the f-list form in prod while everything works
 locally. The landing project itself needs one env var: `NEXT_PUBLIC_API_URL` (baked into the static
 export at build time — changing the backend URL requires a landing redeploy).
+
+## 2d. F list — referral loop + confirm email
+
+Re-run `yarn workspace @fpay/backend db:init` after deploying: it adds `ref_code` / `referred_by` /
+`verified_at` to `waitlist` (idempotent `add column if not exists`).
+
+**Backend vars** (all four, or nothing happens):
+
+```
+STAGE_RESEND_API_KEY=re_...
+STAGE_EMAIL_FROM=fpay <frens@frenspay.xyz>
+STAGE_WAITLIST_SECRET=<openssl rand -hex 32>
+STAGE_LANDING_URL=https://frenspay.xyz
+```
+
+Unset is a deliberate, safe state: no share codes are minted, no mail is sent, and `/waitlist` keeps
+accepting signups exactly as before. So this ships fine *before* DNS is ready. `RESEND_API_KEY`
+without `WAITLIST_SECRET` logs a boot warning and stays disabled — a token minted with an empty HMAC
+key could be forged.
+
+**Resend DNS** (resend.com → Domains → add `frenspay.xyz`) — publish the records it shows, then hit
+Verify. Until the domain verifies, every send 403s and the failure is logged, not raised:
+
+| Type  | Name                | Value                    |
+| ----- | ------------------- | ------------------------ |
+| TXT   | `send`              | `v=spf1 include:amazonses.com ~all` |
+| CNAME | `resend._domainkey` | (the DKIM value Resend shows) |
+
+Free tier is 3,000/month, 100/day — well past what an f list needs.
+
+**Web app var**: `NEXT_PUBLIC_STAGE_LANDING_URL=https://frenspay.xyz`. This is where the settings
+"Share invite" link now points (it used to point at the app's own origin) and where the invite-gate
+dead end sends people who have no code. Defaults to `https://frenspay.xyz` if unset.
+
+`WAITLIST_SECRET` is write-once in practice: rotating it invalidates every outstanding confirm link
+and re-mints everyone's share code, so any link already shared stops attributing.
 
 ## 3. Privy dashboard
 

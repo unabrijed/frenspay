@@ -47,6 +47,7 @@ All commands run from the **monorepo root**.
 | `yarn workspace @fpay/backend db:init` | Apply the DB schema (idempotent) |
 | `yarn workspace @fpay/backend db:seed` | Insert 2 test users (@bridge, @neha) + sample activity (prints ids) |
 | `yarn workspace @fpay/backend devnet:setup` | Provision fee-payer + USDC mint + funded devnet wallets |
+| `yarn workspace @fpay/backend check:waitlist` | Self-check the f-list share codes + confirm tokens (no DB, no network) |
 | `yarn workspace @fpay/<app> <cmd>` | Run any script in a specific workspace |
 
 > `yarn start` is an alias for `yarn mobile`. **Always launch from the repo root** (never
@@ -70,7 +71,7 @@ toggle), Send/Request/Add/Pay sheets, Activity, Detail, Settings — with no bac
 email-OTP + an embedded Solana wallet right in the page. In `apps/web/.env.local`:
 
 ```bash
-NEXT_PUBLIC_APP_STAGE=stage
+NEXT_PUBLIC_APP_ENV=stage
 NEXT_PUBLIC_STAGE_USE_REAL_API=1
 NEXT_PUBLIC_STAGE_API_URL=http://localhost:3001
 NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<your Privy app id>
@@ -124,15 +125,15 @@ endpoints + deploy steps live in [`apps/backend/README.md`](./apps/backend/READM
 
 ## Env convention (`NODE_ENV` / stage prefix)
 
-`NODE_ENV` (or `EXPO_PUBLIC_APP_STAGE` / `NEXT_PUBLIC_APP_STAGE` on the clients) selects a
-**prefix**, and every value is read under it — `stage → STAGE_*`. Same logical keys, one
-place to switch environments later (`prod → PROD_*`).
+`NODE_ENV` selects a **prefix**, and every value is read under it — `stage → STAGE_*`. Same
+logical keys, one place to switch environments later. The web app is the exception: Next
+*forces* `NODE_ENV`, so its tier comes from `NEXT_PUBLIC_APP_ENV` instead.
 
 | Surface | Stage selector | Var pattern | Read in |
 |---|---|---|---|
 | Backend | `NODE_ENV=stage` | `STAGE_DATABASE_URL`, `STAGE_PRIVY_APP_SECRET`, … | `apps/backend/src/config.ts` |
-| Web | `NEXT_PUBLIC_APP_STAGE=stage` | `NEXT_PUBLIC_STAGE_*` | `apps/web/src/services/env.ts` |
-| Mobile | `EXPO_PUBLIC_APP_STAGE=stage` | `EXPO_PUBLIC_STAGE_*` | `apps/mobile/src/services/env.ts` |
+| Web | `NEXT_PUBLIC_APP_ENV=stage` | `NEXT_PUBLIC_STAGE_*` | `apps/web/src/services/env.ts` |
+| Mobile | `NODE_ENV` (Expo forces it) | `EXPO_PUBLIC_STAGE_*` | `apps/mobile/src/services/env.ts` |
 
 `PORT` (backend) stays unprefixed — the host platform injects it. See each app's
 `.env.example`.

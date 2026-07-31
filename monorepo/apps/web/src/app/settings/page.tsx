@@ -13,7 +13,7 @@ import { Pressable, View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
 import { Txt } from '@/components/ui/Txt';
 import { colors, fonts, GUTTER, radii, type } from '@/lib/theme';
-import { IS_DEV } from '@/services/env';
+import { IS_DEV, LANDING_URL } from '@/services/env';
 import { usePayStore } from '@/store/usePayStore';
 
 export default function Settings() {
@@ -115,13 +115,15 @@ function SettingsRow({ k, v, icon, accent, onPress }: { k: string; v?: string; i
   );
 }
 
-// Invite friends — fpay is invite-only and your @handle IS the code. The shared link lands on
-// /?ref=@handle, which prefills the invite field on the signup screen.
+// Invite friends — fpay is invite-only and your @handle IS the code. The link lands on the MARKETING
+// site (?ref=@handle), not this app: the landing page attributes the f-list signup and relays the
+// handle on to the signup screen, so a fren who isn't ready to install still lands somewhere that
+// explains what fpay is. The app's own entry router reads the same ?ref= if they arrive here direct.
 function ReferralCard({ used, limit, handle }: { used: number; limit: number; handle: string }) {
   const [copied, setCopied] = useState(false);
   const left = Math.max(0, limit - used);
   const onShare = async () => {
-    const url = `${window.location.origin}/?ref=${encodeURIComponent(handle)}`;
+    const url = `${LANDING_URL}/?ref=${encodeURIComponent(handle)}`;
     const text = `Join me on fpay — my invite code is ${handle}`;
     try {
       if (navigator.share) {

@@ -18,6 +18,8 @@ erDiagram
     users ||--o{ orders : places
     users ||--o{ risk_events : "risk audit (M5)"
     users ||--o{ notifications : "inbox (M6)"
+    users ||--o{ users : "invited (referral)"
+    users ||--o{ admin_actions : "performed by admin"
     merchants ||--o{ quotes : "priced by"
     merchants ||--o{ orders : assigned
     quotes ||--|| orders : "locks into"
@@ -117,13 +119,30 @@ erDiagram
         text title
         boolean read
     }
+    admin_actions {
+        uuid id PK
+        uuid admin_user_id FK
+        text action
+        text target_kind
+        text target_id
+    }
+    waitlist {
+        text email PK
+        text city
+        text ref_code UK
+        text referred_by
+        timestamptz verified_at
+    }
 ```
+
+`waitlist` is deliberately unattached — no FK to `users`, because the people on it don't have
+accounts yet. `users.referred_by` is the self-reference that carries the invite tree.
 
 ## Table by table
 
 | Table | Purpose | Notes |
 |---|---|---|
-| **users** | one row per person | keyed to Privy DID; unique canonical **immutable** `handle`; opt-in E.164 `phone` (partial unique index `uq_users_phone` = the pay-by-phone mapper); best-effort `country` (dialing default); `kyc_tier` drives M5 limits |
+| **users** | one row per person | keyed to Privy DID; unique canonical **immutable** `handle`; opt-in E.164 `phone` (partial unique index `uq_users_phone` = the pay-by-phone mapper); best-effort `country` (dialing default); `kyc_tier` drives M5 limits; `role ∈ user/merchant/admin`; `referred_by` self-FK + `referral_limit` (default 3) = the invite-only gate, enforced at row creation in `/auth/sync` |
 | **wallets** | a user's chain address(es) | `chain='solana'`; unique `address` |
 | **transfers** | the money ledger | `kind ∈ send/add/pay/escrow_fund/escrow_release`; `status ∈ pending/confirmed/failed`; unique `signature`; `chain` (confirmer polls `'solana'` only); `idempotency_key` (unique per sender — prepare replay/dedupe) |
 | **payment_requests** | "you owe me $X" | `status ∈ open/paid/cancelled`; links the fulfilling `transfer_id` |
@@ -136,6 +155,8 @@ erDiagram
 | **denylist** *(M5)* | simulated sanctions list | `(kind address/handle, value)`; screened on every money movement |
 | **risk_events** *(M5)* | per-action fraud/screening audit | `(kind, decision allow/review/block, score, reason)` |
 | **notifications** *(M6)* | in-app inbox | `(kind, title, body, read, meta)`; written by `notify()` at lifecycle events |
+| **admin_actions** | audit trail for the admin console | one row per admin **write**; `target_id` is text (uuid or `kind:value`) so one table covers every target kind |
+| **waitlist** | the f list — landing-page signups | `email` is the PK (a re-submit is idempotent, never a duplicate); `city` = the demo corridor selected; `ref_code` = this member's own share code (unique, **HMAC-derived not stored-random**); `referred_by` holds `'@handle'` *or* another member's code; `verified_at` = the confirm click. No user FK — these people have no account yet |
 
 ## Why this way
 
@@ -148,7 +169,12 @@ erDiagram
   bottom-of-file `do $$ … $$` block backfills constraints on older databases (e.g. widening
   `transfers.kind` for escrow). No migration framework yet — `schema.sql` is re-runnable.
 - **Indexes** cover the hot reads: transfers by user, orders by user and by `(state, expires_at)` (the
-  worker's scan), events by order.
+  worker's scan), events by order, `waitlist.ref_code` (unique) and `waitlist.referred_by`.
+- **One polymorphic column instead of two FKs.** `waitlist.referred_by` holds either an app user's
+  `@handle` or another f-list member's `ref_code` — both opaque strings, `@` disambiguates. It buys a
+  single code path for two referral sources with no join; it costs referential integrity, so renaming
+  a handle would orphan old attribution. Fine for a marketing queue, wrong if referral credit ever
+  pays out money (flagged with a `ponytail:` comment in `schema.sql`).
 
 ## Legalities
 
@@ -167,6 +193,11 @@ erDiagram
   `order_routing_attempts` (M3), `disputes` + merchant lifecycle columns (M4), `users.kyc_tier` +
   `denylist` + `risk_events` (M5), `notifications` (M6); idempotent constraint + column backfills;
   owner-scoped queries.
+- ✅ Post-M6 growth + ops tables: `admin_actions` (console audit trail), `users.role`,
+  `users.referred_by`/`referral_limit` (invite-only gate), and `waitlist` + its referral columns.
+- 🟡 `waitlist.ref_code` is null on rows written before the referral loop; the `coalesce` in
+  `addWaitlistEmail` backfills one the next time that address is submitted, so legacy rows stay
+  code-less until they re-submit.
 - ⬜ RLS, encryption-at-rest, retention policy (production hardening).
 
 ## Key files

@@ -17,8 +17,12 @@ export default function Waitlist() {
     if (!data) return;
     const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s);
     const rows = [
-      'email,city,created_at',
-      ...data.entries.map((e) => [e.email, e.city ?? '', e.createdAt].map(esc).join(',')),
+      'email,city,created_at,code,referred_by,verified_at',
+      ...data.entries.map((e) =>
+        [e.email, e.city ?? '', e.createdAt, e.code ?? '', e.referredBy ?? '', e.verifiedAt ?? '']
+          .map(esc)
+          .join(','),
+      ),
     ];
     const url = URL.createObjectURL(new Blob([rows.join('\n')], { type: 'text/csv' }));
     const a = document.createElement('a');
@@ -31,7 +35,14 @@ export default function Waitlist() {
   return (
     <>
       <div className="flex items-start justify-between">
-        <PageHead title="F list" sub={data ? `${data.entries.length} signups` : undefined} />
+        <PageHead
+          title="F list"
+          sub={
+            data
+              ? `${data.entries.length} signups · ${data.entries.filter((e) => e.verifiedAt).length} confirmed`
+              : undefined
+          }
+        />
         <Btn onClick={exportCsv} disabled={!data || data.entries.length === 0}>
           Export CSV
         </Btn>
@@ -42,12 +53,15 @@ export default function Waitlist() {
       ) : data.entries.length === 0 ? (
         <EmptyState text="No signups yet. The landing form posts here." />
       ) : (
-        <Table head={['Email', 'City', 'Joined']}>
+        <Table head={['Email', 'City', 'Joined', 'Referred by', 'Confirmed']}>
           {data.entries.map((e) => (
             <tr key={e.email} className="hover:bg-surface-low">
               <Td className="font-medium">{e.email}</Td>
               <Td className="text-muted">{e.city ?? '—'}</Td>
               <Td className="whitespace-nowrap text-muted">{at(e.createdAt)}</Td>
+              {/* '@handle' = an app user invited them; 8 chars = another f-list member did. */}
+              <Td className="text-muted">{e.referredBy ?? '—'}</Td>
+              <Td className="whitespace-nowrap text-muted">{e.verifiedAt ? '✓' : '—'}</Td>
             </tr>
           ))}
         </Table>
