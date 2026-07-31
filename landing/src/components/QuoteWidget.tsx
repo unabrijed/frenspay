@@ -2,17 +2,17 @@
 
 import { useState } from 'react';
 
-// Demo math only — live quotes come from the app.
-const RATE = 83.2; // ₹ per $1
+import { useCity } from './CityContext';
 
-const inrFmt = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const usdFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function QuoteWidget() {
+  const { city } = useCity();
   const [raw, setRaw] = useState('20');
 
   const amount = Math.min(1000, Math.max(0, parseFloat(raw) || 0));
   const fee = amount === 0 ? 0 : Math.max(0.05, amount * 0.005);
+  const localFmt = new Intl.NumberFormat(city.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
     <div className="mx-auto w-full max-w-[560px] rounded-[28px] bg-white p-6 shadow-lift ring-1 ring-hair sm:p-8">
@@ -41,14 +41,18 @@ export function QuoteWidget() {
       <div className="mt-6">
         <span className="eyebrow text-muted">Merchant gets</span>
         <div className="tabular mt-0.5 text-[40px] font-extrabold leading-tight tracking-[-0.02em]">
-          ₹{inrFmt.format(amount * RATE)}
+          {city.symbol}
+          {localFmt.format(amount * city.rate)}
         </div>
       </div>
 
       <dl className="mt-5 divide-y divide-hair border-t border-hair text-[15px]">
         <div className="flex justify-between py-3">
           <dt className="text-muted">Rate</dt>
-          <dd className="tabular font-semibold">₹{RATE.toFixed(2)} / $1 · locked</dd>
+          <dd className="tabular font-semibold">
+            {city.symbol}
+            {city.rate.toFixed(2)} / $1 · locked
+          </dd>
         </div>
         <div className="flex justify-between py-3">
           <dt className="text-muted">Fee</dt>
@@ -60,7 +64,7 @@ export function QuoteWidget() {
         </div>
         <div className="flex justify-between py-3">
           <dt className="text-muted">Arrival</dt>
-          <dd className="font-semibold text-teal">Instant</dd>
+          <dd className="font-semibold text-teal">Instant · {city.rail}</dd>
         </div>
       </dl>
 

@@ -50,6 +50,11 @@ button:not(:disabled),
   font-variant-numeric: tabular-nums;
 }
 
+/* Terracotta brand gradient — the only surfaces that carry .grain. */
+.brand-gradient {
+  background-image: linear-gradient(160deg, #c84b34 0%, #a6341f 55%, #7e2513 100%);
+}
+
 /* Film-grain overlay for brand-gradient surfaces (texture instead of decoration). */
 .grain {
   position: relative;
@@ -67,6 +72,74 @@ button:not(:disabled),
 /* Scroll reveals + decorative motion. Everything lives inside the media query so
    reduced-motion users get a fully visible, still page. */
 .reveal {
+  opacity: 1;
+}
+
+/* One-shot scan glint over the hero QR — absent entirely under reduced motion. */
+.glint {
+  position: absolute;
+  inset: 0;
+  display: none;
+  pointer-events: none;
+}
+
+/* ── Cinematic hero experiment (/cinematic) ──────────────────────────────
+   Self-contained: nothing below is used by the cream landing at /. */
+
+.font-inter {
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Bottom-only backdrop blur over the hero video — blur, never a dark tint.
+   The mask fades the blur out by 45% up the viewport. */
+.blur-fade-mask {
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  -webkit-mask-image: linear-gradient(to top, black 0%, transparent 45%);
+  mask-image: linear-gradient(to top, black 0%, transparent 45%);
+}
+
+/* Translucent control surface. The ::before is a border-only gradient stroke:
+   two masks composited with xor/exclude punch out the fill, leaving the padding ring. */
+.liquid-glass {
+  position: relative;
+  overflow: hidden;
+  border: none;
+  background: rgba(255, 255, 255, 0.01);
+  background-blend-mode: luminosity;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+}
+.liquid-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.4px;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.45) 0%,
+    rgba(255, 255, 255, 0.15) 20%,
+    rgba(255, 255, 255, 0) 40%,
+    rgba(255, 255, 255, 0) 60%,
+    rgba(255, 255, 255, 0.15) 80%,
+    rgba(255, 255, 255, 0.45) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+/* Visible by default — the entrance itself is opt-in below, so reduced-motion
+   users get the finished hero rather than a permanently blank one. */
+.animate-blur-fade-up {
   opacity: 1;
 }
 
@@ -102,4 +175,33 @@ button:not(:disabled),
     }
   }
 
+  .glint {
+    display: block;
+    background: linear-gradient(105deg, transparent 42%, rgba(255, 255, 255, 0.75) 50%, transparent 58%);
+    transform: translateX(-120%);
+    animation: glint-sweep 1s ease-out 0.8s 1 forwards;
+  }
+  @keyframes glint-sweep {
+    to {
+      transform: translateX(120%);
+    }
+  }
+
+  /* Cinematic hero entrance — staggered per element via inline animationDelay. */
+  .animate-blur-fade-up {
+    opacity: 0;
+    animation: blurFadeUp 1s ease-out forwards;
+  }
+  @keyframes blurFadeUp {
+    from {
+      opacity: 0;
+      filter: blur(20px);
+      transform: translateY(40px);
+    }
+    to {
+      opacity: 1;
+      filter: blur(0);
+      transform: translateY(0);
+    }
+  }
 }

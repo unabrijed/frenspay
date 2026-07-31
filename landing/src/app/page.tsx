@@ -1,5 +1,7 @@
-import { PhoneMockup } from '@/components/PhoneMockup';
+import { CityProvider } from '@/components/CityContext';
+import { CityPills } from '@/components/CityPills';
 import { Pill } from '@/components/Pill';
+import { QrHero } from '@/components/QrHero';
 import { QuoteWidget } from '@/components/QuoteWidget';
 import { Reveal } from '@/components/Reveal';
 import { Waitlist } from '@/components/Waitlist';
@@ -10,101 +12,170 @@ const h2 = 'text-[clamp(1.7rem,3vw,2.4rem)] font-extrabold leading-[1.1] trackin
 
 export default function Page() {
   return (
-    <main id="top">
-      <Hero />
-      <Moments />
-      <Quote />
-      <Comparison />
-      <FList />
-      <Footer />
-    </main>
+    <CityProvider>
+      <main id="top">
+        <Nav />
+        <Hero />
+        <Countries />
+        <HowItWorks />
+        <Rates />
+        <Comparison />
+        <Security />
+        <FList />
+        <Footer />
+      </main>
+    </CityProvider>
+  );
+}
+
+function Nav() {
+  return (
+    <header className="mx-auto flex max-w-[1180px] items-center justify-between px-6 pt-6 sm:px-10">
+      <a href="#top" className="text-[24px] font-extrabold tracking-[-0.02em] text-terra">
+        fpay
+      </a>
+      <nav className="hidden items-center gap-7 text-[15px] font-semibold text-muted md:flex">
+        <a href="#top" className="transition-colors hover:text-ink">
+          Product
+        </a>
+        <a href="#countries" className="transition-colors hover:text-ink">
+          Countries
+        </a>
+        <a href="#how" className="transition-colors hover:text-ink">
+          How it works
+        </a>
+        <a href="#rates" className="transition-colors hover:text-ink">
+          Rates
+        </a>
+        <a href="#security" className="transition-colors hover:text-ink">
+          Security
+        </a>
+      </nav>
+      <Pill href="#flist" variant="terra">
+        Get fpay
+      </Pill>
+    </header>
   );
 }
 
 function Hero() {
   return (
-    <section className="p-2 sm:p-4">
-      <div className="grain relative overflow-hidden rounded-[28px] bg-[linear-gradient(160deg,#c84b34_0%,#a6341f_55%,#7e2513_100%)]">
-        <nav className="relative flex items-center justify-between px-6 pt-6 sm:px-10">
-          <a href="#top" className="text-[24px] font-extrabold tracking-[-0.02em] text-white">
-            fpay
-          </a>
-          <div className="flex items-center gap-5">
-            <a href={DEMO_URL} className="hidden text-[15px] font-semibold text-white/85 transition-colors hover:text-white sm:block">
-              Try the demo
-            </a>
-            <Pill href="#flist" variant="white">
-              Get early access
+    <section className="px-6 pb-16 pt-14 sm:px-10 lg:pb-20 lg:pt-20">
+      <div className="mx-auto grid max-w-[1180px] items-center gap-14 lg:grid-cols-12">
+        <div className="lg:col-span-5">
+          <h1 className="hero-rise text-[clamp(2.4rem,5vw,3.6rem)] font-extrabold leading-[1.06] tracking-[-0.03em]">
+            Your dollars speak local.
+          </h1>
+          <p className="hero-rise mt-5 max-w-md text-lg leading-relaxed text-muted [animation-delay:120ms]">
+            Hold one USD balance. Scan the QR every shop already uses — the merchant is paid instantly in their own
+            currency, at a rate you locked first.
+          </p>
+          <div className="hero-rise mt-9 flex flex-wrap items-center gap-6 [animation-delay:240ms]">
+            <Pill href="#flist" variant="terra">
+              Start with dollars
             </Pill>
+            <a
+              href={DEMO_URL}
+              className="text-[15px] font-semibold text-terra transition-colors hover:text-terra-deep"
+            >
+              Run a payment →
+            </a>
           </div>
-        </nav>
-
-        <div className="relative mx-auto grid max-w-[1180px] items-end gap-12 px-6 pt-14 sm:px-10 lg:grid-cols-12 lg:pt-20">
-          <div className="pb-4 lg:col-span-7 lg:pb-24">
-            <h1 className="hero-rise text-[clamp(2.4rem,5vw,3.6rem)] font-extrabold leading-[1.06] tracking-[-0.03em] text-white">
-              One balance in dollars. Spend in rupees, instantly.
-            </h1>
-            <p className="hero-rise mt-5 max-w-md text-lg leading-relaxed text-peach/85 [animation-delay:120ms]">
-              Scan the same QR as everyone else — the chai stall, the auto stand, the train counter. fpay pays the
-              merchant in rupees the second you tap.
-            </p>
-            <div className="hero-rise mt-9 flex flex-wrap items-center gap-6 [animation-delay:240ms]">
-              <Pill href="#flist" variant="ink">
-                Get early access
-              </Pill>
-              <a href={DEMO_URL} className="text-[15px] font-semibold text-white/85 transition-colors hover:text-white">
-                Try the demo →
-              </a>
-            </div>
-          </div>
-
-          <div className="hero-rise relative mx-auto -mb-12 lg:col-span-5 lg:-mb-20 [animation-delay:160ms]">
-            <PhoneMockup />
-          </div>
+        </div>
+        <div className="hero-rise lg:col-span-7 [animation-delay:160ms]">
+          <QrHero />
         </div>
       </div>
     </section>
   );
 }
 
-function Moments() {
+function Countries() {
   return (
-    <section className="px-6 py-24 sm:py-28">
-      <Reveal>
-        <div className="mx-auto grid max-w-[1180px] gap-5 lg:grid-cols-5">
-          <div className="h-full rounded-[28px] bg-surface-low p-8 sm:p-10 lg:col-span-3">
-            <h3 className="text-[26px] font-extrabold leading-tight tracking-[-0.01em]">
-              Any stall. The same QR everyone scans.
-            </h3>
-            <p className="mt-3 max-w-md text-muted">
-              You see the rate and the fee before you tap — then the merchant has rupees before you&apos;ve pocketed
-              your phone.
-            </p>
-            <div className="mt-10 max-w-[280px] rounded-[16px] bg-white p-4 shadow-tactile">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[15px] font-semibold">Chai</span>
-                <span className="tabular text-[15px] font-semibold">₹40</span>
-              </div>
-              <div className="mt-1 flex items-center justify-between">
-                <span className="text-[13px] text-muted">≈ $0.48</span>
-                <span className="rounded-full bg-teal-soft px-2.5 py-0.5 text-[11px] font-semibold text-teal-on">Settled</span>
-              </div>
-            </div>
-          </div>
+    <section id="countries" className="px-6 pb-24 pt-4 sm:pb-28">
+      <Reveal className="mx-auto max-w-[1180px] text-center">
+        <CityPills />
+        <p className="mx-auto mt-5 max-w-md text-[15px] text-muted">
+          Works wherever QR scan-and-pay does. Tap a city — the payment above and the quote below follow.
+        </p>
+      </Reveal>
+    </section>
+  );
+}
 
-          <div className="h-full rounded-[28px] bg-teal-soft p-8 text-teal-on sm:p-10 lg:col-span-2">
-            <h3 className="text-[26px] font-extrabold leading-tight tracking-[-0.01em]">Split it by @handle.</h3>
-            <p className="mt-3 text-teal-on/80">
-              Send or request by name or phone — no account numbers, no screenshots of QR codes. @asha owes you for the
-              cab? One tap.
-            </p>
-            <div className="mt-10 flex w-fit items-center gap-3 rounded-full bg-white/85 py-2 pl-2 pr-4">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-peach text-[13px] font-semibold text-terra">
-                a
+const FEATURES = [
+  { title: 'Hold dollars', line: 'Top up once. One USD balance for every country you land in.', d: 'dollar' },
+  { title: 'Lock the rate', line: 'The rate on screen freezes before you confirm — nothing settles differently later.', d: 'lock' },
+  { title: 'Pay instantly', line: "The merchant has their money before you've pocketed your phone.", d: 'bolt' },
+] as const;
+
+const fGlyphs = {
+  dollar: (
+    <path d="M12 3v18M16.5 6.5c-1-1-2.7-1.5-4.5-1.5-2.2 0-4 1.1-4 3s1.6 2.6 4 3c2.4.4 4 1.1 4 3s-1.8 3-4 3c-1.8 0-3.5-.5-4.5-1.5" />
+  ),
+  lock: (
+    <>
+      <rect x="5" y="11" width="14" height="9" rx="2.5" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </>
+  ),
+  bolt: <path d="M13 3 5 13.5h5.5L11 21l8-10.5h-5.5L13 3Z" />,
+} as const;
+
+function FIcon({ d }: { d: keyof typeof fGlyphs }) {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      aria-hidden
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {fGlyphs[d]}
+    </svg>
+  );
+}
+
+function HowItWorks() {
+  return (
+    <section id="how" className="px-6 py-24 sm:py-28">
+      <Reveal className="mx-auto max-w-[1180px]">
+        <div className="mx-auto max-w-2xl text-center">
+          <p className="eyebrow text-terra">How it works</p>
+          <h2 className={`${h2} mt-3`}>Dollars in. Local money out.</h2>
+        </div>
+        <div className="relative mt-12 grid gap-5 md:grid-cols-3">
+          <span
+            aria-hidden
+            className="absolute left-[14%] right-[14%] top-[60px] z-[1] hidden border-t-2 border-dashed border-terra/20 md:block"
+          />
+          {FEATURES.map((f) => (
+            <div key={f.title} className="rounded-[28px] bg-surface-low p-8">
+              <span className="relative z-[2] flex h-14 w-14 items-center justify-center rounded-full bg-peach text-terra shadow-tactile">
+                <FIcon d={f.d} />
               </span>
-              <span className="text-[14px] font-semibold">@asha</span>
-              <span className="tabular text-[14px] font-semibold text-terra">Request $6.20</span>
+              <h3 className="mt-6 text-[20px] font-extrabold tracking-[-0.01em]">{f.title}</h3>
+              <p className="mt-2 text-[15px] text-muted">{f.line}</p>
             </div>
+          ))}
+        </div>
+        <div className="mt-5 flex flex-col justify-between gap-6 rounded-[28px] bg-teal-soft p-8 text-teal-on sm:flex-row sm:items-center sm:p-10">
+          <div>
+            <h3 className="text-[26px] font-extrabold leading-tight tracking-[-0.01em]">Split it by @handle.</h3>
+            <p className="mt-2 max-w-md text-teal-on/80">
+              Send or request by name or phone — no account numbers, no screenshots of QR codes.
+            </p>
+          </div>
+          <div className="flex w-fit shrink-0 items-center gap-3 rounded-full bg-white/85 py-2 pl-2 pr-4">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-peach text-[13px] font-semibold text-terra">
+              a
+            </span>
+            <span className="text-[14px] font-semibold">@asha</span>
+            <span className="tabular text-[14px] font-semibold text-terra">Request $6.20</span>
           </div>
         </div>
       </Reveal>
@@ -112,9 +183,9 @@ function Moments() {
   );
 }
 
-function Quote() {
+function Rates() {
   return (
-    <section id="quote" className="bg-surface-low px-6 py-24 sm:py-28">
+    <section id="rates" className="bg-surface-low px-6 py-24 sm:py-28">
       <Reveal className="mx-auto max-w-[1180px]">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className={h2}>Type a price. See exactly what you&apos;d pay.</h2>
@@ -153,7 +224,7 @@ function Comparison() {
               ))}
             </ul>
           </div>
-          <div className="grain bg-[linear-gradient(160deg,#c84b34,#a6341f)] p-8 text-white sm:p-10">
+          <div className="grain brand-gradient p-8 text-white sm:p-10">
             <p className="eyebrow text-peach">fpay</p>
             <ul className="mt-6 divide-y divide-white/20">
               {COMPARE.map(([, right]) => (
@@ -164,6 +235,31 @@ function Comparison() {
             </ul>
           </div>
         </div>
+      </Reveal>
+    </section>
+  );
+}
+
+const SECURITY = [
+  'Only you can move your money. Not fpay, not anyone else.',
+  'Every payment is approved on your device before any money moves.',
+  'The price on screen when you tap Pay is the price that settles — rate and fee itemized first.',
+  'Lose your phone, lose nothing. Sign in with your email on any device — your balance is already there.',
+] as const;
+
+function Security() {
+  return (
+    <section id="security" className="px-6 py-24 sm:py-28">
+      <Reveal className="mx-auto max-w-2xl">
+        <p className="eyebrow text-terra">Security</p>
+        <h2 className={`${h2} mt-3`}>Money that behaves.</h2>
+        <ul className="mt-8 divide-y divide-hair border-t border-hair">
+          {SECURITY.map((line) => (
+            <li key={line} className="py-4 text-[16px] text-muted">
+              {line}
+            </li>
+          ))}
+        </ul>
       </Reveal>
     </section>
   );
@@ -204,7 +300,7 @@ function Footer() {
             </a>
           </nav>
         </div>
-        <p className="pt-8 text-[13px] text-white/50">© 2026 fpay · Made for people in line at a chai stall.</p>
+        <p className="pt-8 text-[13px] text-white/50">© 2026 fpay · Made for people in line at a street stall.</p>
       </div>
       <div aria-hidden className="overflow-hidden">
         <div className="mx-auto max-w-[1180px] px-6 sm:px-10">
