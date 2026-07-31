@@ -97,6 +97,10 @@ export interface MeResponse {
   merchant?: MerchantProfile;
   /** Coarse role for the admin viewer; 'merchant' is informational (capability = `merchant` field). */
   role?: 'user' | 'merchant' | 'admin';
+  /** Invite allowance (default 3; per-user overrides by hand). Populated by /me only. */
+  referralLimit?: number;
+  /** How many accounts this user's invite code has created. Populated by /me only. */
+  referralsUsed?: number;
 }
 
 /* ---- merchant (LP) DTOs ---- */
@@ -205,6 +209,14 @@ export interface AuthSyncRequest {
   walletAddress: string;
   /** ISO 3166-1 alpha-2 browser-locale guess; server fills only when unset (weakest source). */
   country?: string;
+  /** Referrer's @handle — the invite code. Server-required only when this sync CREATES the account. */
+  referralCode?: string;
+}
+
+/** POST /waitlist body (public, landing page). city = the demo-rate corridor selected at signup. */
+export interface WaitlistJoinRequest {
+  email: string;
+  city?: string;
 }
 
 export interface BalanceResponse {

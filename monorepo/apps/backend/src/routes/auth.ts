@@ -9,9 +9,12 @@ import { requirePrivyDid, requireUserId } from '../auth';
 import { config } from '../config';
 import {
   canonicalHandle,
+  findUserByHandle,
   findUserById,
   findUserByPhone,
   getMerchantForUser,
+  getReferralStats,
+  hasAnyUsers,
   getUserKycStatus,
   getUserKycTier,
   getWalletForUser,
@@ -46,11 +49,22 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     // Browser-locale country guess (weakest source — the upsert only fills it when NULL).
     const rawCountry = req.body?.country ?? '';
     const country = /^[A-Za-z]{2}$/.test(rawCountry) ? rawCountry.toUpperCase() : undefined;
+    // Invite gate: fires only when this sync CREATES the account (no row for this DID → authPreHandler
+    // left req.userId unset), so existing users re-sync untouched — grandfathered for free. An empty
+    // directory founds itself (first user on a fresh DB). Slot-limit check runs inside the upsert txn.
+    let referredBy: string | undefined;
+    if (!req.userId && (await hasAnyUsers())) {
+      const referrer = await findUserByHandle(req.body?.referralCode ?? '');
+      if (!referrer) return reply.code(403).send({ error: req.body?.referralCode ? 'invalid_referral' : 'referral_required' });
+      referredBy = referrer.id;
+    }
     let user;
     try {
-      user = await upsertUserByPrivyDid({ privyDid, handle: canonical, walletAddress, country });
+      user = await upsertUserByPrivyDid({ privyDid, handle: canonical, walletAddress, country, referredBy });
     } catch (e) {
-      if ((e as { code?: string }).code === '23505') return reply.code(409).send({ error: 'handle_taken' });
+      const code = (e as { code?: string }).code;
+      if (code === 'referral_limit') return reply.code(403).send({ error: 'referral_limit_reached' });
+      if (code === '23505') return reply.code(409).send({ error: 'handle_taken' });
       throw e;
     }
     const wallet = await getWalletForUser(user.id);
@@ -72,6 +86,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     const wallet = await getWalletForUser(userId);
     const evmWallet = await getWalletForUser(userId, 'ethereum');
     const merchant = await getMerchantForUser(userId);
+    const referrals = await getReferralStats(userId);
     return {
       id: user.id,
       handle: user.handle,
@@ -86,6 +101,8 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       // one extra query here beats a second round trip + loading state for the 99% who aren't LPs.
       merchant: merchant ? toMerchantProfile(merchant) : undefined,
       role: user.role,
+      referralLimit: referrals.limit,
+      referralsUsed: referrals.used,
     };
   });
 

@@ -15,6 +15,20 @@ export default function Page() {
   const handle = usePayStore((s) => s.handle);
   const authStatus = usePayStore((s) => s.authStatus);
 
+  // Invite links land here as /?ref=@handle. Stash the code before the redirect strips the query —
+  // localStorage (not session) so "got a link today, signed up next week" still prefills. The
+  // handle step reads and clears it. `fpay:resumePay` is the naming precedent.
+  useEffect(() => {
+    const ref = new URLSearchParams(window.location.search).get('ref');
+    if (ref) {
+      try {
+        localStorage.setItem('fpay:ref', ref);
+      } catch {
+        /* storage blocked — manual entry still works */
+      }
+    }
+  }, []);
+
   // Single source of routing truth — resumes a partially-onboarded user at the RIGHT step instead
   // of restarting from welcome (Privy persists the session, so `authStatus` re-resolves to
   // 'signedIn' on reload and `handle` is persisted once the handle step is done):

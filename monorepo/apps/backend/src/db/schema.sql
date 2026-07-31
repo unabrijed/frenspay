@@ -381,6 +381,15 @@ alter table users add column if not exists role text not null default 'user'
 update users set role = 'merchant'
   where role = 'user' and id in (select user_id from merchants where user_id is not null);
 
+-- F-list waitlist (landing-page signups). Unauthenticated writes → email is the PK so a re-submit
+-- is a no-op (the insert uses on conflict do nothing). No user FK — these people don't have
+-- accounts yet. city = which demo-rate corridor the visitor had selected (marketing signal).
+create table if not exists waitlist (
+  email      text primary key,
+  city       text,
+  created_at timestamptz not null default now()
+);
+
 -- Admin audit trail: one row per admin WRITE action (who did what to which target). Written by
 -- every /admin/* mutation; target_id is text (uuid or 'kind:value' for denylist) so one table
 -- covers all target kinds.
@@ -394,3 +403,11 @@ create table if not exists admin_actions (
   created_at    timestamptz not null default now()
 );
 create index if not exists idx_admin_actions_created on admin_actions (created_at desc);
+
+-- Invite-only referrals: the code IS the referrer's handle; used = count(referred_by). The gate
+-- lives in /auth/sync and fires only when the sync CREATES the row, so pre-gate users (referred_by
+-- null) are grandfathered for free. Per-user overrides by hand, like role:
+--   update users set referral_limit = 10 where handle='@you';
+alter table users add column if not exists referral_limit integer not null default 3;
+alter table users add column if not exists referred_by uuid references users(id);
+create index if not exists idx_users_referred_by on users (referred_by);

@@ -14,6 +14,7 @@ import { View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { Screen } from '@/components/ui/Screen';
 import { colors, type } from '@/lib/theme';
+import { ApiError } from '@/services/api';
 import { wallet } from '@/services/wallet';
 import { usePayStore, useStoreHydrated } from '@/store/usePayStore';
 
@@ -37,11 +38,23 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
   const router = useRouter();
   const authSync = usePayStore((s) => s.authSync);
   const [h, setH] = useState('');
+  const [code, setCode] = useState('');
   const [avail, setAvail] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   // Mirror the server's canonical form (lowercase, [a-z0-9_.]) so what you see is what registers.
   const clean = h.trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_.]/g, '');
+
+  // Prefill the invite code stashed by the entry gate (/?ref=@handle). Effect, not initializer —
+  // localStorage isn't there during SSR and an initializer would mismatch hydration.
+  useEffect(() => {
+    try {
+      const ref = localStorage.getItem('fpay:ref');
+      if (ref) setCode(ref);
+    } catch {
+      /* storage blocked */
+    }
+  }, []);
 
   // Debounced availability check via the resolve endpoint (null result = available).
   useEffect(() => {
@@ -68,10 +81,28 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
     setErr(null);
     setBusy(true);
     try {
-      await authSync('@' + clean);
+      // Code stays optional CLIENT-side — the server decides. A grandfathered user replaying
+      // onboarding re-syncs with no code and must not be blocked by client validation.
+      await authSync('@' + clean, code.trim() || undefined);
+      try {
+        localStorage.removeItem('fpay:ref');
+      } catch {
+        /* storage blocked */
+      }
       onDone();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      const apiCode = e instanceof ApiError ? e.code : '';
+      setErr(
+        apiCode === 'referral_required'
+          ? 'fpay is invite-only — ask a friend for their @handle'
+          : apiCode === 'invalid_referral'
+            ? "That invite code isn't valid"
+            : apiCode === 'referral_limit_reached'
+              ? 'That code has no invites left'
+              : e instanceof Error
+                ? e.message
+                : String(e),
+      );
     } finally {
       setBusy(false);
     }
@@ -111,6 +142,17 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
             ) : avail === false ? (
               <Txt style={[type.tierTag, { color: colors.danger }]}>Taken</Txt>
             ) : null}
+          </View>
+          <View style={[styles.field, styles.codeField]}>
+            <input
+              style={sxCodeInput}
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="Invite code (a friend's @handle)"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+            />
           </View>
           {err ? <Txt style={[type.note, { color: colors.danger, marginTop: 8 }]}>{err}</Txt> : null}
         </View>
@@ -157,8 +199,22 @@ const styles = {
     paddingTop: 5,
     paddingBottom: 5,
   },
+  codeField: { marginTop: 12, paddingTop: 12, paddingBottom: 12 },
   cta: { gap: 13, alignItems: 'center' },
 } satisfies Record<string, CSSProperties>;
+
+const sxCodeInput: CSSProperties = {
+  fontFamily: 'var(--font-sans)',
+  fontWeight: 500,
+  fontSize: 16,
+  color: colors.ink,
+  flex: 1,
+  padding: 0,
+  border: 'none',
+  outline: 'none',
+  background: 'transparent',
+  minWidth: 0,
+};
 
 const sxHandleInput: CSSProperties = {
   fontFamily: 'var(--font-sans)',

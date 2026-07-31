@@ -15,6 +15,7 @@ import { registerMoneyRoutes } from './money';
 import { registerNotificationRoutes } from './notifications';
 import { registerOrderRoutes } from './orders';
 import { registerSystemRoutes } from './system';
+import { registerWaitlistRoutes } from './waitlist';
 import { registerWebhookRoutes } from './webhooks';
 
 export async function registerRoutes(app: FastifyInstance) {
@@ -33,5 +34,6 @@ export async function registerRoutes(app: FastifyInstance) {
   await registerKycRoutes(app);
   await registerNotificationRoutes(app);
   await registerWebhookRoutes(app);
+  await registerWaitlistRoutes(app);
   await registerAdminRoutes(app);
 }

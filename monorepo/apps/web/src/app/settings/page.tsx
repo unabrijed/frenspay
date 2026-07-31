@@ -3,6 +3,7 @@
 // Settings — profile, account rows, replay onboarding. Per screens-more.jsx.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties, ReactNode } from 'react';
+import { useState } from 'react';
 
 import { Icons } from '@/components/icons';
 import { BackButton } from '@/components/ui/BackButton';
@@ -25,7 +26,8 @@ export default function Settings() {
   const recoveryPasskey = usePayStore((s) => s.recoveryPasskey);
   const kycTier = usePayStore((s) => s.kycTier);
   const merchant = usePayStore((s) => s.merchant);
-  const role = usePayStore((s) => s.role);
+  const referralLimit = usePayStore((s) => s.referralLimit);
+  const referralsUsed = usePayStore((s) => s.referralsUsed);
   const logout = usePayStore((s) => s.logout);
   const resetForTesting = usePayStore((s) => s.resetForTesting);
   return (
@@ -44,6 +46,8 @@ export default function Settings() {
         </View>
 
         <VerifyCard tier={kycTier} onPress={() => open('verify')} />
+
+        <ReferralCard used={referralsUsed} limit={referralLimit} handle={handle} />
 
         <List>
           <SettingsRow k="Recovery" v={recoveryPasskey ? 'Passkey set' : 'Email'} onPress={() => open('recovery')} />
@@ -66,8 +70,6 @@ export default function Settings() {
               onPress={() => router.push('/merchant')}
             />
           ) : null}
-          {/* Operator-only: the read-only flow viewer. The backend 403s non-admins anyway. */}
-          {role === 'admin' ? <SettingsRow k="Admin" accent onPress={() => router.push('/admin')} /> : null}
         </List>
 
         <Spacer />
@@ -110,6 +112,47 @@ function SettingsRow({ k, v, icon, accent, onPress }: { k: string; v?: string; i
         {onPress ? <Icons.Chevron size={16} color={colors.muted} /> : null}
       </View>
     </Row>
+  );
+}
+
+// Invite friends — fpay is invite-only and your @handle IS the code. The shared link lands on
+// /?ref=@handle, which prefills the invite field on the signup screen.
+function ReferralCard({ used, limit, handle }: { used: number; limit: number; handle: string }) {
+  const [copied, setCopied] = useState(false);
+  const left = Math.max(0, limit - used);
+  const onShare = async () => {
+    const url = `${window.location.origin}/?ref=${encodeURIComponent(handle)}`;
+    const text = `Join me on fpay — my invite code is ${handle}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: 'Join fpay', text, url });
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(`${text}\n${url}`);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }
+    } catch {
+      /* user dismissed the share sheet */
+    }
+  };
+  return (
+    <View style={styles.kyc}>
+      <View style={styles.kycHead}>
+        <View style={{ flex: 1 }}>
+          <Txt style={type.rowName}>Invite friends</Txt>
+          <Txt style={[type.rowTime, { marginTop: 2 }]}>
+            {left > 0 ? `${left} of ${limit} invites left · your code is ${handle || '—'}` : 'All invites used'}
+          </Txt>
+        </View>
+      </View>
+      <Btn
+        label={copied ? 'Copied' : 'Share invite'}
+        variant="secondary"
+        disabled={left === 0}
+        onPress={onShare}
+        style={{ marginTop: 14 }}
+      />
+    </View>
   );
 }
 

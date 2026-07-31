@@ -37,6 +37,8 @@ export interface UserRow {
   phone: string | null;
   country: string | null;
   role: 'user' | 'merchant' | 'admin';
+  referral_limit: number;
+  referred_by: string | null;
 }
 
 export interface WalletRow {
@@ -120,22 +122,39 @@ export async function upsertUserByPrivyDid(input: {
   displayName?: string;
   walletAddress: string;
   country?: string;
+  /** Referrer's user id — set only when this sync creates the account (invite gate). */
+  referredBy?: string;
 }): Promise<UserRow> {
   const client = await getPool().connect();
   try {
     await client.query('begin');
+    if (input.referredBy) {
+      // Lock the referrer row FIRST, count in a SEPARATE statement — under read committed the
+      // second statement gets a fresh snapshot after the lock, so concurrent claims serialize.
+      // (A single `select ... for update` with the count in a subquery re-checks its qual against
+      // a stale snapshot after blocking.)
+      await client.query('select 1 from users where id = $1 for update', [input.referredBy]);
+      const { rows: refRows } = await client.query<{ referral_limit: number; used: number }>(
+        `select referral_limit, (select count(*)::int from users where referred_by = $1) as used
+           from users where id = $1`,
+        [input.referredBy],
+      );
+      const r = refRows[0];
+      if (!r || r.used >= r.referral_limit) throw Object.assign(new Error('referral_limit'), { code: 'referral_limit' });
+    }
     // Handle is IMMUTABLE after first sync (the onboarding UI promises "can't be changed later",
     // and a freed handle could be re-claimed → payments misdirected). display_name coalesces so a
     // sync without one doesn't null it out. country is the browser-locale guess — the WEAKEST
     // source, so it fills only when NULL (verified-phone/manual picks overwrite via /me/country).
+    // referred_by is NOT in the conflict update: a re-sync must never rewrite invite lineage.
     const { rows } = await client.query<UserRow>(
-      `insert into users (privy_did, handle, display_name, country)
-       values ($1, $2, $3, $4)
+      `insert into users (privy_did, handle, display_name, country, referred_by)
+       values ($1, $2, $3, $4, $5)
        on conflict (privy_did) do update
          set display_name = coalesce(excluded.display_name, users.display_name),
              country = coalesce(users.country, excluded.country)
        returning *`,
-      [input.privyDid, input.handle, input.displayName ?? null, input.country ?? null],
+      [input.privyDid, input.handle, input.displayName ?? null, input.country ?? null, input.referredBy ?? null],
     );
     const user = rows[0];
     await client.query(
@@ -1534,6 +1553,32 @@ export async function getUserKycTier(userId: string): Promise<number> {
 
 export async function setUserKycTier(userId: string, tier: number): Promise<void> {
   await getPool().query('update users set kyc_tier = $2 where id = $1', [userId, tier]);
+}
+
+/* ---- invite-only referrals + landing waitlist ---- */
+
+/** Bootstrap probe: an empty directory founds itself (the first user needs no invite). */
+export async function hasAnyUsers(): Promise<boolean> {
+  const { rows } = await getPool().query<{ exists: boolean }>('select exists(select 1 from users)');
+  return rows[0].exists;
+}
+
+/** Invites used vs allowed, for /me. `::int` — pg returns bare count(*) (bigint) as a string. */
+export async function getReferralStats(userId: string): Promise<{ used: number; limit: number }> {
+  const { rows } = await getPool().query<{ referral_limit: number; used: number }>(
+    `select referral_limit, (select count(*)::int from users where referred_by = u.id) as used
+       from users u where u.id = $1`,
+    [userId],
+  );
+  return rows[0] ? { used: rows[0].used, limit: rows[0].referral_limit } : { used: 0, limit: 0 };
+}
+
+/** F-list signup (public write). Email PK = dedupe; a re-submit is a silent no-op. */
+export async function addWaitlistEmail(email: string, city?: string): Promise<void> {
+  await getPool().query('insert into waitlist (email, city) values ($1, $2) on conflict (email) do nothing', [
+    email,
+    city ?? null,
+  ]);
 }
 
 /* ---- M7: real-vendor KYC session lifecycle ---- */

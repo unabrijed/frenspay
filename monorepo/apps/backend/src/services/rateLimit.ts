@@ -39,6 +39,8 @@ export const RATE_LIMIT_RULES: Rule[] = [
   { method: 'POST', path: '/merchants/orders/:id/paid', bucket: 'order', limit: 20, windowMs: 60_000 },
   { method: 'POST', path: '/merchants/stake/prepare', bucket: 'send', limit: 20, windowMs: 60_000 },
   { method: 'POST', path: '/orders/:id/feedback', bucket: 'order', limit: 20, windowMs: 60_000 },
+  // Public (unauthenticated) landing-page endpoint — anonymous callers key on IP.
+  { method: 'POST', path: '/waitlist', bucket: 'waitlist', limit: 5, windowMs: 60_000 },
 ];
 
 type Window = { count: number; resetAt: number };

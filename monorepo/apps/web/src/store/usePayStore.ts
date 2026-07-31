@@ -71,6 +71,9 @@ interface PayState {
   // ---- persisted ----
   onboarded: boolean;
   kycTier: number;
+  /** Invite allowance + how many joined via my code. Server truth via /me; ephemeral defaults. */
+  referralLimit: number;
+  referralsUsed: number;
   recovered: boolean;
   recoveryPrompted: boolean;
   balanceUSD: number;
@@ -177,7 +180,7 @@ interface PayState {
   requestOtp: (email: string) => Promise<void>;
   verifyOtp: (code: string) => Promise<void>;
   logout: () => Promise<void>;
-  authSync: (handle: string) => Promise<void>;
+  authSync: (handle: string, referralCode?: string) => Promise<void>;
   /** Dev-only: reset backend KYC tier + local state and sign out, to re-test onboarding + KYC. */
   resetForTesting: () => Promise<void>;
 
@@ -254,6 +257,8 @@ export const usePayStore = create<PayState>()(
     (set, get) => ({
       onboarded: false,
       kycTier: 1,
+      referralLimit: 3,
+      referralsUsed: 0,
       recovered: false,
       recoveryPrompted: false,
       balanceUSD: 0,
@@ -372,6 +377,8 @@ export const usePayStore = create<PayState>()(
             evmDepositAddress: me.evmDepositAddress ?? '',
             kycTier: me.kycTier,
             kycStatus: me.kycStatus ?? 'none',
+            referralLimit: me.referralLimit ?? 3,
+            referralsUsed: me.referralsUsed ?? 0,
             merchant: me.merchant ?? null,
             role: me.role ?? 'user',
             balanceUSD: bal,
@@ -466,6 +473,8 @@ export const usePayStore = create<PayState>()(
           unread: 0,
           requests: [],
           kycTier: 1,
+          referralLimit: 3,
+          referralsUsed: 0,
           recovered: false,
           recoveryPrompted: false,
           onboarded: false,
@@ -489,7 +498,7 @@ export const usePayStore = create<PayState>()(
         }
         await get().logout();
       },
-      authSync: async (handle) => {
+      authSync: async (handle, referralCode) => {
         // Browser-locale country guess — weakest source, server fills only when unset.
         // Deliberately no .maximize(): a bare "en" locale must send nothing, not US.
         let country: string | undefined;
@@ -498,7 +507,7 @@ export const usePayStore = create<PayState>()(
         } catch {
           /* no guess */
         }
-        const me = await api.authSync({ handle, walletAddress: get().walletAddress, country });
+        const me = await api.authSync({ handle, walletAddress: get().walletAddress, country, referralCode });
         // Backend user now exists for this Privy identity — unblock data fetches (see `provisioned`).
         set({ walletAddress: me.walletAddress, provisioned: true });
         await get().load();
