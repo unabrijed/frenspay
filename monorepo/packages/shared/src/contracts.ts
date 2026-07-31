@@ -580,3 +580,116 @@ export interface AdminOverviewResponse {
   merchantAlerts: Array<{ id: string; name: string; status: string; kybStatus: string }>;
   failedBridgeCount: number;
 }
+
+/* ---- admin ops (fpay-admin console) DTOs ---- */
+/* (WaitlistJoinRequest lives with the public request DTOs above — /waitlist is unauthenticated.) */
+
+export interface AdminWaitlistEntry {
+  email: string;
+  city: string | null;
+  createdAt: string; // ISO 8601
+}
+
+export interface AdminWaitlistResponse {
+  entries: AdminWaitlistEntry[];
+}
+
+export interface AdminUser {
+  id: string;
+  handle: string;
+  displayName: string | null;
+  email: string | null;
+  kycTier: number;
+  kycStatus: string;
+  role: 'user' | 'merchant' | 'admin';
+  createdAt: string; // ISO 8601
+}
+
+export interface AdminUsersResponse {
+  users: AdminUser[];
+  nextCursor?: string;
+}
+
+export interface AdminMerchant {
+  id: string;
+  name: string;
+  status: 'online' | 'offline' | 'suspended';
+  kybStatus: 'pending' | 'approved' | 'rejected';
+  payoutRail: string;
+  bondUsdc: number;
+  floatUsdc: number;
+  successRate: number;
+  disputeRate: number;
+  positiveRate: number;
+  /** true = a real logged-in merchant (merchants.user_id set), false = seeded sim LP. */
+  real: boolean;
+}
+
+export interface AdminMerchantsResponse {
+  merchants: AdminMerchant[];
+}
+
+export interface AdminRiskEvent {
+  id: string;
+  userHandle: string | null;
+  kind: string;
+  decision: 'allow' | 'review' | 'block';
+  score: number;
+  amountUsdc: number | null;
+  reason: string | null;
+  counterparty: string | null;
+  createdAt: string; // ISO 8601
+}
+
+export interface AdminRiskEventsResponse {
+  events: AdminRiskEvent[];
+  nextCursor?: string;
+}
+
+export interface AdminDenylistEntry {
+  id: string;
+  kind: 'address' | 'handle';
+  value: string;
+  reason: string | null;
+  createdAt: string; // ISO 8601
+}
+
+export interface AdminDenylistResponse {
+  entries: AdminDenylistEntry[];
+}
+
+/** One audit row: which admin did what to which target. */
+export interface AdminAction {
+  id: string;
+  adminHandle: string;
+  action: string;
+  targetKind: string;
+  targetId: string;
+  note: string | null;
+  createdAt: string; // ISO 8601
+}
+
+export interface AdminActionsResponse {
+  actions: AdminAction[];
+  nextCursor?: string;
+}
+
+/* admin write requests */
+export interface AdminKybRequest {
+  decision: 'approve' | 'reject';
+}
+
+export interface AdminMerchantStatusRequest {
+  status: 'online' | 'offline' | 'suspended';
+}
+
+export interface AdminDisputeResolveRequest {
+  resolution: 'upheld' | 'rejected';
+  note?: string;
+}
+
+export interface AdminDenylistAddRequest {
+  kind: 'address' | 'handle';
+  value: string;
+  reason?: string;
+}

@@ -380,3 +380,17 @@ alter table users add column if not exists role text not null default 'user'
 -- Backfill existing real merchants; never demotes an admin. Idempotent (runs on every db:init).
 update users set role = 'merchant'
   where role = 'user' and id in (select user_id from merchants where user_id is not null);
+
+-- Admin audit trail: one row per admin WRITE action (who did what to which target). Written by
+-- every /admin/* mutation; target_id is text (uuid or 'kind:value' for denylist) so one table
+-- covers all target kinds.
+create table if not exists admin_actions (
+  id            uuid primary key default gen_random_uuid(),
+  admin_user_id uuid not null references users(id),
+  action        text not null,   -- kyb_approve|kyb_reject|merchant_suspend|merchant_reinstate|dispute_resolve|denylist_add|denylist_remove
+  target_kind   text not null,   -- merchant | dispute | denylist
+  target_id     text not null,
+  note          text,
+  created_at    timestamptz not null default now()
+);
+create index if not exists idx_admin_actions_created on admin_actions (created_at desc);

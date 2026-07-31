@@ -1,8 +1,5 @@
 // api.ts — typed fetch client for the Railway backend. Same @fpay/shared DTOs as the server.
 import type {
-  AdminOrderDetailResponse,
-  AdminOrdersResponse,
-  AdminOverviewResponse,
   ApiPaymentRequest,
   AuthSyncRequest,
   BalanceResponse,
@@ -141,10 +138,6 @@ export const api = {
   getOrder: (id: string) => req<OrderResponse>(`/orders/${id}`),
   listOrders: () => req<OrdersResponse>('/orders'),
 
-  // Admin (role='admin' only — the backend 403s everyone else; that IS the page gate).
-  adminOverview: () => req<AdminOverviewResponse>('/admin/overview'),
-  adminOrders: () => req<AdminOrdersResponse>('/admin/orders'),
-  adminOrder: (id: string) => req<AdminOrderDetailResponse>(`/admin/orders/${id}`),
   cancelOrder: (id: string) => req<{ ok: true }>(`/orders/${id}/cancel`, { method: 'POST' }),
   disputeOrder: (id: string, reason?: string) =>
     req<{ id: string; status: 'open' }>(`/orders/${id}/dispute`, {

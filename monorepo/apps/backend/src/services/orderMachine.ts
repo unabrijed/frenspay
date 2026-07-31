@@ -14,9 +14,12 @@ import {
   casOrderState,
   createPendingTransfer,
   creditStakeOnConfirm,
+  drawDownBond,
+  getDisputeRow,
   getOrderByEscrowFundTransfer,
   getOrderByEscrowReleaseTransfer,
   getOrderForUser,
+  getOrderSimRow,
   getOrderUserAmount,
   getQuoteRowForUser,
   getSendNotifyInfo,
@@ -27,12 +30,15 @@ import {
   markLatestAttemptOutcome,
   reassignOrderMerchant,
   recordEscrowTransfer,
+  resolveDispute,
+  unfreezeOrderAfterDispute,
   updateOrder,
 } from '../db/queries';
 
 import { onBridgeCompanionConfirmed } from './bridge/machine';
 import { checkCashOutLimit, scoreAndRecord, type LimitCheck } from './compliance';
 import { buildDepositTx, escrowAddress, refundEscrow, releaseEscrow } from './escrowProgram';
+import { DISPUTE_PENALTY_USDC } from './merchantStats';
 import { metrics } from './metrics';
 import { notifyPaymentSent, notifyReceived, notifyRefunded } from './notify';
 import { rankMerchants } from './routing';
@@ -253,6 +259,42 @@ export async function refundToUser(input: {
   metrics.inc('orders_refunded'); // M6
   await notifyRefunded(input.userId, input.amountUsdc); // M6
   return true;
+}
+
+/**
+ * Resolve a dispute + settle its side effects — the ONE implementation shared by the admin console
+ * and the dev /sim route. Upheld: fine the LP's bond and refund the payer; rejected: un-freeze the
+ * escrow so the next worker tick releases. The atomic resolveDispute CAS gates the bond draw, so two
+ * concurrent calls can't fine the bond twice for one dispute.
+ */
+export async function settleDispute(
+  disputeId: string,
+  resolution: 'upheld' | 'rejected',
+): Promise<'upheld' | 'rejected' | 'already_resolved' | null> {
+  const dispute = await getDisputeRow(disputeId);
+  if (!dispute) return null;
+  if (dispute.status !== 'open') return 'already_resolved';
+  if (!(await resolveDispute(disputeId, resolution))) return 'already_resolved';
+
+  // The order was frozen mid-flight by the dispute; resolving it has to unfreeze the escrow too,
+  // or the money sits in the vault forever. (A dispute opened on an already-completed order has
+  // no escrow left to move — the refund branch simply finds no claimable state.)
+  const order = await getOrderSimRow(dispute.orderId);
+  if (resolution === 'upheld') {
+    await drawDownBond(dispute.merchantId, DISPUTE_PENALTY_USDC); // fine the LP's bond
+    if (order && order.state === 'payment_detected') {
+      await refundToUser({
+        orderId: order.id,
+        userId: order.userId,
+        reference: order.reference,
+        amountUsdc: order.amountUsdc,
+      });
+    }
+  } else if (order && order.state === 'payment_detected') {
+    // Merchant cleared → un-freeze with a past deadline so the next worker tick releases.
+    await unfreezeOrderAfterDispute(order.id);
+  }
+  return resolution;
 }
 
 /**

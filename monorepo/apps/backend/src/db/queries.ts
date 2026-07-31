@@ -1,9 +1,15 @@
 // queries.ts — typed data access over the lazy pg pool (db/pool.ts).
 // Maps rows to the @fpay/shared wire DTOs. Phase 1 is USDC-only, so no rupee column.
 import type {
+  AdminAction,
+  AdminDenylistEntry,
+  AdminMerchant,
   AdminOrder,
   AdminOrderDetailResponse,
   AdminOverviewResponse,
+  AdminRiskEvent,
+  AdminUser,
+  AdminWaitlistEntry,
   ApiPaymentRequest,
   ApiTxn,
   Friend,
@@ -2119,5 +2125,191 @@ export async function adminOverview(): Promise<AdminOverviewResponse> {
     })),
     merchantAlerts: merchants.rows.map((r) => ({ id: r.id, name: r.name, status: r.status, kybStatus: r.kyb_status })),
     failedBridgeCount: Number(bridge.rows[0].n),
+  };
+}
+
+/* ---- admin ops (fpay-admin console): waitlist, users, merchants, risk, denylist, audit ---- */
+// (addWaitlistEmail lives with the referral/landing block above — the public write; these are reads.)
+
+export async function listWaitlist(): Promise<AdminWaitlistEntry[]> {
+  const { rows } = await getPool().query<{ email: string; city: string | null; created_at: Date }>(
+    `select email, city, created_at from waitlist order by created_at desc`,
+  );
+  return rows.map((r) => ({ email: r.email, city: r.city, createdAt: r.created_at.toISOString() }));
+}
+
+/** Every account, newest first — the operator's user directory. */
+export async function listUsersAdmin(limit = 50, cursor?: string): Promise<Page<AdminUser>> {
+  const n = clampLimit(limit, 50, 100);
+  const c = parseCursor(cursor);
+  const { rows } = await getPool().query<{
+    id: string;
+    handle: string;
+    display_name: string | null;
+    email: string | null;
+    kyc_tier: number;
+    kyc_status: string;
+    role: 'user' | 'merchant' | 'admin';
+    created_at: Date;
+  }>(
+    `select id, handle, display_name, email, kyc_tier, kyc_status, role, created_at from users
+      where ($2::timestamptz is null or (created_at, id) < ($2::timestamptz, $3::uuid))
+      order by created_at desc, id desc limit $1`,
+    [n + 1, c?.at ?? null, c?.id ?? null],
+  );
+  const pageRows = rows.slice(0, n);
+  const last = pageRows[pageRows.length - 1];
+  return {
+    items: pageRows.map((r) => ({
+      id: r.id,
+      handle: r.handle,
+      displayName: r.display_name,
+      email: r.email,
+      kycTier: r.kyc_tier,
+      kycStatus: r.kyc_status,
+      role: r.role,
+      createdAt: r.created_at.toISOString(),
+    })),
+    nextCursor: rows.length > n && last ? `${last.created_at.toISOString()}|${last.id}` : undefined,
+  };
+}
+
+/** All screened actions (every decision, not just flags — the overview already filters). */
+export async function listRiskEventsAdmin(limit = 50, cursor?: string): Promise<Page<AdminRiskEvent>> {
+  const n = clampLimit(limit, 50, 100);
+  const c = parseCursor(cursor);
+  const { rows } = await getPool().query<{
+    id: string;
+    handle: string | null;
+    kind: string;
+    decision: 'allow' | 'review' | 'block';
+    score: number;
+    amount_usdc: string | null;
+    reason: string | null;
+    counterparty: string | null;
+    created_at: Date;
+  }>(
+    `select r.id, u.handle, r.kind, r.decision, r.score, r.amount_usdc, r.reason, r.counterparty, r.created_at
+       from risk_events r left join users u on u.id = r.user_id
+      where ($2::timestamptz is null or (r.created_at, r.id) < ($2::timestamptz, $3::uuid))
+      order by r.created_at desc, r.id desc limit $1`,
+    [n + 1, c?.at ?? null, c?.id ?? null],
+  );
+  const pageRows = rows.slice(0, n);
+  const last = pageRows[pageRows.length - 1];
+  return {
+    items: pageRows.map((r) => ({
+      id: r.id,
+      userHandle: r.handle,
+      kind: r.kind,
+      decision: r.decision,
+      score: r.score,
+      amountUsdc: r.amount_usdc == null ? null : Number(r.amount_usdc),
+      reason: r.reason,
+      counterparty: r.counterparty,
+      createdAt: r.created_at.toISOString(),
+    })),
+    nextCursor: rows.length > n && last ? `${last.created_at.toISOString()}|${last.id}` : undefined,
+  };
+}
+
+/** Thin DTO mapper over listAllMerchants — numerics arrive as strings from pg. */
+export async function listMerchantsAdmin(): Promise<AdminMerchant[]> {
+  const rows = await listAllMerchants();
+  return rows.map((m) => ({
+    id: m.id,
+    name: m.name,
+    status: m.status,
+    kybStatus: m.kyb_status,
+    payoutRail: m.payout_rail,
+    bondUsdc: Number(m.bond_usdc),
+    floatUsdc: Number(m.float_usdc),
+    successRate: Number(m.success_rate),
+    disputeRate: Number(m.dispute_rate),
+    positiveRate: Number(m.positive_rate),
+    real: m.user_id != null,
+  }));
+}
+
+export async function listDenylist(): Promise<AdminDenylistEntry[]> {
+  const { rows } = await getPool().query<{
+    id: string;
+    kind: 'address' | 'handle';
+    value: string;
+    reason: string | null;
+    created_at: Date;
+  }>(`select id, kind, value, reason, created_at from denylist order by created_at desc`);
+  return rows.map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    value: r.value,
+    reason: r.reason,
+    createdAt: r.created_at.toISOString(),
+  }));
+}
+
+/** Returns the new row's id, or null if (kind, value) already exists (caller 409s). */
+export async function addDenylistEntry(
+  kind: 'address' | 'handle',
+  value: string,
+  reason?: string,
+): Promise<string | null> {
+  const { rows } = await getPool().query<{ id: string }>(
+    `insert into denylist (kind, value, reason) values ($1, $2, $3) on conflict (kind, value) do nothing returning id`,
+    [kind, value, reason ?? null],
+  );
+  return rows[0]?.id ?? null;
+}
+
+export async function removeDenylistEntry(id: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(`delete from denylist where id = $1`, [id]);
+  return (rowCount ?? 0) > 0;
+}
+
+/** Audit trail: every /admin/* mutation records who did what before responding. */
+export async function insertAdminAction(input: {
+  adminUserId: string;
+  action: string;
+  targetKind: string;
+  targetId: string;
+  note?: string;
+}): Promise<void> {
+  await getPool().query(
+    `insert into admin_actions (admin_user_id, action, target_kind, target_id, note) values ($1, $2, $3, $4, $5)`,
+    [input.adminUserId, input.action, input.targetKind, input.targetId, input.note ?? null],
+  );
+}
+
+export async function listAdminActions(limit = 50, cursor?: string): Promise<Page<AdminAction>> {
+  const n = clampLimit(limit, 50, 100);
+  const c = parseCursor(cursor);
+  const { rows } = await getPool().query<{
+    id: string;
+    handle: string;
+    action: string;
+    target_kind: string;
+    target_id: string;
+    note: string | null;
+    created_at: Date;
+  }>(
+    `select a.id, u.handle, a.action, a.target_kind, a.target_id, a.note, a.created_at
+       from admin_actions a join users u on u.id = a.admin_user_id
+      where ($2::timestamptz is null or (a.created_at, a.id) < ($2::timestamptz, $3::uuid))
+      order by a.created_at desc, a.id desc limit $1`,
+    [n + 1, c?.at ?? null, c?.id ?? null],
+  );
+  const pageRows = rows.slice(0, n);
+  const last = pageRows[pageRows.length - 1];
+  return {
+    items: pageRows.map((r) => ({
+      id: r.id,
+      adminHandle: r.handle,
+      action: r.action,
+      targetKind: r.target_kind,
+      targetId: r.target_id,
+      note: r.note,
+      createdAt: r.created_at.toISOString(),
+    })),
+    nextCursor: rows.length > n && last ? `${last.created_at.toISOString()}|${last.id}` : undefined,
   };
 }

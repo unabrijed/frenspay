@@ -13,7 +13,8 @@
     "mobile:web": "yarn workspace @fpay/mobile web",
     "backend": "yarn workspace @fpay/backend dev",
     "web": "yarn workspace @fpay/web dev",
+    "admin": "yarn workspace @fpay/admin dev",
     "dev": "trap 'kill 0' EXIT; yarn backend & yarn web",
-    "typecheck": "yarn workspace @fpay/shared tsc --noEmit && yarn workspace @fpay/mobile tsc --noEmit && yarn workspace @fpay/backend tsc --noEmit && yarn workspace @fpay/web tsc --noEmit"
+    "typecheck": "yarn workspace @fpay/shared tsc --noEmit && yarn workspace @fpay/mobile tsc --noEmit && yarn workspace @fpay/backend tsc --noEmit && yarn workspace @fpay/web tsc --noEmit && yarn workspace @fpay/admin tsc --noEmit"
   }
 }

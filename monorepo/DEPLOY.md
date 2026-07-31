@@ -4,10 +4,20 @@ Goal: host the backend + web so two people on two devices can sign up (Privy) an
 other. **Devnet** (real on-chain, test USDC via the faucet). No merchant, no cross-chain. Mainnet is a
 separate later step (bottom of this doc).
 
-Two services:
+Services:
 - **Backend** — Fastify on **Railway** (`apps/backend`, `railway.json` already configured).
 - **Web** — Next.js 15 on **Vercel** (`apps/web`, `vercel.json` added).
+- **Admin** — Next.js 15 on **Vercel** (`apps/admin`), the operator console at `admin.frenspay.xyz` (§2b).
+- **Landing** — static Next.js on **Vercel** (`landing/`, outside the monorepo).
 - **DB** — Railway Postgres (already attached for the local/stage `DATABASE_URL`).
+
+**Deploy isolation:** each Vercel project's `vercel.json` carries an `ignoreCommand` that diffs
+`$VERCEL_GIT_PREVIOUS_SHA` (last successful deploy; falls back to `HEAD^` on the first one) against
+the project's own directory — plus `packages/shared` + the workspace `yarn.lock` for the monorepo
+apps — so a commit to one app no longer rebuilds the others. All failure modes fail open (build
+runs). Railway has no in-repo equivalent: set **Watch Paths** in the service dashboard
+(Settings → Watch Paths) to `monorepo/apps/backend/**` and `monorepo/packages/shared/**` so
+web/admin/landing commits stop redeploying the backend.
 
 Env convention: backend runs with `NODE_ENV=stage` → reads `STAGE_*` keys (see `apps/backend/.env.example`).
 A web production build reads unprefixed `NEXT_PUBLIC_*` (see `apps/web/.env.example`). `PORT` and
@@ -46,8 +56,9 @@ A web production build reads unprefixed `NEXT_PUBLIC_*` (see `apps/web/.env.exam
 
 ## 2. Web → Vercel
 
-1. New Vercel project from this repo. **Root Directory: `apps/web`** (Vercel auto-detects the yarn
-   workspace and installs at the repo root). `apps/web/vercel.json` pins framework + the workspace build.
+1. New Vercel project from this repo. **Root Directory: `monorepo/apps/web`** (the git repo root is
+   `payments/`, one level above the monorepo; Vercel auto-detects the yarn workspace and installs at
+   `monorepo/`). `apps/web/vercel.json` pins framework + the workspace build.
 2. Production **Environment Variables** (read at build time, inlined by Next):
    ```
    NEXT_PUBLIC_API_URL=https://<backend>.up.railway.app
@@ -56,13 +67,51 @@ A web production build reads unprefixed `NEXT_PUBLIC_*` (see `apps/web/.env.exam
    ```
    (`NODE_ENV=production` is set by Vercel automatically → the app reads the unprefixed keys above.)
 3. Deploy → note the URL (e.g. `https://pay.vercel.app`).
-4. Go back to Railway and set `STAGE_CORS_ORIGIN` = that web origin; redeploy the backend.
+4. Go back to Railway and set `STAGE_CORS_ORIGIN` (see §2c — it must list EVERY browser origin).
+
+## 2b. Admin console → Vercel (admin.frenspay.xyz)
+
+The operator console (`apps/admin`) is deliberately its own app + deploy so ops code never ships in
+the consumer bundle. Same backend, same Privy app; authorization is server-side (`role='admin'` —
+everyone else gets a 403 screen).
+
+1. New Vercel project from this repo. **Root Directory: `monorepo/apps/admin`**.
+   `apps/admin/vercel.json` pins framework + `yarn workspace @fpay/admin build` + deploy isolation.
+2. Production **Environment Variables**:
+   ```
+   NEXT_PUBLIC_API_URL=https://<backend>.up.railway.app
+   NEXT_PUBLIC_PRIVY_APP_ID=<same privy app id as backend>
+   ```
+3. **Domain**: add `admin.frenspay.xyz` to the project. DNS: CNAME `admin` → `cname.vercel-dns.com`.
+4. Seed the operator (once, by hand — same as before):
+   `update users set role='admin' where handle='@you';`
+5. Schema: re-run `yarn workspace @fpay/backend db:init` once after deploying this milestone — it
+   (idempotently) creates the `waitlist` + `admin_actions` tables.
+6. Local dev: `yarn admin` → http://localhost:3002 (backend on 3001). Without Privy configured it
+   uses the `x-dev-user-id` shim — set `NEXT_PUBLIC_LOCAL_DEV_USER_ID` in `apps/admin/.env.local`
+   to a seeded user id that carries `role='admin'` (admin writes FK the audit trail to it).
+
+## 2c. CORS — every browser origin, or things break in prod only
+
+`CORS_ORIGIN` empty = allow-all (dev convenience). The moment it's set, it must be the FULL
+comma-separated list — the admin console AND the landing page (its waitlist form POSTs cross-origin
+to `/waitlist`) AND the web app:
+
+```
+STAGE_CORS_ORIGIN=https://admin.frenspay.xyz,https://frenspay.xyz,https://www.frenspay.xyz,https://<web-domain>
+```
+
+Forgetting the landing origins silently breaks the f-list form in prod while everything works
+locally. The landing project itself needs one env var: `NEXT_PUBLIC_API_URL` (baked into the static
+export at build time — changing the backend URL requires a landing redeploy).
 
 ## 3. Privy dashboard
 
 In the Privy app (`Settings → Allowed origins`): add the deployed web origin (`https://pay.vercel.app`)
-alongside `http://localhost:3000`. Ensure **Email login** + **Solana embedded wallets** are enabled (and
-**Passkey** if you want the in-app "add a second device" recovery to work).
+and the admin console (`https://admin.frenspay.xyz`) alongside `http://localhost:3000` and
+`http://localhost:3002`. Ensure **Email login** + **Solana embedded wallets** are enabled (and
+**Passkey** if you want the in-app "add a second device" recovery to work). The admin app never
+creates wallets (`createOnLogin: 'off'`) — it only uses Privy for identity.
 
 ## 4. (Optional) Helius — faster confirmation
 

@@ -21,24 +21,20 @@ import {
   appendOrderEvent,
   attachTransferSignature,
   cancelOrder,
-  drawDownBond,
   freezeOrderForDispute,
-  getDisputeRow,
   getOrderForDispute,
   getOrderForUser,
   getOrderSimRow,
   insertDispute,
   listOrdersForUser,
-  resolveDispute,
   setMerchantKyb,
   setOrderFeedback,
-  unfreezeOrderAfterDispute,
   updateOrder,
   withUserLock,
 } from '../db/queries';
 import { checkCashOutLimit } from '../services/compliance';
 import { getMidRate } from '../services/fxRate';
-import { DISPUTE_PENALTY_USDC, recomputeMerchantStats } from '../services/merchantStats';
+import { recomputeMerchantStats } from '../services/merchantStats';
 import { metrics } from '../services/metrics';
 import {
   confirmOrderFromQuote,
@@ -46,6 +42,7 @@ import {
   markFundSubmitted,
   refundToUser,
   releaseToMerchant,
+  settleDispute,
 } from '../services/orderMachine';
 import { createQuote } from '../services/quoteEngine';
 
@@ -308,34 +305,12 @@ export async function registerOrderRoutes(app: FastifyInstance) {
     '/sim/disputes/:id/resolve',
     async (req, reply) => {
       if (!config.isDevelopment) return reply.code(403).send({ error: 'sim_disabled' });
-      const dispute = await getDisputeRow(req.params.id);
-      if (!dispute) return reply.code(404).send({ error: 'dispute_not_found' });
-      if (dispute.status !== 'open') return reply.code(409).send({ error: 'dispute_resolved' });
-      const forUser = req.query.for !== 'merchant';
-      // Gate the bond draw on the atomic resolve actually claiming the row — so two concurrent calls
-      // can't fine the bond twice for one dispute.
-      const resolved = await resolveDispute(req.params.id, forUser ? 'upheld' : 'rejected');
-      if (!resolved) return reply.code(409).send({ error: 'dispute_resolved' });
-
-      // The order was frozen mid-flight by the dispute; resolving it has to unfreeze the escrow too,
-      // or the money sits in the vault forever. (A dispute opened on an already-completed order has
-      // no escrow left to move — the refund branch simply finds no claimable state.)
-      const order = await getOrderSimRow(dispute.orderId);
-      if (forUser) {
-        await drawDownBond(dispute.merchantId, DISPUTE_PENALTY_USDC); // fine the LP's bond
-        if (order && order.state === 'payment_detected') {
-          await refundToUser({
-            orderId: order.id,
-            userId: order.userId,
-            reference: order.reference,
-            amountUsdc: order.amountUsdc,
-          });
-        }
-      } else if (order && order.state === 'payment_detected') {
-        // Merchant cleared → un-freeze with a past deadline so the next worker tick releases.
-        await unfreezeOrderAfterDispute(order.id);
-      }
-      return { ok: true, resolution: forUser ? 'upheld' : 'rejected' };
+      // Settlement logic (bond draw + refund/unfreeze) lives in orderMachine.settleDispute — the
+      // same implementation the admin console uses, so the two can't drift.
+      const result = await settleDispute(req.params.id, req.query.for !== 'merchant' ? 'upheld' : 'rejected');
+      if (result === null) return reply.code(404).send({ error: 'dispute_not_found' });
+      if (result === 'already_resolved') return reply.code(409).send({ error: 'dispute_resolved' });
+      return { ok: true, resolution: result };
     },
   );
 }
