@@ -396,8 +396,12 @@ create table if not exists waitlist (
 --                 the coalesce in addWaitlistEmail the next time that address is submitted.
 --   referred_by = who brought them: EITHER an app user's '@handle' OR another member's ref_code.
 --                 Both are opaque strings and '@' disambiguates, so one column serves both loops
---                 with no join and no second FK. First attribution wins, never rewritten (same rule
---                 as users.referred_by).
+--                 with no join and no second FK. **Last touch wins** (Bridge, 2026-08-01): each
+--                 submit carrying a ref overwrites this, because the landing page caches the ref in
+--                 localStorage so attribution survives someone stripping ?ref= from the URL. A
+--                 submit with no ref leaves it alone. NOTE this is the OPPOSITE of
+--                 users.referred_by, which is still write-once — the invite gate is a different
+--                 mechanism and rewriting an account's lineage would be a real integrity problem.
 -- ponytail: no FK on referred_by, so renaming a handle orphans old attribution. Acceptable for a
 -- marketing queue; promote to a real FK if referral credit ever pays out money.
 alter table waitlist add column if not exists ref_code    text;

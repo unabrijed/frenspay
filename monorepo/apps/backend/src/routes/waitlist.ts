@@ -33,6 +33,17 @@ export const refCode = (email: string) => sig('ref', email).replace(/[-_]/g, '')
 export const confirmToken = (email: string) =>
   `${Buffer.from(email).toString('base64url')}.${sig('verify', email)}`;
 
+/** Normalise an inbound `?ref=`, or undefined if it must not be stored.
+ *  Anything unparseable is DROPPED, never rejected: an invite is marketing, and a typo in someone
+ *  else's handle must not cost this person their signup. Existence is deliberately not checked —
+ *  that would answer "is @x a real user?" for an unauthenticated caller. `ownCode` is dropped
+ *  because attribution is last-touch (see queries.ts) and everyone is shown their own share code,
+ *  so pasting it back would otherwise make them their own fren. */
+export function sanitizeRef(raw: unknown, ownCode: string | null): string | undefined {
+  const ref = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+  return REF_RE.test(ref) && ref !== ownCode ? ref : undefined;
+}
+
 /** Recover the email a confirm token vouches for, or null if it wasn't minted by this server. */
 export function readConfirmToken(token: string): string | null {
   const dot = token.lastIndexOf('.');
@@ -50,13 +61,8 @@ export async function registerWaitlistRoutes(app: FastifyInstance) {
     const email = (req.body?.email ?? '').trim().toLowerCase();
     if (email.length > 254 || !EMAIL_RE.test(email)) return reply.code(400).send({ error: 'invalid_email' });
     const city = typeof req.body?.city === 'string' ? req.body.city.trim().slice(0, 64) : undefined;
-    // A ref that doesn't parse is dropped, never rejected: an invite is marketing, and a typo in
-    // someone else's handle must not cost this person their signup. Existence is deliberately NOT
-    // checked either — that would answer "is @x a real user?" for an unauthenticated caller.
-    const rawRef = typeof req.body?.ref === 'string' ? req.body.ref.trim().toLowerCase() : '';
-    const ref = REF_RE.test(rawRef) ? rawRef : undefined;
-
     const code = config.waitlistSecret ? refCode(email) : null;
+    const ref = sanitizeRef(req.body?.ref, code);
     const { verifiedAt } = await addWaitlistEmail(email, city || undefined, code, ref);
     const [position, frens] = await Promise.all([waitlistPosition(email), code ? countWaitlistFrens(code) : 0]);
 

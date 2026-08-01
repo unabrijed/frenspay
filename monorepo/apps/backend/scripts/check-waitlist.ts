@@ -13,7 +13,7 @@ process.env.WAITLIST_SECRET = 'check-secret';
 process.env.LOCAL_WAITLIST_SECRET = 'check-secret';
 process.env.STAGE_WAITLIST_SECRET = 'check-secret';
 
-const { refCode, confirmToken, readConfirmToken, REF_RE } = await import('../src/routes/waitlist');
+const { refCode, confirmToken, readConfirmToken, sanitizeRef, REF_RE } = await import('../src/routes/waitlist');
 
 const EMAIL = 'asha@example.com';
 
@@ -48,9 +48,23 @@ for (const ok of ['@asha', 'asha', 'k3n8q2wp', 'a', '_x_', '@a1_b2', 'a'.repeat(
 for (const bad of ['', '../x', 'a b', 'a'.repeat(21), '@', 'a@b.com', 'x;drop', 'ünïcode', 'a\nb', '@@a']) {
   assert.ok(!REF_RE.test(bad), `${JSON.stringify(bad)} should be rejected`);
 }
-// The route lowercases before testing; REF_RE itself is case-sensitive by design, so confirm the
-// pairing holds rather than assuming it.
-assert.ok(!REF_RE.test('@Asha'), 'REF_RE is case-sensitive — the route must lowercase first');
+// REF_RE itself is case-sensitive by design; sanitizeRef is what lowercases. Confirm the pairing
+// holds rather than assuming it.
+assert.ok(!REF_RE.test('@Asha'), 'REF_RE is case-sensitive — sanitizeRef must lowercase first');
 assert.ok(REF_RE.test('@Asha'.toLowerCase()), 'lowercased handle must pass');
+
+// --- sanitizeRef: normalisation, and the self-referral block ---
+const OWN = refCode(EMAIL);
+assert.equal(sanitizeRef('  @ASHA  ', OWN), '@asha', 'trims and lowercases');
+assert.equal(sanitizeRef('k3n8q2wp', OWN), 'k3n8q2wp', 'another member’s code is a valid ref');
+// THE guard: attribution is last-touch, and everyone is shown their own code — submitting it must
+// not make them their own fren.
+assert.equal(sanitizeRef(OWN, OWN), undefined, 'own share code must be dropped');
+assert.equal(sanitizeRef(OWN.toUpperCase(), OWN), undefined, 'own code must be dropped case-insensitively');
+// A null ownCode (WAITLIST_SECRET unset) must not make the comparison match a real ref.
+assert.equal(sanitizeRef('@asha', null), '@asha', 'null ownCode still accepts a real ref');
+for (const bad of ['', '../x', 'a b', 'a'.repeat(21), '@', undefined, null, 42, {}]) {
+  assert.equal(sanitizeRef(bad, OWN), undefined, `${JSON.stringify(bad) ?? 'undefined'} must be dropped`);
+}
 
 console.log('check-waitlist: all assertions passed');

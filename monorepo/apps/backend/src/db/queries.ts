@@ -1575,9 +1575,17 @@ export async function getReferralStats(userId: string): Promise<{ used: number; 
 
 /** F-list signup (public write). Email PK = dedupe. `do update` rather than `do nothing` so one
  *  round trip also returns verified_at (the route needs it to decide whether to re-send the confirm
- *  mail) and so coalesce can backfill columns a legacy row is missing. Every coalesce reads
- *  waitlist.* first: city, attribution and code are write-once — a re-submit can fill a blank but
- *  never overwrite, so nobody can rewrite who referred them by submitting again with a new ref. */
+ *  mail) and so coalesce can backfill columns a legacy row is missing.
+ *
+ *  Two different coalesce orders, deliberately:
+ *   - `city` / `ref_code` read waitlist.* FIRST — write-once. A code is derived from the email and
+ *     must never move; the coalesce exists only to backfill rows that predate it.
+ *   - `referred_by` reads excluded FIRST — **last touch wins** (Bridge, 2026-08-01). A submit
+ *     carrying a ref overwrites the previous referrer; a submit carrying none keeps what's there, so
+ *     re-joining without a link can't erase attribution.
+ *  Known and accepted cost of last-touch: an already-credited signup can be re-attributed by getting
+ *  that person to click a different link and re-submit the same email, and a referrer's fren count
+ *  can go down. Self-referral is blocked at the route (routes/waitlist.ts), not here. */
 export async function addWaitlistEmail(
   email: string,
   city?: string,
@@ -1589,7 +1597,7 @@ export async function addWaitlistEmail(
        on conflict (email) do update
           set city        = coalesce(waitlist.city, excluded.city),
               ref_code    = coalesce(waitlist.ref_code, excluded.ref_code),
-              referred_by = coalesce(waitlist.referred_by, excluded.referred_by)
+              referred_by = coalesce(excluded.referred_by, waitlist.referred_by)
      returning verified_at`,
     [email, city ?? null, refCode ?? null, referredBy ?? null],
   );
