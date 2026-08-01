@@ -123,7 +123,7 @@ response is not.
 - `packages/shared/src/contracts.ts` (`WaitlistJoinRequest/Response`, `AdminWaitlistEntry`).
 - Web: `app/settings/page.tsx` (`ReferralCard`), `app/onboarding/handle/page.tsx` (the gate exit),
   `services/env.ts` (`LANDING_URL`). Admin: `app/waitlist/page.tsx`.
-- Landing (deferred): `landing/src/components/Waitlist.tsx`.
+- Landing (deferred): `apps/landing/src/components/Waitlist.tsx`.
 
 ## Related
 

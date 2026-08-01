@@ -8,16 +8,24 @@ Services:
 - **Backend** — Fastify on **Railway** (`apps/backend`, `railway.json` already configured).
 - **Web** — Next.js 15 on **Vercel** (`apps/web`, `vercel.json` added).
 - **Admin** — Next.js 15 on **Vercel** (`apps/admin`), the operator console at `admin.frenspay.xyz` (§2b).
-- **Landing** — static Next.js on **Vercel** (`landing/`, outside the monorepo).
+- **Landing** — static Next.js on **Vercel** (`apps/landing`, root directory `monorepo/apps/landing`).
 - **DB** — Railway Postgres (already attached for the local/stage `DATABASE_URL`).
 
 **Deploy isolation:** each Vercel project's `vercel.json` carries an `ignoreCommand` that diffs
 `$VERCEL_GIT_PREVIOUS_SHA` (last successful deploy; falls back to `HEAD^` on the first one) against
 the project's own directory — plus `packages/shared` + the workspace `yarn.lock` for the monorepo
-apps — so a commit to one app no longer rebuilds the others. All failure modes fail open (build
-runs). Railway has no in-repo equivalent: set **Watch Paths** in the service dashboard
-(Settings → Watch Paths) to `monorepo/apps/backend/**` and `monorepo/packages/shared/**` so
-web/admin/landing commits stop redeploying the backend.
+apps — so a commit to one app no longer rebuilds the others. All three web apps are now yarn
+workspaces under `monorepo/apps/`, so their configs are identical apart from the workspace name
+(landing omits `packages/shared` — it mirrors the design tokens by hand, see `globals.css`).
+All failure modes fail open (build runs). Railway has no in-repo equivalent: set **Watch Paths** in
+the service dashboard (Settings → Watch Paths) to `monorepo/apps/backend/**` and
+`monorepo/packages/shared/**` so web/admin/landing commits stop redeploying the backend.
+
+> **Landing moved.** It used to live at `landing/`, outside the workspace, with its own lockfile.
+> The existing Vercel project must be re-pointed once: **Settings → General → Root Directory**,
+> `landing` → `monorepo/apps/landing`. Same project, so `frenspay.xyz` and `NEXT_PUBLIC_API_URL`
+> carry over untouched. Do this **before** the move lands on the deployed branch, or the next
+> build fails on a missing directory.
 
 Env convention: backend runs with `NODE_ENV=stage` → reads `STAGE_*` keys (see `apps/backend/.env.example`).
 A web production build reads unprefixed `NEXT_PUBLIC_*` (see `apps/web/.env.example`). `PORT` and

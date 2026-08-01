@@ -11,8 +11,11 @@ monorepo/
     web/        Next.js (App Router) web app — mobile-first, runs in any browser
     mobile/     Expo / React Native app (iOS, Android)
     backend/    Fastify API service (deploys on Railway)
+    admin/      Next.js operator console — admin.frenspay.xyz
+    landing/    Static Next export — frenspay.xyz (Tailwind v4; web/admin are v3)
   packages/
     shared/     money math + API contract types, used by all apps
+  brand/        logo source + `yarn brand` — generates every app icon (see brand/README.md)
 ```
 
 > Project docs (`backend-architecture.md`, `india-legal-compliance-brief.md`,
@@ -43,7 +46,10 @@ All commands run from the **monorepo root**.
 | `yarn mobile` | **Mobile app** via Expo (scan the QR with Expo Go, or `i`/`a` for a simulator) |
 | `yarn mobile -- -c` | Mobile with a cleared cache (use after editing `apps/mobile/.env`) |
 | `yarn backend` | **API** in watch mode → http://localhost:3001 |
-| `yarn typecheck` | Type-check **all four** workspaces (shared + mobile + backend + web) |
+| `yarn admin` | **Operator console** → http://localhost:3002 |
+| `yarn landing` | **Landing page** → http://localhost:3003 |
+| `yarn brand` | Regenerate every app icon from `brand/logo-mark.svg` |
+| `yarn typecheck` | Type-check **all six** workspaces (shared + mobile + backend + web + admin + landing) |
 | `yarn workspace @fpay/backend db:init` | Apply the DB schema (idempotent) |
 | `yarn workspace @fpay/backend db:seed` | Insert 2 test users (@bridge, @neha) + sample activity (prints ids) |
 | `yarn workspace @fpay/backend devnet:setup` | Provision fee-payer + USDC mint + funded devnet wallets |
