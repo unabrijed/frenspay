@@ -12,16 +12,19 @@ const hanken = Hanken_Grotesk({
   display: 'swap',
 });
 
+// icon.svg / apple-icon.png / opengraph-image.png sit next to this file — Next's metadata file
+// convention emits the <link rel="icon"> and og:image tags from them, so none are declared here.
 export const metadata: Metadata = {
-  title: 'fpay — instant global payments from one dollar balance',
+  // Without this a static export emits og:image as http://localhost:3000/… and every social
+  // preview breaks. The production domain is fixed (see monorepo/DEPLOY.md §2c).
+  metadataBase: new URL('https://frenspay.xyz'),
+  title: 'FrensPay — instant global payments from one dollar balance',
   description:
     'One balance in dollars. Scan any local QR — UPI, PromptPay, Pix, DuitNow — and the merchant is paid instantly in their own currency, at a rate locked before you tap.',
-  icons: { icon: '/favicon.svg' },
   openGraph: {
-    title: 'fpay — instant global payments from one dollar balance',
+    title: 'FrensPay — instant global payments from one dollar balance',
     description: 'Global dollars. Local scan. Paid instantly, at a rate you locked first.',
     type: 'website',
-    images: ['/hero-poster.jpg'],
   },
 };
 

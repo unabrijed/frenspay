@@ -4,6 +4,7 @@ import type { CSSProperties } from 'react';
 import { CityProvider } from '@/components/CityContext';
 import { CityPills } from '@/components/CityPills';
 import { GlyphBackdrop } from '@/components/GlyphBackdrop';
+import { Logo, Wordmark } from '@/components/Logo';
 import { MoneyDust } from '@/components/MoneyDust';
 import { Pill } from '@/components/Pill';
 import { QrStage } from '@/components/PixelField';
@@ -59,8 +60,8 @@ function Nav() {
   return (
     <header className="nav-bar sticky top-0 z-40">
       <div className="mx-auto flex max-w-[1180px] items-center justify-between px-6 py-4 sm:px-10">
-        <a href="#top" className="text-[24px] font-extrabold tracking-[-0.02em] text-terra">
-          fpay
+        <a href="#top" aria-label="FrensPay — top of page">
+          <Logo markClass="h-8" wordClass="text-[24px] text-ink" />
         </a>
         <nav className="hidden items-center gap-7 text-[15px] font-semibold text-muted md:flex">
           <a href="#top" className="transition-colors hover:text-ink">
@@ -358,7 +359,7 @@ function Footer() {
     <footer className="mt-4 rounded-t-[28px] bg-ink text-white">
       <div className="mx-auto max-w-[1180px] px-6 pt-14 sm:px-10">
         <div className="flex flex-col justify-between gap-6 border-b border-white/10 pb-10 sm:flex-row sm:items-center">
-          <span className="text-[20px] font-extrabold tracking-[-0.02em] text-terra-ctr">fpay</span>
+          <Logo markClass="h-7" wordClass="text-[20px] text-white" />
           <nav className="flex gap-7 text-[14px] font-semibold text-white/70">
             <a href={DEMO_URL} className="transition-colors hover:text-white">
               Try the demo
@@ -372,9 +373,7 @@ function Footer() {
       </div>
       <div aria-hidden className="overflow-hidden">
         <div className="mx-auto max-w-[1180px] px-6 sm:px-10">
-          <span className="footer-mark block text-[clamp(6rem,19vw,15rem)] font-extrabold leading-none tracking-[-0.04em] text-terra-ctr/90">
-            fpay
-          </span>
+          <Wordmark className="footer-mark block text-[clamp(3.2rem,10.5vw,8.2rem)] leading-none text-terra-ctr/90" />
         </div>
       </div>
     </footer>
