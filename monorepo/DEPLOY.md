@@ -96,7 +96,7 @@ everyone else gets a 403 screen).
    `update users set role='admin' where handle='@you';`
 5. Schema: re-run `yarn workspace @fpay/backend db:init` once after deploying this milestone — it
    (idempotently) creates the `waitlist` + `admin_actions` tables.
-6. Local dev: `yarn admin` → http://localhost:3002 (backend on 3001). Without Privy configured it
+6. Local dev: `yarn dev:admin` → console on :3002 + backend on :3001. Without Privy configured it
    uses the `x-dev-user-id` shim — set `NEXT_PUBLIC_LOCAL_DEV_USER_ID` in `apps/admin/.env.local`
    to a seeded user id that carries `role='admin'` (admin writes FK the audit trail to it).
 

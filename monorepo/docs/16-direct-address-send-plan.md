@@ -114,7 +114,7 @@ Verify-panel note that softens v2 (not v1): the installed `@privy-io/react-auth@
 
 ## 7. Verification (how we'll know it works)
 
-1. `yarn workspace @fpay/backend dev` (Bridge runs servers — no auto-start) + `yarn web`; devnet with funded fee payer.
+1. `yarn dev:web` — web + backend (Bridge runs servers — no auto-start); devnet with funded fee payer.
 2. Workstream A first: `/kyc/verify` no longer 503s (sim provider instant-promotes, or real Didit workflow id works per KYC runbook); boot fails fast if a placeholder workflow id is present; sends stop intermittently 503-ing once Helius RPC is set.
 3. Happy path: paste a fresh devnet Solana address (no ATA) → confirm sheet → send → recipient ATA created, USDC arrives (check via explorer), row shows truncated address (not blank "To "), status flips confirmed via poller.
 4. Rejection matrix: EVM `0x…` address → network sheet → coming-soon (no send possible); token-account/PDA address → typed 400 `invalid_recipient` (not 503); own address → blocked; denylisted address (seed one, in both checksummed and lowercase forms for EVM-shaped entries) → blocked; sub-$1 → blocked; >10 new external recipients/day → blocked; tier limits enforced (attempt > cap); tier-1 user attempting external send → KYC prompt (if Q2 = yes).

@@ -40,14 +40,24 @@ yarn install       # run from this monorepo/ directory
 
 All commands run from the **monorepo root**.
 
-| Command | What it does |
+**One rule: every `dev:*` starts that frontend _plus_ the backend it talks to.** Nothing needs a
+second terminal except mobile.
+
+| Command | Starts | Ports |
+|---|---|---|
+| `yarn dev` | **Everything** — backend + web + admin + landing | 3001 · 3000 · 3002 · 3003 |
+| `yarn dev:web` | **Web app** + backend (mock mode by default) | 3000 · 3001 |
+| `yarn dev:fpay` | Same as `yarn dev:web` | 3000 · 3001 |
+| `yarn dev:admin` | **Operator console** + backend | 3002 · 3001 |
+| `yarn dev:landing` | **Landing page** + backend (the f-list form POSTs to it) | 3003 · 3001 |
+| `yarn dev:backend` | **API** alone, in watch mode | 3001 |
+| `yarn dev:mobile` | **Mobile** via Expo — own terminal (alias: `yarn mobile`) | — |
+| `yarn mobile -- -c` | Mobile with a cleared cache (use after editing `apps/mobile/.env`) | — |
+
+Ctrl-C stops the whole group; nothing is left holding a port.
+
+| Everything else | |
 |---|---|
-| `yarn web` | **Web app** → http://localhost:3000 (mock mode by default) |
-| `yarn mobile` | **Mobile app** via Expo (scan the QR with Expo Go, or `i`/`a` for a simulator) |
-| `yarn mobile -- -c` | Mobile with a cleared cache (use after editing `apps/mobile/.env`) |
-| `yarn backend` | **API** in watch mode → http://localhost:3001 |
-| `yarn admin` | **Operator console** → http://localhost:3002 |
-| `yarn landing` | **Landing page** → http://localhost:3003 |
 | `yarn brand` | Regenerate every app icon from `brand/logo-mark.svg` |
 | `yarn typecheck` | Type-check **all six** workspaces (shared + mobile + backend + web + admin + landing) |
 | `yarn workspace @fpay/backend db:init` | Apply the DB schema (idempotent) |
@@ -56,15 +66,16 @@ All commands run from the **monorepo root**.
 | `yarn workspace @fpay/backend check:waitlist` | Self-check the f-list share codes + confirm tokens (no DB, no network) |
 | `yarn workspace @fpay/<app> <cmd>` | Run any script in a specific workspace |
 
-> `yarn start` is an alias for `yarn mobile`. **Always launch from the repo root** (never
-> `expo start` / `npx expo` from a random directory — Expo resolves the wrong entry).
+> Mobile is the one app left out of `yarn dev`: Expo needs its own terminal, or its keypress menu
+> (`i` / `a` / `r`) stops working and its output drowns the other three. **Always launch it from the
+> repo root** (never `expo start` / `npx expo` from a random directory — Expo resolves the wrong entry).
 
 ---
 
 ## Web app (`apps/web`)
 
 ```bash
-yarn web              # → http://localhost:3000  (mock mode, zero setup)
+yarn dev:web          # → web on :3000 + backend on :3001  (mock mode, zero setup)
 yarn workspace @fpay/web build   # production build
 yarn workspace @fpay/web tsc --noEmit   # typecheck just the web app
 ```
@@ -84,8 +95,8 @@ NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<your Privy app id>
 # NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<optional>
 ```
 
-Then **allow `http://localhost:3000` as an origin in your Privy dashboard app**, run
-`yarn backend`, and reload. (The App **Secret** is backend-only — never put it here.)
+Then **allow `http://localhost:3000` as an origin in your Privy dashboard app** and reload —
+`yarn dev:web` is already running the backend. (The App **Secret** is backend-only — never put it here.)
 
 ---
 
@@ -119,7 +130,7 @@ for testing Privy — no build, no device.)
 cp apps/backend/.env.example apps/backend/.env   # then fill STAGE_DATABASE_URL etc.
 yarn workspace @fpay/backend db:init              # apply the schema (idempotent)
 yarn workspace @fpay/backend db:seed              # 2 test users + sample activity (prints ids)
-yarn backend                                     # → http://localhost:3001
+yarn dev:backend                                 # → http://localhost:3001
 curl localhost:3001/health                       # → {"status":"ok","database":"configured"}
 ```
 
@@ -164,10 +175,10 @@ The web app (browser on the same machine) just uses `http://localhost:3001`.
 ## Testing
 
 ```bash
-yarn typecheck        # tsc --noEmit across shared + mobile + backend + web
+yarn typecheck        # tsc --noEmit across all six workspaces
 ```
 
-End-to-end smoke tests are manual: walk the mock flow in the browser (`yarn web`) or Expo
+End-to-end smoke tests are manual: walk the mock flow in the browser (`yarn dev:web`) or Expo
 Go (`yarn mobile`); for real mode, hit the backend with `curl localhost:3001/health` and
 the endpoints in the backend README.
 
@@ -178,7 +189,7 @@ the endpoints in the backend README.
 - **App can't reach the backend (mobile)** — on a physical phone `localhost` is the phone,
   not your Mac. Use the Mac's LAN IP and the same Wi-Fi. The web app uses `localhost:3001`.
 - **Env changes don't take effect** — `EXPO_PUBLIC_*` / `NEXT_PUBLIC_*` are inlined at start;
-  restart `yarn mobile -- -c` / `yarn web`.
+  restart `yarn mobile -- -c` / `yarn dev:web`.
 - **Privy login rejected on web** — add `http://localhost:3000` as an allowed origin in the
   Privy dashboard app; confirm `NEXT_PUBLIC_STAGE_PRIVY_APP_ID` is set.
 - **`/balance` is 0 / Send errors with "no mint"** — `devnet:setup` hasn't run (or

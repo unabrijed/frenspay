@@ -18,7 +18,7 @@ the Verify sheet first (`payMerchant` → `open('verify')`).
 
 ## A. Sim flow (zero setup — local default, or `STAGE_KYC_PROVIDER=sim` on stage)
 
-1. `yarn backend` and `yarn web`.
+1. `yarn dev:web` (starts web + backend).
 2. Sign up through onboarding → land on Home.
 3. Settings → **Verify identity** (or scan a merchant QR, which routes to Verify).
 4. Tap **Verify identity** → instantly promoted to **tier 2**; the pay flow resumes.
@@ -39,7 +39,7 @@ from the Verifications workflow you build in the no‑code editor.
    ```
    Missing key/workflow with `didit` selected → the server **refuses to boot**
    (`assertKycConfig`), by design.
-2. `yarn backend` (boots the 15s reconciler poller because the provider is `didit`) and `yarn web`.
+2. `yarn dev:web` — the backend boots the 15s reconciler poller because the provider is `didit`.
 3. Onboard → Settings → **Verify identity**.
 4. You're redirected to Didit's hosted flow (document + liveness, ~2 min). Complete it.
 5. Didit redirects back to `…/home?verificationSessionId=…`. The Home effect calls `pollKyc()`,

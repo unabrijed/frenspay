@@ -12,7 +12,7 @@ yarn install
 cp apps/backend/.env.example apps/backend/.env   # set NODE_ENV=stage + STAGE_DATABASE_URL etc.
 yarn workspace @fpay/backend db:init              # apply src/db/schema.sql
 yarn workspace @fpay/backend db:seed              # optional: 2 test users + sample activity
-yarn workspace @fpay/backend dev                  # http://localhost:3001  (or: yarn backend from root)
+yarn dev:backend                                 # http://localhost:3001  (from the monorepo root)
 curl localhost:3001/health                       # {"status":"ok","database":"configured"}
 ```
 

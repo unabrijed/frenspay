@@ -9,7 +9,7 @@ an embedded Solana wallet work **with no device or dev build**.
 
 ```bash
 # from the monorepo root (Node 22 — `nvm use` first)
-yarn web                              # dev server → http://localhost:3000  (mock mode)
+yarn dev:web                          # web :3000 + backend :3001  (mock mode)
 yarn workspace @fpay/web build         # production build
 yarn workspace @fpay/web start         # serve the production build
 yarn workspace @fpay/web tsc --noEmit  # typecheck just this app
@@ -30,8 +30,8 @@ NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<your Privy app id>
 # NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<optional>
 ```
 
-Then **allow `http://localhost:3000` as an origin in your Privy dashboard app**, run
-`yarn backend`, and reload. The Privy **App Secret is backend-only** — it lives in
+Then **allow `http://localhost:3000` as an origin in your Privy dashboard app** and reload —
+`yarn dev:web` already runs the backend. The Privy **App Secret is backend-only** — it lives in
 `apps/backend/.env`, never here.
 
 ## Notes

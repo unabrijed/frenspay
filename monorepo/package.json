@@ -8,15 +8,15 @@
     "packages/*"
   ],
   "scripts": {
-    "start": "yarn workspace @fpay/mobile start",
+    "dev": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/web dev & yarn workspace @fpay/admin dev & yarn workspace @fpay/landing dev & wait",
+    "dev:web": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/web dev & wait",
+    "dev:fpay": "yarn dev:web",
+    "dev:admin": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/admin dev & wait",
+    "dev:landing": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/landing dev & wait",
+    "dev:backend": "yarn workspace @fpay/backend dev",
+    "dev:mobile": "yarn workspace @fpay/mobile start",
     "mobile": "yarn workspace @fpay/mobile start",
-    "mobile:web": "yarn workspace @fpay/mobile web",
-    "backend": "yarn workspace @fpay/backend dev",
-    "web": "yarn workspace @fpay/web dev",
-    "admin": "yarn workspace @fpay/admin dev",
-    "landing": "yarn workspace @fpay/landing dev",
     "brand": "node brand/generate.mjs",
-    "dev": "trap 'kill 0' EXIT; yarn backend & yarn web",
     "typecheck": "yarn workspace @fpay/shared tsc --noEmit && yarn workspace @fpay/mobile tsc --noEmit && yarn workspace @fpay/backend tsc --noEmit && yarn workspace @fpay/web tsc --noEmit && yarn workspace @fpay/admin tsc --noEmit && yarn workspace @fpay/landing tsc --noEmit"
   }
 }
