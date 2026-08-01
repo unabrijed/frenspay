@@ -15,15 +15,10 @@
   --color-teal: #416467;
   --color-teal-soft: #c1e7ea;
   --color-teal-on: #294c4f;
-  --color-surface-low: #faf2ee;
-  --color-surface-ctr: #f4ece8;
-  --color-outline-var: #e0bfb9;
-
   --ease-soft: cubic-bezier(0.16, 1, 0.3, 1);
 
   --shadow-tactile: 0 4px 20px rgba(74, 70, 67, 0.05), inset 0 1px 0 rgba(255, 255, 255, 1);
   --shadow-lift: 0 8px 30px rgba(140, 113, 108, 0.15);
-  --shadow-phone: 0 18px 50px rgba(28, 22, 16, 0.14);
   --shadow-btn: 0 4px 14px rgba(166, 52, 31, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.2);
   /* The shadow a pressed control collapses into — see .press. */
   --shadow-pressed: 0 1px 3px rgba(74, 70, 67, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.18);
@@ -46,10 +41,13 @@ button:not(:disabled),
   cursor: pointer;
 }
 
+/* The one label recipe. Every section number, column head and field label on the
+   page uses it unmodified — the discipline is that it is never varied, which is
+   what makes it read as a system rather than as eight similar-ish labels. */
 .eyebrow {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
@@ -94,42 +92,12 @@ button:not(:disabled),
   display: inline-block;
 }
 
-/* The currency glyph standing behind the hero — ฿ ₹ R$ RM, switched by city.
-   The Google font is subset to `latin`, so Hanken has no ฿ (U+0E3F) or ₹
-   (U+20B9); the stack below hands those two off to a system sans. Don't try to
-   widen the font subset for a mark that renders at 7% opacity — and keep the
-   fallbacks explicitly sans, so a serif is never substituted. */
-.glyph {
-  font-family: var(--font-hanken), 'Noto Sans Thai', 'Noto Sans', ui-sans-serif, system-ui, sans-serif;
-  font-weight: 800;
-  line-height: 0.78;
-  letter-spacing: -0.04em;
-  color: var(--color-terra);
-  opacity: 0.07;
-  pointer-events: none;
-  user-select: none;
-}
-
-/* Money dust: the hero QR's stray pixels, escaped and drifting the whole page.
-   Fixed and above everything (pointer-events: none), in one colour that reads
-   on cream and on the ink/gradient sections alike — so no section needs to know
-   the layer exists. */
-.dust {
-  position: fixed;
-  inset: 0;
-  z-index: 5;
-  display: none;
-  pointer-events: none;
-  contain: layout paint;
-}
-.dust-layer {
-  position: absolute;
-  inset: 0;
-}
-.dust-layer > span {
-  position: absolute;
-  border-radius: 2px;
-  background: var(--color-terra-ctr);
+/* The dissolving edge, softened so the code has no boundary — it fades into the
+   page rather than stopping at one. The modules themselves are all on an exact
+   pitch now (see qrPixels), so this mask and the opacity RAMP are the entire
+   dissolve; nothing is ever drawn off-grid to fake it. */
+.qr-mask {
+  mask-image: linear-gradient(to right, #000 0%, #000 55%, rgba(0, 0, 0, 0.6) 80%, transparent 100%);
 }
 
 /* Scroll progress under the nav. */
@@ -178,20 +146,12 @@ button:not(:disabled),
    the defaults above are the FINISHED page: reduced-motion users get a
    complete, still landing rather than a blank one waiting on a trigger.
 
-   .qr-px / .qr-stray / .stag / .rail-line need no defaults at all — their
-   resting state is already the element's own attributes and layout. */
+   .qr-px / .stag / .rail-line need no defaults at all — their resting state is
+   already the element's own attributes and layout. */
 .reveal,
 .animate-blur-fade-up,
 .word {
   opacity: 1;
-}
-
-/* One-shot scan glint over the hero QR — absent entirely under reduced motion. */
-.glint {
-  position: absolute;
-  inset: 0;
-  display: none;
-  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -200,26 +160,27 @@ button:not(:disabled),
   }
 
   /* ── Section entrances ──────────────────────────────────────────────────
-     Fired once per section by Reveal's observer. The variant attribute picks
-     the choreography: six identical fades is what made the page read as a
-     template, so each section now arrives its own way.
+     Fired once per section by Reveal's observer.
+
+     Deliberately tiny. Six sections each arriving with its own 24px blurred
+     slide is what made the page feel busy next to a hero that now holds
+     perfectly still; the reference this page is measured against ships a 4px
+     translate and mostly doesn't animate on scroll at all. The reveal should
+     register and be over, not perform.
 
      Variant rules use :not(.in) rather than competing with the .in rules —
      both selectors carry the same specificity, so this keeps the finished
      state unambiguous no matter what order they land in. */
   .reveal {
     opacity: 0;
-    transform: translateY(24px);
-    filter: blur(8px);
+    transform: translateY(6px);
     transition:
-      opacity 0.7s var(--ease-soft),
-      transform 0.7s var(--ease-soft),
-      filter 0.7s var(--ease-soft);
+      opacity 0.45s var(--ease-soft),
+      transform 0.45s var(--ease-soft);
   }
   .reveal.in {
     opacity: 1;
     transform: none;
-    filter: none;
   }
 
   /* A section that names a variant has its own inner choreography, so the
@@ -228,28 +189,26 @@ button:not(:disabled),
   .reveal[data-reveal]:not(.in) {
     opacity: 1;
     transform: none;
-    filter: none;
   }
 
   /* Items inside a section that arrive in sequence. Index comes from an
      inline --i, so one class covers every list on the page. */
   .reveal .stag {
     opacity: 0;
-    transform: translateY(16px);
-    filter: blur(6px);
+    transform: translateY(4px);
     transition:
-      opacity 0.6s var(--ease-soft),
-      transform 0.6s var(--ease-soft),
-      filter 0.6s var(--ease-soft);
-    transition-delay: calc(var(--i, 0) * 70ms);
+      opacity 0.4s var(--ease-soft),
+      transform 0.4s var(--ease-soft);
+    transition-delay: calc(var(--i, 0) * 45ms);
   }
   .reveal.in .stag {
     opacity: 1;
     transform: none;
-    filter: none;
   }
 
-  /* wipe — headline words rise out of their masks, one after another. */
+  /* wipe — headline words rise out of their masks, one after another. The one
+     section entrance with any real travel, and it earns it: the type carrying
+     its own motion is the same gesture the hero opens on. */
   .reveal[data-reveal~='wipe'] .word {
     transition:
       opacity 0.7s var(--ease-soft),
@@ -259,27 +218,6 @@ button:not(:disabled),
   .reveal[data-reveal~='wipe']:not(.in) .word {
     opacity: 0;
     transform: translateY(105%);
-  }
-
-  /* split — the two comparison columns close in from opposite edges. */
-  .reveal[data-reveal~='split'] [data-col] {
-    transition:
-      opacity 0.8s var(--ease-soft),
-      transform 0.8s var(--ease-soft);
-  }
-  .reveal[data-reveal~='split']:not(.in) [data-col] {
-    opacity: 0;
-  }
-  .reveal[data-reveal~='split']:not(.in) [data-col='l'] {
-    transform: translateX(-6%);
-  }
-  .reveal[data-reveal~='split']:not(.in) [data-col='r'] {
-    transform: translateX(6%);
-  }
-
-  /* scale — cards pop rather than slide. */
-  .reveal[data-reveal~='scale']:not(.in) .stag {
-    transform: translateY(20px) scale(0.94);
   }
 
   /* ── Hero load timeline ─────────────────────────────────────────────────
@@ -320,9 +258,14 @@ button:not(:disabled),
   /* ── The QR ─────────────────────────────────────────────────────────────
      Each rect flies in from the right (--dx/--dy) to the position its own x/y
      attributes already describe — so the end state needs no `to` block, and
-     no-animation IS the finished artwork. Delay ∝ final x makes it a
+     no-animation IS the finished artwork. Delay ∝ column makes it a
      left-to-right wave. Transform + opacity only: animating x/y attributes
-     would relayout the SVG, and 234 blurred rects would jank on mobile. */
+     would relayout the SVG.
+
+     This is now the ONLY thing the resting code does. It assembles, and then it
+     stops — no drift, no glint, no strays. A form that never holds still can
+     never be recognised, and this one has to read as a QR before it is worth
+     watching come apart. */
   .qr-px {
     animation: px-in 0.7s var(--ease-soft) var(--d, 0ms) both;
   }
@@ -333,49 +276,21 @@ button:not(:disabled),
     }
   }
 
-  /* The strays keep drifting after they land — money dust flowing QR → rail.
-     Per-animation delays, since the two need the same start but not the same
-     schedule. */
-  .qr-stray {
-    animation:
-      px-in 0.7s var(--ease-soft) var(--d, 0ms) both,
-      stray-drift var(--dur, 8s) ease-in-out var(--d, 0ms) infinite;
-  }
-  @keyframes stray-drift {
-    0%,
-    100% {
-      transform: none;
-    }
-    50% {
-      transform: translate(var(--dx, 6px), var(--dy, -4px));
-    }
-  }
-
-  /* Switching city re-scatters the code. Compressed to roughly a third of the
-     load wave — the same gesture, but as a reaction rather than an entrance. */
-  .qr-swap .qr-px,
-  .qr-swap .qr-stray {
+  /* Switching city replays the wave. Compressed to roughly a third of the load
+     timing — the same gesture, but as a reaction rather than an entrance. */
+  .qr-swap .qr-px {
     animation-duration: 0.42s;
     animation-delay: calc(var(--d, 0ms) * 0.3);
   }
-  .qr-swap .qr-stray {
-    animation-duration: 0.42s, var(--dur, 8s);
-  }
 
-  /* Cursor parallax. Two groups, two rates — the strays lead, so the code
-     reads as sitting behind them.
-     ponytail: whole-group tilt, not per-pixel repulsion. Repulsion needs a
-     distance solve per rect per frame across ~230 rects; upgrade only if the
-     tilt stops feeling like enough. */
-  .qr-body,
-  .qr-dust {
-    transition: transform 0.55s var(--ease-soft);
-  }
+  /* Cursor parallax — a whole-group tilt, and a small one. Only ever visible on
+     the no-WebGL fallback (PixelField hides this SVG once the canvas is up).
+     ponytail: group tilt, not per-pixel repulsion. Repulsion needs a distance
+     solve per rect per frame across ~200 rects; upgrade only if this stops
+     feeling like enough. */
   .qr-body {
-    transform: translate(calc(var(--px, 0) * 9px), calc(var(--py, 0) * 9px));
-  }
-  .qr-dust {
-    transform: translate(calc(var(--px, 0) * 26px), calc(var(--py, 0) * 22px));
+    transition: transform 0.55s var(--ease-soft);
+    transform: translate(calc(var(--px, 0) * 4px), calc(var(--py, 0) * 4px));
   }
 
   /* Rail connector draws downward as the steps land. Clip rather than scaleY:
@@ -394,62 +309,11 @@ button:not(:disabled),
     }
   }
 
-  /* Fires after the QR has assembled — reads as the scan beat. */
-  .glint {
-    display: block;
-    background: linear-gradient(105deg, transparent 42%, rgba(255, 255, 255, 0.75) 50%, transparent 58%);
-    transform: translateX(-120%);
-    animation: glint-sweep 1s ease-out 1.8s 1 forwards;
-  }
-  @keyframes glint-sweep {
-    to {
-      transform: translateX(120%);
-    }
-  }
-
   /* ── Ambient ────────────────────────────────────────────────────────────
-     The only two loops that run forever. Both live on brand-gradient
-     surfaces, which is already where texture (rather than decoration) is
-     allowed to sit. */
-  .dust {
-    display: block;
-  }
-  .dust-layer > span {
-    animation: stray-drift var(--dur, 9s) ease-in-out var(--d, 0s) infinite;
-  }
-  /* Mobile carries one layer instead of three. */
-  @media (max-width: 1023px) {
-    .dust-layer:nth-child(n + 2) {
-      display: none;
-    }
-  }
-
-  .gradient-drift {
-    background-size: 190% 190%;
-    animation: gradient-drift 22s ease-in-out infinite alternate;
-  }
-  @keyframes gradient-drift {
-    from {
-      background-position: 0% 20%;
-    }
-    to {
-      background-position: 100% 80%;
-    }
-  }
-
-  .glyph {
-    animation: glyph-in 0.7s var(--ease-soft) both;
-  }
-  @keyframes glyph-in {
-    from {
-      opacity: 0;
-      transform: translateY(0.06em) scale(0.93);
-    }
-    to {
-      opacity: 0.07;
-      transform: none;
-    }
-  }
+     Nothing loops forever any more. The money-dust layer, the QR's stray
+     pixels, the scan glint and the gradient drift all came out together: with a
+     particle hero that now holds still until you scroll, every one of them was
+     motion competing with the one thing on the page worth watching. */
 
   /* ── Direct manipulation ────────────────────────────────────────────────
      Hover lift and the magnetic pull. `translate` is a separate property from
@@ -481,16 +345,6 @@ button:not(:disabled),
      The `animation` shorthand resets animation-timeline and animation-range,
      so those two always come after it. */
   @supports (animation-timeline: view()) {
-    .dust-layer {
-      animation: dust-parallax linear both;
-      animation-timeline: scroll(root);
-    }
-    @keyframes dust-parallax {
-      to {
-        transform: translateY(calc(var(--depth, 200) * -1px));
-      }
-    }
-
     .progress {
       display: block;
       animation: progress-grow linear both;

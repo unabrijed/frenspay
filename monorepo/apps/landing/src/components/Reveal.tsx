@@ -6,10 +6,10 @@ import type { ReactNode } from 'react';
 /* One entrance per section. Children marked `.stag` with an inline --i
    cascade off this same trigger — see globals.css.
 
-   The variant picks the choreography. Six sections all doing the identical
-   fade-up is what made the page read as a template, so each one now arrives
-   its own way: `wipe` rises the headline a word at a time, `split` closes the
-   comparison columns in from opposite edges, `scale` pops the cards. */
+   `wipe` rises the headline a word at a time and suppresses the slab move, so
+   the section's own type carries the entrance. The `split` and `scale` variants
+   went with the card layout they were built for: the page now has one section
+   shape, so it does not need five ways of arriving. */
 export function Reveal({
   children,
   className = '',
@@ -17,7 +17,7 @@ export function Reveal({
 }: {
   children: ReactNode;
   className?: string;
-  variant?: 'wipe' | 'split' | 'scale' | 'wipe scale' | 'wipe split';
+  variant?: 'wipe';
 }) {
   const ref = useRef<HTMLDivElement>(null);
 

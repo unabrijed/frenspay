@@ -19,10 +19,10 @@ export function QuoteWidget() {
   const localFmt = new Intl.NumberFormat(city.locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
-    // text-ink is load-bearing: this card sits on the terracotta Rates section,
-    // which sets text-white. A white card has to declare its own colour rather
-    // than inherit whatever surface it happens to be dropped on.
-    <div className="mx-auto w-full max-w-[560px] rounded-[28px] bg-white p-6 text-ink shadow-lift ring-1 ring-hair sm:p-8">
+    // No card. The Rates section is canvas with a hairline like every other
+    // section now, so the widget is just structured type on the page — the
+    // hairline rules below carry the grouping the panel used to.
+    <div className="w-full max-w-[560px]">
       <div className="flex items-start justify-between gap-4">
         <label className="block flex-1">
           <span className="eyebrow text-muted">You pay</span>

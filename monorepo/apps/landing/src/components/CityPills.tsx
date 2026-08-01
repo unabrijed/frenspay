@@ -5,7 +5,7 @@ import { CITIES, useCity } from './CityContext';
 export function CityPills() {
   const { city, setCity } = useCity();
   return (
-    <div className="flex flex-wrap justify-center gap-3">
+    <div className="flex flex-wrap gap-3">
       {CITIES.map((c) => {
         const active = c.code === city.code;
         return (
@@ -15,7 +15,7 @@ export function CityPills() {
             onClick={() => setCity(c)}
             aria-pressed={active}
             className={`press rounded-full px-5 py-2.5 text-[15px] font-semibold ${
-              active ? 'bg-terra text-white shadow-btn' : 'bg-white text-muted ring-1 ring-hair hover:text-ink'
+              active ? 'bg-terra text-white' : 'text-muted ring-1 ring-hair hover:text-ink'
             }`}
           >
             {c.city}

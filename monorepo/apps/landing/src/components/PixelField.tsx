@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { useCity } from './CityContext';
-import { M, PIXELS, QR_H, QR_W, QrCode } from './QrHero';
+import { QrCode } from './QrHero';
+import { M, PIXELS, QR_H, QR_W } from './qrGeometry';
 import { mulberry32 } from './rand';
 
 /* The pixel break, in raw WebGL2 — ~40k point sprites instead of 231 rects.
@@ -26,6 +27,7 @@ in vec2 aHome;
 in vec2 aMorph;
 in vec3 aSeed;
 in float aTint;
+in float aRest;   // resting opacity, sampled from the source artwork's RAMP
 
 uniform vec2 uAnchor;   // centre of the QR box, css px
 uniform vec2 uSize;     // size of the QR box, css px
@@ -42,27 +44,47 @@ out float vAlpha;
 void main() {
   vec2 p = uAnchor + mix(aHome, aMorph, uMorph) * uSize;
 
-  // Idle drift, so the field is alive even when nothing is happening.
+  // Idle drift, so the field is alive even when nothing is happening. Kept well
+  // under a pixel: the module pitch is 12px, and anything approaching half a
+  // module here means the grid never resolves and the code reads as a smear.
   p += vec2(sin(uTime * (0.3 + aSeed.z * 0.5) + aSeed.x * 6.283),
-            cos(uTime * (0.25 + aSeed.y * 0.4) + aSeed.y * 6.283)) * (2.0 + aSeed.z * 5.0);
+            cos(uTime * (0.25 + aSeed.y * 0.4) + aSeed.y * 6.283)) * (0.4 + aSeed.z * 0.6);
 
-  // Shatter: every particle leaves along its own seeded heading, biased up —
-  // money leaving the code rather than an explosion.
-  float ang = aSeed.x * 6.2831853;
-  float burst = uScroll * (0.35 + aSeed.y);
-  p += vec2(cos(ang), sin(ang)) * burst * 1000.0;
-  p.y -= burst * 160.0;
+  // Release. aHome is normalised -0.5..0.5, so its x IS the column — the right
+  // edge (the dissolving side) goes first and the finder corner goes last, which
+  // is the same left-to-right wave the SVG assembles on, run backwards.
+  //
+  // Two things make this read as an event rather than as fog: the dead zone,
+  // where the code simply holds and nothing moves at all; and the shared
+  // heading. Independent per-particle angles average out to an isotropic cloud
+  // no matter how they are tuned.
+  float col  = aHome.x + 0.5;
+  float s    = max(0.0, (uScroll - 0.15) / 0.85);
+  float thr  = (1.0 - col) * 0.55;
+  float band = clamp((s - thr) / 0.45, 0.0, 1.0);
+  band *= band;
+
+  float ang = -0.62 + (aSeed.x - 0.5) * 0.42;   // up and to the right, +-12 degrees
+  p += vec2(cos(ang), sin(ang)) * band * 900.0;
 
   // Cursor wake. Exponential falloff so it is a push, not a force field.
   vec2 d = p - uPointer;
-  p += normalize(d + 1e-4) * exp(-length(d) / 130.0) * 85.0;
+  p += normalize(d + 1e-4) * exp(-length(d) / 90.0) * 18.0;
 
-  vAlpha = (1.0 - uScroll * 0.9) * (0.3 + aSeed.z * 0.7);
+  // Quantized decay, matching the SVG's RAMP: five steps, not a linear fade.
+  // aRest carries that same ramp at rest — on a WebGL machine the SVG is hidden,
+  // so if the ramp did not live here too, nobody would ever see it.
+  // 4.999 rather than 5.0: at band 0 the latter floors to 5, giving q = 1.25 and
+  // an alpha the framebuffer then clamps — which silently merges the top two
+  // steps of a five-step ramp back into one.
+  float q = floor((1.0 - band) * 4.999) / 4.0;
+  vAlpha = aRest * mix(0.30, 1.0, q) * (1.0 - step(0.999, band)) * (0.55 + aSeed.z * 0.45);
   vTint = aTint;
 
   vec2 clip = (p / uRes) * 2.0 - 1.0;
   gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
-  gl_PointSize = (1.0 + aSeed.z * 2.2) * uDpr * (1.0 + uScroll * 1.5);
+  // Constant size. Growing the sprites on the way out read as blur, not dispersal.
+  gl_PointSize = (1.0 + aSeed.z * 2.2) * uDpr;
 }`;
 
 const FRAG = `#version 300 es
@@ -78,19 +100,22 @@ void main() {
   frag = vec4(mix(ink, terra, vTint), vAlpha);
 }`;
 
-type Cloud = { xy: Float32Array; tint: Float32Array };
+type Cloud = { xy: Float32Array; tint: Float32Array; rest: Float32Array };
 
 /* Draw a shape, read it back, scatter `count` particles over its opaque pixels.
    Positions come out normalised to -0.5..0.5 of the source box, so the shader
-   only has to scale them by whatever the QR box measures on screen. */
+   only has to scale them by whatever the QR box measures on screen. The source
+   pixel's own alpha rides along as `rest`, which is how the opacity ramp painted
+   into the artwork survives into the particle field. */
 function rasterise(paint: (ctx: CanvasRenderingContext2D) => void, count: number, seed: number): Cloud {
   const xy = new Float32Array(count * 2);
   const tint = new Float32Array(count);
+  const rest = new Float32Array(count);
   const c = document.createElement('canvas');
   c.width = QR_W;
   c.height = QR_H;
   const ctx = c.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return { xy, tint };
+  if (!ctx) return { xy, tint, rest };
 
   paint(ctx);
   const px = ctx.getImageData(0, 0, QR_W, QR_H).data;
@@ -98,13 +123,17 @@ function rasterise(paint: (ctx: CanvasRenderingContext2D) => void, count: number
   const hx: number[] = [];
   const hy: number[] = [];
   const ht: number[] = [];
+  const ha: number[] = [];
+  // Threshold well under the ramp's 0.3 floor (~77/255), so the faintest
+  // surviving modules still seed particles instead of vanishing entirely.
   for (let i = 0, p = 0; i < px.length; i += 4, p++) {
-    if (px[i + 3] < 40) continue;
+    if (px[i + 3] < 24) continue;
     hx.push(p % QR_W);
     hy.push((p / QR_W) | 0);
     ht.push(px[i] > 120 ? 1 : 0); // red channel separates terracotta from ink
+    ha.push(px[i + 3] / 255);
   }
-  if (!hx.length) return { xy, tint };
+  if (!hx.length) return { xy, tint, rest };
 
   const rnd = mulberry32(seed);
   for (let k = 0; k < count; k++) {
@@ -113,16 +142,18 @@ function rasterise(paint: (ctx: CanvasRenderingContext2D) => void, count: number
     xy[k * 2] = (hx[j] + rnd()) / QR_W - 0.5;
     xy[k * 2 + 1] = (hy[j] + rnd()) / QR_H - 0.5;
     tint[k] = ht[j];
+    rest[k] = ha[j];
   }
-  return { xy, tint };
+  return { xy, tint, rest };
 }
 
 const paintQr = (ctx: CanvasRenderingContext2D) => {
   for (const p of PIXELS) {
     ctx.fillStyle = p.terra ? '#a6341f' : '#1e1b19';
-    const s = p.s ?? M - 2;
-    ctx.fillRect(p.x, p.y, s, s);
+    ctx.globalAlpha = p.o; // the RAMP, carried through to the particles as aRest
+    ctx.fillRect(p.x, p.y, M - 2, M - 2);
   }
+  ctx.globalAlpha = 1;
 };
 
 const paintGlyph = (symbol: string, family: string) => (ctx: CanvasRenderingContext2D) => {
@@ -210,6 +241,7 @@ export function QrStage() {
     const morphBuf = attach('aMorph', home.xy, 2, gl.DYNAMIC_DRAW);
     attach('aSeed', seeds, 3, gl.STATIC_DRAW);
     attach('aTint', home.tint, 1, gl.STATIC_DRAW);
+    attach('aRest', home.rest, 1, gl.STATIC_DRAW);
 
     const u = (n: string) => gl.getUniformLocation(prog, n);
     const uAnchor = u('uAnchor');

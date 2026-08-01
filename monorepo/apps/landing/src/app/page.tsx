@@ -1,11 +1,10 @@
 import { Fragment } from 'react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 import { CityProvider } from '@/components/CityContext';
 import { CityPills } from '@/components/CityPills';
-import { GlyphBackdrop } from '@/components/GlyphBackdrop';
 import { Logo, Wordmark } from '@/components/Logo';
-import { MoneyDust } from '@/components/MoneyDust';
+import { ModuleFigure, finder, locked, paired, scattered, solid, streaming } from '@/components/ModuleFigure';
 import { Pill } from '@/components/Pill';
 import { QrStage } from '@/components/PixelField';
 import { Rail } from '@/components/QrHero';
@@ -16,6 +15,7 @@ import { Waitlist } from '@/components/Waitlist';
 const DEMO_URL = '#'; // TODO(bridge): deployed web-app URL
 
 const h2 = 'text-[clamp(2rem,4vw,3rem)] font-extrabold leading-[1.02] tracking-[-0.03em]';
+const h3 = 'text-[20px] font-extrabold tracking-[-0.01em]';
 
 /* Headlines arrive a word at a time, so the type itself carries motion rather
    than the whole block sliding as one slab. The mask does the clipping (see
@@ -37,10 +37,43 @@ function Words({ children }: { children: string }) {
   );
 }
 
+/* Every section below the hero is the same shape: one hairline at the boundary,
+   a numbered label and headline in the narrow left column, content in the wide
+   right. Never 50/50, never centred — the asymmetry is what stops six stacked
+   sections reading as a template. */
+function Section({
+  id,
+  n,
+  label,
+  title,
+  children,
+}: {
+  id?: string;
+  n: string;
+  label: string;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section id={id} className="border-t border-hair px-6 py-20 sm:px-10 lg:py-24">
+      <Reveal className="mx-auto grid max-w-[1180px] gap-x-16 gap-y-10 lg:grid-cols-[1fr_1.6fr]" variant="wipe">
+        <div>
+          <p className="eyebrow text-muted">
+            {n} <span className="text-hair">/</span> {label}
+          </p>
+          <h2 className={`${h2} mt-4 max-w-sm`}>
+            <Words>{title}</Words>
+          </h2>
+        </div>
+        <div>{children}</div>
+      </Reveal>
+    </section>
+  );
+}
+
 export default function Page() {
   return (
     <CityProvider>
-      <MoneyDust />
       <main id="top">
         <Nav />
         <Hero />
@@ -97,8 +130,7 @@ function Hero() {
   return (
     <section className="px-6 pb-16 pt-12 sm:px-10 lg:pb-20 lg:pt-16">
       <div className="mx-auto grid max-w-[1180px] gap-14 lg:grid-cols-12">
-        <div className="relative lg:col-span-6">
-          <GlyphBackdrop className="-left-4 -top-20 -z-10 text-[clamp(9rem,16vw,14rem)] lg:-left-8" />
+        <div className="lg:col-span-6">
           <h1 className="load-words text-[clamp(2.8rem,6.5vw,4.5rem)] font-extrabold leading-[0.98] tracking-[-0.035em]">
             <Words>Global dollars. Local scan.</Words>
           </h1>
@@ -117,7 +149,7 @@ function Hero() {
               Run a payment →
             </a>
           </div>
-          {/* The rails, not a count. fpay is pre-launch — any "N countries"
+          {/* The rails, not a count. FrensPay is pre-launch — any "N countries"
               number would be a claim we'd have to walk back. */}
           <p className="animate-blur-fade-up eyebrow mt-7 text-muted [--d:520ms]">
             UPI · PromptPay · Pix · DuitNow
@@ -139,122 +171,70 @@ function Hero() {
 
 function Countries() {
   return (
-    <section id="countries" className="relative overflow-hidden px-6 pb-24 pt-4 sm:pb-28">
-      <GlyphBackdrop className="-right-6 top-0 -z-10 text-[clamp(7rem,12vw,11rem)]" />
-      <Reveal className="mx-auto max-w-[1180px] text-center">
-        <CityPills />
-        <p className="mx-auto mt-5 max-w-md text-[15px] text-muted">
-          Wherever scan-and-pay already works. Tap a city — the payment above and the quote below follow.
-        </p>
-      </Reveal>
-    </section>
+    <Section id="countries" n="01" label="Countries" title="Wherever scan-and-pay already works.">
+      <CityPills />
+      <p className="mt-7 max-w-md text-[15px] text-muted">
+        Tap a city — the payment above and the quote below follow.
+      </p>
+    </Section>
   );
 }
 
+/* Three states of one atom. The block is a balance; the held row is a rate that
+   stops moving; the streaming edge is the hero's own release at a fraction of
+   the amplitude. Same pitch, same ramp, same drawing instrument throughout. */
 const FEATURES = [
-  { title: 'Hold dollars', line: 'Top up once. One USD balance for every country you land in.', d: 'dollar' },
-  { title: 'Lock the rate', line: 'The rate on screen freezes before you confirm — nothing settles differently later.', d: 'lock' },
-  { title: 'Pay instantly', line: "The merchant has their money before you've pocketed your phone.", d: 'bolt' },
+  { title: 'Hold dollars', line: 'Top up once. One USD balance for every country you land in.', cell: solid },
+  {
+    title: 'Lock the rate',
+    line: 'The rate on screen freezes before you confirm — nothing settles differently later.',
+    cell: locked(5),
+  },
+  {
+    title: 'Pay instantly',
+    line: "The merchant has their money before you've pocketed your phone.",
+    cell: streaming(8, 5),
+  },
+  {
+    title: 'Split it by @handle',
+    line: 'Send or request by name or phone — no account numbers, no screenshots of QR codes.',
+    cell: paired(8),
+  },
 ] as const;
-
-const fGlyphs = {
-  dollar: (
-    <path d="M12 3v18M16.5 6.5c-1-1-2.7-1.5-4.5-1.5-2.2 0-4 1.1-4 3s1.6 2.6 4 3c2.4.4 4 1.1 4 3s-1.8 3-4 3c-1.8 0-3.5-.5-4.5-1.5" />
-  ),
-  lock: (
-    <>
-      <rect x="5" y="11" width="14" height="9" rx="2.5" />
-      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-    </>
-  ),
-  bolt: <path d="M13 3 5 13.5h5.5L11 21l8-10.5h-5.5L13 3Z" />,
-} as const;
-
-function FIcon({ d }: { d: keyof typeof fGlyphs }) {
-  return (
-    <svg
-      width="22"
-      height="22"
-      viewBox="0 0 24 24"
-      aria-hidden
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      {fGlyphs[d]}
-    </svg>
-  );
-}
 
 function HowItWorks() {
   return (
-    <section id="how" className="px-6 py-24 sm:py-28">
-      <Reveal className="mx-auto max-w-[1180px]" variant="wipe scale">
-        <div className="mx-auto max-w-2xl text-center">
-          <p className="eyebrow text-terra">How it works</p>
-          <h2 className={`${h2} mt-3`}>
-            <Words>Dollars in. Local money out.</Words>
-          </h2>
-        </div>
-        <div className="relative mt-12 grid gap-5 md:grid-cols-3">
-          <span
-            aria-hidden
-            className="absolute left-[14%] right-[14%] top-[60px] z-[1] hidden border-t-2 border-dashed border-terra/20 md:block"
-          />
-          {FEATURES.map((f, i) => (
-            <div key={f.title} className="stag rounded-[28px] bg-surface-low p-8" style={{ '--i': i } as CSSProperties}>
-              <span className="relative z-[2] flex h-14 w-14 items-center justify-center rounded-full bg-peach text-terra shadow-tactile">
-                <FIcon d={f.d} />
-              </span>
-              <h3 className="mt-6 text-[20px] font-extrabold tracking-[-0.01em]">{f.title}</h3>
-              <p className="mt-2 text-[15px] text-muted">{f.line}</p>
+    <Section id="how" n="02" label="How it works" title="Dollars in. Local money out.">
+      <div className="border-t border-hair">
+        {FEATURES.map((f, i) => (
+          <div
+            key={f.title}
+            className="stag flex items-start gap-6 border-b border-hair py-7 sm:gap-8"
+            style={{ '--i': i } as CSSProperties}
+          >
+            <span className="tabular eyebrow shrink-0 pt-1 text-muted">0{i + 1}</span>
+            <ModuleFigure cols={8} rows={5} m={9} cell={f.cell} className="mt-0.5 shrink-0 text-ink" />
+            <div className="min-w-0">
+              <h3 className={h3}>{f.title}</h3>
+              <p className="mt-1.5 text-[15px] text-muted">{f.line}</p>
             </div>
-          ))}
-        </div>
-        <div className="mt-5 flex flex-col justify-between gap-6 rounded-[28px] bg-teal-soft p-8 text-teal-on sm:flex-row sm:items-center sm:p-10">
-          <div>
-            <h3 className="text-[26px] font-extrabold leading-tight tracking-[-0.01em]">Split it by @handle.</h3>
-            <p className="mt-2 max-w-md text-teal-on">
-              Send or request by name or phone — no account numbers, no screenshots of QR codes.
-            </p>
           </div>
-          <div className="flex w-fit shrink-0 items-center gap-3 rounded-full bg-white/85 py-2 pl-2 pr-4">
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-peach text-[13px] font-semibold text-terra">
-              a
-            </span>
-            <span className="text-[14px] font-semibold">@asha</span>
-            <span className="tabular text-[14px] font-semibold text-terra">Request $6.20</span>
-          </div>
-        </div>
-      </Reveal>
-    </section>
+        ))}
+      </div>
+    </Section>
   );
 }
 
-/* The one full-bleed brand surface in the middle of the page. Five near-cream
-   sections in a row is what made the scroll feel flat; this breaks it, and a
-   brand-gradient surface is the one place texture (.grain) and a slow ambient
-   drift are already on-system. */
 function Rates() {
   return (
-    <section id="rates" className="grain brand-gradient gradient-drift px-6 py-24 text-white sm:py-28">
-      <Reveal className="mx-auto max-w-[1180px]" variant="wipe">
-        <div className="mx-auto max-w-2xl text-center">
-          <h2 className={h2}>
-            <Words>Type a price. See what leaves your balance.</Words>
-          </h2>
-          {/* Solid white: on the gradient's light stop (#c84b34) /75 is ~3.3:1. */}
-          <p className="mx-auto mt-4 max-w-lg text-white">
-            The rate, the fee, and the arrival time — all before you confirm. The rate holds still while you decide.
-          </p>
-        </div>
-        <div className="mt-12">
-          <QuoteWidget />
-        </div>
-      </Reveal>
-    </section>
+    <Section id="rates" n="03" label="Rates" title="Type a price. See what leaves your balance.">
+      <p className="max-w-lg text-[15px] text-muted">
+        The rate, the fee, and the arrival time — all before you confirm. The rate holds still while you decide.
+      </p>
+      <div className="mt-9">
+        <QuoteWidget />
+      </div>
+    </Section>
   );
 }
 
@@ -265,18 +245,28 @@ const COMPARE = [
   ['Declines you sort out yourself', 'Reroutes or refunds, automatically'],
 ] as const;
 
+const scatteredFig = scattered(9, 6);
+
+/* The page's one tonal inversion, and the only section that gets extra height.
+   The figures carry the argument: the left column's modules are off-grid and
+   drifting — the exact geometry deleted from the hero in this change — while the
+   right column's sit on an exact pitch. */
 function Comparison() {
   return (
-    <section className="px-6 py-24 sm:py-28">
-      <Reveal className="mx-auto max-w-[1180px]" variant="split">
-        <div className="grid overflow-hidden rounded-[28px] md:grid-cols-2">
-          <div data-col="l" className="bg-ink p-8 text-white sm:p-10">
-            <p className="eyebrow text-white/65">Your bank card abroad</p>
-            <ul className="mt-6 divide-y divide-white/10">
+    <section className="border-t border-hair bg-ink px-6 py-24 text-white sm:px-10 lg:py-28">
+      <Reveal className="mx-auto max-w-[1180px]" variant="wipe">
+        <p className="eyebrow text-white/45">
+          04 <span className="text-white/25">/</span> The difference
+        </p>
+        <div className="mt-12 grid gap-12 md:grid-cols-2 md:gap-16">
+          <div>
+            <ModuleFigure cols={9} rows={6} cell={scatteredFig} className="text-white/40" />
+            <h3 className={`${h3} mt-7 text-white/70`}>Your bank card abroad</h3>
+            <ul className="mt-5 divide-y divide-white/10 border-t border-white/10">
               {COMPARE.map(([left], i) => (
                 <li
                   key={left}
-                  className="stag py-4 text-[15px] text-white/70 sm:text-[16px]"
+                  className="stag py-4 text-[15px] text-white/60 sm:text-[16px]"
                   style={{ '--i': i } as CSSProperties}
                 >
                   {left}
@@ -284,9 +274,12 @@ function Comparison() {
               ))}
             </ul>
           </div>
-          <div data-col="r" className="grain brand-gradient p-8 text-white sm:p-10">
-            <p className="eyebrow text-white">fpay</p>
-            <ul className="mt-6 divide-y divide-white/20">
+          <div>
+            <ModuleFigure cols={9} rows={6} cell={solid} className="text-terra-ctr" />
+            <h3 className={`${h3} mt-7`}>
+              <Wordmark />
+            </h3>
+            <ul className="mt-5 divide-y divide-white/15 border-t border-white/15">
               {/* Same index as the left column, so the pairs land together. */}
               {COMPARE.map(([, right], i) => (
                 <li
@@ -314,41 +307,43 @@ const SECURITY = [
 
 function Security() {
   return (
-    <section id="security" className="px-6 py-24 sm:py-28">
-      <Reveal className="mx-auto max-w-2xl" variant="wipe">
-        <p className="eyebrow text-terra">Security</p>
-        <h2 className={`${h2} mt-3`}>
-          <Words>Your money. Only your say-so.</Words>
-        </h2>
-        <ul className="mt-8 divide-y divide-hair border-t border-hair">
-          {SECURITY.map((line, i) => (
-            <li key={line} className="stag py-4 text-[16px] text-muted" style={{ '--i': i } as CSSProperties}>
-              {line}
-            </li>
-          ))}
-        </ul>
-      </Reveal>
-    </section>
+    <Section id="security" n="05" label="Security" title="Your money. Only your say-so.">
+      {/* The finder pattern: the mark a scanner orients against, and the same
+          geometry the hero code is built from. Nothing about it moves. */}
+      <ModuleFigure cols={7} rows={7} m={9} cell={finder} className="mb-9 text-terra" />
+      <ul className="divide-y divide-hair border-t border-hair">
+        {SECURITY.map((line, i) => (
+          <li key={line} className="stag py-4 text-[16px] text-muted" style={{ '--i': i } as CSSProperties}>
+            {line}
+          </li>
+        ))}
+      </ul>
+    </Section>
   );
 }
 
 function FList() {
   return (
-    <section id="flist" className="px-6 py-24 sm:py-32">
-      <Reveal className="mx-auto flex max-w-2xl flex-col items-center text-center" variant="wipe">
-        <h2 className={h2}>
+    <section id="flist" className="border-t border-hair px-6 py-20 sm:px-10 lg:py-24">
+      <Reveal className="mx-auto grid max-w-[1180px] gap-x-16 gap-y-10 lg:grid-cols-[1fr_1.6fr]" variant="wipe">
+        <h2 className={`${h2} max-w-sm`}>
           <Words>First we board the f list. Then we board the plane.</Words>
         </h2>
-        <p className="mt-5 max-w-md text-muted">
-          The f list is the early-access queue. fpay is pre-launch — leave your email and you&apos;re first through the
-          gate.
-        </p>
-        <div className="mt-9 flex w-full justify-center">
-          <Waitlist />
+        <div>
+          <p className="max-w-md text-muted">
+            The f list is the early-access queue. fpay is pre-launch — leave your email and you&apos;re first through
+            the gate.
+          </p>
+          <div className="mt-9">
+            <Waitlist />
+          </div>
+          <a
+            href={DEMO_URL}
+            className="mt-6 inline-block text-[14px] font-semibold text-terra transition-colors hover:text-terra-deep"
+          >
+            or try the demo first →
+          </a>
         </div>
-        <a href={DEMO_URL} className="mt-6 text-[14px] font-semibold text-terra transition-colors hover:text-terra-deep">
-          or try the demo first →
-        </a>
       </Reveal>
     </section>
   );
@@ -356,7 +351,7 @@ function FList() {
 
 function Footer() {
   return (
-    <footer className="mt-4 rounded-t-[28px] bg-ink text-white">
+    <footer className="bg-ink text-white">
       <div className="mx-auto max-w-[1180px] px-6 pt-14 sm:px-10">
         <div className="flex flex-col justify-between gap-6 border-b border-white/10 pb-10 sm:flex-row sm:items-center">
           <Logo markClass="h-7" wordClass="text-[20px] text-white" />
