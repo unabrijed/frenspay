@@ -1,4 +1,4 @@
-import { dissolveAt, isFinderCell, rampAt } from './qrGeometry';
+import { RAMP, dissolveAt, isFinderCell, rampAt } from './qrGeometry';
 import { mulberry32 } from './rand';
 
 /* The section figures.
@@ -115,3 +115,52 @@ export const paired = (cols: number): CellFn => {
 /* Security — the finder pattern alone, at rest. Literally the mark a scanner
    orients against, and the same geometry the code is built from. */
 export const finder: CellFn = (x, y) => (isFinderCell(x, y) ? {} : null);
+
+/* The f list — one person, and how far one invite reaches. Distance from the
+   centre IS the ramp: a 9×9 grid centred on (4,4) has exactly five rings and
+   RAMP has exactly five steps, so the decay is the system's own rather than a
+   curve invented for this figure. Pure Chebyshev distance, so nothing is seeded
+   and nothing sits off the pitch. */
+export const spread: CellFn = (x, y) => {
+  const ring = Math.max(Math.abs(x - 4), Math.abs(y - 4));
+  return ring < RAMP.length ? { o: RAMP[ring], tint: ring === 0 } : null;
+};
+
+/* ── The difference (04) ──────────────────────────────────────────────────
+   Each row of that section argues one specific contrast, so each row draws it:
+   the broken state on the left, the same atom resolved on the right, with a
+   gutter between them. One figure per row rather than one per column, which is
+   what turns the vocabulary from an ornament beside the argument into the
+   argument itself. */
+export const contrast = (left: CellFn, right: CellFn, half: number, gap = 2): CellFn => (x, y) => {
+  if (x < half) return left(x, y);
+  if (x < half + gap) return null;
+  return right(x - half - gap, y);
+};
+
+/* A rate that will not sit still: one module per column, walking up and down
+   like the chart it is. On the pitch, never off it. The height is what varies,
+   which is exactly the thing the locked figure beside it refuses to do. */
+export const stepped = (cols: number, rows: number, seed = 20260806): CellFn => {
+  const rnd = mulberry32(seed);
+  const path: number[] = [];
+  let y = Math.floor(rows / 2);
+  for (let x = 0; x < cols; x++) {
+    path.push(y);
+    y = Math.max(0, Math.min(rows - 1, y + (rnd() < 0.5 ? -1 : 1)));
+  }
+  return (x, cy) => (path[x] === cy ? { o: 0.55 } : null);
+};
+
+/* A payment that dead-ends: the block is there, but with holes through it. */
+export const holed = (cols: number, rows: number) =>
+  precompute(cols, rows, 20260807, (rnd) => (rnd() < 0.34 ? null : { o: 0.45 }));
+
+/* "Card not accepted": the mark a scanner looks for, with pieces missing, so
+   there is nothing to orient against. */
+export const brokenFinder = (seed = 20260808): CellFn => {
+  const rnd = mulberry32(seed);
+  const keep = new Map<string, boolean>();
+  for (let y = 0; y < 7; y++) for (let x = 0; x < 7; x++) keep.set(`${x},${y}`, rnd() > 0.42);
+  return (x, y) => (isFinderCell(x, y) && keep.get(`${x},${y}`) ? { o: 0.5 } : null);
+};

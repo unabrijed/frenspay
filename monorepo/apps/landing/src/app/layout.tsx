@@ -18,11 +18,11 @@ export const metadata: Metadata = {
   // Without this a static export emits og:image as http://localhost:3000/… and every social
   // preview breaks. The production domain is fixed (see monorepo/DEPLOY.md §2c).
   metadataBase: new URL('https://frenspay.xyz'),
-  title: 'FrensPay — instant global payments from one dollar balance',
+  title: 'fpay: instant global payments from one dollar balance',
   description:
-    'One balance in dollars. Scan any local QR — UPI, PromptPay, Pix, DuitNow — and the merchant is paid instantly in their own currency, at a rate locked before you tap.',
+    'One balance in dollars. Scan any local QR: UPI, PromptPay, Pix, DuitNow. The merchant is paid instantly in their own currency, at a rate locked before you tap.',
   openGraph: {
-    title: 'FrensPay — instant global payments from one dollar balance',
+    title: 'fpay: instant global payments from one dollar balance',
     description: 'Global dollars. Local scan. Paid instantly, at a rate you locked first.',
     type: 'website',
   },

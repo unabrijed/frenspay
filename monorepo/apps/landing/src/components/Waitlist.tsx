@@ -144,12 +144,13 @@ function Joined({ code, position, frens }: JoinResult) {
             </dd>
           </div>
         ) : null}
-        {frens > 0 ? (
-          <div className="flex items-baseline justify-between gap-4 py-4">
-            <dt className="eyebrow text-muted">Frens joined</dt>
-            <dd className="tabular text-[18px] font-extrabold tracking-[-0.01em]">{frens}</dd>
-          </div>
-        ) : null}
+        {/* Shown at zero too: hiding the counter until someone joins removes the
+            mechanic from view exactly when it still needs explaining, and leaves
+            the line below referring to a row that isn't there. */}
+        <div className="flex items-baseline justify-between gap-4 py-4">
+          <dt className="eyebrow text-muted">Frens joined</dt>
+          <dd className="tabular text-[18px] font-extrabold tracking-[-0.01em]">{frens}</dd>
+        </div>
       </dl>
       <p className="mt-4 text-[14px] leading-relaxed text-muted">
         Every fren who joins on your link moves you up.

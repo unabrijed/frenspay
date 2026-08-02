@@ -1,16 +1,9 @@
-/* The lockup: traced mark (public/logo-mark.svg, generated from brand/logo-mark.svg) plus the
-   wordmark set live in Hanken Grotesk — "Frens" at 800, "Pay" at 400, the weight split the
-   brand art uses. Live text rather than an image so it stays crisp, selectable, and recolourable.
-   `fpay` stays the short name and is untouched in body copy. */
+/* fpay is the name the product uses. FrensPay is the full one, and the page
+   reveals it exactly once, in the footer signature.
 
-export function Wordmark({ className = '' }: { className?: string }) {
-  return (
-    <span className={`tracking-[-0.02em] ${className}`}>
-      <span className="font-extrabold">Frens</span>
-      <span className="font-normal">Pay</span>
-    </span>
-  );
-}
+   The mark carries no wordmark of its own, so the lockup does not fake one:
+   it is the mark plus the short name, set live in Hanken Grotesk rather than
+   drawn, which keeps it crisp, selectable and recolourable. */
 
 export function Logo({
   className = '',
@@ -23,10 +16,21 @@ export function Logo({
 }) {
   return (
     <span className={`inline-flex items-center gap-2.5 ${className}`}>
-      {/* Decorative: the wordmark beside it already carries the name for screen readers. */}
+      {/* Decorative: the name beside it is what a screen reader should read. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/logo-mark.svg" alt="" width={62} height={80} className={`w-auto ${markClass}`} />
-      <Wordmark className={wordClass} />
+      <span className={`font-extrabold tracking-[-0.03em] ${wordClass}`}>fpay</span>
+    </span>
+  );
+}
+
+/* The full name, and the one place it appears. "Frens" at 800 against "Pay" at
+   400 is the weight split the brand art uses. */
+export function Wordmark({ className = '' }: { className?: string }) {
+  return (
+    <span className={`tracking-[-0.02em] ${className}`}>
+      <span className="font-extrabold">Frens</span>
+      <span className="font-normal">Pay</span>
     </span>
   );
 }

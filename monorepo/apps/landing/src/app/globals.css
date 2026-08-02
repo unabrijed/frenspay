@@ -96,10 +96,6 @@ button:not(:disabled),
    page rather than stopping at one. The modules themselves are all on an exact
    pitch now (see qrPixels), so this mask and the opacity RAMP are the entire
    dissolve; nothing is ever drawn off-grid to fake it. */
-.qr-mask {
-  mask-image: linear-gradient(to right, #000 0%, #000 55%, rgba(0, 0, 0, 0.6) 80%, transparent 100%);
-}
-
 /* Scroll progress under the nav. */
 .progress {
   position: absolute;
@@ -293,22 +289,6 @@ button:not(:disabled),
     transform: translate(calc(var(--px, 0) * 4px), calc(var(--py, 0) * 4px));
   }
 
-  /* Rail connector draws downward as the steps land. Clip rather than scaleY:
-     scaling would stretch the dash pattern. Both keyframes are required —
-     an implicit `to` would interpolate toward clip-path: none, which snaps,
-     and a scroll timeline needs both ends stated anyway. */
-  .rail-line {
-    animation: line-draw 0.8s var(--ease-soft) 0.85s both;
-  }
-  @keyframes line-draw {
-    from {
-      clip-path: inset(0 0 100% 0);
-    }
-    to {
-      clip-path: inset(0 0 0 0);
-    }
-  }
-
   /* ── Ambient ────────────────────────────────────────────────────────────
      Nothing loops forever any more. The money-dust layer, the QR's stray
      pixels, the scan glint and the gradient drift all came out together: with a
@@ -394,28 +374,15 @@ button:not(:disabled),
        Desktop only, by design: pinning on a phone turns a short page into a
        long one for no gain. */
     @media (min-width: 1024px) {
-      /* Only the code pins, not the whole column: a pinned block taller than
-         the viewport just scrolls off the top and the pin buys nothing. So the
-         pitch scrolls away, the QR stays, and the steps advance past it. The
-         rail's own vh gaps are what make the section tall enough to pin
-         against — no min-height to keep in sync with it. */
-      .hero-pin {
-        position: sticky;
-        top: 22vh;
-      }
-      .rail-steps {
-        gap: 26vh;
-        padding-bottom: 10vh;
-      }
+      /* The QR used to pin here while four numbered steps scrubbed past it.
+         Those steps moved to section 02, where the sequence has room, so there
+         is nothing left to scrub against and a pin would just park the code at
+         22vh for no reason. What survives is the scrubbed entrance on the two
+         things the hero still shows. */
       .scrub {
         animation: blurFadeUp linear both;
         animation-timeline: view();
         animation-range: entry 8% cover 38%;
-      }
-      .rail-line {
-        animation: line-draw linear both;
-        animation-timeline: view();
-        animation-range: entry 0% cover 55%;
       }
     }
   }

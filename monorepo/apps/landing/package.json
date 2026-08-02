@@ -7,7 +7,8 @@
     "build": "next build",
     "serve": "npx serve out",
     "typecheck": "tsc --noEmit",
-    "check:artwork": "node scripts/check-artwork.mjs"
+    "check:artwork": "node scripts/check-artwork.mjs",
+    "gen:qr": "node scripts/gen-qr.mjs"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",

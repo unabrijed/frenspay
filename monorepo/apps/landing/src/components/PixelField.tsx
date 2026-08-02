@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { useCity } from './CityContext';
 import { QrCode } from './QrHero';
-import { M, PIXELS, QR_H, QR_W } from './qrGeometry';
+import { M, MATRIX_W, QR_H, QR_W, TRAIL_PIXELS } from './qrGeometry';
 import { mulberry32 } from './rand';
 
 /* The pixel break, in raw WebGL2 — ~40k point sprites instead of 231 rects.
@@ -147,8 +147,11 @@ function rasterise(paint: (ctx: CanvasRenderingContext2D) => void, count: number
   return { xy, tint, rest };
 }
 
+/* Only the TRAIL, never the code. The matrix is a real scannable QR and stays
+   as crisp SVG; sprites over it would make the hero unreadable to a camera on
+   exactly the desktop screen someone would point a phone at. */
 const paintQr = (ctx: CanvasRenderingContext2D) => {
-  for (const p of PIXELS) {
+  for (const p of TRAIL_PIXELS) {
     ctx.fillStyle = p.terra ? '#a6341f' : '#1e1b19';
     ctx.globalAlpha = p.o; // the RAMP, carried through to the particles as aRest
     ctx.fillRect(p.x, p.y, M - 2, M - 2);
@@ -156,16 +159,18 @@ const paintQr = (ctx: CanvasRenderingContext2D) => {
   ctx.globalAlpha = 1;
 };
 
+/* The morph target. Centred on the CODE, not on the whole artwork box: the box
+   now runs wider than the matrix to hold the trail, so QR_W / 2 would park the
+   glyph out in the margin. */
 const paintGlyph = (symbol: string, family: string) => (ctx: CanvasRenderingContext2D) => {
   ctx.fillStyle = '#a6341f';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  // Fit to the same box as the QR, so the morph doesn't stretch either shape.
   ctx.font = `800 ${QR_H * 0.92}px ${family}`;
   const w = ctx.measureText(symbol).width;
-  const max = QR_W * 0.8;
+  const max = MATRIX_W * 0.8;
   if (w > max) ctx.font = `800 ${QR_H * 0.92 * (max / w)}px ${family}`;
-  ctx.fillText(symbol, QR_W / 2, QR_H / 2);
+  ctx.fillText(symbol, MATRIX_W / 2, QR_H / 2);
 };
 
 function compile(gl: WebGL2RenderingContext, type: number, src: string) {
@@ -344,8 +349,17 @@ export function QrStage() {
 
   return (
     <>
-      <div ref={anchor} className={live ? 'invisible' : undefined}>
-        <QrCode />
+      {/* The anchor stays visible either way. Only the trail hands over to the
+          canvas; the code is a real QR and hiding it was the bug. */}
+      <div ref={anchor}>
+        <QrCode trail={!live} />
+        <a
+          href="#flist"
+          className="mt-4 inline-flex items-center gap-2 text-[13px] font-semibold text-muted transition-colors hover:text-ink"
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-terra" />
+          Scan it, or tap to join the f list
+        </a>
       </div>
       <canvas ref={canvas} aria-hidden className="pointer-events-none fixed inset-0 z-[4] h-full w-full" />
     </>
