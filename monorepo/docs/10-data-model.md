@@ -156,7 +156,7 @@ accounts yet. `users.referred_by` is the self-reference that carries the invite 
 | **risk_events** *(M5)* | per-action fraud/screening audit | `(kind, decision allow/review/block, score, reason)` |
 | **notifications** *(M6)* | in-app inbox | `(kind, title, body, read, meta)`; written by `notify()` at lifecycle events |
 | **admin_actions** | audit trail for the admin console | one row per admin **write**; `target_id` is text (uuid or `kind:value`) so one table covers every target kind |
-| **waitlist** | the f list — landing-page signups | `email` is the PK (a re-submit is idempotent, never a duplicate); `city` = the demo corridor selected; `ref_code` = this member's own share code (unique, **HMAC-derived not stored-random**); `referred_by` holds `'@handle'` *or* another member's code; `verified_at` = the confirm click. No user FK — these people have no account yet |
+| **waitlist** | the f list — landing-page signups | `email` is the PK (a re-submit is idempotent, never a duplicate); `city` = the demo corridor selected; `ref_code` = this member's own share code (unique, **HMAC-derived not stored-random**); `referred_by` holds `'@handle'` *or* another member's code and is **last-touch** (each submit carrying a ref overwrites it — the landing page caches the ref so attribution survives a stripped URL); `verified_at` = the confirm click. No user FK — these people have no account yet |
 
 ## Why this way
 
@@ -175,6 +175,10 @@ accounts yet. `users.referred_by` is the self-reference that carries the invite 
   single code path for two referral sources with no join; it costs referential integrity, so renaming
   a handle would orphan old attribution. Fine for a marketing queue, wrong if referral credit ever
   pays out money (flagged with a `ponytail:` comment in `schema.sql`).
+- **The upsert's coalesce order differs by column, deliberately.** `city` and `ref_code` read
+  `waitlist.*` first — write-once, because a code is derived from the email and must never move.
+  `referred_by` reads `excluded` first — last-touch, so the newest invite link wins. See
+  [20 · Waitlist & referral loop](20-waitlist-referral-loop.md) for why, and for what that costs.
 
 ## Legalities
 

@@ -111,8 +111,10 @@ STAGE_CORS_ORIGIN=https://admin.frenspay.xyz,https://frenspay.xyz,https://www.fr
 ```
 
 Forgetting the landing origins silently breaks the f-list form in prod while everything works
-locally. The landing project itself needs one env var: `NEXT_PUBLIC_API_URL` (baked into the static
-export at build time — changing the backend URL requires a landing redeploy).
+locally. The landing project itself needs two env vars: `NEXT_PUBLIC_API_URL` and
+`NEXT_PUBLIC_APP_URL` (the deployed web app — every "try the demo" link points there and relays a
+cached `?ref=@handle` across to signup; unset makes those links inert). Both are baked into the
+static export at build time, so changing either requires a landing redeploy.
 
 ## 2d. F list — referral loop + confirm email
 

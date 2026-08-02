@@ -73,6 +73,21 @@ response is not.
 - **One polymorphic `referred_by` column, no FK.** Covered in
   [10 · Data model](10-data-model.md) — one code path for two referral sources, at the cost of
   referential integrity. Deliberate for a marketing queue; wrong the day referral credit pays money.
+- **The link is the delivery vehicle; the cache is the attribution.** The landing page stores the ref
+  in `localStorage['fpay:ref']` the moment it arrives, and reads from there at submit even when the
+  URL is bare. Otherwise attribution is shed by deleting nine characters from the address bar, and a
+  referral reward that can be dodged that easily is not a reward. Mirrors the app's own capture
+  (`apps/web/src/app/page.tsx`) down to the key name and the no-expiry behaviour. Because the two are
+  separate origins with separate storage, `AppLink` re-appending `?ref=` to the app URL is the only
+  way a cached referral reaches signup.
+- **Last touch wins, and it's mutable.** Each new link overwrites the cache, and
+  `referred_by = coalesce(excluded, waitlist)` lets a submit carrying a ref overwrite the previous
+  referrer (a submit carrying none leaves it alone, so re-joining cold can't erase credit). The
+  accepted cost, chosen deliberately: an already-credited signup **can** be re-attributed by getting
+  that person to click another link and re-submit, so a referrer's `frens` count can go down. If
+  rewards ever pay cash, an audit trail of attribution changes is the natural next ask. Self-referral
+  is blocked in `sanitizeRef` — everyone is shown their own code, and under last-touch pasting it
+  back would otherwise be a free fren.
 - **A typo'd ref is dropped, never rejected.** An invite is marketing. Losing someone's signup because
   they mistyped a friend's handle is a worse outcome than losing the attribution. The server also
   never checks whether the ref *exists* — that would answer "is `@x` a real user?" for an
@@ -107,11 +122,13 @@ response is not.
 - ✅ Admin: the F list shows *Referred by* and *Confirmed*, with both in the CSV export.
 - ✅ `scripts/check-waitlist.ts` — asserts token round-trip, that a payload swapped under a valid
   signature is rejected, code stability, and the ref sanitiser.
-- ⬜ **Landing site.** The page does not read `?ref=` yet, shows no share link, and has no `?v=1`
-  confirmation state — deferred while the landing redesign is in flight. Until it ships, the loop is
-  live end-to-end on the API but invisible to a visitor.
+- ✅ Landing site: `?ref=` captured to `localStorage` on arrival and sent at submit, "@asha invited
+  you" above the form, queue position + copyable share link on success, `?v=1` / `?v=0` confirm
+  states, and demo links that relay a cached `@handle` on to the app.
 - ⬜ Sending is inert until the Resend domain verifies and the four backend vars are set
   ([DEPLOY §2d](../DEPLOY.md)).
+- ⬜ `NEXT_PUBLIC_APP_URL` is unset, so the landing "try the demo" links still fall back to `#`. The
+  referral relay works the moment a real web-app URL is filled in.
 - ⬜ No invite-send: moving someone from the queue into an actual account is still a manual step.
 
 ## Key files
@@ -123,7 +140,8 @@ response is not.
 - `packages/shared/src/contracts.ts` (`WaitlistJoinRequest/Response`, `AdminWaitlistEntry`).
 - Web: `app/settings/page.tsx` (`ReferralCard`), `app/onboarding/handle/page.tsx` (the gate exit),
   `services/env.ts` (`LANDING_URL`). Admin: `app/waitlist/page.tsx`.
-- Landing (deferred): `apps/landing/src/components/Waitlist.tsx`.
+- Landing: `apps/landing/src/components/{ref.ts,Waitlist.tsx,AppLink.tsx}` — `ref.ts` is the capture /
+  read / overwrite rule and the `isHandle` test that decides what may cross to the app.
 
 ## Related
 
