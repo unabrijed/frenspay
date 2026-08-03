@@ -28,7 +28,7 @@ export default function Users() {
   if (denied) return <Denied />;
   return (
     <>
-      <PageHead title="Users" sub="Every account — KYC tier gates money movement" />
+      <PageHead title="Users" sub="Every account: KYC tier gates money movement" />
       <ErrorBanner msg={err} />
       {!loaded ? (
         <Spinner />

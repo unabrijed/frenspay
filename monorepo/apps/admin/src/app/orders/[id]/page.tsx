@@ -138,9 +138,9 @@ export default function OrderDetail() {
             {d.status === 'open' ? (
               <div className="mt-4 flex gap-2 border-t border-hair pt-3">
                 <Btn variant="danger" onClick={() => setConfirm(resolveConfirm('upheld'))}>
-                  Uphold — refund payer
+                  Uphold: refund payer
                 </Btn>
-                <Btn onClick={() => setConfirm(resolveConfirm('rejected'))}>Reject — release to merchant</Btn>
+                <Btn onClick={() => setConfirm(resolveConfirm('rejected'))}>Reject: release to merchant</Btn>
               </div>
             ) : null}
           </div>

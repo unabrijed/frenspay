@@ -124,7 +124,7 @@ function ReferralCard({ used, limit, handle }: { used: number; limit: number; ha
   const left = Math.max(0, limit - used);
   const onShare = async () => {
     const url = `${LANDING_URL}/?ref=${encodeURIComponent(handle)}`;
-    const text = `Join me on fpay — my invite code is ${handle}`;
+    const text = `Join me on fpay. My invite code is ${handle}`;
     try {
       if (navigator.share) {
         await navigator.share({ title: 'Join fpay', text, url });

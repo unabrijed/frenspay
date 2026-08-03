@@ -127,7 +127,7 @@ function DepositFromWallet() {
           {sel.chain === 'evm' ? (
             <View style={{ alignItems: 'center', marginTop: 10 }}>
               <TextLink
-                label={depositBusy ? 'Checking…' : balances && found.length === 0 ? 'Nothing there yet — check again' : 'Check for money'}
+                label={depositBusy ? 'Checking…' : balances && found.length === 0 ? 'Nothing there yet, check again' : 'Check for money'}
                 onPress={() => void checkDeposits()}
               />
             </View>

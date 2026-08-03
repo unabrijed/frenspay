@@ -43,7 +43,7 @@ export default function MerchantStake() {
       await depositStake(amount);
       setD('');
       // The bond credits only when the transfer confirms on-chain, so don't claim it's live yet.
-      notify('Stake sent — it’ll show up once it confirms.', 'success');
+      notify('Stake sent. It’ll show up once it confirms.', 'success');
       await load();
       router.push('/merchant');
     } catch (e) {
@@ -72,7 +72,7 @@ export default function MerchantStake() {
           <Txt style={[type.inst, shortfall > 0 ? { color: colors.danger } : null]}>
             {shortfall > 0
               ? `Add ${usd(shortfall)} to reach the ${usd(merchant.minBondUsdc)} minimum.`
-              : `Minimum ${usd(merchant.minBondUsdc)} — you’re covered.`}
+              : `Minimum ${usd(merchant.minBondUsdc)}, you’re covered.`}
           </Txt>
         </View>
 

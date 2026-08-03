@@ -38,7 +38,7 @@ const CAM_MESSAGES: Record<CamErr, string> = {
   // A hard "Block" can't be re-prompted from JS — the browser only re-asks after the user re-allows.
   blocked: 'Camera is blocked. Allow it from the camera icon in your address bar, then tap Try again.',
   'no-camera': 'No camera found. Use Send and enter a @handle to pay a friend.',
-  insecure: 'The camera needs a secure connection — open the app over localhost or an https link.',
+  insecure: 'The camera needs a secure connection. Open the app over localhost or an https link.',
   other: "Couldn't start the camera. Tap Try again, or use Send to enter a @handle.",
 };
 

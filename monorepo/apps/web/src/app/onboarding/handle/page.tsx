@@ -103,7 +103,7 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
       setGated(GATE_CODES.has(apiCode));
       setErr(
         apiCode === 'referral_required'
-          ? 'fpay is invite-only — ask a friend for their @handle'
+          ? 'fpay is invite-only. Ask a friend for their @handle'
           : apiCode === 'invalid_referral'
             ? "That invite code isn't valid"
             : apiCode === 'referral_limit_reached'

@@ -28,7 +28,7 @@ export function Help() {
           Questions about a payment, your balance, or verification? We usually reply within a day.
         </Txt>
         <List style={{ marginTop: 16 }}>
-          <Row onPress={() => email('fpay — support request')}>
+          <Row onPress={() => email('fpay support request')}>
             <RowIcon accent>
               <Icons.Mail size={18} color={colors.accent} />
             </RowIcon>
@@ -38,7 +38,7 @@ export function Help() {
             </RowMeta>
             <Icons.Chevron size={16} color={colors.muted} />
           </Row>
-          <Row onPress={() => email('fpay — problem report')}>
+          <Row onPress={() => email('fpay problem report')}>
             <RowIcon accent>
               <Icons.Mail size={18} color={colors.accent} />
             </RowIcon>

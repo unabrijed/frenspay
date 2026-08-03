@@ -126,13 +126,13 @@ export default function MerchantOrder() {
             onPress={() => void navigator.clipboard?.writeText(vpa)}
             style={({ pressed }) => [styles.vpaCard, pressed ? { backgroundColor: colors.surfaceLow } : null]}
           >
-            <Txt style={type.kvKey}>UPI ID — tap to copy</Txt>
+            <Txt style={type.kvKey}>UPI ID, tap to copy</Txt>
             <Txt style={[{ ...fonts.mono400, fontSize: 19, color: colors.ink }, styles.vpa]}>{vpa}</Txt>
             {order.payoutName ? <Txt style={type.inst}>{order.payoutName}</Txt> : null}
           </Pressable>
         ) : (
           <Txt style={[type.lead, { color: colors.danger, marginTop: 16 }]}>
-            This order has no payout ID — don’t pay it. Report it instead.
+            This order has no payout ID. Don’t pay it, report it instead.
           </Txt>
         )}
 
@@ -149,7 +149,7 @@ export default function MerchantOrder() {
           <View style={styles.claimed}>
             <Txt style={[type.rowAmount, { fontSize: 15 }]}>
               {order.resolution === 'under_review'
-                ? 'On hold — the payer reported a problem'
+                ? 'On hold: the payer reported a problem'
                 : secsLeft === 0
                   ? 'Releasing your money…'
                   : `Releases to you in ${mmss(secsLeft ?? 0)}`}

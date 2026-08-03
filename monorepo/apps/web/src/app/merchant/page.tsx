@@ -101,8 +101,8 @@ export default function MerchantHome() {
         <View style={styles.scroll}>
           <Txt style={type.handle}>Become a merchant</Txt>
           <Txt style={[type.lead, { marginTop: 10 }]}>
-            Merchants settle other people’s payouts and earn a spread. You put up a stake up front —
-            if you don’t pay someone, it covers them.
+            Merchants settle other people’s payouts and earn a spread. You put up a stake up front.
+            If you don’t pay someone, it covers them.
           </Txt>
           <Spacer />
           <Btn label="Apply" variant="ink" onPress={() => router.push('/merchant/apply')} />
@@ -135,7 +135,7 @@ export default function MerchantHome() {
           <Txt style={[type.bigAmount, { fontSize: 34, marginTop: 4 }]}>{usd(merchant.bondUsdc)}</Txt>
           <Txt style={[type.inst, belowFloor ? { color: colors.danger } : null]}>
             {belowFloor
-              ? `Below the ${usd(merchant.minBondUsdc)} minimum — no orders until you top up.`
+              ? `Below the ${usd(merchant.minBondUsdc)} minimum. No orders until you top up.`
               : `Minimum ${usd(merchant.minBondUsdc)} · tap to add`}
           </Txt>
         </Pressable>
@@ -196,7 +196,7 @@ export default function MerchantHome() {
 }
 
 const statusLabel = (s: string) =>
-  s === 'online' ? 'Online — receiving orders' : s === 'suspended' ? 'Suspended' : 'Offline';
+  s === 'online' ? 'Online, receiving orders' : s === 'suspended' ? 'Suspended' : 'Offline';
 const kybLabel = (s: string) =>
   s === 'pending' ? 'Application under review' : s === 'rejected' ? 'Application declined' : s;
 

@@ -38,7 +38,7 @@ export default function Merchants() {
     if (m.kybStatus === 'pending') {
       list.push(
         {
-          title: `Approve KYB — ${m.name}`,
+          title: `Approve KYB: ${m.name}`,
           body: 'The merchant goes online and becomes routable for real orders.',
           confirmLabel: 'Approve',
           onConfirm: async () => {
@@ -47,7 +47,7 @@ export default function Merchants() {
           },
         },
         {
-          title: `Reject KYB — ${m.name}`,
+          title: `Reject KYB: ${m.name}`,
           body: 'The application is rejected; the merchant stays offline.',
           confirmLabel: 'Reject',
           danger: true,
@@ -60,7 +60,7 @@ export default function Merchants() {
     }
     if (m.status !== 'suspended') {
       list.push({
-        title: `Suspend — ${m.name}`,
+        title: `Suspend: ${m.name}`,
         body: 'The merchant is pulled out of routing immediately. In-flight orders continue.',
         confirmLabel: 'Suspend',
         danger: true,
@@ -71,7 +71,7 @@ export default function Merchants() {
       });
     } else {
       list.push({
-        title: `Reinstate — ${m.name}`,
+        title: `Reinstate: ${m.name}`,
         body: 'The merchant goes back online and becomes routable again.',
         confirmLabel: 'Reinstate',
         onConfirm: async () => {
@@ -85,7 +85,7 @@ export default function Merchants() {
 
   return (
     <>
-      <PageHead title="Merchants" sub="LPs settling the fiat leg — reputation signals + lifecycle actions" />
+      <PageHead title="Merchants" sub="LPs settling the fiat leg: reputation signals and lifecycle actions" />
       <ErrorBanner msg={err} />
       {!data ? (
         <Spinner />

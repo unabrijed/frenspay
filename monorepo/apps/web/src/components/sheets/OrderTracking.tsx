@@ -31,7 +31,7 @@ const STEPS: { state: OrderState; label: string; sub: string }[] = [
 const RES: Record<OrderResolution, { title: string; body: string }> = {
   delayed: {
     title: 'Taking a little longer',
-    body: 'The payout is delayed. We’ve updated the ETA and will keep you posted — nothing for you to do.',
+    body: 'The payout is delayed. We’ve updated the ETA and will keep you posted. Nothing for you to do.',
   },
   needs_action: {
     title: 'Needs your attention',
@@ -39,7 +39,7 @@ const RES: Record<OrderResolution, { title: string; body: string }> = {
   },
   under_review: {
     title: 'Under review',
-    body: 'We’re verifying this payout. We’ll resolve it or refund you in full — you won’t be left out of pocket.',
+    body: 'We’re verifying this payout. We’ll resolve it or refund you in full. You won’t be left out of pocket.',
   },
 };
 
@@ -147,7 +147,7 @@ export function OrderTracking() {
         icon={<Icons.XBig size={28} color={colors.muted} />}
         title="Payment cancelled"
         headline={`${inrRaw(order.quote.amountInr)} not paid`}
-        inst="No money left your balance — please try again."
+        inst="No money left your balance. Please try again."
         onClose={close}
       />
     );

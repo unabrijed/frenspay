@@ -23,7 +23,7 @@ export function Receive() {
 
   const onShare = async () => {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const text = `Pay me on fpay — my handle is ${handle || ''}`.trim();
+    const text = `Pay me on fpay. My handle is ${handle || ''}`.trim();
     const message = origin ? `${text}\n${origin}` : text;
     try {
       if (typeof navigator !== 'undefined' && navigator.share) {

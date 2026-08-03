@@ -77,7 +77,7 @@ export function QuoteSheet() {
 
         <View style={styles.lock}>
           <View style={styles.dot} />
-          <Txt style={type.inst}>Real price, locked — never stale</Txt>
+          <Txt style={type.inst}>Real price, locked. Never stale</Txt>
         </View>
 
         {error ? <Txt style={[type.lead, { color: colors.danger, marginTop: 10 }]}>{error}</Txt> : null}

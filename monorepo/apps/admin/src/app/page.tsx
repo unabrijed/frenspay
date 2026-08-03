@@ -95,7 +95,7 @@ export default function Overview() {
     <>
       <PageHead
         title="Overview"
-        sub={issueCount === 0 ? 'All clear — nothing needs a human.' : `${issueCount} item(s) need attention`}
+        sub={issueCount === 0 ? 'All clear. Nothing needs a human.' : `${issueCount} item(s) need attention`}
       />
       <ErrorBanner msg={err} />
 

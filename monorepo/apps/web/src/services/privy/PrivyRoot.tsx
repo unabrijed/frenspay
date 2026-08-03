@@ -33,7 +33,7 @@ function PrivyGate({ children }: { children: ReactNode }) {
       return;
     }
     const t = setTimeout(() => {
-      bootTrace('privy ready TIMEOUT — rendering fallback');
+      bootTrace('privy ready TIMEOUT, rendering fallback');
       setTimedOut(true);
     }, PRIVY_READY_TIMEOUT_MS);
     return () => clearTimeout(t);

@@ -19,7 +19,7 @@ const FONTS_READY_SCRIPT = `(function(){var F="24px 'Material Symbols Outlined'"
 
 export const metadata: Metadata = {
   title: 'fpay',
-  description: 'fpay — hold dollars, pay like a local.',
+  description: 'fpay: hold dollars, pay like a local.',
 };
 
 export const viewport: Viewport = {

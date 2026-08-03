@@ -34,7 +34,7 @@ export default function Audit() {
   if (denied) return <Denied />;
   return (
     <>
-      <PageHead title="Audit trail" sub="Every admin write — who did what to which target" />
+      <PageHead title="Audit trail" sub="Every admin write: who did what to which target" />
       <ErrorBanner msg={err} />
       {!loaded ? (
         <Spinner />

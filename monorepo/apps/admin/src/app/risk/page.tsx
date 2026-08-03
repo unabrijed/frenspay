@@ -30,7 +30,7 @@ export default function Risk() {
   if (denied) return <Denied />;
   return (
     <>
-      <PageHead title="Risk events" sub="One row per screened action — decision, score, counterparty" />
+      <PageHead title="Risk events" sub="One row per screened action: decision, score, counterparty" />
       <ErrorBanner msg={err} />
       {!loaded ? (
         <Spinner />

@@ -51,7 +51,7 @@ export default function MerchantApply() {
         <Txt style={type.handle}>Apply as a merchant</Txt>
         <Txt style={[type.lead, { marginTop: 10, marginBottom: 22 }]}>
           You’ll pay people in rupees from your own account and get paid back here, plus a spread. You
-          put up a stake first — if you don’t pay someone, it covers them.
+          put up a stake first. If you don’t pay someone, it covers them.
         </Txt>
 
         {/* Merchant KYC: the human behind the merchant must be identity-verified before the form.
@@ -60,7 +60,7 @@ export default function MerchantApply() {
         {kycTier < 2 ? (
           <>
             <Txt style={type.inst}>
-              Merchants handle other people’s money, so we verify who you are first — the same quick
+              Merchants handle other people’s money, so we verify who you are first. It is the same quick
               identity check that unlocks higher limits.
             </Txt>
             <Spacer />

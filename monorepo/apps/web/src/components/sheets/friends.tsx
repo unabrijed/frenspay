@@ -380,7 +380,7 @@ function PeopleSearch({
           {checking
             ? 'Checking…'
             : handle
-              ? `${handle} isn’t on fpay yet — invite them from Receive`
+              ? `${handle} isn’t on fpay yet. Invite them from Receive`
               : phoneQuery
                 ? candidates.length
                   ? 'That number isn’t on fpay yet'

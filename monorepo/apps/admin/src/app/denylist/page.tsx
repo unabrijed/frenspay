@@ -54,7 +54,7 @@ export default function Denylist() {
 
   return (
     <>
-      <PageHead title="Denylist" sub="Blocked addresses and handles — checked on every screened money movement" />
+      <PageHead title="Denylist" sub="Blocked addresses and handles, checked on every screened money movement" />
       <ErrorBanner msg={err} />
 
       {/* Add form — blocking a bad actor is the #1 real admin action, so it sits on top. */}

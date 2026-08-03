@@ -1210,7 +1210,7 @@ export function useStoreHydrated(): boolean {
     const unsub = usePayStore.persist.onFinishHydration(done);
     if (usePayStore.persist.hasHydrated()) done();
     const t = setTimeout(() => {
-      bootTrace('store hydrate TIMEOUT — proceeding empty');
+      bootTrace('store hydrate TIMEOUT, proceeding empty');
       setHydrated(true);
     }, 3000);
     return () => {

@@ -120,7 +120,7 @@ export function SendAddressConfirm() {
           ) : null}
         </View>
         <Txt style={[type.rowTime, styles.warn]}>
-          Double-check the address — money sent to the wrong place can’t be recovered.
+          Double-check the address. Money sent to the wrong place can’t be recovered.
         </Txt>
         <Spacer />
         <View style={styles.cta}>
@@ -144,7 +144,7 @@ export function SendNetwork() {
       <SheetHeader title="Which network?" onClose={close} />
       <SheetBody style={{ overflowY: 'auto' }}>
         <Txt style={[type.lead, { marginBottom: 12 }]}>
-          That address works on several networks — pick the one the recipient uses.
+          That address works on several networks. Pick the one the recipient uses.
         </Txt>
         <List>
           {live.map((n) => (
