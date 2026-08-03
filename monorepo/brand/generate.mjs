@@ -33,6 +33,14 @@ function placed(size, scale, colour) {
   return `<g transform="translate(${(size - w) / 2} ${(size - h) / 2}) scale(${h / vbH})">${paths}</g>`;
 }
 
+/** The mark at `height` px, centred on an arbitrary w x h canvas. */
+function placedOn(w, h, height, colour) {
+  const mw = height * ASPECT;
+  let paths = mark.slice(mark.indexOf('<path'), mark.lastIndexOf('</svg>'));
+  if (colour) paths = paths.replace(/fill="#[0-9a-f]{6}"/g, `fill="${colour}"`);
+  return `<g transform="translate(${(w - mw) / 2} ${(h - height) / 2}) scale(${height / vbH})">${paths}</g>`;
+}
+
 function square(size, { bg, scale = ICON_SCALE, radius = 0, colour } = {}) {
   const r = size * radius;
   const plate = bg
@@ -64,12 +72,23 @@ for (const app of ['landing', 'web', 'admin']) {
 await emit('apps/landing/public/logo-mark.svg', mark);
 
 // ---- landing: social card --------------------------------------------------------------------
-// Derived from the approved reversed lockup (terracotta field, cream mark + FrensPay wordmark)
-// rather than re-typeset here — sharp has no access to Hanken Grotesk.
+// The mark alone on the terracotta field. It used to crop the FrensPay lockup render, but the page
+// now reveals the full name only in the footer, and fpay is the name everywhere else. Composed
+// rather than cropped so no wordmark has to be typeset (sharp has no access to Hanken Grotesk).
+const OG_W = 1200;
+const OG_H = 630;
+const ogMark = 300; // mark height, ~48% of the card
 await emit(
   'apps/landing/src/app/opengraph-image.png',
-  await sharp(resolve(HERE, 'src/lockup-stacked-terracotta-1672.png'))
-    .resize(1200, 630, { fit: 'cover', position: 'centre' })
+  await sharp({ create: { width: OG_W, height: OG_H, channels: 4, background: TERRA } })
+    .composite([
+      {
+        input: Buffer.from(
+          `<svg xmlns="http://www.w3.org/2000/svg" width="${OG_W}" height="${OG_H}" ` +
+            `viewBox="0 0 ${OG_W} ${OG_H}">${placedOn(OG_W, OG_H, ogMark, CREAM)}</svg>`,
+        ),
+      },
+    ])
     .png({ compressionLevel: 9 })
     .toBuffer(),
 );
