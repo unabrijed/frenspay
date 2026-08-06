@@ -4,8 +4,8 @@ export const FRENSPAY_COPY = {
   words: ['play', 'stay', 'relay', 'pay'],
   captions: {
     play: 'where it starts.',
-    stay: 'the ones who stick.',
-    relay: 'pass it on.',
+    stay: 'wherever you land.',
+    relay: 'across any distance.',
   },
   mystery: ['What happens between frens', 'stays between frens.'],
   interruption: 'mostly.',

@@ -138,9 +138,9 @@ export function StayKnot({ active, reducedMotion }: FigureProps) {
    Arc keyframes are the cubic M110 430 C220 220 580 220 690 430 sampled at
    t = 0, .25, .5, .75, 1; rotation is a stylized tangent. */
 
-const RELAY_ARC = 'M110 430 C220 220 580 220 690 430';
-const RELAY_X = [110, 232, 400, 568, 690];
-const RELAY_Y = [422, 304, 265, 304, 422];
+const RELAY_ARC = 'M80 440 C220 200 580 200 720 440';
+const RELAY_X = [80, 227, 400, 573, 720];
+const RELAY_Y = [432, 296, 250, 296, 432];
 const RELAY_ROTATE = [-24, -10, 0, 10, 24];
 const RELAY_PASS = { duration: 6, ease: EASE, repeat: Infinity };
 const RELAY_APEX = { x: RELAY_X[2], y: RELAY_Y[2], rotate: 0, opacity: 1 };
@@ -149,8 +149,11 @@ export function RelayNote({ active, reducedMotion }: FigureProps) {
   const run = active && !reducedMotion;
   return (
     <svg viewBox="0 0 800 600" fill="none" aria-hidden="true">
-      <circle cx="110" cy="430" r="9" fill="var(--color-peach-dim)" />
-      <circle cx="690" cy="430" r="9" fill="var(--color-peach-dim)" />
+      {/* Origin is a plain pinch point; the destination carries a ring, so the
+          two ends read as two places rather than a symmetric pair. */}
+      <circle cx="80" cy="440" r="9" fill="var(--color-peach-dim)" />
+      <circle cx="720" cy="440" r="9" fill="var(--color-peach-dim)" />
+      <circle cx="720" cy="440" r="18" stroke="var(--color-peach-dim)" strokeWidth="3" />
       <motion.path
         d={RELAY_ARC}
         stroke="var(--color-canvas)"
@@ -197,6 +200,24 @@ const NOTE_LEFT = `M400 130 L178 130 Q150 130 150 158 L150 442 Q150 470 178 470 
 const NOTE_RIGHT = `M400 130 L622 130 Q650 130 650 158 L650 442 Q650 470 622 470 ${NOTE_TEAR}`;
 const TEAR_MS = 1.6;
 
+// Airmail chevrons: one dash constant walked along each edge, alternating
+// accent, so both halves carry the same border without four path constants.
+const chevrons = (from: number, to: number, y: number, accent: boolean) => {
+  const step = 26;
+  const marks = [];
+  for (let x = from; x + step <= to; x += step) {
+    const odd = Math.round((x - from) / step) % 2 === (accent ? 1 : 0);
+    if (!odd) continue;
+    marks.push(`M${x} ${y + 6} L${x + 11} ${y - 6} L${x + 22} ${y + 6}`);
+  }
+  return marks.join(' ');
+};
+
+const AIRMAIL = [
+  { accent: false, stroke: 'var(--color-peach)' },
+  { accent: true, stroke: 'var(--color-terra-ctr)' },
+] as const;
+
 export function PayNote({ active, reducedMotion }: FigureProps) {
   const run = active && !reducedMotion;
   const half = (side: 1 | -1, children: ReactNode) => (
@@ -239,8 +260,26 @@ export function PayNote({ active, reducedMotion }: FigureProps) {
           -1,
           <>
             <path d={NOTE_LEFT} stroke="var(--color-canvas)" strokeWidth="7" strokeLinejoin="round" />
+            {AIRMAIL.map(({ accent, stroke }) => (
+              <path
+                key={stroke}
+                d={`${chevrons(170, 384, 152, accent)} ${chevrons(170, 384, 448, accent)}`}
+                stroke={stroke}
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ))}
+            {/* Postmark: a cancelled corner, no letters, no glyphs. */}
+            <rect x="186" y="188" width="52" height="52" rx="9" stroke="var(--color-peach-dim)" strokeWidth="4" />
             <path
-              d="M195 235 L340 235 M195 285 L320 285 M195 335 L332 335"
+              d="M196 206 L228 206 M196 222 L220 222"
+              stroke="var(--color-peach-dim)"
+              strokeWidth="4"
+              strokeLinecap="round"
+            />
+            <path
+              d="M195 290 L340 290 M195 340 L320 340"
               stroke="var(--color-peach)"
               strokeWidth="5"
               strokeLinecap="round"
@@ -251,8 +290,18 @@ export function PayNote({ active, reducedMotion }: FigureProps) {
           1,
           <>
             <path d={NOTE_RIGHT} stroke="var(--color-canvas)" strokeWidth="7" strokeLinejoin="round" />
+            {AIRMAIL.map(({ accent, stroke }) => (
+              <path
+                key={stroke}
+                d={`${chevrons(416, 630, 152, accent)} ${chevrons(416, 630, 448, accent)}`}
+                stroke={stroke}
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ))}
             <path
-              d="M460 235 L610 235 M460 285 L590 285"
+              d="M460 290 L610 290 M460 340 L590 340"
               stroke="var(--color-peach)"
               strokeWidth="5"
               strokeLinecap="round"

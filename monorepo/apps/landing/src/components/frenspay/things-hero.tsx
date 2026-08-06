@@ -58,7 +58,6 @@ const ROLE_TRANSITION = {
 
 export function ThingsHero() {
   const [index, setIndex] = useState(0);
-  const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const [engaged, setEngaged] = useState(false);
   const [stopped, setStopped] = useState(false);
@@ -83,7 +82,7 @@ export function ThingsHero() {
     };
   }, []);
 
-  const paused = hovered || focused || engaged || stopped || reducedMotion;
+  const paused = focused || engaged || stopped || reducedMotion;
 
   useEffect(() => {
     if (paused) return;
@@ -159,9 +158,12 @@ export function ThingsHero() {
         aria-label="things between frens"
         tabIndex={0}
         onKeyDown={onKeyDown}
-        onPointerEnter={() => setHovered(true)}
-        onPointerLeave={() => setHovered(false)}
-        onFocusCapture={() => setFocused(true)}
+        // Only keyboard focus pauses: clicking a tabIndex element focuses it
+        // too, and pausing on that stops the rotation for good.
+        onFocusCapture={(event) => {
+          const target = event.target as HTMLElement;
+          if (target.matches?.(':focus-visible')) setFocused(true);
+        }}
         onBlurCapture={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false);
         }}
