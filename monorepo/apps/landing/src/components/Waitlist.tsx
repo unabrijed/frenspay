@@ -14,11 +14,13 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 // would be more coupling than it buys.
 type JoinResult = { code: string | null; position: number; frens: number };
 
+const GENERIC_ERR = "Couldn't join right now. Try again.";
+
 export function Waitlist() {
   const { city } = useCity();
   const [joined, setJoined] = useState<JoinResult | null>(null);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   // Who referred this visitor, and the confirm-link outcome. Both are read from the browser, so both
   // land in an effect — reading them during render would mismatch the static HTML on hydration.
   const [ref, setRef] = useState<string | null>(null);
@@ -58,7 +60,7 @@ export function Waitlist() {
           if (busy) return;
           const email = new FormData(e.currentTarget).get('email');
           setBusy(true);
-          setErr(false);
+          setErr(null);
           try {
             const res = await fetch(`${API}/waitlist`, {
               method: 'POST',
@@ -67,10 +69,21 @@ export function Waitlist() {
               // credited, and a bare `null` must not be sent as a ref.
               body: JSON.stringify({ email, city: city.city, ref: readRef() ?? undefined }),
             });
-            if (!res.ok) throw new Error();
-            setJoined((await res.json()) as JoinResult);
+            if (res.ok) {
+              setJoined((await res.json()) as JoinResult);
+            } else {
+              // 400 = the server rejected the address, 429 = rate limited. Telling a rate-limited
+              // visitor to "try again" would just re-trigger the 429, so say what to actually do.
+              setErr(
+                res.status === 400
+                  ? "That email doesn't look right. Check it and try again."
+                  : res.status === 429
+                    ? 'Too many tries. Give it a minute, then try again.'
+                    : GENERIC_ERR,
+              );
+            }
           } catch {
-            setErr(true);
+            setErr(GENERIC_ERR);
           } finally {
             setBusy(false);
           }
@@ -92,7 +105,7 @@ export function Waitlist() {
           {busy ? 'Joining…' : 'Join the f list'}
         </Pill>
       </form>
-      {err ? <p className="mt-3 text-center text-[14px] text-muted">Couldn&apos;t join right now. Try again.</p> : null}
+      {err ? <p className="mt-3 text-center text-[14px] text-muted">{err}</p> : null}
       {verified === false ? (
         <p className="mt-3 text-center text-[14px] text-muted">That confirm link has expired. Join again below.</p>
       ) : null}
@@ -104,7 +117,7 @@ export function Waitlist() {
    the page (see Security, HowItWorks). Deliberately not a panel: the design system has no card idiom
    and no radius token, so a rounded box here would be the one thing on the page shaped like nothing
    else. The teal pill stays a pill because that is already the page's "confirmed" signal. */
-function Joined({ code, position, frens }: JoinResult) {
+function Joined({ code, frens }: JoinResult) {
   const [copied, setCopied] = useState(false);
   // Landing IS the origin the invite links point at, so no env var is needed to build one.
   const url = code ? `${window.location.origin}/?ref=${code}` : null;
@@ -122,13 +135,10 @@ function Joined({ code, position, frens }: JoinResult) {
   return (
     <div className="animate-blur-fade-up w-full max-w-md">
       <p className="rounded-full bg-teal-soft px-6 py-4 text-[16px] font-semibold text-teal-on">
-        You&apos;re a fren. Check your email to confirm.
+        {/* No code = the server minted no confirm token, so no mail is coming. Don't promise one. */}
+        {code ? "You're a fren. Check your email to confirm." : "You're a fren. You're on the f list."}
       </p>
       <dl className="mt-8 divide-y divide-hair border-t border-hair">
-        <div className="flex items-baseline justify-between gap-4 py-4">
-          <dt className="eyebrow text-muted">Your place</dt>
-          <dd className="tabular text-[18px] font-extrabold tracking-[-0.01em]">#{position}</dd>
-        </div>
         {url ? (
           <div className="py-4">
             <dt className="eyebrow text-muted">Your invite link</dt>
@@ -153,7 +163,7 @@ function Joined({ code, position, frens }: JoinResult) {
         </div>
       </dl>
       <p className="mt-4 text-[14px] leading-relaxed text-muted">
-        Every fren who joins on your link moves you up.
+        Every fren who joins on your link gets you in sooner.
       </p>
     </div>
   );

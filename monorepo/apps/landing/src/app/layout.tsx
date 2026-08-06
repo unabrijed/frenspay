@@ -7,7 +7,7 @@ import './globals.css';
 
 const hanken = Hanken_Grotesk({
   subsets: ['latin'],
-  weight: ['400', '600', '800'],
+  weight: 'variable',
   variable: '--font-hanken',
   display: 'swap',
 });
@@ -18,12 +18,11 @@ export const metadata: Metadata = {
   // Without this a static export emits og:image as http://localhost:3000/… and every social
   // preview breaks. The production domain is fixed (see monorepo/DEPLOY.md §2c).
   metadataBase: new URL('https://frenspay.xyz'),
-  title: 'fpay: instant global payments from one dollar balance',
-  description:
-    'One balance in dollars. Scan any local QR: UPI, PromptPay, Pix, DuitNow. The merchant is paid instantly in their own currency, at a rate locked before you tap.',
+  title: 'FrensPay',
+  description: 'something for people who know people.',
   openGraph: {
-    title: 'fpay: instant global payments from one dollar balance',
-    description: 'Global dollars. Local scan. Paid instantly, at a rate you locked first.',
+    title: 'FrensPay',
+    description: 'something for people who know people.',
     type: 'website',
   },
 };
