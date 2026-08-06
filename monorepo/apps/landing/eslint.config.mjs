@@ -8,12 +8,5 @@ const compat = new FlatCompat({ baseDirectory: directory });
 
 export default defineConfig([
   ...compat.extends('next/core-web-vitals', 'next/typescript'),
-  {
-    files: ['src/components/frenspay/things-hero.tsx'],
-    rules: {
-      // This independently developed alternate hero intentionally performs a full navigation home.
-      '@next/next/no-html-link-for-pages': 'off',
-    },
-  },
   globalIgnores(['.next/**', 'out/**', 'next-env.d.ts']),
 ]);

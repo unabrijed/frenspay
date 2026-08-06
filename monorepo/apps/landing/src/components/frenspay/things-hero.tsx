@@ -26,9 +26,17 @@ export function ThingsHero() {
   const [focused, setFocused] = useState(false);
   const [engaged, setEngaged] = useState(false);
   const [stopped, setStopped] = useState(false);
+  const [beckoned, setBeckoned] = useState(false);
   const reducedMotion = Boolean(useReducedMotion());
   const lockRef = useRef(false);
   const pointerXRef = useRef<number | null>(null);
+  const beckonTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (beckonTimerRef.current !== null) window.clearTimeout(beckonTimerRef.current);
+    };
+  }, []);
 
   const paused = hovered || focused || engaged || stopped || reducedMotion;
 
@@ -74,6 +82,9 @@ export function ThingsHero() {
 
   const focusJoin = () => {
     (document.getElementById('f-list-email') ?? document.getElementById('f-list-status'))?.focus();
+    setBeckoned(true);
+    if (beckonTimerRef.current !== null) window.clearTimeout(beckonTimerRef.current);
+    beckonTimerRef.current = window.setTimeout(() => setBeckoned(false), 1000);
   };
 
   return (
@@ -83,13 +94,15 @@ export function ThingsHero() {
     >
       <h1 className="sr-only">things between frens</h1>
       <header className="things-topline safe-x">
-        <p className="things-eyebrow">Things between frens</p>
-        <a className="things-home" href="/">
-          {/* The adjacent live text provides the accessible name. */}
+        <div>
+          <p className="things-eyebrow">Things between frens</p>
+          <p className="things-support">{FRENSPAY_COPY.supporting}</p>
+        </div>
+        <span className="things-home">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo-mark.svg" alt="" width="13" height="17" />
           <span>frenspay</span>
-        </a>
+        </span>
       </header>
 
       <section
@@ -133,11 +146,18 @@ export function ThingsHero() {
           <p className="things-phrase" aria-hidden="true">
             {SLIDES.map((slide, i) => (
               <span key={slide.word} className={i === index ? 'is-active' : undefined}>
-                frens {slide.word}.
+                {slide.word === 'pay' ? FRENSPAY_COPY.headline.join(' ') : `frens ${slide.word}.`}
               </span>
             ))}
           </p>
-          <InlineFListForm onInteractionChange={setEngaged} />
+          <p className="things-whisper" aria-hidden="true">
+            <span className={index === SLIDES.length - 1 ? 'is-active' : undefined}>
+              {FRENSPAY_COPY.mystery.join(' ')} {FRENSPAY_COPY.interruption}
+            </span>
+          </p>
+          <div className={`things-join${beckoned ? ' is-beckoned' : ''}`}>
+            <InlineFListForm onInteractionChange={setEngaged} />
+          </div>
           <div className="things-controls">
             <button type="button" className="things-arrow" aria-label="previous thing" onClick={() => navigate(-1)}>
               <ArrowIcon flipped />
