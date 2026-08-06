@@ -1,7 +1,12 @@
 export const FRENSPAY_COPY = {
   headline: ['frens pay.', 'frens get paid.'],
   supporting: 'something for people who know people.',
-  words: ['play', 'stay', 'stray', 'pay'],
+  words: ['play', 'stay', 'relay', 'pay'],
+  captions: {
+    play: 'where it starts.',
+    stay: 'the ones who stick.',
+    relay: 'pass it on.',
+  },
   mystery: ['What happens between frens', 'stays between frens.'],
   interruption: 'mostly.',
   fragments: [

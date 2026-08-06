@@ -10,6 +10,8 @@
   --color-terra: #a6341f;
   --color-terra-deep: #aa3621;
   --color-terra-ctr: #c84b34;
+  --color-ember: #872918;
+  --color-char: #5c1c10;
   --color-peach: #ffdad3;
   --color-peach-dim: #ffb4a5;
   --color-teal: #416467;
@@ -128,10 +130,10 @@ button:not(:disabled),
   display: inline-flex;
   min-height: 44px;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   color: var(--color-canvas);
-  font-size: 14px;
-  font-weight: 620;
+  font-size: 16px;
+  font-weight: 700;
   letter-spacing: -0.02em;
 }
 
@@ -167,19 +169,25 @@ button:not(:disabled),
   text-transform: lowercase;
   white-space: nowrap;
   opacity: 0;
-  transition: opacity var(--things-swap);
+  filter: blur(10px);
+  transform: translateY(16px);
+  transition: opacity 750ms var(--ease-soft), filter 750ms var(--ease-soft),
+    transform 750ms var(--ease-soft);
 }
 
 .things-ghost span.is-active {
   opacity: 1;
+  filter: blur(0);
+  transform: translateY(0);
 }
 
+/* Framer springs own the items' transform; the -50% centering lives in the
+   standalone `translate` property so the two compose. */
 .things-item {
   position: absolute;
   bottom: 4%;
   left: 50%;
-  transition: transform var(--things-swap), filter var(--things-swap), opacity var(--things-swap),
-    left var(--things-swap), bottom var(--things-swap);
+  translate: -50% 0;
   will-change: transform, filter;
 }
 
@@ -189,36 +197,16 @@ button:not(:disabled),
   height: auto;
 }
 
-.things-item.is-center {
-  z-index: 20;
-  transform: translateX(-50%) scale(1);
-  filter: none;
-  opacity: 1;
-}
-
-.things-item.is-left,
-.things-item.is-right {
-  bottom: 18%;
-  z-index: 10;
-  transform: translateX(-50%) scale(0.3);
-  filter: blur(2px);
-  opacity: 0.85;
-}
-
-.things-item.is-left {
-  left: 26%;
-}
-
-.things-item.is-right {
-  left: 74%;
-}
-
-.things-item.is-back {
-  bottom: 36%;
-  z-index: 5;
-  transform: translateX(-50%) scale(0.24);
-  filter: blur(4px);
-  opacity: 0.9;
+.things-shadow {
+  position: absolute;
+  z-index: 15;
+  bottom: 2.5%;
+  left: 50%;
+  width: min(46vw, 34svh);
+  height: 5svh;
+  translate: -50% 0;
+  background: radial-gradient(ellipse at center, rgb(30 27 25 / 30%), transparent 70%);
+  pointer-events: none;
 }
 
 /* Foot */
@@ -254,15 +242,18 @@ button:not(:disabled),
 .things-whisper span {
   grid-area: 1 / 1;
   opacity: 0;
-  transition: opacity var(--things-swap);
+  transform: translateY(8px);
+  transition: opacity 750ms var(--ease-soft), transform 750ms var(--ease-soft);
 }
 
 .things-phrase span.is-active,
 .things-whisper span.is-active {
   opacity: 1;
+  transform: translateY(0);
 }
 
 .things-whisper {
+  display: grid;
   margin: 0;
   color: var(--color-peach);
   font-size: 12px;
@@ -282,35 +273,19 @@ button:not(:disabled),
   box-shadow: 0 2px 0 -1px var(--color-peach);
 }
 
+.things-foot-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
 .things-controls {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.things-arrow {
-  display: grid;
-  width: 48px;
-  height: 48px;
-  place-items: center;
-  border: 2px solid var(--color-canvas);
-  border-radius: 50%;
-  background: transparent;
-  color: var(--color-canvas);
-  transition: transform 150ms ease, background-color 150ms ease;
-}
-
-.things-arrow svg {
-  width: 22px;
-  height: 22px;
-}
-
-.things-arrow:hover {
-  background: rgb(255 248 244 / 14%);
-  transform: scale(1.08);
-}
-
-.things-arrow:focus-visible,
 .things-pause:focus-visible,
 .things-join-link:focus-visible {
   border-radius: 4px;
@@ -318,12 +293,12 @@ button:not(:disabled),
   outline-offset: 3px;
 }
 
-.things-arrow:focus-visible {
-  border-radius: 50%;
+.things-pause:active,
+.things-join-link:active {
+  transform: translateY(1px);
 }
 
 .things-index {
-  margin-left: 4px;
   font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -476,6 +451,15 @@ button:not(:disabled),
   letter-spacing: -0.045em;
 }
 
+/* Depth: quiet ink vignette under the grain */
+.things-vignette {
+  position: absolute;
+  z-index: 40;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 55%, rgb(30 27 25 / 22%) 100%);
+}
+
 /* Grain, above everything, purely textural (desaturated: theme surfaces only) */
 .things-grain {
   position: absolute;
@@ -492,26 +476,43 @@ button:not(:disabled),
     width: min(88vw, 42svh);
   }
 
-  .things-item.is-left {
-    left: 18%;
+  .things-ghost span {
+    font-size: clamp(76px, 24vw, 340px);
   }
 
-  .things-item.is-right {
-    left: 82%;
+  .things-shadow {
+    width: min(64vw, 30svh);
   }
 
   .things-foot {
     flex-direction: column;
     align-items: stretch;
-    gap: 16px;
+    gap: 14px;
   }
 
   .things-foot-left {
     max-width: none;
+    gap: 10px;
   }
 
-  .things-join-link {
-    align-self: flex-end;
+  .things-foot-right {
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .things-phrase {
+    font-size: 18px;
+  }
+
+  .things-whisper {
+    font-size: 11px;
+  }
+
+  .things-hero .tearoff-field input {
+    height: 44px;
+    font-size: 16px;
   }
 
   .things-hero .tearoff-strip form {

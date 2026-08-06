@@ -133,63 +133,56 @@ export function StayKnot({ active, reducedMotion }: FigureProps) {
   );
 }
 
-/* frens stray. — a kite drifting toward the edge on a long slack string,
-   still held from a fixed point below. The kite's transform keyframes and the
-   string's endpoint keyframes share one transition so they cannot drift. */
+/* frens relay. — a folded note passed point to point along a dashed arc,
+   vanishing at the hand-off and reappearing at the start: the pass repeats.
+   Arc keyframes are the cubic M110 430 C220 220 580 220 690 430 sampled at
+   t = 0, .25, .5, .75, 1; rotation is a stylized tangent. */
 
-const KITE_X = [0, 26, -12, 0];
-const KITE_Y = [0, -16, 10, 0];
-const KITE_ROTATE = [-2.5, 3, -1.5, -2.5];
-const KITE_STRING = [
-  'M70 560 C210 555 360 500 470 420 C520 383 548 320 560 270',
-  'M70 560 C215 552 370 495 486 408 C536 370 574 316 586 254',
-  'M70 560 C205 558 350 505 462 428 C510 392 538 328 548 280',
-  'M70 560 C210 555 360 500 470 420 C520 383 548 320 560 270',
-];
-const DRIFT = { duration: 10, ease: EASE, repeat: Infinity };
+const RELAY_ARC = 'M110 430 C220 220 580 220 690 430';
+const RELAY_X = [110, 232, 400, 568, 690];
+const RELAY_Y = [422, 304, 265, 304, 422];
+const RELAY_ROTATE = [-24, -10, 0, 10, 24];
+const RELAY_PASS = { duration: 6, ease: EASE, repeat: Infinity };
+const RELAY_APEX = { x: RELAY_X[2], y: RELAY_Y[2], rotate: 0, opacity: 1 };
 
-export function StrayKite({ active, reducedMotion }: FigureProps) {
+export function RelayNote({ active, reducedMotion }: FigureProps) {
   const run = active && !reducedMotion;
   return (
     <svg viewBox="0 0 800 600" fill="none" aria-hidden="true">
-      <circle cx="70" cy="560" r="8" fill="var(--color-peach-dim)" />
+      <circle cx="110" cy="430" r="9" fill="var(--color-peach-dim)" />
+      <circle cx="690" cy="430" r="9" fill="var(--color-peach-dim)" />
       <motion.path
-        d={KITE_STRING[0]}
+        d={RELAY_ARC}
         stroke="var(--color-canvas)"
-        strokeWidth="5"
+        strokeWidth="4"
         strokeLinecap="round"
-        initial={reducedMotion ? false : { pathLength: 0 }}
-        animate={{ pathLength: 1, d: run ? KITE_STRING : KITE_STRING[0] }}
-        transition={{
-          pathLength: { duration: 1.2, ease: 'easeOut' },
-          d: run ? DRIFT : SETTLE,
-        }}
+        strokeDasharray="2 16"
+        initial={reducedMotion ? false : { opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: reducedMotion ? 0 : 1.1, ease: 'easeOut' }}
       />
       <motion.g
         initial={reducedMotion ? false : { opacity: 0 }}
         animate={
           run
-            ? { opacity: 1, x: KITE_X, y: KITE_Y, rotate: KITE_ROTATE }
-            : { opacity: 1, x: 0, y: 0, rotate: KITE_ROTATE[0] }
+            ? { x: RELAY_X, y: RELAY_Y, rotate: RELAY_ROTATE, opacity: [0, 1, 1, 1, 0] }
+            : RELAY_APEX
         }
-        transition={{
-          opacity: { duration: 0.6, delay: reducedMotion ? 0 : 0.9 },
-          x: run ? DRIFT : SETTLE,
-          y: run ? DRIFT : SETTLE,
-          rotate: run ? DRIFT : SETTLE,
-        }}
+        transition={
+          run
+            ? {
+                x: RELAY_PASS,
+                y: RELAY_PASS,
+                rotate: RELAY_PASS,
+                opacity: { ...RELAY_PASS, times: [0, 0.14, 0.5, 0.86, 1] },
+              }
+            : { x: SETTLE, y: SETTLE, rotate: SETTLE, opacity: { duration: 0.4 } }
+        }
       >
-        <path d="M560 60 L642 168 L560 168 Z" fill="var(--color-peach)" />
-        <path
-          d="M560 60 L642 168 L560 276 L478 168 Z"
-          stroke="var(--color-canvas)"
-          strokeWidth="8"
-          strokeLinejoin="round"
-        />
-        <path d="M560 60 L560 276 M478 168 L642 168" stroke="var(--color-peach-dim)" strokeWidth="4" />
-        <path d="M560 276 C540 320 566 344 540 388" stroke="var(--color-canvas)" strokeWidth="5" strokeLinecap="round" />
-        <path d="M552 306 L562 316 L552 326 L542 316 Z" stroke="var(--color-peach)" strokeWidth="5" strokeLinejoin="round" />
-        <path d="M549 352 L559 362 L549 372 L539 362 Z" stroke="var(--color-peach)" strokeWidth="5" strokeLinejoin="round" />
+        <rect x="-32" y="-22" width="64" height="44" rx="4" stroke="var(--color-canvas)" strokeWidth="5" />
+        <path d="M12 -22 L32 -22 L32 -2 Z" fill="var(--color-peach)" />
+        <path d="M12 -22 L32 -2" stroke="var(--color-canvas)" strokeWidth="4" strokeLinejoin="round" />
+        <path d="M-20 4 L10 4" stroke="var(--color-peach-dim)" strokeWidth="4" strokeLinecap="round" />
       </motion.g>
     </svg>
   );
