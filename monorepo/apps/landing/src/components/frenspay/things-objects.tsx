@@ -6,7 +6,7 @@ import { motion } from 'framer-motion';
 
 import { PAPER_EASE } from '@/lib/motion';
 
-// Four string-and-paper objects for /v4, all hand-authored constants on an
+// Four string-and-paper objects, all hand-authored constants on an
 // 800x600 viewBox — SSR-deterministic. Morph keyframes within one path must
 // share an identical command structure (same M/C/L/Q counts): framer-motion
 // only interpolates `d` strings under that condition, and a mismatch silently
@@ -56,18 +56,18 @@ export function PlayCradle({ active, reducedMotion }: FigureProps) {
           [660, 420],
         ] as const
       ).map(([cx, cy]) => (
-        <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="9" fill="var(--color-peach-dim)" />
+        <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="9" fill="var(--color-terra-ctr)" />
       ))}
       <motion.path
         d={CRADLE_TOP[0]}
-        stroke="var(--color-canvas)"
+        stroke="var(--color-ink)"
         strokeWidth="8"
         strokeLinecap="round"
         {...stringMotion(CRADLE_TOP, run, reducedMotion)}
       />
       <motion.path
         d={CRADLE_BOTTOM[0]}
-        stroke="var(--color-peach)"
+        stroke="var(--color-terra)"
         strokeWidth="8"
         strokeLinecap="round"
         {...stringMotion(CRADLE_BOTTOM, run, reducedMotion)}
@@ -110,7 +110,7 @@ export function StayKnot({ active, reducedMotion }: FigureProps) {
     <svg viewBox="0 0 800 600" fill="none" aria-hidden="true">
       <motion.path
         d={KNOT_RIGHT[1]}
-        stroke="var(--color-peach)"
+        stroke="var(--color-terra)"
         strokeWidth="8"
         strokeLinecap="round"
         {...cordMotion(KNOT_RIGHT, run, reducedMotion)}
@@ -119,12 +119,12 @@ export function StayKnot({ active, reducedMotion }: FigureProps) {
         d={KNOT_LEFT[1]}
         strokeWidth="20"
         strokeLinecap="round"
-        style={{ stroke: 'var(--things-bg, var(--color-ink))', transition: 'stroke 650ms cubic-bezier(0.4, 0, 0.2, 1)' }}
+        style={{ stroke: 'var(--things-bg, var(--color-canvas))' }}
         {...cordMotion(KNOT_LEFT, run, reducedMotion)}
       />
       <motion.path
         d={KNOT_LEFT[1]}
-        stroke="var(--color-canvas)"
+        stroke="var(--color-ink)"
         strokeWidth="8"
         strokeLinecap="round"
         {...cordMotion(KNOT_LEFT, run, reducedMotion)}
@@ -151,12 +151,12 @@ export function RelayNote({ active, reducedMotion }: FigureProps) {
     <svg viewBox="0 0 800 600" fill="none" aria-hidden="true">
       {/* Origin is a plain pinch point; the destination carries a ring, so the
           two ends read as two places rather than a symmetric pair. */}
-      <circle cx="80" cy="440" r="9" fill="var(--color-peach-dim)" />
-      <circle cx="720" cy="440" r="9" fill="var(--color-peach-dim)" />
-      <circle cx="720" cy="440" r="18" stroke="var(--color-peach-dim)" strokeWidth="3" />
+      <circle cx="80" cy="440" r="9" fill="var(--color-terra-ctr)" />
+      <circle cx="720" cy="440" r="9" fill="var(--color-terra-ctr)" />
+      <circle cx="720" cy="440" r="18" stroke="var(--color-terra-ctr)" strokeWidth="3" />
       <motion.path
         d={RELAY_ARC}
-        stroke="var(--color-canvas)"
+        stroke="var(--color-ink)"
         strokeWidth="4"
         strokeLinecap="round"
         strokeDasharray="2 16"
@@ -182,10 +182,10 @@ export function RelayNote({ active, reducedMotion }: FigureProps) {
             : { x: SETTLE, y: SETTLE, rotate: SETTLE, opacity: { duration: 0.4 } }
         }
       >
-        <rect x="-32" y="-22" width="64" height="44" rx="4" stroke="var(--color-canvas)" strokeWidth="5" />
-        <path d="M12 -22 L32 -22 L32 -2 Z" fill="var(--color-peach)" />
-        <path d="M12 -22 L32 -2" stroke="var(--color-canvas)" strokeWidth="4" strokeLinejoin="round" />
-        <path d="M-20 4 L10 4" stroke="var(--color-peach-dim)" strokeWidth="4" strokeLinecap="round" />
+        <rect x="-32" y="-22" width="64" height="44" rx="4" stroke="var(--color-ink)" strokeWidth="5" />
+        <path d="M12 -22 L32 -22 L32 -2 Z" fill="var(--color-terra)" />
+        <path d="M12 -22 L32 -2" stroke="var(--color-ink)" strokeWidth="4" strokeLinejoin="round" />
+        <path d="M-20 4 L10 4" stroke="var(--color-terra-ctr)" strokeWidth="4" strokeLinecap="round" />
       </motion.g>
     </svg>
   );
@@ -214,7 +214,7 @@ const chevrons = (from: number, to: number, y: number, accent: boolean) => {
 };
 
 const AIRMAIL = [
-  { accent: false, stroke: 'var(--color-peach)' },
+  { accent: false, stroke: 'var(--color-terra)' },
   { accent: true, stroke: 'var(--color-terra-ctr)' },
 ] as const;
 
@@ -259,7 +259,7 @@ export function PayNote({ active, reducedMotion }: FigureProps) {
         {half(
           -1,
           <>
-            <path d={NOTE_LEFT} stroke="var(--color-canvas)" strokeWidth="7" strokeLinejoin="round" />
+            <path d={NOTE_LEFT} stroke="var(--color-ink)" strokeWidth="7" strokeLinejoin="round" />
             {AIRMAIL.map(({ accent, stroke }) => (
               <path
                 key={stroke}
@@ -271,16 +271,16 @@ export function PayNote({ active, reducedMotion }: FigureProps) {
               />
             ))}
             {/* Postmark: a cancelled corner, no letters, no glyphs. */}
-            <rect x="186" y="188" width="52" height="52" rx="9" stroke="var(--color-peach-dim)" strokeWidth="4" />
+            <rect x="186" y="188" width="52" height="52" rx="9" stroke="var(--color-terra-ctr)" strokeWidth="4" />
             <path
               d="M196 206 L228 206 M196 222 L220 222"
-              stroke="var(--color-peach-dim)"
+              stroke="var(--color-terra-ctr)"
               strokeWidth="4"
               strokeLinecap="round"
             />
             <path
               d="M195 290 L340 290 M195 340 L320 340"
-              stroke="var(--color-peach)"
+              stroke="var(--color-terra)"
               strokeWidth="5"
               strokeLinecap="round"
             />
@@ -289,7 +289,7 @@ export function PayNote({ active, reducedMotion }: FigureProps) {
         {half(
           1,
           <>
-            <path d={NOTE_RIGHT} stroke="var(--color-canvas)" strokeWidth="7" strokeLinejoin="round" />
+            <path d={NOTE_RIGHT} stroke="var(--color-ink)" strokeWidth="7" strokeLinejoin="round" />
             {AIRMAIL.map(({ accent, stroke }) => (
               <path
                 key={stroke}
@@ -302,7 +302,7 @@ export function PayNote({ active, reducedMotion }: FigureProps) {
             ))}
             <path
               d="M460 290 L610 290 M460 340 L590 340"
-              stroke="var(--color-peach)"
+              stroke="var(--color-terra)"
               strokeWidth="5"
               strokeLinecap="round"
             />
@@ -310,7 +310,7 @@ export function PayNote({ active, reducedMotion }: FigureProps) {
         )}
         <motion.path
           d="M399 124 L399 476"
-          stroke="var(--color-peach-dim)"
+          stroke="var(--color-terra-ctr)"
           strokeWidth="3"
           strokeLinecap="round"
           strokeDasharray="1 11"

@@ -1,23 +1,25 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { CSSProperties, KeyboardEvent, PointerEvent } from 'react';
+import type { KeyboardEvent, PointerEvent } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 
 import { InlineFListForm } from '@/components/frenspay/inline-f-list-form';
+import { ThingsBackdrop } from '@/components/frenspay/things-backdrop';
 import { PayNote, PlayCradle, RelayNote, StayKnot } from '@/components/frenspay/things-objects';
 import { FRENSPAY_COPY } from '@/lib/frenspay-copy';
 
+// play and pay sit opposite each other: in a four-slide loop that is the only
+// arrangement where they are never neighbours.
 const SLIDES = [
-  { word: 'play', bg: 'var(--color-terra)', caption: FRENSPAY_COPY.captions.play, Figure: PlayCradle },
-  { word: 'stay', bg: 'var(--color-ember)', caption: FRENSPAY_COPY.captions.stay, Figure: StayKnot },
-  { word: 'relay', bg: 'var(--color-char)', caption: FRENSPAY_COPY.captions.relay, Figure: RelayNote },
+  { word: 'play', caption: FRENSPAY_COPY.captions.play, Figure: PlayCradle },
+  { word: 'stay', caption: FRENSPAY_COPY.captions.stay, Figure: StayKnot },
   {
     word: 'pay',
-    bg: 'var(--color-ink)',
     caption: `${FRENSPAY_COPY.mystery.join(' ')} ${FRENSPAY_COPY.interruption}`,
     Figure: PayNote,
   },
+  { word: 'relay', caption: FRENSPAY_COPY.captions.relay, Figure: RelayNote },
 ] as const;
 
 // Role of slide i relative to the active index: the offsets walk clockwise.
@@ -134,11 +136,9 @@ export function ThingsHero() {
   const poses = ROLE_POSE[isMobile ? 'mobile' : 'desktop'];
 
   return (
-    <div
-      className="things-hero"
-      style={{ backgroundColor: SLIDES[index].bg, '--things-bg': SLIDES[index].bg } as CSSProperties}
-    >
+    <div className="things-hero">
       <h1 className="sr-only">things between frens</h1>
+      <ThingsBackdrop reducedMotion={reducedMotion} />
       <header className="things-topline safe-x">
         <div>
           <p className="things-eyebrow">Things between frens</p>
@@ -146,7 +146,7 @@ export function ThingsHero() {
         </div>
         <span className="things-home">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-mark-cream.svg" alt="" width="22" height="28" />
+          <img src="/logo-mark.svg" alt="" width="22" height="28" />
           <span>frenspay</span>
         </span>
       </header>
