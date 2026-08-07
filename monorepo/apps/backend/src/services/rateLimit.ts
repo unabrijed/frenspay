@@ -42,7 +42,8 @@ export const RATE_LIMIT_RULES: Rule[] = [
   // Public (unauthenticated) landing-page endpoints — anonymous callers key on IP. The confirm click
   // is capped too: it is the one path that can trigger a DB write from a bare GET.
   { method: 'POST', path: '/waitlist', bucket: 'waitlist', limit: 5, windowMs: 60_000 },
-  { method: 'GET', path: '/waitlist/verify', bucket: 'waitlist', limit: 10, windowMs: 60_000 },
+  // Own bucket: sharing 'waitlist' would let confirm clicks consume the (smaller) join quota.
+  { method: 'GET', path: '/waitlist/verify', bucket: 'waitlist_verify', limit: 10, windowMs: 60_000 },
 ];
 
 type Window = { count: number; resetAt: number };
