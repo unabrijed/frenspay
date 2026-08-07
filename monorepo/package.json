@@ -3,8 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "packageManager": "yarn@1.22.22",
+  "_comment_workspaces": "apps/mobile is deliberately excluded — its deps cost ~169MB and no mobile work is planned. Its source is untouched; add 'apps/mobile' back here and run yarn install to resume (then `npx expo prebuild -p android` to regenerate the native project).",
   "workspaces": [
-    "apps/*",
+    "apps/admin",
+    "apps/backend",
+    "apps/landing",
+    "apps/web",
     "packages/*"
   ],
   "scripts": {
@@ -14,9 +18,7 @@
     "dev:admin": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/admin dev & wait",
     "dev:landing": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/landing dev & wait",
     "dev:backend": "yarn workspace @fpay/backend dev",
-    "dev:mobile": "yarn workspace @fpay/mobile start",
-    "mobile": "yarn workspace @fpay/mobile start",
     "brand": "node brand/generate.mjs",
-    "typecheck": "yarn workspace @fpay/shared tsc --noEmit && yarn workspace @fpay/mobile tsc --noEmit && yarn workspace @fpay/backend tsc --noEmit && yarn workspace @fpay/web tsc --noEmit && yarn workspace @fpay/admin tsc --noEmit && yarn workspace @fpay/landing tsc --noEmit"
+    "typecheck": "yarn workspace @fpay/shared tsc --noEmit && yarn workspace @fpay/backend tsc --noEmit && yarn workspace @fpay/web tsc --noEmit && yarn workspace @fpay/admin tsc --noEmit && yarn workspace @fpay/landing tsc --noEmit"
   }
 }
