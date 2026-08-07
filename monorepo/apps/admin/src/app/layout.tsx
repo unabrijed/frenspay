@@ -1,5 +1,7 @@
 import './globals.css';
 
+import { Analytics } from '@vercel/analytics/next';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 import type { Metadata } from 'next';
 import { Hanken_Grotesk } from 'next/font/google';
 
@@ -29,6 +31,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <main className="min-w-0 flex-1 p-6">{children}</main>
           </div>
         </Providers>
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );

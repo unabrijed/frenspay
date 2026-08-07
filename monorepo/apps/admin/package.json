@@ -11,6 +11,8 @@
   "dependencies": {
     "@fpay/shared": "*",
     "@privy-io/react-auth": "^3.32.1",
+    "@vercel/analytics": "^2.0.1",
+    "@vercel/speed-insights": "^2.0.0",
     "next": "^15.5.0",
     "react": "19.2.3",
     "react-dom": "19.2.3"
