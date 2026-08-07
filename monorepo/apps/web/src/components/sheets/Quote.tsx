@@ -11,9 +11,16 @@ import { Btn, TextLink } from '@/components/ui/Button';
 import { Grab, List, SheetBody, SheetHeader, Spacer } from '@/components/ui/primitives';
 import { View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
+import { vpaOperator } from '@fpay/shared';
+
 import { inrRaw, usd } from '@/lib/money';
 import { colors, type } from '@/lib/theme';
 import { usePayStore } from '@/store/usePayStore';
+
+const operatorLabel = (method: string, destination?: string): string => {
+  const op = destination ? vpaOperator(destination) : undefined;
+  return op ? `${method} · via ${op.name}` : method;
+};
 
 const fmtEta = (minSecs: number, maxSecs: number): string =>
   maxSecs < 90 ? `${minSecs}–${maxSecs} sec` : `${Math.round(minSecs / 60)}–${Math.round(maxSecs / 60)} min`;
@@ -72,7 +79,9 @@ export function QuoteSheet() {
           <Line k="Today's rate" v={`$1 = ₹${quote.rate.toFixed(2)}`} />
           <Line k="Fee" v={inrRaw(quote.feeInr + quote.networkFeeInr)} />
           <Line k="Total time" v={fmtEta(quote.etaMinSecs, quote.etaMaxSecs)} />
-          <Line k="Payout method" v={quote.payoutMethod} />
+          {/* Name the operator behind the VPA suffix when known (@okaxis → Google Pay) — part of
+              the same anti-wrong-send confirmation as the destination line above. */}
+          <Line k="Payout method" v={operatorLabel(quote.payoutMethod, quote.payoutDestination)} />
         </List>
 
         <View style={styles.lock}>

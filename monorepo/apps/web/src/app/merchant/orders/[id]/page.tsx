@@ -10,6 +10,7 @@ import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 
 import type { MerchantOrder } from '@fpay/shared';
+import { vpaOperator } from '@fpay/shared';
 
 import { BackButton } from '@/components/ui/BackButton';
 import { Btn } from '@/components/ui/Button';
@@ -129,6 +130,9 @@ export default function MerchantOrder() {
             <Txt style={type.kvKey}>UPI ID, tap to copy</Txt>
             <Txt style={[{ ...fonts.mono400, fontSize: 19, color: colors.ink }, styles.vpa]}>{vpa}</Txt>
             {order.payoutName ? <Txt style={type.inst}>{order.payoutName}</Txt> : null}
+            {/* Which app/bank processes this VPA (@okaxis → Google Pay) — tells the merchant what
+                the payee's side looks like before they pay a stranger's ID. */}
+            {vpaOperator(vpa) ? <Txt style={type.inst}>Processed by {vpaOperator(vpa)!.name}</Txt> : null}
           </Pressable>
         ) : (
           <Txt style={[type.lead, { color: colors.danger, marginTop: 16 }]}>

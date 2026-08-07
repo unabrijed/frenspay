@@ -2,7 +2,7 @@
 // unit-testable. The scanner is "dumb": it hands raw text here and the store decides what to do
 // (UPI merchant pay vs a Pay-user USDC send vs a direct wallet-address send).
 
-import { classifyAddress, looksLikePhone } from '@fpay/shared';
+import { classifyAddress, looksLikePhone, parseEmvQr, railById } from '@fpay/shared';
 
 export type ScanResult =
   | { kind: 'handle'; handle: string } // another Pay user → real USDC send
@@ -22,6 +22,15 @@ function normalizeHandle(raw: string): string | null {
     .split(/[?&/\s]/)[0]
     .toLowerCase();
   return /^[a-z0-9_.]{2,30}$/.test(clean) ? '@' + clean : null;
+}
+
+/** "TH" → "Thailand"; falls back to the code where Intl lacks the region. */
+function regionName(iso: string): string {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(iso) ?? iso;
+  } catch {
+    return iso;
+  }
 }
 
 /** Pull a query string's params whether or not the scheme is URL-parseable. */
@@ -45,6 +54,21 @@ export function parseScannedQR(text: string): ScanResult {
     const amountInr = amRaw && Number.isFinite(Number(amRaw)) && Number(amRaw) > 0 ? Number(amRaw) : undefined;
     const note = p.get('tn')?.trim() || undefined;
     return { kind: 'upi', payee, name, amountInr, note };
+  }
+
+  // 1b) EMVCo merchant QR (PromptPay / Pix / DuitNow / Bharat-QR UPI) — a TLV payload, not a URI.
+  // The merchant-account template names the processing network, so we can say exactly what was
+  // scanned even when we can't pay it yet. Supported pay-in countries = the live rails in RAILS.
+  if (raw.startsWith('000201')) {
+    const t = parseEmvQr(raw);
+    if (!t) return { kind: 'unknown', raw };
+    if (t.rail === 'upi' && t.kind === 'vpa') {
+      // India's EMV merchant codes carry the same VPA as a upi:// link — join the live pay path.
+      // The amount seeds the keypad only when the QR prices in INR (or declares no currency).
+      return { kind: 'upi', payee: t.address, name: t.name, amountInr: !t.currency || t.currency === 'INR' ? t.amount : undefined };
+    }
+    const rail = railById(t.rail);
+    return { kind: 'unsupported', reason: `That's a ${rail.name} (${regionName(rail.country)}) code — fpay can't pay ${rail.name} yet.` };
   }
 
   // 2) Our own Pay deep link: pay:@handle / pay://@handle / pay://u/@handle

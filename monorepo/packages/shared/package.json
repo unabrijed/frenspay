@@ -8,6 +8,9 @@
     ".": "./src/index.ts",
     "./*": "./src/*"
   },
+  "scripts": {
+    "check:rails": "tsx scripts/check-rails.ts"
+  },
   "devDependencies": {
     "typescript": "~6.0.3"
   }
