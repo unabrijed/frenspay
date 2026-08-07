@@ -55,11 +55,13 @@ A web production build reads unprefixed `NEXT_PUBLIC_*` (see `apps/web/.env.exam
    The fee-payer secret, USDC mint, and a funded fee-payer wallet already exist locally from
    `yarn devnet:setup` (`apps/backend/.devnet/keys.json`) — copy those values up. The fee-payer needs a
    little devnet SOL (it already holds ~10).
-4. Deploy. Initialize the schema once (idempotent) against the Railway DB:
+4. Deploy. Migrations auto-apply at boot — `railway.json` runs `db:deploy` before `start`, so the
+   server can never come up against a stale schema. To apply by hand instead:
    ```
-   yarn workspace @fpay/backend db:init      # applies apps/backend/src/db/schema.sql
+   yarn workspace @fpay/backend db:migrate   # applies pending apps/backend/src/db/migrations/*.sql
    ```
-   (Run locally with `STAGE_DATABASE_URL` pointed at the Railway DB, or via Railway's shell.)
+   (Run locally with `STAGE_DATABASE_URL` pointed at the Railway DB, or via Railway's shell.
+   `db:status` shows what's applied/pending.)
 5. Verify: `curl https://<backend>/health` → `{"status":"ok","database":"configured"}`.
 
 ## 2. Web → Vercel
@@ -94,8 +96,7 @@ everyone else gets a 403 screen).
 3. **Domain**: add `admin.frenspay.xyz` to the project. DNS: CNAME `admin` → `cname.vercel-dns.com`.
 4. Seed the operator (once, by hand — same as before):
    `update users set role='admin' where handle='@you';`
-5. Schema: re-run `yarn workspace @fpay/backend db:init` once after deploying this milestone — it
-   (idempotently) creates the `waitlist` + `admin_actions` tables.
+5. Schema: nothing to run — migrations auto-apply on deploy (`db:deploy` in the start command).
 6. Local dev: `yarn dev:admin` → console on :3002 + backend on :3001. Without Privy configured it
    uses the `x-dev-user-id` shim — set `NEXT_PUBLIC_LOCAL_DEV_USER_ID` in `apps/admin/.env.local`
    to a seeded user id that carries `role='admin'` (admin writes FK the audit trail to it).
@@ -118,8 +119,7 @@ static export at build time, so changing either requires a landing redeploy.
 
 ## 2d. F list — referral loop + confirm email
 
-Re-run `yarn workspace @fpay/backend db:init` after deploying: it adds `ref_code` / `referred_by` /
-`verified_at` to `waitlist` (idempotent `add column if not exists`).
+Schema: nothing to run — migrations auto-apply on deploy (`db:deploy` in the start command).
 
 **Backend vars** (all four, or nothing happens):
 

@@ -1,3 +1,6 @@
+-- 0001_baseline — the pre-migration-era schema.sql, verbatim. Fully idempotent (every statement is
+-- name-guarded), so applying it to a DB that already has the schema is a safe no-op; from here on,
+-- schema changes are NEW numbered files (yarn db:new <name>), never edits to this one.
 -- Phase 1 schema (backend-architecture.md §3). Self-custodial USDC wallet + P2P.
 -- Access control is enforced in the API layer; these tables have no row-level security.
 

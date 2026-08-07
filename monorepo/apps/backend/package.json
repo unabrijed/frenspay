@@ -7,8 +7,12 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
-    "db:init": "tsx src/db/init.ts",
-    "db:reset": "tsx src/db/init.ts --drop",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:deploy": "tsx src/db/migrate.ts deploy",
+    "db:status": "tsx src/db/migrate.ts status",
+    "db:new": "tsx src/db/migrate.ts new",
+    "db:reset": "tsx src/db/migrate.ts reset",
+    "db:init": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "devnet:setup": "tsx scripts/setup-devnet.ts",
     "check:waitlist": "tsx scripts/check-waitlist.ts"

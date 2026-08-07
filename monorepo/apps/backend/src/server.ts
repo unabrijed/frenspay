@@ -2,6 +2,7 @@ import cors from '@fastify/cors';
 import Fastify from 'fastify';
 
 import { config } from './config';
+import { pendingMigrations } from './db/migrations';
 import { hasDatabase } from './db/pool';
 import { registerRoutes } from './routes/index';
 import { startBridgePoller } from './services/bridge/poller';
@@ -16,6 +17,22 @@ import { startRateLimitSweeper } from './services/rateLimit';
 async function start() {
   // Fail fast on a misconfigured real KYC provider before accepting traffic.
   assertKycConfig();
+
+  // Warn (don't apply) on schema drift: a dev laptop must not mutate the shared stage DB at boot,
+  // and a fatal boot migration on Railway would crash-loop. Hosts apply via db:deploy in startCommand.
+  if (hasDatabase()) {
+    try {
+      const pending = await pendingMigrations();
+      if (pending.length) {
+        console.warn(
+          `\n!!! ${pending.length} pending DB migration(s): ${pending.map((m) => `${m.version}_${m.name}`).join(', ')}` +
+            `\n!!! Run: yarn workspace @fpay/backend db:migrate\n`,
+        );
+      }
+    } catch (err) {
+      console.warn(`migration check skipped: ${(err as Error).message}`);
+    }
+  }
 
   // trustProxy: behind Railway's proxy, so req.ip reflects the client (used as a rate-limit fallback key).
   const app = Fastify({ logger: true, trustProxy: true });

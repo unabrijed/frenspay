@@ -60,7 +60,7 @@ Ctrl-C stops the whole group; nothing is left holding a port.
 |---|---|
 | `yarn brand` | Regenerate every app icon from `brand/logo-mark.svg` |
 | `yarn typecheck` | Type-check **all six** workspaces (shared + mobile + backend + web + admin + landing) |
-| `yarn workspace @fpay/backend db:init` | Apply the DB schema (idempotent) |
+| `yarn workspace @fpay/backend db:migrate` | Apply pending DB migrations (`db:status` to inspect) |
 | `yarn workspace @fpay/backend db:seed` | Insert 2 test users (@bridge, @neha) + sample activity (prints ids) |
 | `yarn workspace @fpay/backend devnet:setup` | Provision fee-payer + USDC mint + funded devnet wallets |
 | `yarn workspace @fpay/backend check:waitlist` | Self-check the f-list share codes + confirm tokens (no DB, no network) |
@@ -128,7 +128,7 @@ for testing Privy — no build, no device.)
 
 ```bash
 cp apps/backend/.env.example apps/backend/.env   # then fill STAGE_DATABASE_URL etc.
-yarn workspace @fpay/backend db:init              # apply the schema (idempotent)
+yarn workspace @fpay/backend db:migrate           # apply pending DB migrations
 yarn workspace @fpay/backend db:seed              # 2 test users + sample activity (prints ids)
 yarn dev:backend                                 # → http://localhost:3001
 curl localhost:3001/health                       # → {"status":"ok","database":"configured"}

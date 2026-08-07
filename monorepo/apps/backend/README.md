@@ -10,7 +10,7 @@ reads, real Solana **devnet** USDC transfers (fee-payer sponsored), and Privy au
 # from the monorepo root
 yarn install
 cp apps/backend/.env.example apps/backend/.env   # set NODE_ENV=stage + STAGE_DATABASE_URL etc.
-yarn workspace @fpay/backend db:init              # apply src/db/schema.sql
+yarn workspace @fpay/backend db:migrate           # apply pending migrations (src/db/migrations/)
 yarn workspace @fpay/backend db:seed              # optional: 2 test users + sample activity
 yarn dev:backend                                 # http://localhost:3001  (from the monorepo root)
 curl localhost:3001/health                       # {"status":"ok","database":"configured"}
@@ -37,7 +37,10 @@ landing page rather than answering JSON. Both are unauthenticated writes, bounde
 IP-keyed rate limiter. See [20 · Waitlist & referral loop](../../docs/20-waitlist-referral-loop.md).
 
 ## Scripts
-- `db:init` — apply the schema · `db:seed` — dev users/activity
+- `db:migrate` — apply pending migrations · `db:status` — applied/pending + drift warnings ·
+  `db:new <name>` — stamp the next migration file · `db:reset` — drop + remigrate (refuses on prod) ·
+  `db:seed` — dev users/activity. Schema changes are new files in `src/db/migrations/`, never edits
+  to applied ones (`db:status` warns if one was edited in place).
 - `devnet:setup` — provision a fee-payer + USDC mint + funded test wallets (writes `.devnet/keys.json`);
   copy the printed `STAGE_USDC_MINT` + `STAGE_FEE_PAYER_SECRET_KEY` into `.env`
 - `check:waitlist` — self-check for the f-list share codes + confirm tokens (pure logic; no DB, no
@@ -62,7 +65,8 @@ IP-keyed rate limiter. See [20 · Waitlist & referral loop](../../docs/20-waitli
    For the f list also set `STAGE_RESEND_API_KEY`, `STAGE_EMAIL_FROM`, `STAGE_WAITLIST_SECRET` and
    `STAGE_LANDING_URL` — all four, or none: unset means no share codes and no mail, and `/waitlist`
    behaves exactly as it did before the referral loop existed.
-5. Run the schema once: `yarn workspace @fpay/backend db:init` against the Railway `STAGE_DATABASE_URL`.
+5. Migrations auto-apply on deploy (`railway.json` runs `db:deploy` before `start`). To run by hand:
+   `yarn workspace @fpay/backend db:migrate` against the Railway `STAGE_DATABASE_URL`.
 6. Point the Helius webhook at `https://<service>/webhooks/helius?secret=<HELIUS_WEBHOOK_SECRET>`.
 
 > Cost: Railway's free trial / low-cost hobby tier is fine for Phase 1. No other paid services required.
