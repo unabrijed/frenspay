@@ -31,6 +31,26 @@ other git error all build. Railway has no in-repo equivalent: set **Watch Paths*
 the service dashboard (Settings → Watch Paths) to `monorepo/apps/backend/**` and
 `monorepo/packages/shared/**` so web/admin/landing commits stop redeploying the backend.
 
+**Build gate before push:** `monorepo/.githooks/pre-push` refuses a push that would not deploy. It
+diffs what you are pushing against the remote and runs only what that touches, using the same watched
+paths as the `ignoreCommand`s above:
+
+| Touched | Runs |
+| ------- | ---- |
+| any `package.json` / `yarn.lock` | `yarn install --frozen-lockfile` — a stale lockfile fails the deploy but a warm local `node_modules` hides it |
+| `apps/<app>/` (+ `packages/shared/` for web/admin) | `yarn workspace @fpay/<app> build` — the app's own `buildCommand`, verbatim |
+| `apps/backend/`, `packages/shared/` | `yarn workspace @fpay/backend tsc --noEmit` — Railway has no build step, so this is the only gate before a type error crashes the server at boot |
+| any `apps/*/vercel.json` | each `ignoreCommand` must exit **1** on an unreachable SHA — enforces the two paragraphs above, which no build could ever catch because the ignore step runs first |
+
+Enable it once per clone (it is git config, not a committed setting):
+
+```
+git config core.hooksPath monorepo/.githooks
+```
+
+Bypass deliberately with `git push --no-verify`. Note it builds the **working tree**, not the commits
+being pushed — identical on a clean tree, which is the only state you should be pushing from anyway.
+
 > **Landing moved.** It used to live at `landing/`, outside the workspace, with its own lockfile.
 > The existing Vercel project must be re-pointed once: **Settings → General → Root Directory**,
 > `landing` → `monorepo/apps/landing`. Same project, so `frenspay.xyz` and `NEXT_PUBLIC_API_URL`
