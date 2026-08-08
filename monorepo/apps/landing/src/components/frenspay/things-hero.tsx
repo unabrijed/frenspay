@@ -133,12 +133,46 @@ export function ThingsHero() {
         onPointerDown={onPointerDown}
         onPointerUp={onPointerUp}
       >
-        <div className="things-ghost" aria-hidden="true">
-          {SLIDES.map((slide, i) => (
-            <span key={slide.word} className={i === index ? 'is-active' : undefined}>
-              {slide.word}.
-            </span>
-          ))}
+        {/* One block, centred by the stage — not three separately-positioned
+            layers whose combined vertical position was an accident of three magic
+            numbers. The objects live INSIDE the word so they keep aligning with
+            it for free; hung off the stage instead, they stay behind whenever the
+            block moves. */}
+        <div className="things-hero-block">
+          <div className="things-ghost" aria-hidden="true">
+            {SLIDES.map((slide, i) => (
+              <span key={slide.word} className={i === index ? 'is-active' : undefined}>
+                {slide.word}.
+              </span>
+            ))}
+            <div className="things-objects">
+              {SLIDES.map((slide, i) => (
+                <div
+                  key={slide.word}
+                  className={`things-object${i === index ? ' is-active' : ''}`}
+                  data-side={slide.side}
+                >
+                  <slide.Object />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="things-caption" aria-hidden="true">
+            <p className="things-phrase">
+              {SLIDES.map((slide, i) => (
+                <span key={slide.word} className={i === index ? 'is-active' : undefined}>
+                  {slide.phrase}
+                </span>
+              ))}
+            </p>
+            <p className="things-whisper">
+              {SLIDES.map((slide, i) => (
+                <span key={slide.word} className={i === index ? 'is-active' : undefined}>
+                  {slide.whisper}
+                </span>
+              ))}
+            </p>
+          </div>
         </div>
         <p className="sr-only" aria-live={paused ? 'polite' : 'off'}>
           {/* Announce the line that is actually on screen, rather than

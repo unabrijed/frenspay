@@ -457,9 +457,32 @@ button:not(:disabled),
 /* Stage */
 .things-stage {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   touch-action: pan-y;
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* Word and caption as ONE centred block. Previously the word was centred and the
+   caption hung off it on a `top: 50%` + `margin-top: clamp(60px, 9vw, 150px)`
+   hack, so the block's real centre landed 17px low and its bottom edge came
+   within 80px of the waterline — the caption sat on the islands and the whisper
+   ran across the water. Now the gap is an ordinary `gap` and cannot drift out of
+   step with the word's size.
+   --hero-lift is optical centring: the bottom of the page carries a 56px CTA, the
+   scrim and dark water, so geometric centre reads as low. It scales with the
+   viewport because mobile needs far less — its stage centre already sits ~61px
+   above the viewport's, the foot there being 197px against a 76px header. */
+.things-hero-block {
+  --hero-lift: clamp(12px, 4vw, 56px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(18px, 3vw, 44px);
+  translate: 0 calc(-1 * var(--hero-lift));
 }
 
 .things-stage:focus-visible {
@@ -468,10 +491,11 @@ button:not(:disabled),
   outline-offset: -4px;
 }
 
+/* In flow now, not an inset:0 layer — its height is the word's own line box,
+   which is exactly what .things-objects inside it needs to align against. */
 .things-ghost {
-  position: absolute;
+  position: relative;
   z-index: 2;
-  inset: 0;
   display: grid;
   place-items: center;
   pointer-events: none;
@@ -528,6 +552,7 @@ button:not(:disabled),
   top: 0;
   bottom: 0;
   left: 50%;
+  width: 100vw;
   translate: -50% 0;
   pointer-events: none;
 }
