@@ -1,0 +1,21 @@
+{
+  "out": {
+    "width": 1672,
+    "height": 720,
+    "horizonRow": 547
+  },
+  "aspect": 2.3222,
+  "horizon": 0.7597,
+  "skies": {
+    "play": "#fad5a0",
+    "stay": "#fbe6c8",
+    "pay": "#f9ddb8",
+    "relay": "#fce5c2"
+  },
+  "sourceHashes": {
+    "play": "fdb457c6316d",
+    "stay": "992772127707",
+    "pay": "328e8730ca9b",
+    "relay": "abd492d28291"
+  }
+}
