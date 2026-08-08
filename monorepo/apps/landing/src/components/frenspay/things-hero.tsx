@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { KeyboardEvent, PointerEvent } from 'react';
-import { motion, useReducedMotion } from 'framer-motion';
+import type { CSSProperties, KeyboardEvent, PointerEvent } from 'react';
 
 import { InlineFListForm } from '@/components/frenspay/inline-f-list-form';
 import { ThingsBackdrop } from '@/components/frenspay/things-backdrop';
@@ -11,52 +10,39 @@ import { FRENSPAY_COPY } from '@/lib/frenspay-copy';
 
 // play and pay sit opposite each other: in a four-slide loop that is the only
 // arrangement where they are never neighbours.
+//
+// `sky` is the flat colour of each scene's own top row, sampled by scenes.mjs.
+// The page paints it above the illustration so the scene has no top edge — it
+// just becomes paper — and tweens between them so the page changes temperature
+// as it advances.
+//
+// `Object` is the insert shot: the close-up of what the two figures in that
+// scene are doing. `side` puts it on the opposite side of the frame from the
+// scene's own subject (measured positions live in the mobile --scene-dx block in
+// globals.css) so the two balance instead of stacking.
 const SLIDES = [
-  { word: 'play', caption: FRENSPAY_COPY.captions.play, Figure: PlayCradle },
-  { word: 'stay', caption: FRENSPAY_COPY.captions.stay, Figure: StayKnot },
-  {
-    word: 'pay',
-    caption: `${FRENSPAY_COPY.mystery.join(' ')} ${FRENSPAY_COPY.interruption}`,
-    Figure: PayNote,
-  },
-  { word: 'relay', caption: FRENSPAY_COPY.captions.relay, Figure: RelayNote },
+  { word: 'play', ...FRENSPAY_COPY.slides.play, sky: '#fad5a0', Object: PlayCradle, side: 'right' },
+  { word: 'stay', ...FRENSPAY_COPY.slides.stay, sky: '#fbe6c8', Object: StayKnot, side: 'left' },
+  { word: 'pay', ...FRENSPAY_COPY.slides.pay, sky: '#f9ddb8', Object: PayNote, side: 'left' },
+  { word: 'relay', ...FRENSPAY_COPY.slides.relay, sky: '#fce5c2', Object: RelayNote, side: 'right' },
 ] as const;
 
-// Role of slide i relative to the active index: the offsets walk clockwise.
-const ROLES = ['center', 'right', 'back', 'left'] as const;
-type Role = (typeof ROLES)[number];
-
+// Also the duration of each scene's slow zoom, handed to CSS as --hold so this
+// stays the only place the interval is written down.
 const HOLD_MS = 6000;
 const SWAP_MS = 650;
 
-// Springs own x/y/scale/rotate; blur and opacity tween alongside. The items'
-// -50% centering lives in the CSS `translate` property, which composes with
-// the transform framer writes.
-type Pose = { x: string; y: string; scale: number; rotate: number; opacity: number; filter: string };
-const ROLE_POSE: Record<'desktop' | 'mobile', Record<Role, Pose>> = {
-  desktop: {
-    center: { x: '0vw', y: '0vh', scale: 1, rotate: 0, opacity: 1, filter: 'blur(0px)' },
-    left: { x: '-24vw', y: '-12vh', scale: 0.3, rotate: -4, opacity: 0.85, filter: 'blur(2px)' },
-    right: { x: '24vw', y: '-12vh', scale: 0.3, rotate: 4, opacity: 0.85, filter: 'blur(2px)' },
-    back: { x: '0vw', y: '-24vh', scale: 0.24, rotate: 0, opacity: 0.9, filter: 'blur(4px)' },
-  },
-  mobile: {
-    center: { x: '0vw', y: '0vh', scale: 1, rotate: 0, opacity: 1, filter: 'blur(0px)' },
-    left: { x: '-34vw', y: '-10vh', scale: 0.22, rotate: -4, opacity: 0.85, filter: 'blur(2px)' },
-    right: { x: '34vw', y: '-10vh', scale: 0.22, rotate: 4, opacity: 0.85, filter: 'blur(2px)' },
-    back: { x: '0vw', y: '-20vh', scale: 0.18, rotate: 0, opacity: 0.9, filter: 'blur(4px)' },
-  },
-};
-const ROLE_Z: Record<Role, number> = { center: 20, left: 10, right: 10, back: 5 };
-const SPRING = { type: 'spring', stiffness: 160, damping: 24 } as const;
-const ROLE_TRANSITION = {
-  x: SPRING,
-  y: SPRING,
-  scale: SPRING,
-  rotate: SPRING,
-  opacity: { duration: 0.65, ease: 'easeInOut' },
-  filter: { duration: 0.65, ease: 'easeInOut' },
-} as const;
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const update = () => setMatches(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, [query]);
+  return matches;
+}
 
 export function ThingsHero() {
   const [index, setIndex] = useState(0);
@@ -136,9 +122,12 @@ export function ThingsHero() {
   const poses = ROLE_POSE[isMobile ? 'mobile' : 'desktop'];
 
   return (
-    <div className="things-hero">
+    <div
+      className="things-hero"
+      style={{ '--sky': SLIDES[index].sky, '--hold': `${HOLD_MS}ms` } as CSSProperties}
+    >
       <h1 className="sr-only">things between frens</h1>
-      <ThingsBackdrop reducedMotion={reducedMotion} />
+      <ThingsBackdrop scenes={SLIDES} index={index} />
       <header className="things-topline safe-x">
         <div>
           <p className="things-eyebrow">Things between frens</p>
@@ -177,32 +166,6 @@ export function ThingsHero() {
             </span>
           ))}
         </div>
-        <motion.div
-          className="things-shadow"
-          aria-hidden="true"
-          animate={reducedMotion ? { scale: 1 } : { scale: [1, 1.06, 1] }}
-          transition={{ duration: 5, ease: 'easeInOut', repeat: Infinity }}
-        />
-        {SLIDES.map((slide, i) => {
-          const role = ROLES[(i - index + SLIDES.length) % SLIDES.length];
-          return (
-            <motion.div
-              key={slide.word}
-              className="things-item"
-              style={{ zIndex: ROLE_Z[role] }}
-              initial={false}
-              animate={poses[role]}
-              transition={reducedMotion ? { duration: 0 } : ROLE_TRANSITION}
-              aria-hidden="true"
-            >
-              <slide.Figure
-                key={String(role === 'center')}
-                active={role === 'center'}
-                reducedMotion={reducedMotion}
-              />
-            </motion.div>
-          );
-        })}
         <p className="sr-only" aria-live={paused ? 'polite' : 'off'}>
           {`slide ${index + 1} of ${SLIDES.length}: frens ${SLIDES[index].word}.`}
         </p>

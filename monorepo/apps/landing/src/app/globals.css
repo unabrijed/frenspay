@@ -88,45 +88,137 @@ button:not(:disabled),
 /* ===== things between frens (the landing, everything .things- scoped) ===== */
 
 .things-hero {
-  --things-swap: 650ms cubic-bezier(0.4, 0, 0.2, 1);
-  /* StayKnot paints this colour to fake its over/under crossing, so it has to
-     match the paper the knot sits on. */
-  --things-bg: var(--color-canvas);
+  /* Bare duration, not a `900ms <easing>` bundle — it is also used as a
+     transition *delay* and inside calc(), neither of which accept the shorthand. */
+  --swap: 900ms;
+  /* --hold is set from JS so HOLD_MS stays the one source of truth. */
+  --hold: 6000ms;
+
+  /* Scene geometry. The four scenes were cropped to one aspect with their
+     waterlines on one row, so every number here is shared — nothing is
+     per-image. Changing --scene-ar or --scene-hz means re-running
+     scripts/scenes.mjs; check-scenes.mjs asserts they still match the files. */
+  --scene-ar: 2.3222;
+  --scene-hz: 75.97%;
+  /* Wider than the viewport on purpose. At 100vw the scene is short enough that
+     the foot's text band reaches well above the waterline onto lit sky, which
+     forces a scrim tall enough to grey out half the illustration. Oversizing
+     drops the flat sky above to ~90px and puts the foot on water, where the
+     scene is already dark and the scrim barely has to work. */
+  --scene-w: 130vw;
+  /* Sized to the foot's text band, and the foot now carries only the form — the
+     narrative copy moved up into the stage. That is what let this come down from
+     32svh, which was burying the bottom third of every scene, relay's whole
+     subject included. check-scenes.mjs asserts the result: if it fails after a
+     foot change, this is what is wrong, not the check. */
+  --scrim-h: 20svh;
+
+  /* Set per slide from the scene's own top row, so the page background
+     continues its sky and the illustration has no visible top edge. */
+  --sky: #fce6c3;
+
+  /* Foot chrome sits over the scrim, where ink is 2.7:1. Solid cream only —
+     hierarchy down there comes from size and weight, never opacity. */
+  --foot-fg: var(--color-canvas);
+  --foot-accent: var(--color-peach);
+
   position: relative;
   isolation: isolate;
   display: grid;
   height: 100svh;
   overflow: hidden;
   grid-template-rows: auto 1fr auto;
-  background: var(--color-canvas);
+  grid-template-columns: 100%;
+  background-color: var(--sky);
   color: var(--color-ink);
+  transition: background-color var(--swap) var(--ease-soft);
 }
 
-/* Backdrop: one paper plate under everything, with cream scrims at the top and
-   bottom edges so type sits on solid paper while the drawing stays clear
-   through the middle. The flat background underneath is the fallback if the
-   plate never loads. */
+/* Backdrop: the four scenes stacked, one visible at a time, bottom-anchored at
+   their natural aspect. Never `cover` — cover pins the vertical crop of a wide
+   image on any real viewport, which is exactly what the horizon lock needs to
+   control. Above the scene there is no image at all, just --sky. */
+/* A grid item rather than an absolute layer, so its bottom edge can be tied to a
+   row boundary. On desktop it spans all three rows and behaves exactly like
+   inset:0; on mobile it stops at the foot, which is the only way the scene's
+   bottom can track the foot's real height instead of a guessed constant. */
 .things-backdrop {
-  position: absolute;
+  position: relative;
   z-index: 0;
-  inset: 0;
+  grid-area: 1 / 1 / 4 / 2;
   overflow: hidden;
   pointer-events: none;
 }
 
-.things-plate {
+.things-topline {
+  grid-area: 1 / 1 / 2 / 2;
+}
+
+.things-stage {
+  grid-area: 2 / 1 / 3 / 2;
+}
+
+.things-foot {
+  grid-area: 3 / 1 / 4 / 2;
+}
+
+.things-scene {
+  /* Lateral drift, flipped every other scene so four identical pans do not read
+     as a conveyor. Vertical drift is deliberately absent — it would break the
+     horizon lock. */
+  --drift: 1.5%;
+  --zoom: 1.07;
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  bottom: 0;
+  left: 50%;
+  width: var(--scene-w);
+  height: calc(var(--scene-w) / var(--scene-ar));
+  max-width: none;
+  /* Three separate properties that compose rather than overwrite: `translate`
+     owns the centering and the per-scene subject anchor, `scale` owns the slow
+     zoom, `transform` owns the drift. Doing the zoom in `transform` would fight
+     the centering. */
+  translate: calc(-50% + var(--scene-dx, 0%)) 0;
+  scale: var(--zoom);
+  transform: translateX(var(--drift));
+  /* Everything pivots on the waterline, so the sea holds still through the zoom
+     exactly as it does across a swap. */
+  transform-origin: 50% var(--scene-hz);
+  /* Dissolve the top edge into --sky instead of butting against it. A flat
+     colour can match a scene's mean top row but not its variation across the
+     width: play's top edge swings 73 units because a peach cloud reaches the
+     frame, so any single fill draws a visible stripe there. Fading it out reads
+     as haze, which is what a sky does anyway. Costs nothing when the scene is
+     taller than the viewport — the feather is simply off-screen. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 120px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 120px);
+  /* The outgoing scene holds at full opacity for one swap, then fades — by which
+     point it is completely covered, so that fade is never seen.
+     Fading both at once is what made transitions look broken: with no z-index and
+     both partly transparent, --sky showed through BOTH, and where each sat at 50%
+     the composite was 0.5*new + 0.25*old + 0.25*sky. A quarter of the frame went
+     flat cream ~190ms into every swap. The delay is what makes this a true
+     a*new + (1-a)*old dissolve with no path to the background. */
+  z-index: 1;
+  opacity: 0;
+  transition: opacity var(--swap) var(--ease-soft) var(--swap);
+}
+
+.things-scene:nth-of-type(even) {
+  --drift: -1.5%;
 }
 
 .things-scrim {
   position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, var(--color-canvas) 0%, transparent 26%),
-    linear-gradient(0deg, var(--color-canvas) 0%, rgb(255 248 244 / 0%) 34%);
+  inset: auto 0 0 0;
+  height: var(--scrim-h);
+  background: linear-gradient(
+    to top,
+    rgb(30 27 25 / 80%) 0%,
+    rgb(30 27 25 / 64%) 65%,
+    rgb(30 27 25 / 26%) 88%,
+    rgb(30 27 25 / 0%) 100%
+  );
 }
 
 .things-topline {
@@ -188,10 +280,14 @@ button:not(:disabled),
   pointer-events: none;
 }
 
+/* Solid ink, not the old peach ghost: over an illustrated sky a low-opacity
+   blurred word reads as haze. Ink clears 15:1 on every scene's sky and 10:1
+   even on the darkest peach cloud, so it is safe anywhere above the horizon —
+   which is the whole reason for putting it there. */
 .things-ghost span {
   grid-area: 1 / 1;
-  color: var(--color-peach-dim);
-  font-size: clamp(90px, 26vw, 340px);
+  color: var(--color-ink);
+  font-size: clamp(76px, 20vw, 260px);
   font-weight: 800;
   line-height: 1;
   letter-spacing: -0.04em;
@@ -238,7 +334,8 @@ button:not(:disabled),
   pointer-events: none;
 }
 
-/* Foot */
+/* Foot: sits over the scrimmed bottom of the scene, so everything here is
+   cream. See --foot-fg. */
 .things-foot {
   position: relative;
   z-index: 60;
@@ -318,7 +415,7 @@ button:not(:disabled),
 .things-pause:focus-visible,
 .things-join-link:focus-visible {
   border-radius: 4px;
-  outline: 2px solid var(--color-terra);
+  outline: 2px solid var(--foot-accent);
   outline-offset: 3px;
 }
 
@@ -328,6 +425,7 @@ button:not(:disabled),
 }
 
 .things-index {
+  color: var(--foot-fg);
   font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -338,7 +436,7 @@ button:not(:disabled),
   min-height: 44px;
   border: 0;
   background: transparent;
-  color: var(--color-ink);
+  color: var(--foot-fg);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.14em;
@@ -400,7 +498,7 @@ button:not(:disabled),
 }
 
 .things-hero .tearoff-field label {
-  color: var(--color-ink);
+  color: var(--foot-fg);
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.11em;
@@ -415,8 +513,8 @@ button:not(:disabled),
   border-bottom: 1px solid var(--color-border);
   border-radius: 0;
   background: transparent;
-  caret-color: var(--color-ink);
-  color: var(--color-ink);
+  caret-color: var(--foot-fg);
+  color: var(--foot-fg);
   font-size: clamp(18px, 2vw, 22px);
   outline: none;
   transition: border-color 160ms ease, box-shadow 160ms ease;
@@ -424,8 +522,8 @@ button:not(:disabled),
 
 .things-hero .tearoff-field input:focus-visible,
 .things-hero .tearoff-field input[aria-invalid='true'] {
-  border-color: var(--color-terra);
-  box-shadow: 0 2px 0 -1px var(--color-terra);
+  border-color: var(--foot-accent);
+  box-shadow: 0 2px 0 -1px var(--foot-accent);
 }
 
 .things-hero .tearoff-strip button {
@@ -443,7 +541,7 @@ button:not(:disabled),
 
 .things-hero .tearoff-strip button:focus-visible {
   border-radius: 3px;
-  outline: 2px solid var(--color-terra);
+  outline: 2px solid var(--foot-accent);
   outline-offset: 3px;
 }
 
@@ -465,7 +563,9 @@ button:not(:disabled),
 .things-hero .tearoff-error {
   grid-column: 1 / -1;
   margin: 0;
-  color: var(--color-terra);
+  /* Peach rather than cream so an error still reads as one; terracotta is
+     2.2:1 down here and cannot be used. */
+  color: var(--foot-accent);
   font-size: 12px;
 }
 
@@ -501,12 +601,75 @@ button:not(:disabled),
 }
 
 @media (max-width: 767px) {
-  .things-item svg {
-    width: min(88vw, 42svh);
+  /* A portrait viewport at 100vw would render the scene as a 170px strip, so it
+     is blown up and cropped instead — the composition survives, the panorama
+     does not. Plain CSS now that no JS-side animation values depend on the
+     breakpoint. */
+  /* Mobile does not scrim — it plates.
+     On a phone the foot stacks to ~25% of the viewport, but the water below the
+     waterline can never exceed ~24% of it (the scene is 2.32:1, so its own
+     bottom band is that share of a full-height scene). So a scrim tall enough to
+     carry the foot always swallows the horizon and most of the picture with it —
+     measured at 77% of the scene, which is what the first cut looked like.
+     Instead the scene is left completely alone and the foot sits on its own
+     solid plate below it, blended in over 90px. Cream on solid ink is 15.4:1, so
+     mobile needs no contrast measurement at all. */
+  .things-hero {
+    --scene-w: 260vw;
+    --scrim-h: 0;
+  }
+
+  /* Stop the scene at the foot instead of running it behind. */
+  .things-backdrop {
+    grid-area: 1 / 1 / 3 / 2;
+  }
+
+  .things-scrim {
+    display: none;
+  }
+
+  .things-foot {
+    background: var(--color-ink);
+  }
+
+  .things-foot::before {
+    content: '';
+    position: absolute;
+    inset: auto 0 100% 0;
+    height: 90px;
+    background: linear-gradient(to top, var(--color-ink), transparent);
+    pointer-events: none;
+  }
+
+  /* A phone sees ~38% of the scene's width, so each one has to be aimed at its
+     own subject or the thing the slide is about ends up off-frame. Measured
+     positions across the image: play's runners 28%, stay's house 62%, pay's two
+     figures on the bridge 69%. The window centres on 0.5 - dx, so dx = 0.5 -
+     subject, eased off a little where the composition wants the subject
+     off-centre.
+     relay is aimed differently. Its train sits at the very bottom of the frame,
+     which on mobile is behind the foot plate, so aiming at the train yields an
+     empty rectangle of water. It is aimed at the horizon instead — the mountain
+     with its full mirror reflection, plus the small island — and the two routes
+     still cross at the bottom edge. */
+  .things-scene[data-scene='play'] {
+    --scene-dx: 14%;
+  }
+
+  .things-scene[data-scene='relay'] {
+    --scene-dx: -18%;
+  }
+
+  .things-scene[data-scene='stay'] {
+    --scene-dx: -12%;
+  }
+
+  .things-scene[data-scene='pay'] {
+    --scene-dx: -19%;
   }
 
   .things-ghost span {
-    font-size: clamp(76px, 24vw, 340px);
+    font-size: clamp(66px, 22vw, 260px);
   }
 
   .things-shadow {
