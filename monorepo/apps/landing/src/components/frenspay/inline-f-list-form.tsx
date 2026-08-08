@@ -99,6 +99,13 @@ export function InlineFListForm({ onInteractionChange }: { onInteractionChange: 
               aria-invalid={Boolean(error)}
             />
           </div>
+          {/* The page's biggest type IS the submit. It used to be a separate
+              giant link that only focused this form, so "join the f-list"
+              rendered twice at once and the decoy read as the real CTA. */}
+          {/* While in flight the mark replaces the arrow and passes a bead between
+              the two frens. The word "joining…" deliberately stays: the motion is
+              the flourish, never the message, so reduced-motion and screen-reader
+              users lose nothing. */}
           <button type="submit" disabled={busy}>
             <span>{busy ? 'joining…' : FRENSPAY_COPY.fList}</span>
             <span className="join-arrow" aria-hidden="true">→</span>

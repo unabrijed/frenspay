@@ -49,26 +49,9 @@ export function ThingsHero() {
   const [focused, setFocused] = useState(false);
   const [engaged, setEngaged] = useState(false);
   const [stopped, setStopped] = useState(false);
-  const [beckoned, setBeckoned] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
-  const reducedMotion = Boolean(useReducedMotion());
+  const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const lockRef = useRef(false);
   const pointerXRef = useRef<number | null>(null);
-  const beckonTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const query = window.matchMedia('(max-width: 767px)');
-    const update = () => setIsMobile(query.matches);
-    update();
-    query.addEventListener('change', update);
-    return () => query.removeEventListener('change', update);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (beckonTimerRef.current !== null) window.clearTimeout(beckonTimerRef.current);
-    };
-  }, []);
 
   const paused = focused || engaged || stopped || reducedMotion;
 
@@ -112,15 +95,6 @@ export function ThingsHero() {
     else navigate(1);
   };
 
-  const focusJoin = () => {
-    (document.getElementById('f-list-email') ?? document.getElementById('f-list-status'))?.focus();
-    setBeckoned(true);
-    if (beckonTimerRef.current !== null) window.clearTimeout(beckonTimerRef.current);
-    beckonTimerRef.current = window.setTimeout(() => setBeckoned(false), 1000);
-  };
-
-  const poses = ROLE_POSE[isMobile ? 'mobile' : 'desktop'];
-
   return (
     <div
       className="things-hero"
@@ -129,15 +103,15 @@ export function ThingsHero() {
       <h1 className="sr-only">things between frens</h1>
       <ThingsBackdrop scenes={SLIDES} index={index} />
       <header className="things-topline safe-x">
-        <div>
-          <p className="things-eyebrow">Things between frens</p>
-          <p className="things-support">{FRENSPAY_COPY.supporting}</p>
-        </div>
         <span className="things-home">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo-mark.svg" alt="" width="22" height="28" />
           <span>frenspay</span>
         </span>
+        <div className="things-intro">
+          <p className="things-eyebrow">Things between frens</p>
+          <p className="things-support">{FRENSPAY_COPY.supporting}</p>
+        </div>
       </header>
 
       <section
@@ -205,21 +179,6 @@ export function ThingsHero() {
               {stopped ? 'resume' : 'pause'}
             </button>
           </div>
-          <button type="button" className="things-join-link" onClick={focusJoin}>
-            <span>{FRENSPAY_COPY.fList}</span>
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.25"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M5 12h14" />
-              <path d="m13 5 7 7-7 7" />
-            </svg>
-          </button>
         </div>
       </footer>
       <div className="things-vignette" aria-hidden="true" />

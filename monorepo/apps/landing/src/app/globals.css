@@ -292,9 +292,18 @@ button:not(:disabled),
   padding-bottom: 10px;
 }
 
+/* Identity leads, top-left, on the calmest corner of all four skies. The
+   editorial voice answers from the right. */
+.things-intro {
+  text-align: right;
+}
+
+/* Scales with the viewport rather than sitting at 11px in the corners of a
+   1440px canvas, where it read as lost. Deliberately not a bar: a navbar across
+   the top would compete with the open sky the scenes depend on. */
 .things-eyebrow {
   margin: 0;
-  font-size: 11px;
+  font-size: clamp(11px, 0.9vw, 13px);
   font-weight: 600;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -303,7 +312,7 @@ button:not(:disabled),
 .things-support {
   margin: 4px 0 0;
   color: var(--color-terra);
-  font-size: 11px;
+  font-size: clamp(11px, 1.05vw, 15px);
   letter-spacing: 0.02em;
 }
 
@@ -311,9 +320,9 @@ button:not(:disabled),
   display: inline-flex;
   min-height: 44px;
   align-items: center;
-  gap: 9px;
+  gap: clamp(9px, 0.8vw, 12px);
   color: var(--color-ink);
-  font-size: 16px;
+  font-size: clamp(16px, 1.5vw, 22px);
   font-weight: 700;
   letter-spacing: -0.02em;
 }
@@ -625,12 +634,14 @@ button:not(:disabled),
   padding-bottom: max(18px, env(safe-area-inset-bottom));
 }
 
+/* Holds only the join form now. Wide enough for the input and the giant submit
+   side by side — the old 460px was sized for a 15px button and would crush the
+   input to nothing. */
 .things-foot-left {
   display: flex;
   width: 100%;
-  max-width: 460px;
+  max-width: min(980px, 72vw);
   flex-direction: column;
-  gap: 14px;
 }
 
 .things-phrase {
@@ -692,6 +703,7 @@ button:not(:disabled),
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  justify-content: flex-end;
   gap: 10px;
 }
 
@@ -701,15 +713,13 @@ button:not(:disabled),
   gap: 12px;
 }
 
-.things-pause:focus-visible,
-.things-join-link:focus-visible {
+.things-pause:focus-visible {
   border-radius: 4px;
   outline: 2px solid var(--foot-accent);
   outline-offset: 3px;
 }
 
-.things-pause:active,
-.things-join-link:active {
+.things-pause:active {
   transform: translateY(1px);
 }
 
@@ -734,31 +744,6 @@ button:not(:disabled),
   text-underline-offset: 4px;
 }
 
-.things-join-link {
-  display: inline-flex;
-  align-items: center;
-  gap: clamp(8px, 1.2vw, 18px);
-  border: 0;
-  background: transparent;
-  color: var(--color-ink);
-  font-size: clamp(20px, 4vw, 56px);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1;
-  text-transform: lowercase;
-  white-space: nowrap;
-  opacity: 0.95;
-  transition: opacity 200ms ease;
-}
-
-.things-join-link:hover {
-  opacity: 1;
-}
-
-.things-join-link svg {
-  width: 0.7em;
-  height: 0.7em;
-}
 
 /* The join line: InlineFListForm without its paper tear-off skin, sized to be
    a real joining moment. On these dark surfaces every colour is solid
@@ -772,11 +757,15 @@ button:not(:disabled),
   display: none;
 }
 
+/* Input and the giant submit sit side by side. Stacking them would add ~66px to
+   the foot, and the foot's height is what sets how tall the scrim has to be —
+   which is how much of the illustration gets darkened. Mobile stacks, because
+   there is no horizontal room. */
 .things-hero .tearoff-strip form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
-  gap: 10px 20px;
+  gap: 10px clamp(20px, 3vw, 44px);
 }
 
 .things-hero .tearoff-field {
@@ -815,16 +804,20 @@ button:not(:disabled),
   box-shadow: 0 2px 0 -1px var(--foot-accent);
 }
 
+/* The page's biggest type, and it is the submit. */
 .things-hero .tearoff-strip button {
   display: inline-flex;
   min-height: 44px;
   align-items: center;
-  gap: 7px;
+  gap: clamp(8px, 1.2vw, 18px);
   border: 0;
   background: transparent;
-  color: var(--color-terra);
-  font-size: 15px;
-  font-weight: 650;
+  color: var(--foot-fg);
+  font-size: clamp(28px, 4vw, 56px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  text-transform: lowercase;
   white-space: nowrap;
 }
 
@@ -840,7 +833,8 @@ button:not(:disabled),
 }
 
 .things-hero .join-arrow {
-  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
   transition: transform 170ms ease;
 }
 
@@ -858,15 +852,18 @@ button:not(:disabled),
   font-size: 12px;
 }
 
+/* Matches the submit's scale so the state swap does not jump the foot height —
+   which would change how much of the scene the scrim has to cover. */
 .things-hero .tearoff-success {
   display: flex;
   min-height: 52px;
   align-items: center;
   margin: 0;
-  color: var(--color-ink);
-  font-size: clamp(22px, 3vw, 34px);
-  font-weight: 590;
-  letter-spacing: -0.045em;
+  color: var(--foot-fg);
+  font-size: clamp(28px, 4vw, 56px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
 }
 
 /* Depth: quiet ink vignette under the grain */
@@ -1015,11 +1012,15 @@ button:not(:disabled),
     font-size: 16px;
   }
 
+  /* Stacked: the submit gets its own full-width row rather than being squeezed
+     into a second column, where it used to wrap to "join the / f-list →". */
   .things-hero .tearoff-strip form {
-    gap: 6px 9px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
   }
 
   .things-hero .tearoff-strip button {
-    white-space: normal;
+    justify-content: space-between;
+    width: 100%;
   }
 }
