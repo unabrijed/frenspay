@@ -5,6 +5,7 @@ import type { FormEvent } from 'react';
 
 import { FrensLogo } from '@/components/frenspay/logo';
 import { captureRef } from '@/components/ref';
+import { isValidEmail, normalizeEmail, suggestEmail } from '@/lib/email';
 import { FRENSPAY_COPY } from '@/lib/frenspay-copy';
 import { joinWaitlist, WaitlistApiError } from '@/lib/waitlist';
 
@@ -12,6 +13,7 @@ export function InlineFListForm({ onInteractionChange }: { onInteractionChange: 
   const [success, setSuccess] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [suggestion, setSuggestion] = useState<string | null>(null);
   const busyRef = useRef(false);
   const mountedRef = useRef(true);
   const controllerRef = useRef<AbortController | null>(null);
@@ -34,16 +36,35 @@ export function InlineFListForm({ onInteractionChange }: { onInteractionChange: 
 
     const form = event.currentTarget;
     const emailField = form.elements.namedItem('email') as HTMLInputElement;
-    const email = emailField.value.trim();
-    if (!email || !emailField.validity.valid) {
+    // Write the normalised value back into the field, don't just read it. The old
+    // code trimmed into a local and then tested `emailField.validity`, which
+    // reflects the RAW value — and HTML5 email validation rejects leading and
+    // trailing whitespace, so a pasted " you@mail.com " was refused as invalid
+    // even though it was perfectly good. Normalising in place also shows the
+    // person what will actually be sent.
+    const email = normalizeEmail(emailField.value);
+    emailField.value = email;
+
+    if (!isValidEmail(email)) {
       setError('Enter a valid email address.');
+      setSuggestion(null);
       emailField.focus();
+      return;
+    }
+
+    // A likely typo is not an error — the address may be real. Offer the fix once;
+    // submitting again with the same value goes through.
+    const fix = suggestEmail(email);
+    if (fix && fix !== suggestion) {
+      setSuggestion(fix);
+      setError(null);
       return;
     }
 
     busyRef.current = true;
     setBusy(true);
     setError(null);
+    setSuggestion(null);
     onInteractionChange(true);
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -128,6 +149,23 @@ export function InlineFListForm({ onInteractionChange }: { onInteractionChange: 
               </svg>
             )}
           </button>
+          {suggestion ? (
+            <p className="tearoff-suggest">
+              did you mean{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  const field = document.getElementById('f-list-email') as HTMLInputElement | null;
+                  if (field) field.value = suggestion;
+                  setSuggestion(null);
+                  field?.focus();
+                }}
+              >
+                {suggestion}
+              </button>
+              ?
+            </p>
+          ) : null}
           {error ? (
             <p id="f-list-error" className="tearoff-error" role="alert">
               {error}

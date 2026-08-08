@@ -914,6 +914,24 @@ button:not(:disabled),
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
+/* Autofill. Chrome and Safari paint their own opaque background and near-black
+   text here, which on this dark foot reads as a white slab over the
+   illustration.
+   The background cannot be overridden by `background-color` — the UA style wins.
+   But it is applied *as a transition*, so an effectively infinite delay means it
+   never arrives, and the field simply stays transparent. The usual fix
+   (`box-shadow: inset 0 0 0 1000px <colour>`) is wrong here: it would paint an
+   opaque rectangle over the scene. `-webkit-text-fill-color` is separate from
+   `color` and has to be set too. */
+.things-hero .tearoff-field input:-webkit-autofill,
+.things-hero .tearoff-field input:-webkit-autofill:hover,
+.things-hero .tearoff-field input:-webkit-autofill:focus,
+.things-hero .tearoff-field input:autofill {
+  -webkit-text-fill-color: var(--foot-fg);
+  caret-color: var(--foot-fg);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 0s 600000s;
+}
+
 .things-hero .tearoff-field input:focus-visible,
 .things-hero .tearoff-field input[aria-invalid='true'] {
   border-color: var(--foot-accent);
@@ -999,6 +1017,7 @@ button:not(:disabled),
      2.2:1 down here and cannot be used. */
   color: var(--foot-accent);
   font-size: 12px;
+  font-weight: 600;
 }
 
 /* Matches the submit's scale so the state swap does not jump the foot height —
