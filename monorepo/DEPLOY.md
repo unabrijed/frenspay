@@ -12,12 +12,22 @@ Services:
 - **DB** — Railway Postgres (already attached for the local/stage `DATABASE_URL`).
 
 **Deploy isolation:** each Vercel project's `vercel.json` carries an `ignoreCommand` that diffs
-`$VERCEL_GIT_PREVIOUS_SHA` (last successful deploy; falls back to `HEAD^` on the first one) against
-the project's own directory — plus `packages/shared` + the workspace `yarn.lock` for the monorepo
-apps — so a commit to one app no longer rebuilds the others. All three web apps are now yarn
-workspaces under `monorepo/apps/`, so their configs are identical apart from the workspace name
-(landing omits `packages/shared` — it mirrors the design tokens by hand, see `globals.css`).
-All failure modes fail open (build runs). Railway has no in-repo equivalent: set **Watch Paths** in
+`$VERCEL_GIT_PREVIOUS_SHA` (last successful deploy) against the project's own directory — plus
+`packages/shared` + the workspace `yarn.lock` for the monorepo apps — so a commit to one app no
+longer rebuilds the others. All three web apps are now yarn workspaces under `monorepo/apps/`, so
+their configs are identical apart from the workspace name (landing omits `packages/shared` — it
+mirrors the design tokens by hand, see `globals.css`).
+
+The `git cat-file -e` in front of each diff and the `|| exit 1` after it are both load-bearing, do
+not "simplify" either away. Vercel clones with `--depth=10`, and neither a failed nor a skipped
+deploy advances `$VERCEL_GIT_PREVIOUS_SHA` — so a run of skips longer than ten commits puts that SHA
+outside the shallow clone, `git diff` dies on `fatal: bad object`, and the deploy errors at the
+ignore step before it ever installs. The `cat-file` guard turns that into a plain build (unresolvable
+SHA ⇒ can't prove nothing changed ⇒ build), which then succeeds and resets the SHA to HEAD, so the
+gap closes itself. The `|| exit 1` matters because git signals that failure with **128**, and only
+`0` (skip) and `1` (build) are documented codes — 128 is what took the deploy down in the first
+place, so every non-zero path is normalised to 1. Net effect: unset, empty, unreachable, or any
+other git error all build. Railway has no in-repo equivalent: set **Watch Paths** in
 the service dashboard (Settings → Watch Paths) to `monorepo/apps/backend/**` and
 `monorepo/packages/shared/**` so web/admin/landing commits stop redeploying the backend.
 
