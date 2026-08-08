@@ -18,6 +18,8 @@
   --color-container-medium: #f4ece8;
   --color-container-dark: #eee7e2;
   --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Paper tearing: fast in the middle, settled at both ends. */
+  --paper-ease: cubic-bezier(0.76, 0, 0.24, 1);
 }
 
 :root {
@@ -370,31 +372,243 @@ button:not(:disabled),
   transform: translateY(0);
 }
 
-/* Framer springs own the items' transform; the -50% centering lives in the
-   standalone `translate` property so the two compose. */
-.things-item {
+/* The insert shot. The scenes are establishing shots — two figures 4px tall read
+   as serene, not as friends — so each slide also carries a close-up of what those
+   two are actually doing. It sits beside the word on desktop, in the ~400px of
+   empty sky the verb leaves on each side, which is exactly the dead space that
+   made the page feel static. Side is set per slide, opposite that scene's own
+   subject, so the two balance instead of stacking.
+   Ink and terracotta need no recolouring: they already are the illustrations'
+   palette — ink matches the figure silhouettes, terracotta the island soil. The
+   page grain (z 50) falls across it, which is what makes it sit in the picture
+   rather than on top of it. */
+/* Takes its VERTICAL box from the word (top/bottom 0 inside .things-ghost) so each
+   object centres on the word and follows it wherever the block moves — but spans
+   the viewport horizontally, because the ghost is only as wide as the word itself
+   and `inset: 0` would otherwise place the side offsets on top of the type. */
+.things-objects {
   position: absolute;
-  bottom: 4%;
+  z-index: 3;
+  top: 0;
+  bottom: 0;
   left: 50%;
   translate: -50% 0;
-  will-change: transform, filter;
+  pointer-events: none;
 }
 
-.things-item svg {
+.things-object {
+  position: absolute;
+  top: 50%;
+  width: clamp(150px, 20vw, 320px);
+  opacity: 0;
+  transform: translateY(-50%);
+  /* Same leave-then-arrive hand-off as the type, so they change together
+     rather than crossing over each other. */
+  transition: opacity 280ms var(--ease-soft);
+}
+
+.things-object[data-side='left'] {
+  left: clamp(16px, 5vw, 96px);
+}
+
+.things-object[data-side='right'] {
+  right: clamp(16px, 5vw, 96px);
+}
+
+.things-object.is-active {
+  opacity: 1;
+  transition: opacity 620ms var(--ease-soft) 240ms;
+}
+
+.things-object svg {
   display: block;
-  width: min(78vw, 56svh);
+  width: 100%;
   height: auto;
+  overflow: visible;
 }
 
-.things-shadow {
-  position: absolute;
-  z-index: 15;
-  bottom: 2.5%;
-  left: 50%;
-  width: min(46vw, 34svh);
-  height: 5svh;
-  translate: -50% 0;
-  background: radial-gradient(ellipse at center, rgb(30 27 25 / 14%), transparent 70%);
+/* Without transform-box the px in these keyframes are not viewBox units and
+   every translate lands in the wrong place. The note halves hinge on the tear
+   line at the sheet's centre; the relay note keeps the SVG default origin of
+   0 0, which is its own centre because its children are drawn around it. */
+.obj-relay-note,
+.obj-note-left,
+.obj-note-right {
+  transform-box: view-box;
+}
+
+.obj-relay-note {
+  transform-origin: 0 0;
+}
+
+.obj-note-left,
+.obj-note-right {
+  transform-origin: 400px 300px;
+}
+
+/* Idle loops, only while the slide is showing. `d` is animatable in CSS in every
+   current browser, which is what let framer-motion go; where it is not, the
+   paths simply rest at the `d` attribute the component renders. */
+.things-object.is-active .obj-cradle-top {
+  animation: cradle-top 9s ease-in-out infinite;
+}
+
+.things-object.is-active .obj-cradle-bottom {
+  animation: cradle-bottom 9s ease-in-out infinite;
+}
+
+@keyframes cradle-top {
+  33% {
+    d: path('M140 180 C230 280 320 355 410 358 C490 360 545 320 585 275 C620 236 645 205 660 180');
+  }
+  66% {
+    d: path('M140 180 C210 260 270 305 370 300 C450 296 480 235 545 218 C590 206 630 190 660 180');
+  }
+}
+
+@keyframes cradle-bottom {
+  33% {
+    d: path('M140 420 C230 320 320 245 410 242 C490 240 545 280 585 325 C620 364 645 395 660 420');
+  }
+  66% {
+    d: path('M140 420 C210 340 270 295 370 300 C450 304 480 365 545 382 C590 394 630 410 660 420');
+  }
+}
+
+.things-object.is-active .obj-knot-left {
+  animation: knot-left 6s ease-in-out infinite alternate;
+}
+
+.things-object.is-active .obj-knot-right {
+  animation: knot-right 6s ease-in-out infinite alternate;
+}
+
+@keyframes knot-left {
+  to {
+    d: path(
+      'M-30 310 C90 310 190 306 268 288 C356 268 404 212 382 166 C360 120 282 118 244 162 C206 206 218 292 288 332 C338 360 396 362 436 342'
+    );
+  }
+}
+
+@keyframes knot-right {
+  to {
+    d: path(
+      'M830 310 C710 310 610 306 532 288 C444 268 396 212 418 166 C440 120 518 118 556 162 C594 206 582 292 512 332 C462 360 404 362 364 342'
+    );
+  }
+}
+
+/* The note is passed along the arc and vanishes at each hand-off, so the pass
+   reads as repeating rather than as a ball bouncing back. Sampled from the arc
+   cubic at t = 0, .25, .5, .75, 1; rotation is a stylised tangent. */
+.things-object.is-active .obj-relay-note {
+  animation: relay-pass 6s ease-in-out infinite;
+}
+
+@keyframes relay-pass {
+  0% {
+    transform: translate(80px, 432px) rotate(-24deg);
+    opacity: 0;
+  }
+  14%,
+  25% {
+    opacity: 1;
+  }
+  25% {
+    transform: translate(227px, 296px) rotate(-10deg);
+  }
+  50% {
+    transform: translate(400px, 250px) rotate(0deg);
+    opacity: 1;
+  }
+  75% {
+    transform: translate(573px, 296px) rotate(10deg);
+    opacity: 1;
+  }
+  86% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(720px, 432px) rotate(24deg);
+    opacity: 0;
+  }
+}
+
+/* Tears once on arrival, then the two halves breathe. */
+.things-object.is-active .obj-note-left {
+  animation: tear-left 1.6s var(--paper-ease) forwards, note-breathe 5s ease-in-out 1.6s infinite alternate;
+}
+
+.things-object.is-active .obj-note-right {
+  animation: tear-right 1.6s var(--paper-ease) forwards, note-breathe 5s ease-in-out 1.6s infinite alternate;
+}
+
+.things-object.is-active .obj-note-perforation {
+  animation: perforation 1.6s linear forwards;
+}
+
+@keyframes tear-left {
+  0%,
+  55% {
+    transform: translateX(0) rotate(0deg);
+  }
+  100% {
+    transform: translateX(-60px) rotate(-2.4deg);
+  }
+}
+
+@keyframes tear-right {
+  0%,
+  55% {
+    transform: translateX(0) rotate(0deg);
+  }
+  100% {
+    transform: translateX(60px) rotate(2.4deg);
+  }
+}
+
+@keyframes note-breathe {
+  from {
+    translate: 0 -3px;
+  }
+  to {
+    translate: 0 3px;
+  }
+}
+
+@keyframes perforation {
+  0%,
+  25% {
+    opacity: 0;
+  }
+  40%,
+  55% {
+    opacity: 1;
+  }
+  80%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* The narrative copy lives with the word, not down in the form chrome, which is
+   both where it belongs and what let the foot — and therefore the scrim — shrink
+   enough to stop burying the bottom third of every scene.
+   Back to ink and terracotta now that it sits on the sky: ink is 15:1 there and
+   --color-terra is 5.5:1, which is what the whisper used before the foot ever
+   went dark. */
+/* In flow beneath the word — the distance between them is .things-hero-block's
+   `gap`, not a margin measured off the word's centre. */
+.things-caption {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  width: min(90vw, 640px);
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
   pointer-events: none;
 }
 
@@ -747,8 +961,27 @@ button:not(:disabled),
     font-size: clamp(66px, 22vw, 260px);
   }
 
-  .things-shadow {
-    width: min(64vw, 30svh);
+  /* Three lines of right-aligned text beside the logo is too much on a phone —
+     the support line wrapped and orphaned a word. Logo + eyebrow, one line each. */
+  .things-support {
+    display: none;
+  }
+
+  /* No horizontal room to sit beside the word, so the insert shot goes above it.
+     `bottom: 100%` of the word's own box now that the objects layer is nested in
+     the ghost — the old `top: 22%` referred to the whole stage. */
+  .things-object {
+    top: auto;
+    bottom: calc(100% + 14px);
+    width: min(46vw, 210px);
+    transform: none;
+  }
+
+  .things-object[data-side='left'],
+  .things-object[data-side='right'] {
+    left: 50%;
+    right: auto;
+    translate: -50% 0;
   }
 
   .things-foot {
