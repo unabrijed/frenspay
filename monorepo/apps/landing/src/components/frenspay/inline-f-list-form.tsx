@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
+import { FrensLogo } from '@/components/frenspay/logo';
 import { captureRef } from '@/components/ref';
 import { FRENSPAY_COPY } from '@/lib/frenspay-copy';
 import { joinWaitlist, WaitlistApiError } from '@/lib/waitlist';
@@ -83,6 +84,7 @@ export function InlineFListForm({ onInteractionChange }: { onInteractionChange: 
       <span className="tearoff-perforation" aria-hidden="true" />
       {success ? (
         <p id="f-list-status" className="tearoff-success" role="status" aria-live="polite" tabIndex={-1}>
+          <FrensLogo state="success" className="fp-logo-inline" />
           {FRENSPAY_COPY.success}
         </p>
       ) : (
@@ -108,7 +110,23 @@ export function InlineFListForm({ onInteractionChange }: { onInteractionChange: 
               users lose nothing. */}
           <button type="submit" disabled={busy}>
             <span>{busy ? 'joining…' : FRENSPAY_COPY.fList}</span>
-            <span className="join-arrow" aria-hidden="true">→</span>
+            {busy ? (
+              <FrensLogo state="joining" className="fp-logo-inline" />
+            ) : (
+              <svg
+                className="join-arrow"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.25"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M5 12h14" />
+                <path d="m13 5 7 7-7 7" />
+              </svg>
+            )}
           </button>
           {error ? (
             <p id="f-list-error" className="tearoff-error" role="alert">

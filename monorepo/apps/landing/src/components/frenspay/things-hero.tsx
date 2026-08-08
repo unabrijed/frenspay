@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, KeyboardEvent, PointerEvent } from 'react';
 
 import { InlineFListForm } from '@/components/frenspay/inline-f-list-form';
+import { FrensLogo } from '@/components/frenspay/logo';
 import { ThingsBackdrop } from '@/components/frenspay/things-backdrop';
 import { PayNote, PlayCradle, RelayNote, StayKnot } from '@/components/frenspay/things-objects';
 import { FRENSPAY_COPY } from '@/lib/frenspay-copy';
@@ -104,8 +105,7 @@ export function ThingsHero() {
       <ThingsBackdrop scenes={SLIDES} index={index} />
       <header className="things-topline safe-x">
         <span className="things-home">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-mark.svg" alt="" width="22" height="28" />
+          <FrensLogo />
           <span>frenspay</span>
         </span>
         <div className="things-intro">

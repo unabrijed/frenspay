@@ -327,6 +327,133 @@ button:not(:disabled),
   letter-spacing: -0.02em;
 }
 
+/* ===== the mark =====
+   Inline SVG so the dots and the curve can move independently. Sized by height;
+   the mark is wide (2.05:1) so it carries its weight against the wordmark at
+   less height than a portrait mark would. */
+.fp-logo {
+  --fp-logo-bead: var(--sky, var(--color-canvas));
+  display: block;
+  width: auto;
+  height: clamp(20px, 1.9vw, 28px);
+  overflow: visible;
+  color: var(--color-terra);
+}
+
+.fp-logo-dot,
+.fp-logo-link {
+  transition: translate 260ms var(--ease-soft);
+}
+
+/* Hidden until something is actually in flight. */
+.fp-logo-bead {
+  fill: var(--fp-logo-bead);
+  offset-distance: 0%;
+  offset-rotate: 0deg;
+  opacity: 0;
+}
+
+/* Entrance: the two arrive, then the line connects them. Runs once on mount —
+   only the header instance is on screen at load, and the small in-form ones
+   appear mid-interaction where an entrance would read as a glitch. */
+.things-home .fp-logo-dot-l {
+  animation: fp-dot-in 420ms var(--ease-soft) both;
+}
+
+.things-home .fp-logo-dot-r {
+  animation: fp-dot-in 420ms var(--ease-soft) 120ms both;
+}
+
+.things-home .fp-logo-link {
+  animation: fp-link-draw 620ms var(--ease-soft) 300ms both;
+}
+
+@keyframes fp-dot-in {
+  from {
+    opacity: 0;
+    translate: 0 -34%;
+  }
+}
+
+@keyframes fp-link-draw {
+  from {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Rest: an occasional wink, long gap so it reads as a glance rather than a tic.
+   Delete this block to switch it off — nothing else depends on it. */
+.things-home .fp-logo[data-state='idle'] .fp-logo-dot-r {
+  animation: fp-dot-in 420ms var(--ease-soft) 120ms both, fp-wink 9s ease-in-out 2.4s infinite;
+}
+
+@keyframes fp-wink {
+  0%,
+  94%,
+  100% {
+    scale: 1 1;
+  }
+  97% {
+    scale: 1 0.18;
+  }
+}
+
+/* Hover: the two lean in and the dip deepens. Pointer only — this does nothing
+   on touch and should not try to. */
+@media (hover: hover) {
+  .things-home:hover .fp-logo-dot-l {
+    translate: 6% 0;
+  }
+
+  .things-home:hover .fp-logo-dot-r {
+    translate: -6% 0;
+  }
+
+  .things-home:hover .fp-logo-link {
+    translate: 0 4%;
+  }
+}
+
+/* Joining: something passes from one fren to the other, on a loop. This is the
+   pending indicator — it replaces the old "joining…" text. */
+.fp-logo[data-state='joining'] .fp-logo-bead {
+  opacity: 1;
+  animation: fp-bead 1400ms linear infinite;
+}
+
+@keyframes fp-bead {
+  from {
+    offset-distance: 0%;
+  }
+  to {
+    offset-distance: 100%;
+  }
+}
+
+/* Success: one hop, then settle. */
+.fp-logo[data-state='success'] .fp-logo-dot-l {
+  animation: fp-hop 620ms var(--ease-soft) both;
+}
+
+.fp-logo[data-state='success'] .fp-logo-dot-r {
+  animation: fp-hop 620ms var(--ease-soft) 90ms both;
+}
+
+@keyframes fp-hop {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  40% {
+    translate: 0 -26%;
+  }
+}
+
 /* Stage */
 .things-stage {
   position: relative;
@@ -830,6 +957,39 @@ button:not(:disabled),
 .things-hero .tearoff-strip button:hover .join-arrow,
 .things-hero .tearoff-strip button:focus-visible .join-arrow {
   transform: translateX(3px);
+}
+
+/* The mark used inline in running text — the submit's pending state and the
+   success line. Sized off the type it sits in, and cream because the foot is
+   dark, so the bead has to be the foot's own ink to read as a gap in the curve. */
+.things-hero .fp-logo-inline {
+  --fp-logo-bead: var(--color-ink);
+  height: 0.62em;
+  color: var(--foot-fg);
+}
+
+.things-hero .tearoff-success {
+  gap: 0.4em;
+}
+
+/* A likely typo is an offer, not a failure — peach like the error line would
+   read as a rejection, so this is plain cream with the fix as the only
+   emphasis. */
+.things-hero .tearoff-suggest {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--foot-fg);
+  font-size: 12px;
+}
+
+.things-hero .tearoff-suggest button {
+  border: 0;
+  background: transparent;
+  color: var(--foot-accent);
+  font-size: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .things-hero .tearoff-error {
