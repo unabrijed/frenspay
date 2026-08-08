@@ -138,17 +138,43 @@ export function SearchBar({
 }
 
 /* ---- avatars / logos / squares ---- */
+
+// The mark: two frens, the dots are heads and the curve is a body under each.
+// Geometry mirrors brand/logo-icon.svg (the square cut — the wide lockup dies
+// below 32px in a square tile). Inlined rather than imported from the landing's
+// generated logo-geometry.ts because these are separate apps with no shared UI
+// package; if the artwork changes, `yarn brand` regenerates the icons and this
+// needs the same edit by hand.
+//
+// This replaced a literal <Txt>T</Txt> — a leftover from the Tabroad name that
+// was still shipping on the onboarding welcome screen and the boot splash.
+function Mark({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 256 256" fill="none" aria-hidden="true">
+      <circle cx="66" cy="74" r="31" fill={colors.canvas} />
+      <circle cx="190" cy="74" r="31" fill={colors.canvas} />
+      <path
+        d="M60 136 C82 132 98 184 128 192 C158 184 174 132 196 136"
+        stroke={colors.canvas}
+        strokeWidth="48"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function Logo() {
   return (
     <View style={styles.logo}>
-      <Txt style={type.logo}>T</Txt>
+      <Mark size={20} />
     </View>
   );
 }
 export function LogoXl() {
   return (
     <View style={styles.logoXl}>
-      <Txt style={type.logoXl}>T</Txt>
+      <Mark size={38} />
     </View>
   );
 }

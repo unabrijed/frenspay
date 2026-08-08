@@ -1,0 +1,13 @@
+<!-- FrensPay lockup mark — wide (2.05:1), for headers and anywhere horizontal.
+     Two frens: the dots are heads, and the curve rises at each end into a body
+     beneath one of them, with the dip as the space between them.
+     Authored by Bridge. viewBox is cropped to the ink; the geometry below is his
+     original at its original coordinates.
+     Do NOT use this in a square slot — at 16px it renders 13x6 and turns to
+     mush, and even at 96px it fills only 41% of a square tile. Square slots use
+     logo-icon.svg. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="85 30 342 167" fill="none">
+  <circle cx="150" cy="60" r="24" fill="#A6341F"/>
+  <circle cx="362" cy="60" r="24" fill="#A6341F"/>
+  <path d="M112 126 C148 118 175 130 207 153 C238 176 274 176 305 153 C337 130 364 118 400 126" stroke="#A6341F" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
