@@ -647,7 +647,8 @@ button:not(:disabled),
 .things-phrase {
   display: grid;
   margin: 0;
-  font-size: 22px;
+  color: var(--color-ink);
+  font-size: clamp(18px, 1.9vw, 26px);
   font-weight: 600;
   letter-spacing: -0.02em;
   text-transform: lowercase;
@@ -682,21 +683,9 @@ button:not(:disabled),
   display: grid;
   margin: 0;
   color: var(--color-terra);
-  font-size: 12px;
-  letter-spacing: 0.01em;
-}
-
-.things-join {
-  transition: transform 220ms ease;
-}
-
-.things-join.is-beckoned {
-  transform: translateY(-3px);
-}
-
-.things-join.is-beckoned .tearoff-field input {
-  border-color: var(--color-terra);
-  box-shadow: 0 2px 0 -1px var(--color-terra);
+  font-size: clamp(11px, 1vw, 14px);
+  font-weight: 500;
+  letter-spacing: 0.04em;
 }
 
 .things-foot-right {
@@ -999,12 +988,9 @@ button:not(:disabled),
     justify-content: space-between;
   }
 
-  .things-phrase {
-    font-size: 18px;
-  }
-
-  .things-whisper {
-    font-size: 11px;
+  /* Tighter to the word — the stage is much shorter here. */
+  .things-caption {
+    width: min(94vw, 420px);
   }
 
   .things-hero .tearoff-field input {

@@ -19,10 +19,14 @@ export const metadata: Metadata = {
   // preview breaks. The production domain is fixed (see monorepo/DEPLOY.md §2c).
   metadataBase: new URL('https://frenspay.xyz'),
   title: 'FrensPay',
-  description: 'something for people who know people.',
+  // Same line the header shows. It is duplicated here rather than imported
+  // because metadata is evaluated at build time and pulling in the copy module
+  // for one string is not worth the coupling — but the two must be changed
+  // together.
+  description: 'for people who know people — wherever they are.',
   openGraph: {
     title: 'FrensPay',
-    description: 'something for people who know people.',
+    description: 'for people who know people — wherever they are.',
     type: 'website',
   },
 };

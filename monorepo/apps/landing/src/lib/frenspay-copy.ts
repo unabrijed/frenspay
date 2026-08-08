@@ -1,28 +1,30 @@
+// Everything the page says, in one place.
+//
+// The four slide lines used to be built inline in things-hero, with one ternary
+// special-casing `pay` for the phrase and a second special-casing it again for
+// the whisper. There was no single place to read them, which is how they drifted
+// into four identical `frens <verb>.` constructions with the travel squeezed out.
+
+// pay's whisper is a deliberate two-beat joke — the line lands, then undercuts
+// itself. Kept as named constants so it does not flatten into an anonymous
+// string the next time someone edits this file.
+const MYSTERY = 'What happens between frens stays between frens.';
+const INTERRUPTION = 'mostly.';
+
 export const FRENSPAY_COPY = {
-  headline: ['frens pay.', 'frens get paid.'],
-  supporting: 'something for people who know people.',
-  words: ['play', 'stay', 'relay', 'pay'],
-  captions: {
-    play: 'where it starts.',
-    stay: 'wherever you land.',
-    relay: 'across any distance.',
+  supporting: 'for people who know people — wherever they are.',
+
+  // Every phrase carries a place or a journey as well as a fren, rather than
+  // adding words to do it: "go places" and "make it home" are both literal
+  // travel and warm idiom, and "cross oceans" is what the money does and what
+  // the frens already did.
+  slides: {
+    play: { phrase: 'frens go places.', whisper: 'where it starts.' },
+    stay: { phrase: 'frens make it home.', whisper: 'wherever you land.' },
+    pay: { phrase: 'frens pay. frens get paid.', whisper: `${MYSTERY} ${INTERRUPTION}` },
+    relay: { phrase: 'frens cross oceans.', whisper: 'across any distance.' },
   },
-  mystery: ['What happens between frens', 'stays between frens.'],
-  interruption: 'mostly.',
-  fragments: [
-    'f-you',
-    'f-us',
-    'f-sent',
-    'f-received',
-    'f-found',
-    'f-coming',
-    'fyi',
-    'considered settled',
-    'pass it on',
-  ],
+
   fList: 'join the f-list',
   success: 'fyi, you’re in.',
-  final: 'you’ll know when you’re in.',
 } as const;
-
-export type WordStripWord = (typeof FRENSPAY_COPY.words)[number];

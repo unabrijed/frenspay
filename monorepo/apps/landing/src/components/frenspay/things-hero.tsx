@@ -141,27 +141,16 @@ export function ThingsHero() {
           ))}
         </div>
         <p className="sr-only" aria-live={paused ? 'polite' : 'off'}>
-          {`slide ${index + 1} of ${SLIDES.length}: frens ${SLIDES[index].word}.`}
+          {/* Announce the line that is actually on screen, rather than
+              rebuilding "frens <word>." — which is what the visible copy used to
+              say and no longer does. */}
+          {`slide ${index + 1} of ${SLIDES.length}: ${SLIDES[index].phrase}`}
         </p>
       </section>
 
       <footer className="things-foot safe-x">
         <div className="things-foot-left">
-          <p className="things-phrase" aria-hidden="true">
-            {SLIDES.map((slide, i) => (
-              <span key={slide.word} className={i === index ? 'is-active' : undefined}>
-                {slide.word === 'pay' ? FRENSPAY_COPY.headline.join(' ') : `frens ${slide.word}.`}
-              </span>
-            ))}
-          </p>
-          <p className="things-whisper" aria-hidden="true">
-            {SLIDES.map((slide, i) => (
-              <span key={slide.word} className={i === index ? 'is-active' : undefined}>
-                {slide.caption}
-              </span>
-            ))}
-          </p>
-          <div className={`things-join${beckoned ? ' is-beckoned' : ''}`}>
+          <div className="things-join">
             <InlineFListForm onInteractionChange={setEngaged} />
           </div>
         </div>
