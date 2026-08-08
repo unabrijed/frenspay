@@ -83,6 +83,36 @@ button:not(:disabled),
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+
+  /* The kill-switch above collapses the zoom to 0.01ms rather than removing it,
+     which would leave every scene resting at a permanent 7% zoom and drift.
+     Neutralise it through the custom properties, NOT by overriding `scale` and
+     `transform` directly: lightningcss drops `scale: 1 !important` here as a
+     redundant initial value, not knowing the base rule sets 1.07, and the
+     override silently vanishes from the build. A custom property has no
+     semantics it can reason about, so it always survives. Zeroing these two also
+     makes the keyframe animate identity-to-identity, so it is a no-op by
+     construction as well as being switched off. */
+  .things-scene {
+    --zoom: 1;
+    --drift: 0%;
+    animation: none !important;
+  }
+
+  /* The objects idle-loop forever, so the kill-switch clamping duration to
+     0.01ms is not enough — it would leave them at their end frame, spinning. */
+  .things-object * {
+    animation: none !important;
+  }
+
+  /* Same for the mark. Safe to drop outright: every logo keyframe declares only
+     a `from`, so with no animation the parts rest at their own natural state —
+     dots visible, curve fully drawn. Losing the joining bead costs nothing
+     either, because the button keeps its "joining…" label; the motion was only
+     ever the flourish, never the message. */
+  .fp-logo * {
+    animation: none !important;
+  }
 }
 
 /* ===== things between frens (the landing, everything .things- scoped) ===== */
@@ -208,6 +238,35 @@ button:not(:disabled),
   --drift: -1.5%;
 }
 
+.things-scene.is-active {
+  z-index: 2;
+  opacity: 1;
+  transition: opacity var(--swap) var(--ease-soft) 0s;
+  animation: scene-drift var(--hold) linear;
+}
+
+/* No `to` block on purpose: the finished state is then the element's own resting
+   values above. That matters because the animation is removed the moment a scene
+   loses .is-active, while it is still fully visible for another 900ms — if the
+   resting scale were 1 it would snap backwards by 7% in plain view. Resting ==
+   the end state means auto-advance snaps by nothing at all.
+   (Same idiom the old px-in keyframe used.) */
+@keyframes scene-drift {
+  from {
+    scale: 1;
+    transform: translateX(calc(var(--drift) * -1));
+  }
+}
+
+/* Ink gradient over the bottom of the scene: the foot's cream chrome would
+   otherwise sit on whatever the illustration happens to show there, which on
+   `play` is lit surf — measured, the brightest pixel in that band needs 62% ink
+   before cream clears 4.5:1.
+   Sized to the text, not to the picture. The first cut ran this to 46svh and
+   greyed out the whole lower half of every scene; the strength was never the
+   problem, the height was. It holds 64% to the top of the text band and is gone
+   by 30svh. apps/landing/scripts/check-scenes.mjs asserts the result, so change
+   these stops there too. */
 .things-scrim {
   position: absolute;
   inset: auto 0 0 0;
@@ -296,11 +355,16 @@ button:not(:disabled),
   opacity: 0;
   filter: blur(10px);
   transform: translateY(16px);
-  transition: opacity 750ms var(--ease-soft), filter 750ms var(--ease-soft),
-    transform 750ms var(--ease-soft);
+  /* Leaving is fast; arriving is delayed. Cross-fading two *different* words at
+     the same time means you read both at once, which at this size is mud. The
+     word clears the frame before the next one lifts in. */
+  transition: opacity 280ms var(--ease-soft), filter 280ms var(--ease-soft),
+    transform 280ms var(--ease-soft);
 }
 
 .things-ghost span.is-active {
+  transition: opacity 620ms var(--ease-soft) 240ms, filter 620ms var(--ease-soft) 240ms,
+    transform 620ms var(--ease-soft) 240ms;
   opacity: 1;
   filter: blur(0);
   transform: translateY(0);
@@ -369,7 +433,18 @@ button:not(:disabled),
   grid-area: 1 / 1;
   opacity: 0;
   transform: translateY(8px);
-  transition: opacity 750ms var(--ease-soft), transform 750ms var(--ease-soft);
+  transition: opacity 280ms var(--ease-soft), transform 280ms var(--ease-soft);
+}
+
+/* Same leave-then-arrive hand-off as the ghost word, staggered behind it so the
+   three lines land as a cascade rather than all at once. Everything is inside
+   the 900ms swap. */
+.things-phrase span.is-active {
+  transition: opacity 620ms var(--ease-soft) 320ms, transform 620ms var(--ease-soft) 320ms;
+}
+
+.things-whisper span.is-active {
+  transition: opacity 620ms var(--ease-soft) 380ms, transform 620ms var(--ease-soft) 380ms;
 }
 
 .things-phrase span.is-active,

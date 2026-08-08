@@ -30,7 +30,7 @@ const SLIDES = [
 // Also the duration of each scene's slow zoom, handed to CSS as --hold so this
 // stays the only place the interval is written down.
 const HOLD_MS = 6000;
-const SWAP_MS = 650;
+const SWAP_MS = 900;
 
 function useMediaQuery(query: string) {
   const [matches, setMatches] = useState(false);
