@@ -58,7 +58,7 @@ Ctrl-C stops the whole group; nothing is left holding a port.
 
 | Everything else | |
 |---|---|
-| `yarn brand` | Regenerate every app icon from `brand/logo-mark.svg` |
+| `yarn brand` | Regenerate every app icon from `brand/logo-lockup.svg` + `brand/logo-icon.svg` |
 | `yarn typecheck` | Type-check **all six** workspaces (shared + mobile + backend + web + admin + landing) |
 | `yarn workspace @fpay/backend db:migrate` | Apply pending DB migrations (`db:status` to inspect) |
 | `yarn workspace @fpay/backend db:seed` | Insert 2 test users (@bridge, @neha) + sample activity (prints ids) |

@@ -2,21 +2,18 @@
 
 @theme {
   --font-sans: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
+  /* Only what the page actually uses. Eight further colours from the app's
+     Material-3 set (muted, hair, terra-deep, teal, teal-soft and the three
+     container greys) were carried here and never referenced once.
+     Check usage across the whole app, not just this file — terra-ctr looks dead
+     here and has nine uses in things-objects.tsx. */
   --color-canvas: #fff8f4;
   --color-ink: #1e1b19;
-  --color-muted: #58413d;
-  --color-hair: #e8e1dd;
   --color-border: #e0bfb9;
   --color-terra: #a6341f;
-  --color-terra-deep: #aa3621;
   --color-terra-ctr: #c84b34;
   --color-peach: #ffdad3;
   --color-peach-dim: #ffb4a5;
-  --color-teal: #416467;
-  --color-teal-soft: #c1e7ea;
-  --color-container-light: #faf2ee;
-  --color-container-medium: #f4ece8;
-  --color-container-dark: #eee7e2;
   --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
   /* Paper tearing: fast in the middle, settled at both ends. */
   --paper-ease: cubic-bezier(0.76, 0, 0.24, 1);

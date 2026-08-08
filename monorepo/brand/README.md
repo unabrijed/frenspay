@@ -53,8 +53,8 @@ build time depends on the script.
 | `apps/landing/src/components/frenspay/logo-geometry.ts` | the lockup's numbers, for the animated inline React logo |
 | `apps/mobile/assets/images/*` | 1024² icon / adaptive layers / splash, 48² web favicon |
 
-66% matches the composition of the approved `src/icon-tile-1254.png`. Android's adaptive foreground
-drops to 52% so the art survives a full circular mask.
+66% leaves the mark comfortable in the squircle without crowding its corners. Android's adaptive
+foreground drops to 52% so the art survives a full circular mask.
 
 ### Why the geometry is emitted as TypeScript
 
@@ -63,12 +63,12 @@ animate independently and an `<img>` is one opaque box. Emitting `logo-geometry.
 the only place the shape is authored — otherwise the React component becomes a second copy that
 silently diverges.
 
-`apps/web/src/components/ui/primitives.tsx` inlines the icon-cut geometry by hand, because the apps
-share no UI package. If the artwork changes, that one needs the same edit.
+`apps/web/src/components/ui/primitives.tsx` and `apps/mobile/src/components/ui/primitives.tsx` each
+inline the icon-cut geometry by hand, because the apps share no UI package. If the artwork changes,
+both need the same edit.
 
-## `src/`
+## Removed: `src/`
 
-The original ChatGPT renders, kept for reference — noisy (thousands of near-identical shades) and
-off-token, so nothing ships them directly. `src/reference/` holds three 3D "neon signage" mockups:
-**never use these in the product**, they read as AI-generated, which the landing's design rules
-explicitly cut.
+The original ChatGPT renders are gone. They existed only as the trace source for the retired f, plus
+three 3D "neon signage" mockups that were never allowed to ship anyway — they read as AI-generated,
+which the landing's design rules explicitly cut. Recover from git history if ever needed.

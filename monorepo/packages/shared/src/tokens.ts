@@ -126,8 +126,9 @@ export const typeScale = {
   flipFig: { role: 'disp700', fontSize: 27, letterSpacing: -0.3, color: 'ink' },
   payeeWho: { role: 'disp700', fontSize: 20, color: 'ink' },
   brandWord: { role: 'disp700', fontSize: 26, letterSpacing: -0.5, color: 'accent' }, // fpay wordmark
-  logo: { role: 'disp700', fontSize: 17, color: 'white' },
-  logoXl: { role: 'disp800', fontSize: 30, color: 'white' },
+  // (No `logo`/`logoXl` text roles: the logo is artwork, not a glyph. They set the
+  // single letter that stood in for the mark before it existed. `radii.logo` and
+  // `radii.logoXl` remain — those are the tile's corner radii.)
   tierTitle: { role: 'disp700', fontSize: 18, color: 'ink' },
   onbH1: { role: 'disp700', fontSize: 32, letterSpacing: -0.3, lineHeight: 40, color: 'ink' },
   avatarInitial: { role: 'disp700', fontSize: 16, color: 'ink' },

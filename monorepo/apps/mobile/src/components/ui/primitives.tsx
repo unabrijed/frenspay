@@ -1,5 +1,6 @@
 // primitives.tsx — shared building blocks ported from pay.css component rules.
 import { Pressable, StyleSheet, View, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
+import { Circle, Path, Svg } from 'react-native-svg';
 
 import { Icons } from '@/components/icons';
 import { Txt } from '@/components/ui/Txt';
@@ -109,17 +110,43 @@ export function SearchBar({ placeholder }: { placeholder: string }) {
 }
 
 /* ---- avatars / logos / squares ---- */
+
+// The mark: two frens, the dots are heads and the curve is a body under each.
+// Geometry mirrors brand/logo-icon.svg — the square cut, because the wide lockup
+// dies below 32px in a square tile. Inlined rather than imported from the
+// landing's generated logo-geometry.ts because the apps share no UI package; if
+// the artwork changes, `yarn brand` regenerates the icons and this needs the same
+// edit by hand (as does apps/web/src/components/ui/primitives.tsx).
+//
+// This replaced a literal <Txt>P</Txt> — a placeholder from the Tabroad era, the
+// last place the retired logo was still rendering.
+function Mark({ size }: { size: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 256 256" fill="none">
+      <Circle cx="66" cy="74" r="31" fill={colors.canvas} />
+      <Circle cx="190" cy="74" r="31" fill={colors.canvas} />
+      <Path
+        d="M60 136 C82 132 98 184 128 192 C158 184 174 132 196 136"
+        stroke={colors.canvas}
+        strokeWidth={48}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
 export function Logo() {
   return (
     <View style={styles.logo}>
-      <Txt style={type.logo}>P</Txt>
+      <Mark size={20} />
     </View>
   );
 }
 export function LogoXl() {
   return (
     <View style={styles.logoXl}>
-      <Txt style={type.logoXl}>P</Txt>
+      <Mark size={38} />
     </View>
   );
 }
