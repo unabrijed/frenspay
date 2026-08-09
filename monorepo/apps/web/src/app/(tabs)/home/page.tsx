@@ -72,7 +72,7 @@ export default function Home() {
           </View>
           <Txt style={[type.sub, { marginTop: 18 }]}>Global balance</Txt>
           {loaded ? (
-            <View style={styles.heroAmt}>
+            <View className="fp-arrive" style={styles.heroAmt}>
               <Txt style={[type.heroBalance, styles.dollar]}>{displayCurrency === 'USD' ? '$' : '₹'}</Txt>
               <Txt style={type.heroBalance}>{displayCurrency === 'USD' ? fmtUsd(bal) : inr(bal, fxRate).slice(1)}</Txt>
             </View>

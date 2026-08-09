@@ -144,7 +144,7 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
           <View style={styles.fieldFoot}>
             <Txt style={[type.note, { color: colors.muted }]}>This can&apos;t be changed later.</Txt>
             {avail ? (
-              <View style={styles.availPill}>
+              <View className="fp-arrive" style={styles.availPill}>
                 <Icons.Check size={15} color={colors.secondary} fill />
                 <Txt style={[type.tierTag, { color: colors.secondary }]}>Available</Txt>
               </View>
