@@ -411,9 +411,17 @@ button:not(:disabled),
 }
 
 /* Rest: an occasional wink, long gap so it reads as a glance rather than a tic.
-   Delete this block to switch it off — nothing else depends on it. */
+   Delete this block to switch it off — nothing else depends on it.
+   The third slot is normally empty and is the press-blink's only way in. It has
+   to be a slot rather than an overriding rule because CSS matches animations by
+   INDEX: redeclaring the shorthand elsewhere would restart fp-dot-in too, so the
+   dot would drop in again every time you released the join button. `none` is a
+   valid <single-animation>, so the unpressed state costs nothing. */
 .things-home .fp-logo[data-state='idle'] .fp-logo-dot-r {
-  animation: fp-dot-in 420ms var(--ease-soft) 120ms both, fp-wink 9s ease-in-out 2.4s infinite;
+  animation:
+    fp-dot-in 420ms var(--ease-soft) 120ms both,
+    fp-wink 9s ease-in-out 2.4s infinite,
+    var(--fp-blink, none);
 }
 
 @keyframes fp-wink {
@@ -440,6 +448,45 @@ button:not(:disabled),
 
   .things-home:hover .fp-logo-link {
     translate: 0 7px;
+  }
+}
+
+/* Someone is filling in the form: the two look over at it. Pure :has() — the
+   header mark and the tear-off strip are both inside .things-hero, so nothing has
+   to travel between the two components and no state is added to either. Reuses
+   the 260ms translate transition declared above, so this costs no keyframe.
+   The far dot leans further than the near one, which is what turning toward
+   something looks like.
+   Calibration knob: these numbers aim at where the strip actually sits. Move the
+   strip and they want re-aiming — 24 units is ~4px at the mark's 28px cap.
+   Scoped to .things-home, not to every .fp-logo in the hero: submitting with the
+   caret still in the field leaves the input focused, and the in-form mark should
+   be getting on with the bead rather than glancing at itself. Specificity (0,4,1)
+   also keeps this ahead of the hover lean when a pointer is over the header too. */
+.things-hero:has(.tearoff-field input:focus) .things-home .fp-logo-dot-l {
+  translate: 6px 24px;
+}
+
+.things-hero:has(.tearoff-field input:focus) .things-home .fp-logo-dot-r {
+  translate: 10px 24px;
+}
+
+.things-hero:has(.tearoff-field input:focus) .things-home .fp-logo-link {
+  translate: 4px 8px;
+}
+
+/* Going for the submit: one blink, like catching your eye just before it happens.
+   :active rather than a post-submit state because the point is the anticipation —
+   the joining bead already owns everything after the press. Released early the
+   keyframe is simply cut and the eye snaps open, which reads as a faster blink
+   rather than as a bug, so no fill is set. */
+.things-hero:has(.tearoff-strip button[type='submit']:active) .things-home .fp-logo {
+  --fp-blink: fp-blink 180ms var(--ease-soft);
+}
+
+@keyframes fp-blink {
+  50% {
+    scale: 1 0.18;
   }
 }
 
