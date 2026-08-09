@@ -107,6 +107,7 @@ function EmailOtp() {
           <Btn
             label={submitting ? 'Verifying…' : 'Verify'}
             disabled={code.length < 4 || submitting}
+            pending={submitting}
             onPress={() => {
               setSubmitting(true);
               verifyOtp(code);
@@ -116,6 +117,7 @@ function EmailOtp() {
           <Btn
             label={submitting ? 'Sending…' : 'Send code'}
             disabled={!email.includes('@') || submitting}
+            pending={submitting}
             onPress={() => {
               setSubmitting(true);
               requestOtp(email.trim());

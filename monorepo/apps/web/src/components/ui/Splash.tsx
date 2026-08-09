@@ -24,8 +24,16 @@ export function Splash() {
 
   return (
     <Screen edges={['top']}>
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <LogoXl />
+      {/* The bead is the only thing on this screen saying "working" rather than
+          "wedged" — it is a static tile on a blank frame otherwise. role/aria-label
+          because the screen carries no text at all, and a pending state must never
+          be motion alone. */}
+      <View
+        style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+        role="status"
+        aria-label="Loading"
+      >
+        <LogoXl state="joining" />
       </View>
     </Screen>
   );

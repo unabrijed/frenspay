@@ -4,6 +4,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 
 import { Txt } from '@/components/ui/Txt';
+import { Mark } from '@/components/ui/primitives';
 import { haptic as doHaptic, Pressable, View } from '@/components/ui/rn';
 import { colors, radii, shadows, type } from '@/lib/theme';
 
@@ -15,6 +16,7 @@ export function Btn({
   variant = 'primary',
   disabled,
   icon,
+  pending,
   height = 54,
   style,
   haptic = true,
@@ -24,6 +26,10 @@ export function Btn({
   variant?: Variant;
   disabled?: boolean;
   icon?: ReactNode;
+  /** Something is in flight: the mark takes the icon slot and passes a bead between
+      the two frens. Give the label the pending wording too ("Saving…") — the motion
+      is the flourish, never the message. */
+  pending?: boolean;
   height?: number;
   style?: CSSProperties;
   haptic?: boolean;
@@ -49,7 +55,13 @@ export function Btn({
         style,
       ]}
     >
-      {icon ? <View style={styles.icon}>{icon}</View> : null}
+      {pending ? (
+        <View style={styles.icon}>
+          <Mark size={18} state="joining" />
+        </View>
+      ) : icon ? (
+        <View style={styles.icon}>{icon}</View>
+      ) : null}
       <Txt style={[type.button, { color: textColor }]}>{label}</Txt>
     </Pressable>
   );

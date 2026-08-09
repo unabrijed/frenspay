@@ -177,7 +177,7 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
       </View>
 
       <View style={styles.cta}>
-        <Btn label={busy ? 'Saving…' : 'Continue'} disabled={!avail || busy} onPress={onContinue} />
+        <Btn label={busy ? 'Saving…' : 'Continue'} disabled={!avail || busy} pending={busy} onPress={onContinue} />
       </View>
     </Screen>
   );

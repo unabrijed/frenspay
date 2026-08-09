@@ -85,7 +85,7 @@ export default function Fund() {
       {err ? <Txt style={[type.lead, { fontSize: 13, color: colors.danger }]}>{err}</Txt> : null}
       <Spacer />
       <View style={styles.cta}>
-        <Btn label={busy ? 'Adding…' : `Add $${amt}`} disabled={amt <= 0 || busy} onPress={finish} />
+        <Btn label={busy ? 'Adding…' : `Add $${amt}`} disabled={amt <= 0 || busy} pending={busy} onPress={finish} />
       </View>
     </Screen>
   );
