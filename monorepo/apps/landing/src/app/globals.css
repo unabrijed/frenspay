@@ -337,13 +337,40 @@ button:not(:disabled),
   color: var(--color-terra);
 }
 
+/* Every part has to pivot on ITSELF. transform-box initially resolves to
+   `view-box`, so `transform-origin: 50% 50%` meant the centre of the 342x167
+   viewBox — 53.5 units BELOW the dots. fp-wink's `scale: 1 0.18` therefore
+   dragged the right dot 44 units (7.4px at full size) down toward the middle of
+   the mark while flattening it: a slide, not a blink.
+   fill-box rather than the `view-box` + explicit transform-origin used by the
+   illustrated objects further down: that idiom needs the pivot written into the
+   CSS, and this mark's coordinates are GENERATED into logo-geometry.ts. Copying
+   362,60 here would make this file the second, silently diverging source the
+   generator exists to prevent. fill-box needs no coordinates at all — 50% 50% of
+   an element's own bbox IS the dot's centre, permanently.
+   Distances below are px, not %, because on an SVG child a CSS px IS a viewBox
+   user unit — so they render at exactly the values the percentages already
+   resolved to and nothing had to be re-eyeballed. A percentage now means "% of
+   this element's own box", which is two different scales in one block: 48 for a
+   dot, and 46.7 for the curve, whose fill box EXCLUDES the 42-unit stroke
+   (fill-box is the SVG object bounding box). One unit for the whole mark is
+   simpler, and it is what the .obj-* keyframes below already do. */
 .fp-logo-dot,
 .fp-logo-link {
+  transform-box: fill-box;
   transition: translate 260ms var(--ease-soft);
 }
 
-/* Hidden until something is actually in flight. */
+/* Hidden until something is actually in flight.
+   fill-box here is load-bearing, not tidiness: `offset-anchor: auto` resolves to
+   transform-origin, so under the view-box default the point pinned to the curve
+   was the VIEWBOX's centre rather than the bead's — offsetting it by a flat
+   (-144, +12.5) and parking it outside the mark for the entire loop. It went
+   unnoticed because the bead is painted in the SURROUNDING surface colour, so
+   off-curve it is camouflage on camouflage: `joining` rendered nothing at all,
+   and only the button's "joining…" label was ever carrying that state. */
 .fp-logo-bead {
+  transform-box: fill-box;
   fill: var(--fp-logo-bead);
   offset-distance: 0%;
   offset-rotate: 0deg;
@@ -368,7 +395,7 @@ button:not(:disabled),
 @keyframes fp-dot-in {
   from {
     opacity: 0;
-    translate: 0 -34%;
+    translate: 0 -57px;
   }
 }
 
@@ -404,15 +431,15 @@ button:not(:disabled),
    on touch and should not try to. */
 @media (hover: hover) {
   .things-home:hover .fp-logo-dot-l {
-    translate: 6% 0;
+    translate: 20px 0;
   }
 
   .things-home:hover .fp-logo-dot-r {
-    translate: -6% 0;
+    translate: -20px 0;
   }
 
   .things-home:hover .fp-logo-link {
-    translate: 0 4%;
+    translate: 0 7px;
   }
 }
 
@@ -447,7 +474,7 @@ button:not(:disabled),
     translate: 0 0;
   }
   40% {
-    translate: 0 -26%;
+    translate: 0 -43px;
   }
 }
 
