@@ -92,6 +92,9 @@ const styles = {
     justifyContent: 'center',
     gap: 8,
     border: '1px solid transparent',
+    // styles.pressed already moves the button; without this every CTA in the app
+    // snaps to it and back. 140ms — longer makes the press-down feel laggy.
+    transition: 'transform var(--dur-quick) var(--ease-soft)',
   },
   primary: { background: colors.accent, borderColor: 'transparent' }, // terracotta CTA
   ink: { background: colors.ink },
