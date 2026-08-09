@@ -14,6 +14,17 @@
   --accent: #a6341f;
   /* warm neutral surround shown around the phone column on wide screens */
   --backdrop: #ece4dd;
+
+  /* Motion. Same curve as apps/landing's --ease-soft: the two apps share the
+     vocabulary, not the stylesheet — they are on different Tailwind majors and
+     neither imports the other. (--paper-ease is not copied; nothing here tears.)
+     These live here rather than in @fpay/shared for the same reason the colours
+     above are mirrored: a @keyframes block cannot read a TS token, and an inline
+     CSSProperties string CAN read a var(), so one declaration serves both the
+     mark's keyframes and every inline `transition` in the RN-shim components. */
+  --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-quick: 140ms;
+  --dur-enter: 420ms;
 }
 
 * {
@@ -68,6 +79,99 @@ html.fonts-ready .material-symbols-outlined {
   }
 }
 
+/* ===== the mark =====
+   Inline SVG (see components/ui/primitives.tsx) so the dots and the curve move
+   independently. Alongside .skeleton and .pulse-ring this is one of the app's few
+   class-styled components, for the same reason they are: a @keyframes block needs
+   a stylesheet and this app styles inline, so geometry and colour stay in the
+   component and only motion lives here.
+   States mirror the landing's, minus two. No rest-wink: nothing in the app keeps a
+   mark on screen long enough to glance at you. No success-hop: no success surface
+   carries a mark — the fund screen navigates straight to Home, where the balance
+   arriving carries that confirmation instead, and for free. */
+
+/* Each part pivots on ITSELF. The default `view-box` reference box would put every
+   50% origin at the centre of the 256x256 viewBox — and would pin the bead's
+   offset-path anchor there too, throwing it clean off the curve, because
+   offset-anchor: auto resolves to transform-origin. (That exact bug shipped on the
+   landing for a while and made its joining state render nothing at all.) With
+   fill-box the percentages below mean "% of this dot", so they survive a
+   `yarn brand` artwork change unedited. */
+.fp-logo-dot,
+.fp-logo-link,
+.fp-logo-bead {
+  transform-box: fill-box;
+}
+
+/* The dots drop in from outside the svg's own box. */
+.fp-logo {
+  overflow: visible;
+}
+
+/* Entrance is opt-in: a mark inside a submit button appears mid-interaction, where
+   a second of assembling reads as a glitch. Only the standalone placements
+   (Logo/LogoXl) set data-enter. */
+.fp-logo[data-enter] .fp-logo-dot-l {
+  animation: fp-dot-in var(--dur-enter) var(--ease-soft) both;
+}
+.fp-logo[data-enter] .fp-logo-dot-r {
+  animation: fp-dot-in var(--dur-enter) var(--ease-soft) 120ms both;
+}
+.fp-logo[data-enter] .fp-logo-link {
+  animation: fp-link-draw 620ms var(--ease-soft) 300ms both;
+}
+
+@keyframes fp-dot-in {
+  from {
+    opacity: 0;
+    translate: 0 -75%; /* three quarters of a dot above home */
+  }
+}
+
+/* pathLength="1" on the path normalises the draw-on, so this never has to know the
+   curve's real length. */
+@keyframes fp-link-draw {
+  from {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Joining: something is in flight, passing from one fren to the other. Never the
+   only signal — every surface that shows it keeps its own text ("Saving…",
+   "Adding…", role="status" on the splash). Motion is the flourish, never the
+   message. */
+.fp-logo[data-state='joining'] .fp-logo-bead {
+  opacity: 1;
+  animation: fp-bead 1400ms linear infinite;
+}
+
+@keyframes fp-bead {
+  from {
+    offset-distance: 0%;
+  }
+  to {
+    offset-distance: 100%;
+  }
+}
+
+/* A value that just landed. Both users — the home balance and the handle
+   "Available" pill — replace a placeholder, so without this they hard-cut. */
+.fp-arrive {
+  animation: fp-arrive var(--dur-enter) var(--ease-soft) both;
+}
+
+@keyframes fp-arrive {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+
 /* Skeleton shimmer — placeholder blocks shown while first-load data arrives (see
    components/ui/Skeleton.tsx). A warm neutral base with a light sweep, so screens read as
    "loading" instead of flashing empty→full. */
@@ -89,9 +193,26 @@ html.fonts-ready .material-symbols-outlined {
     transform: translateX(100%);
   }
 }
+/* Deliberately a list of families, NOT a global `animation-duration: 0.01ms` clamp
+   (the landing needs one and pays for it with per-family exceptions): clamping
+   freezes an infinite loop on its END frame, which would park .pulse-ring at
+   scale(1.4)/opacity 0 — permanently invisible. Naming four families is shorter
+   than a clamp plus its escape hatches.
+   Safe to drop outright rather than shorten, because every keyframe above declares
+   only a `from`: with no animation each element rests at its own natural state —
+   dots visible, curve drawn, balance shown. Nothing is lost, because every pending
+   surface keeps its text ("Saving…", "Adding…", role="status" on the splash).
+   `transition`s (toast, sheet, button press) are left alone: they are 12-16px
+   opacity moves, and switching them off mid-flight risks parking a sheet
+   off-screen.
+   !important is load-bearing, not stylistic: .fp-logo[data-enter] .fp-logo-dot-l
+   outweighs .fp-logo * on specificity, so source order alone would not win. */
 @media (prefers-reduced-motion: reduce) {
-  .skeleton::after {
-    animation: none;
+  .skeleton::after,
+  .pulse-ring,
+  .fp-logo *,
+  .fp-arrive {
+    animation: none !important;
   }
 }
 

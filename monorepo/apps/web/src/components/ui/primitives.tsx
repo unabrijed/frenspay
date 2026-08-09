@@ -148,33 +148,74 @@ export function SearchBar({
 //
 // This replaced a literal <Txt>T</Txt> — a leftover from the Tabroad name that
 // was still shipping on the onboarding welcome screen and the boot splash.
-function Mark({ size }: { size: number }) {
+//
+// Motion lives in globals.css (a @keyframes block needs a stylesheet and this file
+// styles inline), keyed off the classes and data-attributes below. Only two states:
+// there is no rest-wink because nothing here holds a mark on screen long enough,
+// and no success-hop because no success surface carries one.
+export type LogoState = 'idle' | 'joining';
+
+// One copy of the curve. The bead rides it via offset-path, and two copies of the
+// same `d` is the one way this file could silently drift from itself.
+const LINK = 'M60 136 C82 132 98 184 128 192 C158 184 174 132 196 136';
+
+export function Mark({
+  size,
+  state = 'idle',
+  enter,
+}: {
+  size: number;
+  state?: LogoState;
+  enter?: boolean;
+}) {
   return (
-    <svg width={size} height={size} viewBox="0 0 256 256" fill="none" aria-hidden="true">
-      <circle cx="66" cy="74" r="31" fill={colors.canvas} />
-      <circle cx="190" cy="74" r="31" fill={colors.canvas} />
+    <svg
+      className="fp-logo"
+      data-state={state}
+      data-enter={enter ? '' : undefined}
+      width={size}
+      height={size}
+      viewBox="0 0 256 256"
+      fill="none"
+      aria-hidden="true"
+    >
+      {/* pathLength normalises the draw-on to 0..1, so the entrance keyframes never
+          have to know the curve's real length. */}
       <path
-        d="M60 136 C82 132 98 184 128 192 C158 184 174 132 196 136"
+        className="fp-logo-link"
+        d={LINK}
+        pathLength={1}
         stroke={colors.canvas}
         strokeWidth="48"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+      <circle className="fp-logo-dot fp-logo-dot-l" cx="66" cy="74" r="31" fill={colors.canvas} />
+      <circle className="fp-logo-dot fp-logo-dot-r" cx="190" cy="74" r="31" fill={colors.canvas} />
+      {/* Painted in the SURROUND, not the mark, so it reads as a gap travelling
+          along the curve rather than a dot stuck on it. Terracotta is right for
+          both placements — the logo tile and a primary Btn are the same accent. */}
+      <circle
+        className="fp-logo-bead"
+        r={48 * 0.4}
+        fill={colors.accent}
+        style={{ offsetPath: `path("${LINK}")` } as CSSProperties}
+      />
     </svg>
   );
 }
 
-export function Logo() {
+export function Logo({ state }: { state?: LogoState } = {}) {
   return (
     <View style={styles.logo}>
-      <Mark size={20} />
+      <Mark size={20} state={state} enter />
     </View>
   );
 }
-export function LogoXl() {
+export function LogoXl({ state }: { state?: LogoState } = {}) {
   return (
     <View style={styles.logoXl}>
-      <Mark size={38} />
+      <Mark size={38} state={state} enter />
     </View>
   );
 }
