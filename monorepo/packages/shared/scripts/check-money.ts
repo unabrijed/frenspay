@@ -7,7 +7,7 @@
 // RUNTIME helpers, and the backend may only `import type` from @fpay/shared. It also asserts the
 // backend MIRROR of units.ts hasn't drifted, and that nobody has taught `pg` to hand back floats.
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -159,11 +159,20 @@ ok('backend units.ts still mirrors shared byte-for-byte');
  * that compares one with a relational operator without a Number()/parseAmount() in sight.
  */
 const contracts = readFileSync(join(ROOT, 'packages/shared/src/contracts.ts'), 'utf8');
+// `^\s+`, not `^\s{2}`: fields nested inside an `Array<{…}>` are indented four, and a field that
+// existed ONLY nested would otherwise be unprotected.
+// `string | number` counts too — those are the request DTOs, and `+` concatenates on them just the
+// same the moment a caller passes the string half.
+// NOT matched, deliberately: `balanceUSD`. The pattern is case-sensitive, and the only thing it
+// misses is the client store slot, which is a view-model `number` by design (parsed at the boundary
+// in services/real.ts). Widening the case here would manufacture false positives, not find bugs.
 const stringMoneyFields = [
   ...new Set(
-    [...contracts.matchAll(/^\s{2}(\w*(?:[Uu]sdc?|[Ii]nr|[Rr]upees))\??:\s*string(?:\s*\|\s*null)?;/gm)].map(
-      (m) => m[1],
-    ),
+    [
+      ...contracts.matchAll(
+        /^\s+(\w*(?:[Uu]sdc?|[Ii]nr|[Rr]upees))\??:\s*(?:string\s*\|\s*number|string)(?:\s*\|\s*null)?[;,]/gm,
+      ),
+    ].map((m) => m[1]),
   ),
 ];
 assert.ok(stringMoneyFields.length > 0, 'found no string money fields — has the regex or contracts.ts drifted?');
@@ -178,8 +187,26 @@ const OPS = '(?:<=?|>=?|\\+)(?!=)';
 const compares = (line: string, f: string) =>
   new RegExp(`\\.${f}\\b\\s*${OPS}`).test(line) || new RegExp(`${OPS}\\s*[\\w$.]*\\.${f}\\b`).test(line);
 
+/**
+ * Scanned directories come from the yarn workspaces, never a hand-written list. The old hardcoded
+ * triple is exactly how apps/mobile went unscanned: it is excluded from `workspaces` while parked,
+ * which is correct — but nothing would have started scanning it again on the day it is unparked.
+ * Deriving the list means that day needs no one to remember.
+ */
+const workspaceGlobs = (JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { workspaces: string[] })
+  .workspaces;
+const scanDirs = workspaceGlobs
+  .flatMap((g) =>
+    g.endsWith('/*')
+      ? readdirSync(join(ROOT, g.slice(0, -2))).map((d) => `${g.slice(0, -2)}/${d}`)
+      : [g],
+  )
+  .map((w) => `${w}/src`)
+  .filter((d) => existsSync(join(ROOT, d)));
+assert.ok(scanDirs.length >= 4, `expected to scan every workspace's src, found ${scanDirs.length}`);
+
 const lexicalRisks: string[] = [];
-for (const dir of ['apps/web/src', 'apps/admin/src', 'apps/backend/src']) {
+for (const dir of scanDirs) {
   for (const rel of grepTs(join(ROOT, dir), '')) {
     const lines = readFileSync(join(ROOT, rel), 'utf8').split('\n');
     lines.forEach((line, i) => {
@@ -202,7 +229,10 @@ if (lexicalRisks.length) {
   console.error('  Fix with Number(), or justify with a `money:number` comment if the value is genuinely numeric.\n');
 }
 assert.equal(lexicalRisks.length, 0, `${lexicalRisks.length} unsafe money-string operation(s) — listed above`);
-ok(`no lexical comparison on any of the ${stringMoneyFields.length} string-typed money fields`);
+ok(
+  `no lexical comparison on any of the ${stringMoneyFields.length} string-typed money fields ` +
+    `(scanned ${scanDirs.length} workspaces)`,
+);
 
 // pg hands `numeric` back as a string, which is correct and load-bearing: a type parser returning
 // a float would silently downgrade every money read in the system, and nothing would fail loudly.
