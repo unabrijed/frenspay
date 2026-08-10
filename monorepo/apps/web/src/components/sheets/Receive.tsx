@@ -1,7 +1,7 @@
 'use client';
 
 // Receive.tsx — show my QR so a friend can scan it and pay me. Encodes `pay:<handle>`, which
-// the universal scanner (lib/qr.ts) decodes back to a handle → resolve → send. A Share button
+// the universal scanner (@fpay/shared payTarget.ts) decodes back to a handle → resolve → send. A Share button
 // lets me invite someone who isn't on Pay yet.
 import type { CSSProperties } from 'react';
 import { useState } from 'react';

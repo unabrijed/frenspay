@@ -47,12 +47,17 @@ import {
 import { createQuote } from '../services/quoteEngine';
 
 /**
- * A UPI VPA: local@psp, e.g. 'shop@okhdfcbank'. MIRRORS `VPA_RE` in apps/web/src/lib/qr.ts — the
- * backend can only `import type` from @fpay/shared (tsx won't transpile the workspace's raw .ts), so
- * shared runtime values are copied at the trust boundary rather than imported. Same precedent as
- * `canonicalHandle` / `normalizePhone` in db/queries.ts.
+ * A UPI VPA: local@psp, e.g. 'shop@okhdfcbank'. MIRRORS `VPA_RE` in packages/shared/src/payTarget.ts
+ * — the backend can only `import type` from @fpay/shared (tsx won't transpile the workspace's raw
+ * .ts), so shared runtime values are copied at the trust boundary rather than imported. Same
+ * precedent as `canonicalHandle` / `normalizePhone` in db/queries.ts. `check-paytarget.ts` asserts
+ * the two stay in step.
+ *
+ * The suffix forbids a dot: every real PSP/bank handle is a single label (okaxis, ybl, hdfcbank, …)
+ * while an email domain has one. Without that, `someone@gmail.com` passed this gate and could be
+ * quoted, escrowed, and handed to a merchant to pay by hand.
  */
-const VPA_RE = /^[a-z0-9.\-_]{2,}@[a-z0-9.\-_]{2,}$/i;
+const VPA_RE = /^[a-z0-9.\-_]{2,}@[a-z0-9\-_]{2,}$/i;
 
 export async function registerOrderRoutes(app: FastifyInstance) {
   // Quote Engine: a locked rate+fee+ETA, valid 45s. Routing picks the best simulated merchant/LP.

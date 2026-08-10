@@ -6,7 +6,7 @@
 // signing. The app is always real; balance/activity load from the backend once signed in.
 import type { ApiPaymentRequest, KycStatus, MerchantProfile, Notification, Order, Quote } from '@fpay/shared';
 import type { NetworkId } from '@fpay/shared';
-import { isoFromE164, phoneCandidates, truncateAddress } from '@fpay/shared';
+import { classifyPayTarget, isoFromE164, phoneCandidates, truncateAddress } from '@fpay/shared';
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -14,7 +14,6 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { bootTrace } from '@/lib/boot';
 import { friendlyError } from '@/lib/errors';
 import type { DisplayCurrency } from '@/lib/money';
-import { parseScannedQR } from '@/lib/qr';
 import { api, ApiError, setAuthToken } from '@/services/api';
 import { getActiveSigner } from '@/services/signer';
 import { USE_PRIVY } from '@/services/envConfig';
@@ -516,7 +515,7 @@ export const usePayStore = create<PayState>()(
       // Decode a scanned QR and route: an fpay user's QR → real USDC send; a UPI/merchant QR →
       // the (Phase-2 mock) merchant pay flow; anything else → a friendly error on the Scan sheet.
       handleScan: async (text) => {
-        const res = parseScannedQR(text);
+        const res = classifyPayTarget(text);
         if (res.kind === 'handle') {
           if (res.handle === get().handle) {
             set({ error: "That's your own code" });

@@ -4,7 +4,7 @@
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 
-import { classifyAddress, looksLikePhone, phoneCandidates, truncateAddress } from '@fpay/shared';
+import { canonicalHandle, classifyAddress, looksLikePhone, phoneCandidates, truncateAddress } from '@fpay/shared';
 
 import { Icons } from '@/components/icons';
 import { ResultBlock } from '@/components/ResultBlock';
@@ -240,14 +240,6 @@ export function SendFailed() {
 
 /* ---- shared people picker: search + filter + @handle resolve + contacts prefill ---- */
 
-/** A typed query that's a resolvable @handle, normalized; null otherwise. */
-function queryHandle(query: string): string | null {
-  const s = query.trim();
-  if (!s.startsWith('@')) return null;
-  const clean = s.slice(1).toLowerCase().replace(/[^a-z0-9_.]/g, '');
-  return clean.length >= 2 ? '@' + clean : null;
-}
-
 function ContactsPrompt({ onAllow }: { onAllow: () => void }) {
   return (
     <Pressable onPress={onAllow} style={({ pressed }) => [styles.contacts, pressed ? { opacity: 0.85 } : null]}>
@@ -277,12 +269,14 @@ function PeopleSearch({
   const ownPhone = usePayStore((s) => s.phone);
   const country = usePayStore((s) => s.country);
 
-  // No client-side name index — the directory resolves only by @handle/phone. So the
-  // list is just the live-resolved hit (if any); nothing shows until the user types.
-  const filtered: Friend[] = [];
-
-  const handle = queryHandle(query);
-  const alreadyListed = handle ? filtered.some((f) => f.handle.toLowerCase() === handle) : true;
+  // No client-side name index — the directory resolves only by @handle/phone. So the list is just
+  // the live-resolved hit (if any); nothing shows until the user types.
+  //
+  // `canonicalHandle` is the SHARED rule, the same one the scanner and the backend use. This box
+  // used to run its own version that STRIPPED illegal characters instead of rejecting them, so
+  // "@ne-ha" silently became "@neha" — a different real person — with no confirmation step able to
+  // catch it, because the name shown was genuinely that other user's.
+  const handle = query.trim().startsWith('@') ? canonicalHandle(query) : null;
   const address = onPickAddress ? classifyAddress(query) : ({ kind: 'invalid' } as const);
   // Pay-by-phone: '+' input → 1 candidate; local format defaults to the sender's country code
   // (UPI model), falling back to own-phone-prefix guesses. Wrong candidate = lookup miss only.
@@ -295,7 +289,7 @@ function PeopleSearch({
   // Debounced directory resolve: @handle first, else phone candidates (first hit wins).
   useEffect(() => {
     const wantsPhone = candKey.length > 0;
-    if ((!handle || alreadyListed) && !wantsPhone) {
+    if (!handle && !wantsPhone) {
       setResolved(null);
       setChecking(false);
       return;
@@ -305,7 +299,7 @@ function PeopleSearch({
     const t = setTimeout(async () => {
       try {
         let f: Friend | null = null;
-        if (handle && !alreadyListed) {
+        if (handle) {
           f = await wallet.resolveHandle(handle);
         } else {
           for (const c of candKey.split(',')) {
@@ -324,12 +318,9 @@ function PeopleSearch({
       cancelled = true;
       clearTimeout(t);
     };
-  }, [handle, alreadyListed, candKey]);
+  }, [handle, candKey]);
 
-  const rows: Friend[] = [...filtered];
-  if (resolved && !filtered.some((f) => f.handle.toLowerCase() === resolved.handle.toLowerCase())) {
-    rows.push(resolved);
-  }
+  const rows: Friend[] = resolved ? [resolved] : [];
 
   const allowContacts = async () => {
     const c = await pickContact();

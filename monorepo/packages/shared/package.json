@@ -9,7 +9,8 @@
     "./*": "./src/*"
   },
   "scripts": {
-    "check:rails": "tsx scripts/check-rails.ts"
+    "check:rails": "tsx scripts/check-rails.ts",
+    "check:paytarget": "tsx scripts/check-paytarget.ts"
   },
   "devDependencies": {
     "typescript": "~6.0.3"
