@@ -95,5 +95,5 @@ faucet, [04](04-money-in.md)) and the **escrow program authority** (so it can re
 
 - `apps/backend/src/services/solana.ts` (`feePayer`, `buildUsdcTransfer`, `mintUsdcTo`)
 - `apps/backend/src/services/escrowProgram.ts` (fee-payer = escrow authority)
-- `apps/backend/src/config.ts` (`FEE_PAYER_SECRET_KEY`), `scripts/setup-devnet.ts` (generates it)
+- `apps/backend/src/envConfig.ts` (`FEE_PAYER_SECRET_KEY`), `scripts/setup-devnet.ts` (generates it)
 - Client signer: `apps/web/src/services/privy/PrivyBridge.tsx` (`signAndSend`)

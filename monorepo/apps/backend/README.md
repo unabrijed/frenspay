@@ -17,7 +17,7 @@ curl localhost:3001/health                       # {"status":"ok","database":"co
 ```
 
 It boots without a database (`/health` shows `database:"none"`) and without Solana/Privy —
-those features no-op or 401 until configured. Config is read via `src/config.ts`: `NODE_ENV`
+those features no-op or 401 until configured. Config is read via `src/envConfig.ts`: `NODE_ENV`
 selects a prefix and all values are read under it (`stage → STAGE_*`). See `.env.example`.
 
 ### Auth in dev

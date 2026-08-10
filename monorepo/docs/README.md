@@ -29,6 +29,18 @@ Every integration/flow doc follows the **same six-part shape**, so you always kn
 - 🟡 **Gray** — exists but **simulated, partial, or cosmetic** (not production-real).
 - ⬜ **Planned** — designed, not yet built.
 
+### A note on 16 and up
+
+Docs **01–15** describe the system as it stands and are kept current. Docs **16+** are *milestone
+records* — what was planned and built at one point in time — so their file paths are as of that
+milestone and are deliberately not rewritten. Renamed since they were written:
+
+| Then | Now |
+|---|---|
+| `apps/backend/src/config.ts` | `apps/backend/src/envConfig.ts` |
+| `apps/{web,admin}/src/services/env.ts` | `…/envConfig.ts` |
+| `apps/web/src/lib/qr.ts` | `packages/shared/src/payTarget.ts` |
+
 ---
 
 ## The docs
