@@ -1,4 +1,6 @@
-// money.ts — money math + formatters shared by the mobile app and the backend.
+// money.ts — money DISPLAY formatters shared by the clients. Nothing here is arithmetic on a value
+// that will be stored or sent: printing is the one place an amount is allowed to become a `number`
+// (see units.ts and docs/01-architecture.md § Money & decimals).
 // Brand rule: the rupee symbol is ₹ (never "Rs"); every money figure is set in mono.
 
 export const RATE = 87.55; // 1 USD = 87.55 INR — locked the moment you pay
@@ -21,22 +23,29 @@ function groupIN(n: number): string {
   }
 }
 
+/** An amount as it arrives from anywhere: the canonical decimal string of the wire DTOs, or a
+ *  `number` from a view model. Widened here so the flip to strings costs one line, not sixteen. */
+export type MoneyLike = string | number;
+
+const num = (v: MoneyLike): number => (typeof v === 'string' ? Number(v) : v);
+
 /** Rupees for a USD amount, rounded. Pass a live rate (M7) to override the static fallback `RATE`.
  *  e.g. inr(420) -> "₹36,771"; inr(420, 94.4) -> "₹39,648" */
-export const inr = (usdAmount: number, rate: number = RATE): string => '₹' + groupIN(Math.round(usdAmount * rate));
+export const inr = (usdAmount: MoneyLike, rate: MoneyLike = RATE): string =>
+  '₹' + groupIN(Math.round(num(usdAmount) * num(rate)));
 
 /** USD figure with 2 decimals. e.g. usd(5.71) -> "$5.71" */
-export const usd = (n: number): string => '$' + n.toFixed(2);
+export const usd = (n: MoneyLike): string => '$' + num(n).toFixed(2);
 
 /** The currencies the app can display a USD balance in. */
 export type DisplayCurrency = 'INR' | 'USD';
 
 /** Format a USD amount in the user's chosen display currency. */
-export const formatMoney = (usdAmount: number, currency: DisplayCurrency): string =>
+export const formatMoney = (usdAmount: MoneyLike, currency: DisplayCurrency): string =>
   currency === 'USD' ? usd(usdAmount) : inr(usdAmount);
 
 /** Format a raw rupee figure. e.g. inrRaw(500) -> "₹500" */
-export const inrRaw = (rupees: number): string => '₹' + groupIN(Math.round(rupees));
+export const inrRaw = (rupees: MoneyLike): string => '₹' + groupIN(Math.round(num(rupees)));
 
 /** USD needed to cover a rupee amount. */
-export const rupeesToUsd = (rupees: number): number => rupees / RATE;
+export const rupeesToUsd = (rupees: MoneyLike): number => num(rupees) / RATE;
