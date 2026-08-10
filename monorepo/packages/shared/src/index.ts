@@ -1,4 +1,5 @@
 export * from './money';
+export * from './units';
 export * from './contracts';
 export * from './tokens';
 export * from './chains';

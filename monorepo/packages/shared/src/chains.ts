@@ -2,6 +2,8 @@
 // (Not to be confused with tokens.ts, which is DESIGN tokens.) Pure + dependency-free so the
 // web/mobile clients can import values; the backend imports TYPES only (workspace rule) and
 // re-validates server-side with @solana/web3.js (on-curve etc.) as the authority.
+// (Package-wide, `shared` now has exactly ONE runtime dep — bignumber.js, used only by units.ts.
+// This file and every other one stays dependency-free.)
 //
 // CHAIN-SURFACE RULE (product law, Bridge 2026-07-22): network names render ONLY when the user
 // (a) sends to an external wallet address, (b) on-ramps, or (c) off-ramps. Everywhere else fpay
