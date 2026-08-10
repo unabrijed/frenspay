@@ -1,10 +1,11 @@
 'use client';
 
 // global-error — root-level catch for render/chunk errors during the client-only boot. Must be
-// fully self-contained (renders its own <html><body>, inline styles, hardcoded brand "T" mark) —
-// it replaces the whole tree, so app providers/components are unavailable here. On a chunk-load
-// error it self-heals with a cache-BUSTING navigation (a plain reload won't fix a stale cache),
-// guarded so it reloads at most once / 10s.
+// fully self-contained (renders its own <html><body>, inline styles, a hand-inlined mark) — it
+// replaces the whole tree, so app providers/components are unavailable here: importing <Mark> from
+// primitives would pull in the very chunk graph that just failed to load. On a chunk-load error it
+// self-heals with a cache-BUSTING navigation (a plain reload won't fix a stale cache), guarded so
+// it reloads at most once / 10s.
 import { useEffect } from 'react';
 
 // Brand literals (mirror globals.css): --canvas / --ink / --muted / --accent.
@@ -55,21 +56,31 @@ export default function GlobalError({ error }: { error: Error & { digest?: strin
             textAlign: 'center',
           }}
         >
+          {/* The mark, static — geometry copied from brand/logo-icon.svg, same as
+              components/ui/primitives.tsx. No bead and no animation: this page has no
+              stylesheet, and a failure screen is not the place for the pair to hop. */}
           <div
             style={{
               width: 56,
               height: 56,
               borderRadius: 16,
               background: ACCENT,
-              color: '#fff',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontWeight: 800,
-              fontSize: 30,
             }}
           >
-            T
+            <svg width={38} height={38} viewBox="0 0 256 256" fill="none" aria-hidden="true">
+              <path
+                d="M60 136 C82 132 98 184 128 192 C158 184 174 132 196 136"
+                stroke={CANVAS}
+                strokeWidth="48"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <circle cx="66" cy="74" r="31" fill={CANVAS} />
+              <circle cx="190" cy="74" r="31" fill={CANVAS} />
+            </svg>
           </div>
           <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Something went wrong</h1>
           <p style={{ margin: 0, maxWidth: 280, color: MUTED }}>The app failed to load. Reload to try again.</p>
