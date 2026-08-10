@@ -54,7 +54,7 @@ async function main() {
   // 4) Treasury (faucet) balance.
   try {
     const bal = await getUsdcBalance(feePayerAddress());
-    (bal > 0 ? ok : skip)('faucet treasury funded', `${bal} USDC at ${feePayerAddress()} (seed: faucet.circle.com)`);
+    (Number(bal) > 0 ? ok : skip)('faucet treasury funded', `${bal} USDC at ${feePayerAddress()} (seed: faucet.circle.com)`);
   } catch (e) {
     bad('faucet treasury readable', String(e));
   }

@@ -69,7 +69,7 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
   app.get('/balance', async (req): Promise<BalanceResponse> => {
     const userId = requireUserId(req);
     const wallet = await getWalletForUser(userId);
-    if (!wallet?.address) return { balanceUsd: 0 };
+    if (!wallet?.address) return { balanceUsd: formatAmount(amt(0), USDC_DECIMALS) };
     return { balanceUsd: await getUsdcBalance(wallet.address) };
   });
 

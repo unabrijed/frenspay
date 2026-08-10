@@ -19,8 +19,10 @@ if (DEV_SECRET_KEY) {
 }
 
 export class RealWalletProvider implements WalletProvider {
+  // The other parse boundary (see mappers.ts): the wire carries a decimal string, the store holds
+  // a display number. Everything that MOVES money goes back over the wire as a string.
   async getBalanceUsd(): Promise<number> {
-    return (await api.balance()).balanceUsd;
+    return Number((await api.balance()).balanceUsd);
   }
 
   async getTransactions(): Promise<Txn[]> {

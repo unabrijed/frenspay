@@ -234,7 +234,7 @@ export interface WaitlistJoinResponse {
 }
 
 export interface BalanceResponse {
-  balanceUsd: number;
+  balanceUsd: string;
 }
 
 export interface ResolveHandleResponse {
@@ -250,7 +250,7 @@ export interface ApiTxn {
   id: string; // transfers.id (uuid)
   kind: TxnType;
   direction: 'in' | 'out';
-  amountUsd: number; // unsigned magnitude
+  amountUsd: string; // unsigned magnitude
   counterpartyHandle?: string;
   /** Raw wallet address of the other side when it isn't an fpay user (external sends). */
   counterpartyAddress?: string;
@@ -352,7 +352,7 @@ export interface ApiPaymentRequest {
   id: string;
   direction: 'incoming' | 'outgoing';
   counterpartyHandle?: string;
-  amountUsd: number;
+  amountUsd: string;
   note?: string;
   status: 'open' | 'paid' | 'cancelled';
   createdAt: string; // ISO 8601
@@ -364,7 +364,7 @@ export interface RequestsResponse {
 
 export interface CreateRequestRequest {
   toHandle: string;
-  amountUsd: number;
+  amountUsd: string | number;
   note?: string;
 }
 
@@ -373,7 +373,7 @@ export interface PrepareTransferRequest {
   toHandle?: string;
   /** External recipient by raw wallet address (v1: Solana only; server re-validates + gates on KYC tier). */
   toAddress?: string;
-  amountUsd: number;
+  amountUsd: string | number;
   note?: string;
   /** Client-generated UUID; the server dedupes prepares on it (double-tap / manual-retry guard). */
   idempotencyKey?: string;
@@ -400,12 +400,12 @@ export interface SubmitTransferResponse {
 
 /** POST /devnet/faucet — mint controlled test USDC to the caller's wallet (devnet/dev only). */
 export interface FaucetRequest {
-  amountUsd: number;
+  amountUsd: string | number;
 }
 
 export interface FaucetResponse {
   signature: string;
-  balanceUsd: number;
+  balanceUsd: string;
 }
 
 /* ---- M1: orders, quotes, the spend/cash-out lifecycle (stablecoin-onofframp-architecture.pdf) ----

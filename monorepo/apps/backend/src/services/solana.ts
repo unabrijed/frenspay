@@ -48,7 +48,7 @@ export async function decimals(): Promise<number> {
 }
 
 /** Base units (e.g. 6dp) for a UI USDC amount. Exported for the escrow program ix builders. */
-export async function toUsdcBaseUnits(amountUsd: number): Promise<bigint> {
+export async function toUsdcBaseUnits(amountUsd: string | number): Promise<bigint> {
   return toBaseUnits(amountUsd, await decimals());
 }
 
@@ -89,17 +89,22 @@ function toBaseUnits(amountUsd: string | number, dec: number): bigint {
   return toBase(parseAmount(String(amountUsd), dec), dec);
 }
 
-/** On-chain USDC balance (UI units) for a wallet owner. Returns 0 for unfunded/invalid. */
-export async function getUsdcBalance(owner: string): Promise<number> {
-  if (!config.usdcMint || !isValidPubkey(owner)) return 0;
+/**
+ * On-chain USDC balance for a wallet owner, as a canonical decimal string at the mint's own
+ * decimals. Returns "0.000000" for unfunded/invalid. A string, not a number, because this value is
+ * read off the chain and handed straight back to the client — and on an 18dp asset a `number`
+ * stops being exact above 0.009 units.
+ */
+export async function getUsdcBalance(owner: string): Promise<string> {
+  if (!config.usdcMint || !isValidPubkey(owner)) return formatAmount(new BN(0), await decimals());
   const ownerPk = new PublicKey(owner);
   const ata = await getAssociatedTokenAddress(usdcMint(), ownerPk);
   try {
     const acct = await getAccount(connection(), ata);
     const dec = await decimals();
-    return Number(acct.amount) / 10 ** dec;
+    return formatAmount(fromBaseUnits(acct.amount, dec), dec);
   } catch (err) {
-    if (err instanceof TokenAccountNotFoundError) return 0;
+    if (err instanceof TokenAccountNotFoundError) return formatAmount(new BN(0), await decimals());
     throw err;
   }
 }
@@ -108,7 +113,8 @@ export async function getUsdcBalance(owner: string): Promise<number> {
 export async function buildUsdcTransfer(input: {
   fromOwner: string;
   toOwner: string;
-  amountUsd: number;
+  /** Canonical decimal string preferred; a `number` is accepted and validated the same way. */
+  amountUsd: string | number;
 }): Promise<{ unsignedTx: string; feePayer: string }> {
   const fromPk = new PublicKey(input.fromOwner);
   const toPk = new PublicKey(input.toOwner);
@@ -156,7 +162,7 @@ export async function buildUsdcTransfer(input: {
  * end-to-end; the treasury is seeded from https://faucet.circle.com (Solana Devnet).
  * Throws Error('faucet_empty') when the treasury can't cover the request. Dev-only — route-gated.
  */
-export async function sendUsdcFromTreasury(owner: string, amountUsd: number): Promise<string> {
+export async function sendUsdcFromTreasury(owner: string, amountUsd: string | number): Promise<string> {
   const ownerPk = new PublicKey(owner);
   const mint = usdcMint();
   const payer = feePayer();

@@ -1123,7 +1123,7 @@ export const usePayStore = create<PayState>()(
         if (!r?.counterpartyHandle) return;
         const handle = r.counterpartyHandle;
         get().setFriend({ name: handle, handle, ini: (handle.replace(/^@/, '')[0] ?? '?').toUpperCase() });
-        const tx = await get().doSend(r.amountUsd);
+        const tx = await get().doSend(Number(r.amountUsd));
         if (!tx) return; // doSend already set the error
         try {
           await wallet.payRequest(id, tx.id);

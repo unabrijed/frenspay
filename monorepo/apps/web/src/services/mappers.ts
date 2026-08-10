@@ -15,8 +15,14 @@ export function relTime(iso: string): string {
   return d.toLocaleDateString([], { day: 'numeric', month: 'short' });
 }
 
+/**
+ * The parse boundary. `ApiTxn.amountUsd` is a canonical decimal string; `Txn` is the VIEW model and
+ * stays a `number`, because everything downstream of here only formats and renders it. Doing the
+ * Number() once, here, is what keeps it out of TxCard / detail / home / activity.
+ */
 export function apiTxnToTxn(t: ApiTxn): Txn {
-  const usd = t.direction === 'out' ? -t.amountUsd : t.amountUsd;
+  const amount = Number(t.amountUsd);
+  const usd = t.direction === 'out' ? -amount : amount;
   // External counterparties (no fpay handle) render as a truncated wallet address.
   const who = t.counterpartyHandle ?? (t.counterpartyAddress ? truncateAddress(t.counterpartyAddress) : undefined);
   let title: string;

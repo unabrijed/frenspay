@@ -280,7 +280,7 @@ export async function listTransactionsForUser(
       id: r.id,
       kind: r.kind,
       direction,
-      amountUsd: Number(r.amount_usdc),
+      amountUsd: r.amount_usdc,
       counterpartyHandle,
       counterpartyAddress,
       chain: (bridged ? bridgeChain : r.chain) ?? undefined,
@@ -324,7 +324,7 @@ export async function listRequestsForUser(userId: string): Promise<ApiPaymentReq
       id: r.id,
       direction,
       counterpartyHandle,
-      amountUsd: Number(r.amount_usdc),
+      amountUsd: r.amount_usdc,
       note: r.note ?? undefined,
       status: r.status as ApiPaymentRequest['status'],
       createdAt: r.created_at.toISOString(),
@@ -356,7 +356,7 @@ export async function createRequest(input: {
     id: r.id,
     direction: 'outgoing',
     counterpartyHandle: r.to_handle ?? undefined,
-    amountUsd: Number(r.amount_usdc),
+    amountUsd: r.amount_usdc,
     note: r.note ?? undefined,
     status: r.status as ApiPaymentRequest['status'],
     createdAt: r.created_at.toISOString(),
@@ -430,7 +430,7 @@ export async function createPendingTransfer(input: {
 export async function findTransferByIdempotencyKey(
   fromUserId: string,
   idempotencyKey: string,
-): Promise<{ id: string; status: string; signature: string | null; fromAddress: string; toAddress: string; amountUsd: number } | null> {
+): Promise<{ id: string; status: string; signature: string | null; fromAddress: string; toAddress: string; amountUsd: string } | null> {
   const { rows } = await getPool().query<{
     id: string;
     status: string;
@@ -451,7 +451,7 @@ export async function findTransferByIdempotencyKey(
         signature: r.signature,
         fromAddress: r.from_address,
         toAddress: r.to_address,
-        amountUsd: Number(r.amount_usdc),
+        amountUsd: r.amount_usdc,
       }
     : null;
 }
