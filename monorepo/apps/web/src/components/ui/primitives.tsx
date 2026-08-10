@@ -217,17 +217,23 @@ export function Mark({
   );
 }
 
-export function Logo({ state }: { state?: LogoState } = {}) {
-  return (
-    <View style={styles.logo}>
-      <Mark size={20} state={state} enter />
-    </View>
-  );
-}
 export function LogoXl({ state }: { state?: LogoState } = {}) {
   return (
     <View style={styles.logoXl}>
       <Mark size={38} state={state} enter />
+    </View>
+  );
+}
+
+// An empty list. The mark rather than an icon because "nobody has sent you anything
+// yet" is about people, not about an absent object — and drawn in the hairline
+// colour, so it sits behind the sentence instead of competing with it. `enter` is
+// on: this appears after the skeleton resolves, where assembling reads as arriving.
+export function Empty({ label }: { label: string }) {
+  return (
+    <View style={styles.empty}>
+      <Mark size={28} enter color={colors.outlineVariant} />
+      <Txt style={type.lead}>{label}</Txt>
     </View>
   );
 }
@@ -406,8 +412,8 @@ const styles = {
     backgroundColor: colors.surface,
     marginBottom: 14,
   },
-  logo: { width: 30, height: 30, borderRadius: radii.logo, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   logoXl: { width: 56, height: 56, borderRadius: radii.logoXl, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  empty: { alignItems: 'center', gap: 10, paddingTop: 14, paddingBottom: 6 },
   avatar: {
     width: 34,
     height: 34,

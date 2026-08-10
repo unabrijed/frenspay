@@ -9,7 +9,7 @@ import { useState } from 'react';
 import { Icons } from '@/components/icons';
 import { TxCard } from '@/components/TxCard';
 import { Btn, TextLink } from '@/components/ui/Button';
-import { Fav, List, Row, RowAmount, RowMeta } from '@/components/ui/primitives';
+import { Empty, Fav, List, Row, RowAmount, RowMeta } from '@/components/ui/primitives';
 import { Skeleton, TxListSkeleton } from '@/components/ui/Skeleton';
 import { Pressable, View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
@@ -152,7 +152,7 @@ export default function Activity() {
             <TxListSkeleton rows={4} />
           </View>
         ) : shown.length === 0 ? (
-          <Txt style={[type.lead, { textAlign: 'center', marginTop: 18 }]}>No activity yet.</Txt>
+          <Empty label="No activity yet." />
         ) : (
           <>
             {group('Today', todayTx)}

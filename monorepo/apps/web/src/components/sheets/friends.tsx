@@ -10,7 +10,7 @@ import { Icons } from '@/components/icons';
 import { ResultBlock } from '@/components/ResultBlock';
 import { Btn, TextLink } from '@/components/ui/Button';
 import { Keypad } from '@/components/ui/Keypad';
-import { Fav, Grab, List, Row, RowMeta, SearchBar, SheetBody, SheetHeader, Spacer } from '@/components/ui/primitives';
+import { Fav, Grab, List, Mark, Row, RowMeta, SearchBar, SheetBody, SheetHeader, Spacer } from '@/components/ui/primitives';
 import { Txt } from '@/components/ui/Txt';
 import { Pressable, View } from '@/components/ui/rn';
 import { contactsSupported, pickContact } from '@/lib/contacts';
@@ -156,7 +156,7 @@ export function RequestSent() {
       <SheetBody>
         <ResultBlock
           kind="ok"
-          icon={<Icons.Check size={30} color={colors.accent} />}
+          icon={<Mark size={30} state="success" color={colors.accent} />}
           headline={`$${lastRequest.u} requested`}
           sub={`From ${lastRequest.handle} · ~ ${inr(lastRequest.u)}`}
         />
@@ -181,8 +181,10 @@ export function Sent() {
           <View style={styles.ringWrap}>
             <View className="pulse-ring" style={styles.ring} />
             <View className="pulse-ring" style={[styles.ring, { animationDelay: '0.6s' }]} />
+            {/* The pair, not a tick: the rings are the money settling, and what it
+                settles onto is the two of you. They hop once on mount. */}
             <View style={styles.coreCircle}>
-              <Icons.Check size={46} color={colors.accent} fill />
+              <Mark size={46} state="success" color={colors.accent} />
             </View>
           </View>
           <Txt style={[type.result, { marginTop: 6 }]}>${lastSend.u} sent</Txt>

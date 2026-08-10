@@ -9,7 +9,7 @@ import type { CSSProperties, ReactNode } from 'react';
 
 import { Icons } from '@/components/icons';
 import { TxCard } from '@/components/TxCard';
-import { Avatar } from '@/components/ui/primitives';
+import { Avatar, Empty } from '@/components/ui/primitives';
 import { Skeleton, TxListSkeleton } from '@/components/ui/Skeleton';
 import { Pressable, View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
@@ -140,7 +140,7 @@ export default function Home() {
             {!loaded ? (
               <TxListSkeleton rows={3} />
             ) : txns.length === 0 ? (
-              <Txt style={[type.lead, { textAlign: 'center', paddingTop: 6 }]}>No activity yet.</Txt>
+              <Empty label="No activity yet." />
             ) : (
               txns.slice(0, 3).map((tx) => <TxCard key={tx.id} tx={tx} onPress={() => openTx(tx)} />)
             )}
