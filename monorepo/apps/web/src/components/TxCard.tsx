@@ -10,10 +10,13 @@ import { Txt } from '@/components/ui/Txt';
 import { inr, usd } from '@/lib/money';
 import { colors, radii, shadows, type } from '@/lib/theme';
 import type { Txn } from '@/services/wallet';
+import { usePayStore } from '@/store/usePayStore';
 
 const clamp1: CSSProperties = { display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 
 export function TxCard({ tx, onPress, showInr = false }: { tx: Txn; onPress?: () => void; showInr?: boolean }) {
+  // The live mid rate, not the 87.55 fallback — this row sits next to the real balance.
+  const fxRate = usePayStore((s) => s.fxRate);
   const merchant = tx.type === 'pay';
   const positive = tx.type === 'add';
   return (
@@ -43,7 +46,7 @@ export function TxCard({ tx, onPress, showInr = false }: { tx: Txn; onPress?: ()
           {positive ? '+' : '−'}
           {usd(Math.abs(tx.usd))}
         </Txt>
-        {showInr ? <Txt style={[type.rowTime, { marginTop: 2 }]}>{inr(Math.abs(tx.usd))}</Txt> : null}
+        {showInr ? <Txt style={[type.rowTime, { marginTop: 2 }]}>{inr(Math.abs(tx.usd), fxRate)}</Txt> : null}
       </View>
     </Pressable>
   );

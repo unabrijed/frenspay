@@ -42,6 +42,7 @@ export function Send() {
 }
 
 export function SendAmount() {
+  const fxRate = usePayStore((s) => s.fxRate);
   const close = usePayStore((s) => s.close);
   const doSend = usePayStore((s) => s.doSend);
   const friend = usePayStore((s) => s.friend);
@@ -74,7 +75,7 @@ export function SendAmount() {
           </View>
           <View style={styles.convPill}>
             <Icons.LockCheck size={14} color={colors.secondary} />
-            <Txt style={[type.sub, { color: colors.muted }]}>≈ {inr(u)} · rate locked</Txt>
+            <Txt style={[type.sub, { color: colors.muted }]}>≈ {inr(u, fxRate)} · rate locked</Txt>
           </View>
         </View>
         <Keypad onPress={press} />
@@ -85,6 +86,7 @@ export function SendAmount() {
 }
 
 export function Request() {
+  const fxRate = usePayStore((s) => s.fxRate);
   const close = usePayStore((s) => s.close);
   const open = usePayStore((s) => s.open);
   const setRequestDraft = usePayStore((s) => s.setRequestDraft);
@@ -107,7 +109,7 @@ export function Request() {
           </View>
           <View style={styles.convPill}>
             <Icons.LockCheck size={14} color={colors.secondary} />
-            <Txt style={[type.sub, { color: colors.muted }]}>≈ {inr(u)}</Txt>
+            <Txt style={[type.sub, { color: colors.muted }]}>≈ {inr(u, fxRate)}</Txt>
           </View>
         </View>
         <Keypad onPress={press} />
@@ -147,6 +149,7 @@ export function RequestPick() {
 }
 
 export function RequestSent() {
+  const fxRate = usePayStore((s) => s.fxRate);
   const close = usePayStore((s) => s.close);
   const lastRequest = usePayStore((s) => s.lastRequest);
   return (
@@ -158,7 +161,7 @@ export function RequestSent() {
           kind="ok"
           icon={<Mark size={30} state="success" color={colors.accent} />}
           headline={`$${lastRequest.u} requested`}
-          sub={`From ${lastRequest.handle} · ~ ${inr(lastRequest.u)}`}
+          sub={`From ${lastRequest.handle} · ~ ${inr(lastRequest.u, fxRate)}`}
         />
         <Spacer />
         <View style={styles.cta}>
@@ -170,6 +173,7 @@ export function RequestSent() {
 }
 
 export function Sent() {
+  const fxRate = usePayStore((s) => s.fxRate);
   const close = usePayStore((s) => s.close);
   const lastSend = usePayStore((s) => s.lastSend);
   return (
@@ -199,7 +203,7 @@ export function Sent() {
           <View style={styles.kvRow}>
             <Txt style={[type.tierTag, { color: colors.muted }]}>RATE LOCKED</Txt>
             <View style={styles.lockPill}>
-              <Txt style={[type.sub, { color: colors.ink }]}>≈ {inr(lastSend.u)}</Txt>
+              <Txt style={[type.sub, { color: colors.ink }]}>≈ {inr(lastSend.u, fxRate)}</Txt>
               <Icons.LockCheck size={14} color={colors.accent} />
             </View>
           </View>

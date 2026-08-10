@@ -400,11 +400,14 @@ export const usePayStore = create<PayState>()(
         // Same gate as load(): never poll before the backend user exists (onboarding pre-sync → 401).
         if (USE_PRIVY && !(get().authStatus === 'signedIn' && (get().provisioned || get().onboarded))) return;
         try {
-          const [bal, txns, reqs, notifs] = await Promise.all([
+          const [bal, txns, reqs, notifs, fx] = await Promise.all([
             wallet.getBalanceUsd(),
             wallet.getTransactions(),
             wallet.getRequests(),
             api.getNotifications().catch(() => null),
+            // Only load() pulled this before, so a session left open all day kept its boot-time rate
+            // and every "≈ ₹" line drifted from the quote the backend would actually return.
+            api.fxRate().catch(() => ({ rate: get().fxRate, asOf: null })),
           ]);
           // Don't overwrite notifications while the inbox is open — it would resurrect the just-cleared
           // unread badge (the optimistic read-all may not be committed server-side yet).
@@ -413,6 +416,7 @@ export const usePayStore = create<PayState>()(
             balanceUSD: bal,
             transactions: txns,
             requests: reqs,
+            fxRate: fx.rate,
             ...(keepInbox ? {} : { notifications: notifs.notifications, unread: notifs.unread }),
           });
         } catch {

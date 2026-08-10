@@ -28,6 +28,7 @@ function WalletBadge() {
 }
 
 export function SendAddressAmount() {
+  const fxRate = usePayStore((s) => s.fxRate);
   const close = usePayStore((s) => s.close);
   const setExternalAmount = usePayStore((s) => s.setExternalAmount);
   const ext = usePayStore((s) => s.externalSend);
@@ -57,7 +58,7 @@ export function SendAddressAmount() {
           </View>
           <View style={styles.convPill}>
             <Icons.LockCheck size={14} color={colors.secondary} />
-            <Txt style={[type.sub, { color: colors.muted }]}>≈ {inr(u)} · rate locked</Txt>
+            <Txt style={[type.sub, { color: colors.muted }]}>≈ {inr(u, fxRate)} · rate locked</Txt>
           </View>
         </View>
         <Keypad onPress={press} />
@@ -68,6 +69,7 @@ export function SendAddressAmount() {
 }
 
 export function SendAddressConfirm() {
+  const fxRate = usePayStore((s) => s.fxRate);
   const close = usePayStore((s) => s.close);
   const open = usePayStore((s) => s.open);
   const doSendExternal = usePayStore((s) => s.doSendExternal);
@@ -82,7 +84,7 @@ export function SendAddressConfirm() {
         <View style={styles.payee}>
           <WalletBadge />
           <Txt style={[type.bigAmount, { color: colors.ink, marginTop: 10 }]}>${ext.amountUsd}</Txt>
-          <Txt style={[type.sub, { color: colors.muted }]}>≈ {inr(ext.amountUsd)}</Txt>
+          <Txt style={[type.sub, { color: colors.muted }]}>≈ {inr(ext.amountUsd, fxRate)}</Txt>
         </View>
         <View style={styles.detailCard}>
           <View style={styles.kvRow}>

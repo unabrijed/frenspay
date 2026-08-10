@@ -5,13 +5,16 @@ import type { CSSProperties } from 'react';
 import { Icons } from '@/components/icons';
 import { Txt } from '@/components/ui/Txt';
 import { type St, View } from '@/components/ui/rn';
-import { inrRaw, usd } from '@/lib/money';
+import { inrRaw, rateLabel, usd } from '@/lib/money';
 import { colors, radii, shadows, type } from '@/lib/theme';
-import { RATE_LABEL } from '@/services/wallet';
+import { usePayStore } from '@/store/usePayStore';
 
 export type RlcVariant = 'A' | 'B' | 'C';
 
 function Lock({ center }: { center?: boolean }) {
+  // The signature element said '1 USD = 87.55 INR' on every review and success screen,
+  // regardless of what the order was actually priced at.
+  const fxRate = usePayStore((s) => s.fxRate);
   return (
     <>
       <View style={s.divider} />
@@ -20,7 +23,7 @@ function Lock({ center }: { center?: boolean }) {
           <View style={s.dot} />
           <Txt style={s.lockLabel}>Rate locked</Txt>
         </View>
-        <Txt style={type.rateLine}>{RATE_LABEL}</Txt>
+        <Txt style={type.rateLine}>{rateLabel(fxRate)}</Txt>
       </View>
     </>
   );

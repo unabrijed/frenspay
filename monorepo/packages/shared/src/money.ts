@@ -3,9 +3,9 @@
 // (see units.ts and docs/01-architecture.md § Money & decimals).
 // Brand rule: the rupee symbol is ₹ (never "Rs"); every money figure is set in mono.
 
-export const RATE = 87.55; // 1 USD = 87.55 INR — locked the moment you pay
-
-export const RATE_LABEL = '1 USD = 87.55 INR';
+/** Offline fallback only. The live mid rate comes from the backend (`/fx/rate`, cached +
+ *  range-validated); this is what the client is seeded with before the first fetch lands. */
+export const RATE = 87.55;
 
 // en-IN grouping (lakh/crore style). Hermes/Node ship Intl; fall back to a manual
 // grouper if it is ever unavailable.
@@ -28,6 +28,14 @@ function groupIN(n: number): string {
 export type MoneyLike = string | number;
 
 const num = (v: MoneyLike): number => (typeof v === 'string' ? Number(v) : v);
+
+/** "1 USD = 95.25 INR" for the rate-locked line. Pass the live rate — the no-arg form falls back to
+ *  the static one, which drifts (it was ~8 rupees off the live mid at the time of writing).
+ *  Declared here, below `num`, because RATE_LABEL calls it at module-eval time. */
+export const rateLabel = (rate: MoneyLike = RATE): string => `1 USD = ${num(rate).toFixed(2)} INR`;
+
+/** @deprecated Use {@link rateLabel} with the live rate. Kept so the parked mobile app compiles. */
+export const RATE_LABEL = rateLabel();
 
 /** Rupees for a USD amount, rounded. Pass a live rate (M7) to override the static fallback `RATE`.
  *  e.g. inr(420) -> "₹36,771"; inr(420, 94.4) -> "₹39,648" */
