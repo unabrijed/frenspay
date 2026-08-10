@@ -298,9 +298,11 @@ html.fonts-ready .material-symbols-outlined {
    freezes an infinite loop on its END frame, which would park .pulse-ring at
    scale(1.4)/opacity 0 — permanently invisible. Naming four families is shorter
    than a clamp plus its escape hatches.
-   Safe to drop outright rather than shorten, because every keyframe above declares
-   only a `from`: with no animation each element rests at its own natural state —
-   dots visible, curve drawn, balance shown. Nothing is lost, because every pending
+   Safe to drop outright rather than shorten, because no keyframe above moves an
+   element AWAY from where it belongs and leaves it there: the entrance ones declare
+   only a `from`, and the lean and the hop return to 0 at 100%. With no animation at
+   all, each element rests at its own natural state — dots visible and level, curve
+   drawn, balance shown. Nothing is lost, because every pending
    surface keeps its text ("Saving…", "Adding…", role="status" on the splash).
    `transition`s (toast, sheet, button press) are left alone: they are 12-16px
    opacity moves, and switching them off mid-flight risks parking a sheet
