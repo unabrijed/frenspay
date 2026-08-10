@@ -58,7 +58,7 @@ missing Postgres at the moment something tries to write.
 | Command | Starts | Ports |
 |---|---|---|
 | `yarn dev` | **Everything** — backend + web + admin + landing | 3001 · 3000 · 3002 · 3003 |
-| `yarn dev:web` | **Web app** + backend (mock mode by default) | 3000 · 3001 |
+| `yarn dev:web` | **Web app** + backend | 3000 · 3001 |
 | `yarn dev:fpay` | Same as `yarn dev:web` | 3000 · 3001 |
 | `yarn dev:admin` | **Operator console** + backend | 3002 · 3001 |
 | `yarn dev:landing` | **Landing page** + backend (the f-list form POSTs to it) | 3003 · 3001 |
@@ -87,21 +87,23 @@ Ctrl-C stops the whole group; nothing is left holding a port.
 ## Web app (`apps/web`)
 
 ```bash
-yarn dev:web          # → web on :3000 + backend on :3001  (mock mode, zero setup)
+yarn dev:web          # → web on :3000 + backend on :3001
 yarn workspace @fpay/web build   # production build
 yarn workspace @fpay/web tsc --noEmit   # typecheck just the web app
 ```
 
 Mobile-first by design: it renders as a **fixed phone column that never widens** on
-desktop/tablet. Click through the whole app in mock mode — onboarding, Home (INR/USD
-toggle), Send/Request/Add/Pay sheets, Activity, Detail, Settings — with no backend.
+desktop/tablet.
 
-**Real mode (Privy login + on-chain USDC, no device needed):** Privy's browser SDK runs
-email-OTP + an embedded Solana wallet right in the page. In `apps/web/.env.local`:
+**There is no mock mode.** The app always talks to the real backend, so it needs a way to sign in
+and a way to sign. With an empty `.env.local` you get the shell and nothing else: Privy never
+mounts, requests go out unauthenticated and come back 401, and the first send throws
+*"No active signer configured"*. Pick one of the two paths below.
+
+**Privy (email OTP + an embedded Solana wallet, no device needed)** — `apps/web/.env.local`:
 
 ```bash
 NEXT_PUBLIC_APP_ENV=stage
-NEXT_PUBLIC_STAGE_USE_REAL_API=1
 NEXT_PUBLIC_STAGE_API_URL=http://localhost:3001
 NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<your Privy app id>
 # NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<optional>
@@ -109,6 +111,20 @@ NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<your Privy app id>
 
 Then **allow `http://localhost:3000` as an origin in your Privy dashboard app** and reload —
 `yarn dev:web` is already running the backend. (The App **Secret** is backend-only — never put it here.)
+
+**No Privy — sign as a seeded devnet wallet.** Faster for local work; needs `db:seed` +
+`devnet:setup` to have run, and reads the keypair out of `apps/backend/.devnet/keys.json`:
+
+```bash
+NEXT_PUBLIC_STAGE_DEV_USER_ID=<a seeded user id>
+NEXT_PUBLIC_STAGE_DEV_SECRET_KEY=<that user's secret key array>
+```
+
+The id rides as `x-dev-user-id`, which the backend honours **only** when it is running locally and
+Privy is unconfigured. `DEV_SECRET_KEY` is a raw private key and every `NEXT_PUBLIC_*` is inlined
+into the browser bundle, so `envConfig.ts` reads both inside a dead `isProduction` branch that any
+production build strips — meaning this path works under `next dev` only, never on a deployed stage.
+`yarn check:env` asserts the stripping rather than trusting it. Full notes in `apps/web/.env.example`.
 
 ---
 
@@ -249,5 +265,5 @@ Full steps + the env-var checklist live in [`apps/backend/README.md`](./apps/bac
 
 ## Cost note
 Everything here is free to develop with: Solana **devnet**, Helius free RPC, Privy free
-tier, Railway's free/low trial tier, and the free **web / Expo Go** workflow (no EAS needed
-for mock mode; the Android dev build is local + free).
+tier, Railway's free/low trial tier, and the free **web** workflow (no EAS needed — and if
+mobile is resumed, the Android dev build is local + free).

@@ -1,5 +1,6 @@
 // signer.ts — pluggable transaction signer + a small registry.
-// web3.js + polyfills load lazily (dynamic import) so mock mode never pulls them in.
+// web3.js + polyfills load lazily (dynamic import) so a session that never signs anything
+// never pays for them.
 // The tx returned by /transfer/prepare is already fee-payer-signed; the signer adds the
 // user signature and broadcasts (Privy's Expo wallet only does signAndSendTransaction).
 export interface Signer {

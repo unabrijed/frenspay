@@ -338,7 +338,7 @@ export const usePayStore = create<PayState>()(
       openDetail: (tx) => set({ detail: tx }),
       setDisplayCurrency: (c) => set({ displayCurrency: c }),
 
-      // Pull identity + balance + activity from the backend (no-op in mock mode).
+      // Pull identity + balance + activity from the backend.
       load: async () => {
         // Wait for the Privy bridge to sign in AND for the backend user to exist (synced this session,
         // or a returning onboarded user). Without the provisioned/onboarded check, the post-sign-in

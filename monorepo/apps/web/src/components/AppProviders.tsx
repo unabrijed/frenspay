@@ -1,7 +1,8 @@
 'use client';
 
 // AppProviders — mounts Privy only when USE_PRIVY (NEXT_PUBLIC_STAGE_PRIVY_APP_ID set). The
-// dynamic import keeps the Privy SDK out of the bundle in mock mode, mirroring the mobile lazy-load.
+// dynamic import keeps the Privy SDK out of the bundle when it isn't configured (the dev-wallet
+// path signs locally and never loads it), mirroring the mobile lazy-load.
 import dynamic from 'next/dynamic';
 import type { ReactNode } from 'react';
 

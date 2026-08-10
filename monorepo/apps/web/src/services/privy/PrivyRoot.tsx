@@ -1,7 +1,7 @@
 'use client';
 
 // PrivyRoot — wraps the app in PrivyProvider + mounts the bridge. Default export so it can be
-// dynamically imported only when USE_PRIVY (keeps Privy out of the mock-mode bundle).
+// dynamically imported only when USE_PRIVY (keeps Privy out of the bundle when it isn't configured).
 import { PrivyProvider, usePrivy } from '@privy-io/react-auth';
 import { SmartWalletsProvider } from '@privy-io/react-auth/smart-wallets';
 import type { ReactNode } from 'react';
