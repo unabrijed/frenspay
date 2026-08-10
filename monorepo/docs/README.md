@@ -67,6 +67,7 @@ milestone and are deliberately not rewritten. Renamed since they were written:
 | 18 | [Unified pay, chains & country](18-unified-pay-chains-country.md) | QR/address/handle/phone in one flow, country dialing default, CCTP chain list, chain-surface rule | ✅ |
 | 19 | [Cross-chain USDC rails](19-crosschain-cctp-rails.md) | CCTP V2 behind a rail abstraction: outbound sends to Base/Eth/Arb + inbound deposits (smart-wallet, sponsored), full Sepolia staging | ✅ / 🟡 funding |
 | 20 | [Waitlist & referral loop](20-waitlist-referral-loop.md) | the f list: one `?ref=` for two referrer kinds, HMAC-derived share codes, double opt-in confirm email | ✅ / ⬜ landing |
+| 21 | [Scan & pay rails](21-scan-and-pay-rails.md) | reading EMVCo merchant QRs, naming the processing network, and which rail each scan lands on | ✅ |
 
 ---
 
@@ -76,7 +77,7 @@ milestone and are deliberately not rewritten. Renamed since they were written:
 flowchart TB
     subgraph Clients
       W["Web app<br/>(Next.js)"]
-      M["Mobile app<br/>(Expo) — P2P only"]
+      M["Mobile app<br/>(Expo) — P2P only, PARKED"]
       A["Admin console<br/>(Next.js)"]
       LP["Landing site<br/>(static export)"]
     end

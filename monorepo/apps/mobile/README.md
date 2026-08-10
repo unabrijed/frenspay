@@ -1,4 +1,11 @@
-# Pay
+# fpay — mobile
+
+> **PARKED.** This app is not in the yarn workspace: its dependencies cost ~169MB and no mobile
+> work is planned, so it has **no installed `node_modules` and no root script** — `yarn mobile` and
+> `yarn dev:mobile` do not exist. The source is untouched and resumable; see
+> [Mobile app](../../README.md#mobile-app-appsmobile--parked) in the root README for how to bring it
+> back. Everything below describes it as it stood when it was parked, including its in-memory mock
+> providers — the web app has since moved on and is always-real.
 
 A premium, iOS-style mobile payments app for inbound foreign travelers in India.
 Hold a **US-dollar balance**, spend in **rupees** instantly by scanning any UPI QR
