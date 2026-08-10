@@ -128,7 +128,7 @@ production build strips — meaning this path works under `next dev` only, never
 
 ---
 
-## Mobile app (`apps/mobile`) — parked
+## Mobile app (`apps/mobile`, parked)
 
 **Not in the workspace.** Its dependencies cost ~169MB and no mobile work is planned, so it was
 removed from `workspaces` in the root `package.json`. The source is untouched and still typechecks

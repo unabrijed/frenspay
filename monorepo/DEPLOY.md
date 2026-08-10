@@ -75,7 +75,7 @@ A web production build reads unprefixed `NEXT_PUBLIC_*` (see `apps/web/.env.exam
    NODE_ENV=stage
    STAGE_DATABASE_URL=<from the Postgres plugin>
    STAGE_SOLANA_RPC_URL=https://api.devnet.solana.com   # or a Helius devnet URL
-   STAGE_FEE_PAYER_SECRET_KEY=[ ... ]                    # JSON byte array from `yarn devnet:setup`
+   STAGE_FEE_PAYER_SECRET_KEY=[ ... ]                    # JSON byte array from devnet:setup (below)
    STAGE_USDC_MINT=vsL2tTkok8U7nMZMpFS1Z5PVJpVmk4uuuvoQQUBvfhf
    STAGE_PRIVY_APP_ID=<privy app id>
    STAGE_PRIVY_APP_SECRET=<privy app secret>            # backend-only, never in the web build
@@ -83,7 +83,7 @@ A web production build reads unprefixed `NEXT_PUBLIC_*` (see `apps/web/.env.exam
    STAGE_CORS_ORIGIN=https://<your-web-domain>          # fill in after step 2 (Vercel URL)
    ```
    The fee-payer secret, USDC mint, and a funded fee-payer wallet already exist locally from
-   `yarn devnet:setup` (`apps/backend/.devnet/keys.json`) — copy those values up. The fee-payer needs a
+   `yarn workspace @fpay/backend devnet:setup` (`apps/backend/.devnet/keys.json`) — copy those values up. The fee-payer needs a
    little devnet SOL (it already holds ~10).
 4. Deploy. Migrations auto-apply at boot — `railway.json` runs `db:deploy` before `start`, so the
    server can never come up against a stale schema. To apply by hand instead:
