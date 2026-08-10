@@ -1,15 +1,15 @@
 # fpay — monorepo
 
 Yarn-workspaces monorepo for **fpay**, a travel payments app (hold USD, spend INR at a
-locked rate via UPI QR, plus send/request with friends). There are **two frontends** — a
-Next.js **web app** and an Expo **mobile app** — sharing one backend, design system, and
-business logic.
+locked rate via UPI QR, plus send/request with friends). Three Next.js frontends — the
+**web app**, an operator **console**, and the **landing** page — share one backend, design
+system, and business logic. An Expo **mobile app** is in the tree but parked.
 
 ```
 monorepo/
   apps/
     web/        Next.js (App Router) web app — mobile-first, runs in any browser
-    mobile/     Expo / React Native app (iOS, Android)
+    mobile/     Expo / React Native app — PARKED, not in the workspace (see below)
     backend/    Fastify API service (deploys on Railway)
     admin/      Next.js operator console — admin.frenspay.xyz
     landing/    Static Next export — frenspay.xyz (Tailwind v4; web/admin are v3)
@@ -63,24 +63,24 @@ missing Postgres at the moment something tries to write.
 | `yarn dev:admin` | **Operator console** + backend | 3002 · 3001 |
 | `yarn dev:landing` | **Landing page** + backend (the f-list form POSTs to it) | 3003 · 3001 |
 | `yarn dev:backend` | **API** alone, in watch mode | 3001 |
-| `yarn dev:mobile` | **Mobile** via Expo — own terminal (alias: `yarn mobile`) | — |
-| `yarn mobile -- -c` | Mobile with a cleared cache (use after editing `apps/mobile/.env`) | — |
 
 Ctrl-C stops the whole group; nothing is left holding a port.
 
 | Everything else | |
 |---|---|
 | `yarn brand` | Regenerate every app icon from `brand/logo-lockup.svg` + `brand/logo-icon.svg` |
-| `yarn typecheck` | Type-check **all six** workspaces (shared + mobile + backend + web + admin + landing) |
+| `yarn typecheck` | Type-check **all five** workspaces (shared + backend + web + admin + landing) |
+| `yarn check:env` | Assert the tier block is identical across the Next apps + nothing reads `process.env` outside an `envConfig.ts` |
 | `yarn workspace @fpay/backend db:migrate` | Apply pending DB migrations (`db:status` to inspect) |
 | `yarn workspace @fpay/backend db:seed` | Insert 2 test users (@bridge, @neha) + sample activity (prints ids) |
 | `yarn workspace @fpay/backend devnet:setup` | Provision fee-payer + USDC mint + funded devnet wallets |
 | `yarn workspace @fpay/backend check:waitlist` | Self-check the f-list share codes + confirm tokens (no DB, no network) |
+| `yarn workspace @fpay/shared check:paytarget` | Self-check the pay-target parser — handles, VPAs, phones, addresses (no DB, no network) |
 | `yarn workspace @fpay/<app> <cmd>` | Run any script in a specific workspace |
 
-> Mobile is the one app left out of `yarn dev`: Expo needs its own terminal, or its keypress menu
-> (`i` / `a` / `r`) stops working and its output drowns the other three. **Always launch it from the
-> repo root** (never `expo start` / `npx expo` from a random directory — Expo resolves the wrong entry).
+> **There is no `yarn mobile` / `yarn dev:mobile`.** `apps/mobile` is parked out of the workspace, so
+> it has no installed dependencies and no root script — see [Mobile app](#mobile-app-appsmobile-parked)
+> for how to bring it back.
 
 ---
 
@@ -112,15 +112,24 @@ Then **allow `http://localhost:3000` as an origin in your Privy dashboard app** 
 
 ---
 
-## Mobile app (`apps/mobile`)
+## Mobile app (`apps/mobile`) — parked
+
+**Not in the workspace.** Its dependencies cost ~169MB and no mobile work is planned, so it was
+removed from `workspaces` in the root `package.json`. The source is untouched and still typechecks
+against the same shared package — it is parked, not abandoned. Until it is resumed there are **no
+mobile scripts**: `yarn mobile` and `yarn dev:mobile` do not exist.
+
+To bring it back:
 
 ```bash
-yarn mobile           # Expo dev server — scan the QR in Expo Go, or press i / a
+# 1. add "apps/mobile" back to `workspaces` in the root package.json, then:
+yarn install
+cd apps/mobile && npx expo prebuild -p android   # regenerate the native project
 ```
 
-Mock mode works in **Expo Go** with zero setup. Real mode (dev-keypair path) points the
-app at the backend via `apps/mobile/.env` (see the env + networking sections below), then
-`yarn mobile -- -c` to pick up the new env.
+It stays out of `yarn dev` even once resumed: Expo needs its own terminal, or its keypress menu
+(`i` / `a` / `r`) stops working and its output drowns the other three. **Always launch it from the
+repo root** — never `expo start` / `npx expo` from a random directory, or Expo resolves the wrong entry.
 
 **Privy on mobile needs a custom dev build** (Expo Go can't run its native modules). On this
 machine the Android local build is the path:
@@ -179,10 +188,10 @@ blocks stay identical and that nothing reads `process.env` outside an `envConfig
 
 ---
 
-## Networking cheatsheet (mobile real mode)
+## Networking cheatsheet (for the parked mobile app)
 
-`EXPO_PUBLIC_STAGE_API_URL` must be reachable **from where the app runs** (the backend binds
-`0.0.0.0`):
+Only relevant once `apps/mobile` is back in the workspace. `EXPO_PUBLIC_STAGE_API_URL` must be
+reachable **from where the app runs** (the backend binds `0.0.0.0`):
 
 | Running on | `EXPO_PUBLIC_STAGE_API_URL` |
 |---|---|
@@ -197,27 +206,37 @@ The web app (browser on the same machine) just uses `http://localhost:3001`.
 ## Testing
 
 ```bash
-yarn typecheck        # tsc --noEmit across all six workspaces
+yarn typecheck                                   # tsc --noEmit across all five workspaces
+yarn check:env                                   # env tiers identical, no stray process.env reads
+yarn workspace @fpay/shared check:paytarget      # the pay-target parser, 10 cases
+yarn workspace @fpay/backend check:waitlist      # f-list share codes + confirm tokens
 ```
 
-End-to-end smoke tests are manual: walk the mock flow in the browser (`yarn dev:web`) or Expo
-Go (`yarn mobile`); for real mode, hit the backend with `curl localhost:3001/health` and
-the endpoints in the backend README.
+Those three `check:*` scripts are the closest thing to a test suite — each is a plain assert script
+with no DB and no network, so they run anywhere in under a second.
+
+End-to-end smoke tests are manual: walk the flow in the browser (`yarn dev:web`), and hit the
+backend with `curl localhost:3001/health` plus the endpoints in the backend README.
 
 ---
 
 ## Troubleshooting
 
-- **App can't reach the backend (mobile)** — on a physical phone `localhost` is the phone,
-  not your Mac. Use the Mac's LAN IP and the same Wi-Fi. The web app uses `localhost:3001`.
-- **Env changes don't take effect** — `EXPO_PUBLIC_*` / `NEXT_PUBLIC_*` are inlined at start;
-  restart `yarn mobile -- -c` / `yarn dev:web`.
+- **Env changes don't take effect** — `NEXT_PUBLIC_*` is inlined at start, not read at runtime;
+  restart `yarn dev:web`.
 - **Privy login rejected on web** — add `http://localhost:3000` as an allowed origin in the
   Privy dashboard app; confirm `NEXT_PUBLIC_STAGE_PRIVY_APP_ID` is set.
 - **`/balance` is 0 / Send errors with "no mint"** — `devnet:setup` hasn't run (or
   `STAGE_USDC_MINT` isn't in `apps/backend/.env`).
 - **Faucet `429 Too Many Requests`** — the public devnet faucet is rate-limited; fund the
   fee-payer via https://faucet.solana.com or a Helius devnet RPC.
+
+Once the parked mobile app is resumed:
+
+- **App can't reach the backend** — on a physical phone `localhost` is the phone, not your Mac.
+  Use the Mac's LAN IP and the same Wi-Fi. The web app uses `localhost:3001`.
+- **`EXPO_PUBLIC_*` changes don't take effect** — restart with a cleared cache
+  (`yarn workspace @fpay/mobile start -- -c`).
 - **`expo run:android` finds no device** — start an Android emulator (or connect a phone
   with USB debugging) first; `adb devices` should list it.
 
