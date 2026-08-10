@@ -24,6 +24,7 @@ import {
   toBaseUnits,
   USDC_DECIMALS,
 } from '../src/units';
+import { inrRaw } from '../src/money';
 // The backend's wire-number seam. Imported across the workspace boundary on purpose: the rounding
 // law is one law, and it must hold on both sides of it.
 import { amt, roundDown, roundUp } from '../../../apps/backend/src/lib/amount';
@@ -123,6 +124,20 @@ assert.equal(roundUp(amt(0.1).plus(0.2)), 0.3, 'the exact sum, not 0.30000000000
 assert.equal(roundDown(amt(50).minus(0.5), 2), 49.5, 'what we deliver, floored to the cent we display');
 assert.ok(roundUp(amt(1).div(3)) > roundDown(amt(1).div(3)), 'the two directions must actually differ');
 ok('roundUp/roundDown carry the rounding law across the wire-number seam');
+
+/* ---- paise survive the trip from a dynamic UPI QR to the screen ---- */
+
+// A ₹249.50 QR seeded the keypad as "249.5" and parseInt read it back as 249, while inrRaw rounded
+// the display to ₹250 — so the screen and the quote disagreed, and the user underpaid the invoice.
+// The keypad now parses with Number(); inrRaw keeps the paise. Whole amounts are untouched, which is
+// what makes this safe for the twelve existing callers.
+assert.equal(inrRaw(500), '₹500', 'whole rupees must not grow a ".00"');
+assert.equal(inrRaw('500.00'), '₹500', 'a canonical 2dp string is still whole');
+assert.equal(inrRaw(249.5), '₹249.50', 'the bug: this used to render ₹250');
+assert.equal(inrRaw(1234.5), '₹1,234.50', 'grouping survives the paise');
+assert.equal(Number('249.5') || 0, 249.5, 'the keypad parse: parseInt gave 249 here');
+assert.equal(Number('249.') || 0, 249, 'tolerates a mid-edit trailing point');
+ok('a scanned ₹249.50 keeps its paise through parse and display');
 
 /* ---- the mirrors and the guards that only a script can enforce ---- */
 

@@ -6,7 +6,7 @@
 // signing. The app is always real; balance/activity load from the backend once signed in.
 import type { ApiPaymentRequest, KycStatus, MerchantProfile, Notification, Order, Quote } from '@fpay/shared';
 import type { NetworkId } from '@fpay/shared';
-import { classifyPayTarget, isoFromE164, phoneCandidates, truncateAddress } from '@fpay/shared';
+import { classifyPayTarget, INR_DECIMALS, isoFromE164, phoneCandidates, truncateAddress } from '@fpay/shared';
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -692,7 +692,12 @@ export const usePayStore = create<PayState>()(
       },
 
       payPayee: (m, rupees = 0) => {
-        set({ payee: m, scannedRupees: rupees });
+        // The QR is untrusted text — emvqr/payTarget only assert it parses as a finite positive
+        // number, not that it fits the rail. Clamp to paise here (the one funnel scanned amounts
+        // enter through; the resume path at `resumePay` replays an already-clamped value) so a
+        // malformed 3dp QR can't seed an amount the backend would reject at quote time.
+        const paise = 10 ** INR_DECIMALS;
+        set({ payee: m, scannedRupees: Math.round(rupees * paise) / paise });
         if (get().kycTier >= 2) {
           get().open('amount');
         } else {

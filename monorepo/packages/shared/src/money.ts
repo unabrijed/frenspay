@@ -44,8 +44,18 @@ export type DisplayCurrency = 'INR' | 'USD';
 export const formatMoney = (usdAmount: MoneyLike, currency: DisplayCurrency): string =>
   currency === 'USD' ? usd(usdAmount) : inr(usdAmount);
 
-/** Format a raw rupee figure. e.g. inrRaw(500) -> "₹500" */
-export const inrRaw = (rupees: MoneyLike): string => '₹' + groupIN(Math.round(num(rupees)));
+/**
+ * Format a raw rupee figure, keeping paise when there are any.
+ *   inrRaw(500) -> "₹500"   ·   inrRaw(249.5) -> "₹249.50"   ·   inrRaw("500.00") -> "₹500"
+ *
+ * The paise half matters: a dynamic UPI QR can carry them, and rounding a ₹249.50 invoice to "₹250"
+ * on screen while quoting something else is the kind of disagreement users notice. Whole amounts are
+ * unchanged, so every existing caller renders byte-identically.
+ */
+export const inrRaw = (rupees: MoneyLike): string => {
+  const [whole, paise] = num(rupees).toFixed(2).split('.');
+  return '₹' + groupIN(Number(whole)) + (paise === '00' ? '' : '.' + paise);
+};
 
 /** USD needed to cover a rupee amount. */
 export const rupeesToUsd = (rupees: MoneyLike): number => num(rupees) / RATE;

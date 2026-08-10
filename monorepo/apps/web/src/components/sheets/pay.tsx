@@ -12,7 +12,9 @@ import { Keypad } from '@/components/ui/Keypad';
 import { Grab, SearchBar, SheetBody, SheetHeader } from '@/components/ui/primitives';
 import { Pressable, View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
-import { inrRaw, RATE, usd } from '@/lib/money';
+import { INR_DECIMALS } from '@fpay/shared';
+
+import { inrRaw, usd } from '@/lib/money';
 import { colors, fonts, type } from '@/lib/theme';
 import { usePayStore } from '@/store/usePayStore';
 
@@ -145,14 +147,24 @@ export function Amount() {
   const busy = usePayStore((s) => s.busy);
   const payee = usePayStore((s) => s.payee);
   const scannedRupees = usePayStore((s) => s.scannedRupees);
+  const fxRate = usePayStore((s) => s.fxRate);
   // Dynamic UPI QRs carry the amount → seed it; static QRs (am absent) start blank-ish for entry.
   const [d, setD] = useState(() => (scannedRupees > 0 ? String(scannedRupees) : '500'));
   const press = (k: string) => {
-    if (k === '⌫') setD((s) => s.slice(0, -1));
-    else if (d.length < 6) setD((s) => (s === '0' ? '' : s) + k);
+    if (k === '⌫') return setD((s) => s.slice(0, -1));
+    setD((s) => {
+      const next = (s === '0' ? '' : s) + k;
+      const [whole, paise] = next.split('.');
+      // Reject the keystroke rather than truncate. A seeded QR decimal is the only way to reach a
+      // fraction at all — the keypad has no '.' key — so manual entry stays whole-rupee as designed,
+      // while a scanned ₹249.50 keeps its paise instead of being read back as ₹249.
+      if (whole.length > 6 || (paise?.length ?? 0) > INR_DECIMALS) return s;
+      return next;
+    });
   };
-  const rupees = parseInt(d || '0', 10);
-  const u = rupees / RATE;
+  // Number(), not parseInt(): parseInt("249.5") is 249. Tolerates a mid-edit trailing '.'.
+  const rupees = Number(d) || 0;
+  const u = rupees / fxRate;
   return (
     <>
       <Grab />
