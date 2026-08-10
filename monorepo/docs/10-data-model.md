@@ -208,4 +208,4 @@ accounts yet. `users.referred_by` is the self-reference that carries the invite 
 
 - `apps/backend/src/db/schema.sql` (the whole schema), `db/queries.ts` (every query), `db/seed.ts`
   (merchants + test data), `db/pool.ts` (connection).
-- Init/seed: `yarn workspace @fpay/backend db:init` / `db:seed`.
+- Init/seed: `yarn db:init` / `yarn db:seed`.

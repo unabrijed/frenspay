@@ -10,8 +10,8 @@ reads, real Solana **devnet** USDC transfers (fee-payer sponsored), and Privy au
 # from the monorepo root
 yarn install
 cp apps/backend/.env.example apps/backend/.env   # set NODE_ENV=stage + STAGE_DATABASE_URL etc.
-yarn workspace @fpay/backend db:migrate           # apply pending migrations (src/db/migrations/)
-yarn workspace @fpay/backend db:seed              # optional: 2 test users + sample activity
+yarn db:migrate                                  # apply pending migrations (src/db/migrations/)
+yarn db:seed                                     # optional: 2 test users + sample activity
 yarn dev:backend                                 # http://localhost:3001  (from the monorepo root)
 curl localhost:3001/health                       # {"status":"ok","database":"configured"}
 ```
@@ -66,7 +66,7 @@ IP-keyed rate limiter. See [20 · Waitlist & referral loop](../../docs/20-waitli
    `STAGE_LANDING_URL` — all four, or none: unset means no share codes and no mail, and `/waitlist`
    behaves exactly as it did before the referral loop existed.
 5. Migrations auto-apply on deploy (`railway.json` runs `db:deploy` before `start`). To run by hand:
-   `yarn workspace @fpay/backend db:migrate` against the Railway `STAGE_DATABASE_URL`.
+   `yarn db:migrate` against the Railway `STAGE_DATABASE_URL`.
 6. Point the Helius webhook at `https://<service>/webhooks/helius?secret=<HELIUS_WEBHOOK_SECRET>`.
 
 > Cost: Railway's free trial / low-cost hobby tier is fine for Phase 1. No other paid services required.

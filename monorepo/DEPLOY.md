@@ -83,12 +83,12 @@ A web production build reads unprefixed `NEXT_PUBLIC_*` (see `apps/web/.env.exam
    STAGE_CORS_ORIGIN=https://<your-web-domain>          # fill in after step 2 (Vercel URL)
    ```
    The fee-payer secret, USDC mint, and a funded fee-payer wallet already exist locally from
-   `yarn workspace @fpay/backend devnet:setup` (`apps/backend/.devnet/keys.json`) — copy those values up. The fee-payer needs a
+   `yarn devnet:setup` (`apps/backend/.devnet/keys.json`) — copy those values up. The fee-payer needs a
    little devnet SOL (it already holds ~10).
 4. Deploy. Migrations auto-apply at boot — `railway.json` runs `db:deploy` before `start`, so the
    server can never come up against a stale schema. To apply by hand instead:
    ```
-   yarn workspace @fpay/backend db:migrate   # applies pending apps/backend/src/db/migrations/*.sql
+   yarn db:migrate   # applies pending apps/backend/src/db/migrations/*.sql
    ```
    (Run locally with `STAGE_DATABASE_URL` pointed at the Railway DB, or via Railway's shell.
    `db:status` shows what's applied/pending.)

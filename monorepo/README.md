@@ -70,13 +70,21 @@ Ctrl-C stops the whole group; nothing is left holding a port.
 |---|---|
 | `yarn brand` | Regenerate every app icon from `brand/logo-lockup.svg` + `brand/logo-icon.svg` |
 | `yarn typecheck` | Type-check **all five** workspaces (shared + backend + web + admin + landing) |
-| `yarn check:env` | Assert the tier block is identical across the Next apps + nothing reads `process.env` outside an `envConfig.ts` |
-| `yarn workspace @fpay/backend db:migrate` | Apply pending DB migrations (`db:status` to inspect) |
-| `yarn workspace @fpay/backend db:seed` | Insert 2 test users (@bridge, @neha) + sample activity (prints ids) |
-| `yarn workspace @fpay/backend devnet:setup` | Provision fee-payer + USDC mint + funded devnet wallets |
-| `yarn workspace @fpay/backend check:waitlist` | Self-check the f-list share codes + confirm tokens (no DB, no network) |
-| `yarn workspace @fpay/shared check:paytarget` | Self-check the pay-target parser — handles, VPAs, phones, addresses (no DB, no network) |
+| `yarn check:all` | Every self-check below, in one go (~1s, no DB, no network) |
+| `yarn db:migrate` | Apply pending DB migrations (`yarn db:status` to inspect, `db:seed` · `db:reset` · `db:new` · `db:init` · `db:deploy` all exist too) |
+| `yarn db:seed` | Insert 2 test users (@bridge, @neha) + sample activity (prints ids) |
+| `yarn devnet:setup` | Provision fee-payer + USDC mint + funded devnet wallets |
+| `yarn check:env` | Tier block identical across the Next apps, nothing reads `process.env` outside an `envConfig.ts` |
+| `yarn check:paytarget` | The pay-target parser — handles, VPAs, phones, addresses |
+| `yarn check:rails` | Chain-registry invariants + suffix resolution |
+| `yarn check:waitlist` | The f-list share codes + confirm tokens |
+| `yarn check:scenes` | Landing scenes share a horizon; foot chrome clears AA contrast |
+| `yarn check:email` | The email rules the f-list form depends on |
 | `yarn workspace @fpay/<app> <cmd>` | Run any script in a specific workspace |
+
+Every repo-level tool is typed the short way. The deliberate exception is per-app **`build`** and
+**`start`** — `apps/*/vercel.json` and `.githooks/pre-push` run those exact strings, so a root alias
+would be a second way to say something deploy config already says one way, and the two can drift.
 
 > **There is no `yarn mobile` / `yarn dev:mobile`.** `apps/mobile` is parked out of the workspace, so
 > it has no installed dependencies and no root script — see [Mobile app](#mobile-app-appsmobile-parked)
@@ -165,8 +173,8 @@ for testing Privy — no build, no device.)
 
 ```bash
 cp apps/backend/.env.example apps/backend/.env   # then fill STAGE_DATABASE_URL etc.
-yarn workspace @fpay/backend db:migrate           # apply pending DB migrations
-yarn workspace @fpay/backend db:seed              # 2 test users + sample activity (prints ids)
+yarn db:migrate                                  # apply pending DB migrations
+yarn db:seed                                     # 2 test users + sample activity (prints ids)
 yarn dev:backend                                 # → http://localhost:3001
 curl localhost:3001/health                       # → {"status":"ok","database":"configured"}
 ```
@@ -222,14 +230,13 @@ The web app (browser on the same machine) just uses `http://localhost:3001`.
 ## Testing
 
 ```bash
-yarn typecheck                                   # tsc --noEmit across all five workspaces
-yarn check:env                                   # env tiers identical, no stray process.env reads
-yarn workspace @fpay/shared check:paytarget      # the pay-target parser, 10 cases
-yarn workspace @fpay/backend check:waitlist      # f-list share codes + confirm tokens
+yarn typecheck        # tsc --noEmit across all five workspaces
+yarn check:all        # every self-check below, stops at the first failure
 ```
 
-Those three `check:*` scripts are the closest thing to a test suite — each is a plain assert script
-with no DB and no network, so they run anywhere in under a second.
+`check:all` is the closest thing to a test suite: six plain assert scripts, **no DB and no network**,
+about a second end to end. Run one on its own when you know what you touched —
+`check:env` · `check:paytarget` · `check:rails` · `check:waitlist` · `check:scenes` · `check:email`.
 
 End-to-end smoke tests are manual: walk the flow in the browser (`yarn dev:web`), and hit the
 backend with `curl localhost:3001/health` plus the endpoints in the backend README.
