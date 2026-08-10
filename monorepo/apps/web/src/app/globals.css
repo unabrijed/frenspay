@@ -103,6 +103,21 @@ html.fonts-ready .material-symbols-outlined {
   transform-box: fill-box;
 }
 
+/* Hidden until something is actually in flight. Setting `offset-path` is enough to
+   put the bead ON the curve, so without this it rests at offset-distance 0% — a
+   terracotta notch bitten out of the left end of every idle mark. It survived
+   because the only two placements were the splash, which mounts straight into
+   `joining`, and onboarding/welcome, where a notch at the end of the curve is easy
+   to read as part of the artwork.
+   `offset-rotate: 0deg` because the default `auto` turns the element to follow the
+   path — invisible on a circle, and not worth rediscovering if the bead ever stops
+   being one. The landing carries both lines already. */
+.fp-logo-bead {
+  offset-distance: 0%;
+  offset-rotate: 0deg;
+  opacity: 0;
+}
+
 /* The dots drop in from outside the svg's own box. */
 .fp-logo {
   overflow: visible;
