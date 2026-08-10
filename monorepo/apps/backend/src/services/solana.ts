@@ -14,6 +14,7 @@ import {
 import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
 
 import { config } from '../envConfig';
+import { BN, formatAmount, fromBaseUnits, parseAmount, toBaseUnits as toBase } from '../lib/units';
 
 let _connection: Connection | null = null;
 export function connection(): Connection {
@@ -79,8 +80,13 @@ export function feePayerAddress(): string {
   return feePayer().publicKey.toBase58();
 }
 
-function toBaseUnits(amountUsd: number, dec: number): bigint {
-  return BigInt(Math.round(amountUsd * 10 ** dec));
+/**
+ * UI amount → integer base units, at the mint's OWN decimals (never a hardcoded 1e6 — `dec` comes
+ * from `decimals()` above, which reads the mint). Throws rather than rounds: the chain is the last
+ * place to discover a value doesn't fit, and this is the final gate before it gets there.
+ */
+function toBaseUnits(amountUsd: string | number, dec: number): bigint {
+  return toBase(parseAmount(String(amountUsd), dec), dec);
 }
 
 /** On-chain USDC balance (UI units) for a wallet owner. Returns 0 for unfunded/invalid. */

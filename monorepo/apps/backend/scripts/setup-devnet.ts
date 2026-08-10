@@ -20,6 +20,7 @@ import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, Transaction } from '@
 
 import { config } from '../src/envConfig';
 import { getPool } from '../src/db/pool';
+import { formatAmount, fromBaseUnits, parseAmount, toBaseUnits } from '../src/lib/units';
 
 const DECIMALS = 6;
 // Circle's official devnet USDC — the only mint CCTP can burn. No custom mints anymore.
@@ -98,7 +99,7 @@ async function main() {
   }
 
   const treasury = await treasuryBalance(conn, feePayer, mint);
-  const treasuryUi = Number(treasury) / 10 ** DECIMALS;
+  const treasuryUi = formatAmount(fromBaseUnits(treasury, DECIMALS), DECIMALS);
   console.log(`Treasury (fee-payer USDC ATA): ${treasuryUi} USDC`);
   if (treasury === 0n) {
     console.warn(
@@ -134,7 +135,7 @@ async function main() {
   for (const u of TEST_USERS) {
     const kp = Keypair.generate();
     const ata = await getOrCreateAssociatedTokenAccount(conn, feePayer, mint, kp.publicKey);
-    const wantBase = BigInt(u.fundUsdc * 10 ** DECIMALS);
+    const wantBase = toBaseUnits(parseAmount(String(u.fundUsdc), DECIMALS), DECIMALS);
     if (wantBase > 0n && remaining >= wantBase) {
       const tx = new Transaction().add(
         createTransferCheckedInstruction(treasuryAta.address, mint, ata.address, feePayer.publicKey, wantBase, DECIMALS),

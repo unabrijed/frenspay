@@ -317,7 +317,9 @@ export async function registerCrosschainRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'amount_too_small', minUsd: MIN_EXTERNAL_SEND_USD + q.feeUsd });
     }
     const ata = await getAssociatedTokenAddress(usdcMint(), new PublicKey(solWallet.address));
-    const toBase = (usd: number) => BigInt(Math.round(usd * 1e6));
+    // USDC is 6dp on every EVM chain we support, but the decimals still come from the constant, not
+    // from a `1e6` written inline — the one asset today is not a licence to bake the scale in.
+    const toBase = (usd: number) => toBaseUnits(amt(usd), USDC_DECIMALS);
     const calls = buildDepositCalls(sourceChain as EvmNetworkId, {
       burnAmountBase: toBase(burnAmountUsd),
       feeBase: toBase(q.feeUsd),
