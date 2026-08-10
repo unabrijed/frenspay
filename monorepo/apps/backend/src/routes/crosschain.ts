@@ -120,7 +120,7 @@ export async function registerCrosschainRoutes(app: FastifyInstance) {
 
     const rail = railFor('solana', network);
     const quote = await rail.quote('solana', network, amountUsd);
-    const totalDebitUsd = amountUsd + quote.feeUsd;
+    const totalDebitUsd = roundUp(amt(amountUsd).plus(quote.feeUsd));
 
     // Idempotency: signed/non-pending → 409; unsigned pending → rebuild the burn from the ROW
     // (a replay can never mutate intent) and return the same transferId.
@@ -312,9 +312,11 @@ export async function registerCrosschainRoutes(app: FastifyInstance) {
 
     const rail = railFor(sourceChain, 'solana');
     const q = await rail.quote(sourceChain, 'solana', amountUsd);
-    const burnAmountUsd = Math.floor((amountUsd - q.feeUsd) * 100) / 100;
+    // What we deliver, so it rounds DOWN — the user is never credited value we didn't burn. Kept
+    // at cents because this is the figure shown as the deposit amount.
+    const burnAmountUsd = roundDown(amt(amountUsd).minus(q.feeUsd), 2);
     if (burnAmountUsd < MIN_EXTERNAL_SEND_USD) {
-      return reply.code(400).send({ error: 'amount_too_small', minUsd: MIN_EXTERNAL_SEND_USD + q.feeUsd });
+      return reply.code(400).send({ error: 'amount_too_small', minUsd: roundUp(amt(MIN_EXTERNAL_SEND_USD).plus(q.feeUsd)) });
     }
     const ata = await getAssociatedTokenAddress(usdcMint(), new PublicKey(solWallet.address));
     // USDC is 6dp on every EVM chain we support, but the decimals still come from the constant, not
@@ -325,7 +327,8 @@ export async function registerCrosschainRoutes(app: FastifyInstance) {
       feeBase: toBase(q.feeUsd),
       feeTreasury: minterAddress(),
       mintRecipientBytes32: `0x${Buffer.from(ata.toBytes()).toString('hex')}`,
-      maxFeeBase: toBase(Math.max(q.railFeeUsd * 1.5, 0.01)),
+      // A ceiling for CCTP: rounded UP, and floored at a cent. Round this DOWN and the burn reverts.
+      maxFeeBase: toBase(Math.max(roundUp(amt(q.railFeeUsd).times(3).div(2)), 0.01)),
       minFinalityThreshold: rail.id === 'cctp_fast' ? 1000 : 2000,
     });
     return {

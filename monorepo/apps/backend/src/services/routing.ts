@@ -55,6 +55,9 @@ export async function rankMerchants(input: {
   // Hard filter (truly hard): only LPs whose available float can cover the order. If none can, return
   // [] so the caller fails fast — `createQuote` → `no_merchant`, `rerouteOrder` → refund — rather than
   // routing real money to an LP that provably can't service it.
+  // money:number — routing's amountUsdc is a local threshold value, not the wire DTO field of the
+  // same name. Ranking compares and scores, it never moves money, so it stays on `number` by
+  // decision (docs/01 § Money & decimals); a 1-ulp difference only shifts an exact-boundary tie.
   const pool = byRail.filter((m) => availableOf(m) >= input.amountUsdc);
   if (pool.length === 0) return [];
 

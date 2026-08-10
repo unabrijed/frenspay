@@ -126,6 +126,8 @@ export async function scoreAndRecord(input: {
   }
   const lim = tierLimits(await getUserKycTier(input.userId));
   const cap = input.kind === 'send' ? lim.sendPerTx : lim.cashOutPerTx;
+  // money:number — a risk-scoring threshold, not a ledger amount. Compliance compares and scores;
+  // it never moves money, so a 1-ulp difference only shifts a score at an exact cap boundary.
   if (cap > 0 && input.amountUsd > cap * 0.8) {
     score += 40;
     reasons.push('large relative to tier cap');

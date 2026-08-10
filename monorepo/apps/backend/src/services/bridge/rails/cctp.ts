@@ -6,6 +6,7 @@ import { getAssociatedTokenAddress } from '@solana/spl-token';
 
 import { config } from '../../../envConfig';
 import { attachPlatformTransferSignature, failUnsignedTransfer, type BridgeTransferRow } from '../../../db/queries';
+import { amt, roundUp } from '../../../lib/amount';
 import { metrics } from '../../metrics';
 import { usdcMint } from '../../solana';
 import { EVM_CHAINS, isEvmNetwork } from '../cctp/constants';
@@ -14,8 +15,6 @@ import { fetchAttestation, fetchFastFeeBps } from '../cctp/iris';
 import { buildDepositForBurnTx, evmAddressToBytes32Pk, receiveMessageOnSolana } from '../cctp/solana';
 import { nextAttempt, settle, transition } from '../machine';
 import type { MachineCtx, Rail, RailQuote, SourceLeg } from '../rail';
-
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
 function makeCctpRail(opts: { id: string; fast: boolean }): Rail {
   const { id, fast } = opts;
@@ -28,7 +27,9 @@ function makeCctpRail(opts: { id: string; fast: boolean }): Rail {
   const railFee = async (source: string, dest: string, amountUsd: number): Promise<number> => {
     if (!fast) return 0;
     const bps = await fetchFastFeeBps(cctpDomain(source), cctpDomain(dest));
-    return round2((amountUsd * bps) / 10_000);
+    // We collect this from the user and owe it to Circle — round UP so we're never the one short,
+    // at USDC's own 6dp: at cents, a $1 transfer owed $0.0001 and collected nothing.
+    return roundUp(amt(amountUsd).times(bps).div(10_000));
   };
 
   return {
@@ -42,7 +43,9 @@ function makeCctpRail(opts: { id: string; fast: boolean }): Rail {
 
     async quote(source, dest, amountUsd): Promise<RailQuote> {
       const outbound = source === 'solana';
-      const feeUsd = outbound ? (config.cctpFeeUsd[dest] ?? 0) : (config.cctpInFeeUsd[source] ?? 0);
+      // Rounded here, once: the fee is an operator-set env number, so this is the only place its
+      // precision is bounded before it reaches a response DTO or the chain.
+      const feeUsd = roundUp(amt(outbound ? (config.cctpFeeUsd[dest] ?? 0) : (config.cctpInFeeUsd[source] ?? 0)));
       const railFeeUsd = await railFee(source, dest, amountUsd);
       const etaSecs = fast ? 45 : outbound ? EVM_CHAINS[dest].etaSecs : 1140; // EVM-source standard ≈19min
       return { feeUsd, railFeeUsd, etaSecs };
@@ -54,7 +57,9 @@ function makeCctpRail(opts: { id: string; fast: boolean }): Rail {
         // learns of them via POST /crosschain/deposit.
         throw new Error(`${id}: only solana-source legs are server-built`);
       }
-      const maxFeeUsd = fast ? round2((await railFee(input.source, input.dest, input.amountUsd)) * 1.5) : 0;
+      // The ceiling handed to CCTP. Rounded UP because rounding it DOWN reverts the burn on-chain —
+      // this is a transaction failure, not a rounding loss, and it is why the direction has a name.
+      const maxFeeUsd = fast ? roundUp(amt(await railFee(input.source, input.dest, input.amountUsd)).times(3).div(2)) : 0;
       const built = await buildDepositForBurnTx({
         fromOwner: input.fromOwner,
         destinationDomain: cctpDomain(input.dest),

@@ -615,6 +615,8 @@ export const usePayStore = create<PayState>()(
       },
       doSendExternal: async () => {
         const ext = get().externalSend;
+        // money:number — externalSend is CLIENT state built from keypad input, not a wire DTO. It
+        // becomes a string at the request boundary; here it is display + optimistic arithmetic.
         if (!ext || ext.amountUsd <= 0 || ext.network === 'evm') return null;
         set({ busy: true, error: null });
         try {
@@ -653,10 +655,12 @@ export const usePayStore = create<PayState>()(
               type: 'send',
               title: 'To ' + truncateAddress(ext.address),
               time: 'Just now',
+              // money:number — see doSendExternal above; this is the optimistic view row.
               usd: -(ext.amountUsd + ext.totalFeeUsd),
               status: 'pending',
             };
           }
+          // money:number — optimistic local balance only; refresh() reconciles against the chain.
           const debit = ext.amountUsd + (ext.network === 'solana' ? 0 : ext.totalFeeUsd);
           set((s) => ({
             balanceUSD: +(s.balanceUSD - debit).toFixed(2),

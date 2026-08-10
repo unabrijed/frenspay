@@ -3,6 +3,9 @@
 // throws — a notification must not fail a money-movement path. Real push/webhooks deferred to M7.
 import { insertNotification } from '../db/queries';
 
+// A deliberate mirror of the `usd()` display formatter in packages/shared/src/money.ts — the
+// backend may only `import type` from the workspace, so it copies rather than imports. Display
+// only: nothing here is arithmetic, and no money path reads it back.
 const usd = (n: number) => `$${n.toFixed(2)}`;
 
 async function notify(userId: string, kind: string, title: string, body?: string): Promise<void> {

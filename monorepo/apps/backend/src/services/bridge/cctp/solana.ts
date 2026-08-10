@@ -80,6 +80,8 @@ export async function buildDepositForBurnTx(input: {
   const tx = new Transaction();
 
   // Our platform fee (dollars, USDC) — atomic with the burn so it can't be collected on a failure.
+  // money:number — a rail-internal parameter, already rounded by the rail quote; it becomes base
+  // units two lines down and never reaches a response DTO as a number.
   if (input.feeUsd > 0) {
     const feeAta = await getAssociatedTokenAddress(mint, fp.publicKey);
     tx.add(
