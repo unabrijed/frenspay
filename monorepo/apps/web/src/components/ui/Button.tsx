@@ -36,6 +36,11 @@ export function Btn({
 }) {
   const isPrimary = variant === 'primary';
   const textColor = variant === 'secondary' ? colors.ink : colors.white;
+  // The bead is a GAP in the curve, so it has to be painted in whatever the button
+  // itself is. Left at its default it was terracotta on an ink button — a dot stuck
+  // on the mark rather than something passing along it.
+  const surface =
+    variant === 'primary' ? colors.accent : variant === 'ink' ? colors.ink : colors.surface;
   return (
     <Pressable
       disabled={disabled}
@@ -57,7 +62,7 @@ export function Btn({
     >
       {pending ? (
         <View style={styles.icon}>
-          <Mark size={18} state="joining" />
+          <Mark size={18} state="joining" color={textColor} bead={surface} />
         </View>
       ) : icon ? (
         <View style={styles.icon}>{icon}</View>

@@ -150,23 +150,36 @@ export function SearchBar({
 // was still shipping on the onboarding welcome screen and the boot splash.
 //
 // Motion lives in globals.css (a @keyframes block needs a stylesheet and this file
-// styles inline), keyed off the classes and data-attributes below. Only two states:
-// there is no rest-wink because nothing here holds a mark on screen long enough,
-// and no success-hop because no success surface carries one.
-export type LogoState = 'idle' | 'joining';
+// styles inline), keyed off the classes and data-attributes below.
+//
+// Every gesture is a BODY gesture — the two lean toward each other at rest, and hop
+// together on success. Deliberately no wink and no blink: at this size two dots over
+// a curve are already one bad reading away from a smiley, and an eyelid is what
+// settles that reading the wrong way. The mark is two frens sitting either side, so
+// it moves the way two people do, not the way a face does. Same reason avatars stay
+// initials — a circular avatar slot is exactly where the two collapse into one face.
+export type LogoState = 'idle' | 'joining' | 'success';
 
 // One copy of the curve. The bead rides it via offset-path, and two copies of the
 // same `d` is the one way this file could silently drift from itself.
 const LINK = 'M60 136 C82 132 98 184 128 192 C158 184 174 132 196 136';
 
+// `color`/`bead` default to the terracotta-tile placement (cream mark, terracotta
+// bead). They are separate props because the bead is a GAP in the curve: it has to
+// be painted in whatever the mark is sitting ON, which is not derivable from the
+// mark's own colour.
 export function Mark({
   size,
   state = 'idle',
   enter,
+  color = colors.canvas,
+  bead = colors.accent,
 }: {
   size: number;
   state?: LogoState;
   enter?: boolean;
+  color?: string;
+  bead?: string;
 }) {
   return (
     <svg
@@ -185,20 +198,19 @@ export function Mark({
         className="fp-logo-link"
         d={LINK}
         pathLength={1}
-        stroke={colors.canvas}
+        stroke={color}
         strokeWidth="48"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      <circle className="fp-logo-dot fp-logo-dot-l" cx="66" cy="74" r="31" fill={colors.canvas} />
-      <circle className="fp-logo-dot fp-logo-dot-r" cx="190" cy="74" r="31" fill={colors.canvas} />
+      <circle className="fp-logo-dot fp-logo-dot-l" cx="66" cy="74" r="31" fill={color} />
+      <circle className="fp-logo-dot fp-logo-dot-r" cx="190" cy="74" r="31" fill={color} />
       {/* Painted in the SURROUND, not the mark, so it reads as a gap travelling
-          along the curve rather than a dot stuck on it. Terracotta is right for
-          both placements — the logo tile and a primary Btn are the same accent. */}
+          along the curve rather than a dot stuck on it. */}
       <circle
         className="fp-logo-bead"
         r={48 * 0.4}
-        fill={colors.accent}
+        fill={bead}
         style={{ offsetPath: `path("${LINK}")` } as CSSProperties}
       />
     </svg>
