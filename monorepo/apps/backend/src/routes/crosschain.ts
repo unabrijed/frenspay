@@ -69,10 +69,10 @@ export async function registerCrosschainRoutes(app: FastifyInstance) {
       return {
         source,
         destination: dest,
-        amountUsd,
-        feeUsd: q.feeUsd,
-        railFeeUsd: q.railFeeUsd,
-        totalFeeUsd: Math.round((q.feeUsd + q.railFeeUsd) * 100) / 100,
+        amountUsd: usdStr(amountUsd),
+        feeUsd: usdStr(q.feeUsd),
+        railFeeUsd: usdStr(q.railFeeUsd),
+        totalFeeUsd: usdStr(amt(q.feeUsd).plus(q.railFeeUsd)),
         etaSecs: q.etaSecs,
       } satisfies CrosschainQuoteResponse;
     },
@@ -146,9 +146,9 @@ export async function registerCrosschainRoutes(app: FastifyInstance) {
             unsignedTx: leg.unsignedTx,
             feePayer: leg.feePayer,
             transferId: existing.id,
-            feeUsd: Number(bridge.fee_usdc),
-            railFeeUsd: Number(bridge.rail_fee_usdc),
-            totalFeeUsd: Math.round((Number(bridge.fee_usdc) + Number(bridge.rail_fee_usdc)) * 100) / 100,
+            feeUsd: bridge.fee_usdc,
+            railFeeUsd: bridge.rail_fee_usdc,
+            totalFeeUsd: usdStr(amt(Number(bridge.fee_usdc)).plus(Number(bridge.rail_fee_usdc))),
             etaSecs: quote.etaSecs,
           } satisfies PrepareCrosschainResponse;
         } catch (e) {
@@ -242,9 +242,9 @@ export async function registerCrosschainRoutes(app: FastifyInstance) {
       unsignedTx: outcome.leg.unsignedTx,
       feePayer: outcome.leg.feePayer,
       transferId: outcome.transferId,
-      feeUsd: quote.feeUsd,
-      railFeeUsd: quote.railFeeUsd,
-      totalFeeUsd: Math.round((quote.feeUsd + quote.railFeeUsd) * 100) / 100,
+      feeUsd: usdStr(quote.feeUsd),
+      railFeeUsd: usdStr(quote.railFeeUsd),
+      totalFeeUsd: usdStr(amt(quote.feeUsd).plus(quote.railFeeUsd)),
       etaSecs: quote.etaSecs,
     } satisfies PrepareCrosschainResponse;
   });
@@ -277,7 +277,7 @@ export async function registerCrosschainRoutes(app: FastifyInstance) {
       const rail = railFor(network, 'solana');
       // Advisory per-network terms at a nominal $100 (the real quote happens at move time).
       const q = await rail.quote(network, 'solana', 100);
-      options.push({ network, feeUsd: q.feeUsd, etaSecs: q.etaSecs });
+      options.push({ network, feeUsd: usdStr(q.feeUsd), etaSecs: q.etaSecs });
     }
     return { evmAddress: evm?.address ?? undefined, options };
   });
@@ -287,12 +287,12 @@ export async function registerCrosschainRoutes(app: FastifyInstance) {
     if (!evmMinterConfigured()) return reply.code(503).send({ error: 'crosschain_unavailable' });
     const evm = await getWalletForUser(userId, 'ethereum');
     if (!evm?.address) return reply.code(404).send({ error: 'no_deposit_address' });
-    const balances: Record<string, number> = {};
+    const balances: Record<string, string> = {};
     for (const network of ['base', 'arbitrum', 'ethereum'] as EvmNetworkId[]) {
       try {
         balances[network] = await getUsdcBalanceOnEvm(network, evm.address);
       } catch {
-        balances[network] = 0; // unreachable RPC → show nothing rather than fail the sheet
+        balances[network] = usdStr(0); // unreachable RPC → show nothing rather than fail the sheet
       }
     }
     return { balances };
@@ -334,10 +334,10 @@ export async function registerCrosschainRoutes(app: FastifyInstance) {
     return {
       chainId: EVM_CHAINS[sourceChain].chainId,
       calls,
-      burnAmountUsd,
-      feeUsd: q.feeUsd,
-      railFeeUsd: q.railFeeUsd,
-      totalFeeUsd: Math.round((q.feeUsd + q.railFeeUsd) * 100) / 100,
+      burnAmountUsd: usdStr(burnAmountUsd),
+      feeUsd: usdStr(q.feeUsd),
+      railFeeUsd: usdStr(q.railFeeUsd),
+      totalFeeUsd: usdStr(amt(q.feeUsd).plus(q.railFeeUsd)),
       etaSecs: q.etaSecs,
     } satisfies DepositPrepareResponse;
   });

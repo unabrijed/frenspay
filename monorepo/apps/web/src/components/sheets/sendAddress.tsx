@@ -103,7 +103,8 @@ export function SendAddressConfirm() {
               <View style={styles.hr} />
               <View style={styles.kvRow}>
                 <Txt style={[type.tierTag, { color: colors.muted }]}>NETWORK FEE</Txt>
-                <Txt style={type.rowName}>{ext.totalFeeUsd > 0 ? `$${ext.totalFeeUsd.toFixed(2)}` : 'Free'}</Txt>
+                {/* money:number — externalSend is client keypad state, parsed from the quote in usePayStore. */}
+            <Txt style={type.rowName}>{ext.totalFeeUsd > 0 ? `$${ext.totalFeeUsd.toFixed(2)}` : 'Free'}</Txt>
               </View>
               {ext.etaSecs > 0 ? (
                 <>

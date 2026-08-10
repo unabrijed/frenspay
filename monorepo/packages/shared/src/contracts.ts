@@ -274,19 +274,19 @@ export interface TransactionsResponse {
 export interface CrosschainQuoteResponse {
   source: string;
   destination: string;
-  amountUsd: number;
+  amountUsd: string;
   /** fpay's per-destination fee (config). */
-  feeUsd: number;
+  feeUsd: string;
   /** The protocol's own cut (e.g. fast-lane bps), broken out for transparency; UI may combine. */
-  railFeeUsd: number;
-  totalFeeUsd: number;
+  railFeeUsd: string;
+  totalFeeUsd: string;
   etaSecs: number;
 }
 
 export interface PrepareCrosschainRequest {
   network: string; // destination NetworkId
   toAddress: string;
-  amountUsd: number;
+  amountUsd: string | number;
   note?: string;
   idempotencyKey?: string;
 }
@@ -295,9 +295,9 @@ export interface PrepareCrosschainResponse {
   unsignedTx: string;
   feePayer: string;
   transferId: string;
-  feeUsd: number;
-  railFeeUsd: number;
-  totalFeeUsd: number;
+  feeUsd: string;
+  railFeeUsd: string;
+  totalFeeUsd: string;
   etaSecs: number;
 }
 
@@ -310,29 +310,29 @@ export interface SubmitCrosschainRequest {
 export interface DepositInfoResponse {
   /** The user's own smart-wallet deposit address (same on every listed network); absent until synced. */
   evmAddress?: string;
-  options: Array<{ network: string; feeUsd: number; etaSecs: number }>;
+  options: Array<{ network: string; feeUsd: string; etaSecs: number }>;
 }
 
 export interface DepositBalancesResponse {
   /** USDC sitting at the deposit address, per network (UI units/dollars). */
-  balances: Record<string, number>;
+  balances: Record<string, string>;
 }
 
 /** Server-built calldata for the sponsored move-to-balance userOp (client stays EVM-lib-free). */
 export interface DepositPrepareRequest {
   sourceChain: string;
   /** Total USDC to move off the source chain (our fee is carved out of it server-side). */
-  amountUsd: number;
+  amountUsd: string | number;
 }
 
 export interface DepositPrepareResponse {
   chainId: number;
   calls: Array<{ to: string; data: string; value: string }>;
   /** What actually gets bridged after fpay's fee. */
-  burnAmountUsd: number;
-  feeUsd: number;
-  railFeeUsd: number;
-  totalFeeUsd: number;
+  burnAmountUsd: string;
+  feeUsd: string;
+  railFeeUsd: string;
+  totalFeeUsd: string;
   etaSecs: number;
 }
 
@@ -340,7 +340,7 @@ export interface ReportDepositRequest {
   sourceChain: string;
   txHash: string;
   /** Client-asserted, PROVISIONAL — the server reconciles from the attested message. */
-  amountUsd: number;
+  amountUsd: string | number;
 }
 
 export interface ReportDepositResponse {

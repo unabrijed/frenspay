@@ -605,7 +605,13 @@ export const usePayStore = create<PayState>()(
           // Best-effort preview; /crosschain/prepare recomputes authoritatively at send time.
           try {
             const q = await api.crosschainQuote(ext.network, u);
-            fees = { feeUsd: q.feeUsd, railFeeUsd: q.railFeeUsd, totalFeeUsd: q.totalFeeUsd, etaSecs: q.etaSecs };
+            // Parse boundary: the quote arrives as decimal strings, the store holds display numbers.
+            fees = {
+              feeUsd: Number(q.feeUsd),
+              railFeeUsd: Number(q.railFeeUsd),
+              totalFeeUsd: Number(q.totalFeeUsd),
+              etaSecs: q.etaSecs,
+            };
           } catch {
             /* quote is display-only — confirm still shows the network without a fee row */
           }
@@ -828,7 +834,9 @@ export const usePayStore = create<PayState>()(
         set({ depositBusy: true });
         try {
           const { balances } = await api.depositBalances();
-          set({ depositBalances: balances, depositBusy: false });
+          // Same parse boundary: per-network decimal strings in, display numbers out.
+          const asNumbers = Object.fromEntries(Object.entries(balances).map(([k, v]) => [k, Number(v)]));
+          set({ depositBalances: asNumbers, depositBusy: false });
         } catch {
           set({ depositBalances: {}, depositBusy: false });
         }
@@ -843,6 +851,8 @@ export const usePayStore = create<PayState>()(
           const txHash = await bridge.sendSponsoredCalls(prep.chainId, prep.calls);
           // The burn is real the moment it's signed — stash it so a crash before the report
           // can't lose the deposit (resumePendingDeposit re-reports on next open).
+          // burnAmountUsd stays a STRING all the way through the stash and back to /crosschain/deposit —
+          // it is the amount actually burned on-chain, so it must not round-trip through a float.
           const stash = { sourceChain: network, txHash, amountUsd: prep.burnAmountUsd };
           try {
             localStorage.setItem('fpay:pendingDeposit', JSON.stringify(stash));
@@ -864,7 +874,7 @@ export const usePayStore = create<PayState>()(
                 type: 'add',
                 title: 'Added money',
                 time: 'Just now',
-                usd: prep.burnAmountUsd,
+                usd: Number(prep.burnAmountUsd),
                 status: 'pending',
               },
               ...s.transactions,
@@ -882,7 +892,7 @@ export const usePayStore = create<PayState>()(
         }
       },
       resumePendingDeposit: async () => {
-        let stash: { sourceChain: string; txHash: string; amountUsd: number } | null = null;
+        let stash: { sourceChain: string; txHash: string; amountUsd: string | number } | null = null;
         try {
           const raw = localStorage.getItem('fpay:pendingDeposit');
           stash = raw ? JSON.parse(raw) : null;

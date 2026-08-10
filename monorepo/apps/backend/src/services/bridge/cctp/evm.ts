@@ -15,6 +15,7 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { config } from '../../../envConfig';
+import { formatAmount, fromBaseUnits, USDC_DECIMALS } from '../../../lib/units';
 
 import { EVM_CHAINS, type EvmNetworkId } from './constants';
 
@@ -124,8 +125,8 @@ export async function getEvmReceiptStatus(
   }
 }
 
-/** USDC balance (UI units, 6dp) of any address on a destination chain. */
-export async function getUsdcBalanceOnEvm(network: EvmNetworkId, address: string): Promise<number> {
+/** USDC balance of any address on a destination chain, as a canonical decimal string. */
+export async function getUsdcBalanceOnEvm(network: EvmNetworkId, address: string): Promise<string> {
   const info = EVM_CHAINS[network];
   const raw = await publicClient(network).readContract({
     address: info.usdc,
@@ -133,7 +134,9 @@ export async function getUsdcBalanceOnEvm(network: EvmNetworkId, address: string
     functionName: 'balanceOf',
     args: [address as `0x${string}`],
   });
-  return Number(raw) / 1e6;
+  // The one place a chain-READ value round-trips into a chain-WRITE: this feeds
+  // DepositBalancesResponse, which the client hands straight back as the deposit amount.
+  return formatAmount(fromBaseUnits(raw, USDC_DECIMALS), USDC_DECIMALS);
 }
 
 const ERC20_APPROVE_ABI = [
