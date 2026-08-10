@@ -35,6 +35,8 @@ import {
   type MerchantOrderRow,
   type MerchantRow,
 } from '../db/queries';
+import { amt, nonNegativeAmount, positiveAmount, USDC_DECIMALS } from '../lib/amount';
+import { formatAmount } from '../lib/units';
 import { KYC_APPROVED_TIER } from '../services/kyc';
 import { DISPUTE_WINDOW_MS } from '../services/orderMachine';
 import { MIN_BOND } from '../services/merchantStats';
@@ -151,8 +153,9 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
   /** Set how much the LP can carry in flight — their own honest capacity, not their stake. */
   app.post<{ Body: { floatUsd?: number } }>('/merchants/float', async (req, reply) => {
     const merchant = await requireMerchant(req);
-    const floatUsd = Number(req.body?.floatUsd);
-    if (!Number.isFinite(floatUsd) || floatUsd < 0) return reply.code(400).send({ error: 'invalid_amount' });
+    // Zero is a legitimate float — an LP taking themselves out of routing without going offline.
+    const floatUsd = nonNegativeAmount(req.body?.floatUsd);
+    if (floatUsd === null) return reply.code(400).send({ error: 'invalid_amount' });
     await setMerchantFloat(merchant.id, floatUsd);
     return { ok: true, floatUsdc: floatUsd };
   });
@@ -169,8 +172,8 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
   app.post<{ Body: StakePrepareRequest }>('/merchants/stake/prepare', async (req, reply) => {
     const merchant = await requireMerchant(req);
     if (!config.stakeTreasuryAddress) return reply.code(503).send({ error: 'staking_unavailable' });
-    const amountUsd = Number(req.body?.amountUsd);
-    if (!Number.isFinite(amountUsd) || amountUsd <= 0) return reply.code(400).send({ error: 'invalid_amount' });
+    const amountUsd = positiveAmount(req.body?.amountUsd);
+    if (amountUsd === null) return reply.code(400).send({ error: 'invalid_amount' });
     if (amountUsd > MAX_STAKE_DEPOSIT_USD) return reply.code(400).send({ error: 'amount_too_large' });
 
     const wallet = await getWalletForUser(merchant.user_id!);

@@ -32,6 +32,7 @@ import {
   updateOrder,
   withUserLock,
 } from '../db/queries';
+import { INR_DECIMALS, positiveAmount } from '../lib/amount';
 import { checkCashOutLimit } from '../services/compliance';
 import { getMidRate } from '../services/fxRate';
 import { recomputeMerchantStats } from '../services/merchantStats';
@@ -63,9 +64,11 @@ export async function registerOrderRoutes(app: FastifyInstance) {
   // Quote Engine: a locked rate+fee+ETA, valid 45s. Routing picks the best simulated merchant/LP.
   app.post<{ Body: QuoteRequest }>('/orders/quote', async (req, reply) => {
     const userId = requireUserId(req);
-    const { direction, amountInr, payoutMethod, payoutDestination, payoutName } =
-      req.body ?? ({} as QuoteRequest);
-    if (!amountInr || amountInr <= 0) return reply.code(400).send({ error: 'invalid_amount' });
+    const { direction, payoutMethod, payoutDestination, payoutName } = req.body ?? ({} as QuoteRequest);
+    // The fiat leg is 2dp, not 6 — a rupee amount with more precision than a rupee has is a bug
+    // in the caller, not something to round away on their behalf.
+    const amountInr = positiveAmount(req.body?.amountInr, INR_DECIMALS);
+    if (amountInr === null) return reply.code(400).send({ error: 'invalid_amount' });
     // WHO gets the rupees. The client parsed it out of a QR, but that's a hint — this is the trust
     // boundary, and a merchant will act on this string by hand.
     const destination = payoutDestination?.trim().toLowerCase();

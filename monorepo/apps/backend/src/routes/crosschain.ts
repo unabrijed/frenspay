@@ -36,6 +36,8 @@ import {
   insertBridgeTransfer,
   withUserLock,
 } from '../db/queries';
+import { amt, positiveAmount, roundDown, roundUp, usdStr, USDC_DECIMALS } from '../lib/amount';
+import { toBaseUnits } from '../lib/units';
 import { CCTP_DOMAIN, EVM_CHAINS, isEvmNetwork, type EvmNetworkId } from '../services/bridge/cctp/constants';
 import { buildDepositCalls, evmMinterConfigured, getUsdcBalanceOnEvm, minterAddress } from '../services/bridge/cctp/evm';
 import { railFor } from '../services/bridge/registry';
@@ -59,8 +61,8 @@ export async function registerCrosschainRoutes(app: FastifyInstance) {
       const source = req.query.source ?? 'solana';
       const evmSide = source === 'solana' ? (req.query.network ?? '') : source;
       const dest = source === 'solana' ? evmSide : 'solana';
-      const amountUsd = Number(req.query.amountUsd ?? 0);
-      if (!isEvmNetwork(evmSide) || amountUsd <= 0) return reply.code(400).send({ error: 'invalid_request' });
+      const amountUsd = positiveAmount(req.query.amountUsd);
+      if (!isEvmNetwork(evmSide) || amountUsd === null) return reply.code(400).send({ error: 'invalid_request' });
       if (!evmMinterConfigured()) return reply.code(503).send({ error: 'crosschain_unavailable' });
       const rail = railFor(source, dest);
       const q = await rail.quote(source, dest, amountUsd);
@@ -80,8 +82,9 @@ export async function registerCrosschainRoutes(app: FastifyInstance) {
   // /transfer/prepare re-attached in the same order (docs/16 §6 controls apply to every rail).
   app.post<{ Body: PrepareCrosschainRequest }>('/crosschain/prepare', async (req, reply) => {
     const userId = requireUserId(req);
-    const { network, toAddress, amountUsd, note, idempotencyKey } = req.body ?? ({} as PrepareCrosschainRequest);
-    if (!amountUsd || amountUsd <= 0) return reply.code(400).send({ error: 'invalid_amount' });
+    const { network, toAddress, note, idempotencyKey } = req.body ?? ({} as PrepareCrosschainRequest);
+    const amountUsd = positiveAmount(req.body?.amountUsd);
+    if (amountUsd === null) return reply.code(400).send({ error: 'invalid_amount' });
     if (!isEvmNetwork(network ?? '')) return reply.code(400).send({ error: 'unsupported_network' });
     if (!evmMinterConfigured()) return reply.code(503).send({ error: 'crosschain_unavailable' });
     if (!EVM_ADDRESS_RE.test(toAddress ?? '')) return reply.code(400).send({ error: 'invalid_recipient' });
@@ -299,9 +302,10 @@ export async function registerCrosschainRoutes(app: FastifyInstance) {
   // EVM ABI encoder, and the burn's mintRecipient is ALWAYS the caller's own Solana ATA.
   app.post<{ Body: DepositPrepareRequest }>('/crosschain/deposit-prepare', async (req, reply) => {
     const userId = requireUserId(req);
-    const { sourceChain, amountUsd } = req.body ?? ({} as DepositPrepareRequest);
+    const { sourceChain } = req.body ?? ({} as DepositPrepareRequest);
     if (!isEvmNetwork(sourceChain ?? '')) return reply.code(400).send({ error: 'unsupported_network' });
-    if (!amountUsd || amountUsd <= 0) return reply.code(400).send({ error: 'invalid_amount' });
+    const amountUsd = positiveAmount(req.body?.amountUsd);
+    if (amountUsd === null) return reply.code(400).send({ error: 'invalid_amount' });
     if (!evmMinterConfigured()) return reply.code(503).send({ error: 'crosschain_unavailable' });
     const solWallet = await getWalletForUser(userId);
     if (!solWallet?.address) return reply.code(404).send({ error: 'no_deposit_address' });
@@ -337,10 +341,11 @@ export async function registerCrosschainRoutes(app: FastifyInstance) {
   // AND verifies the attested mintRecipient is the caller's own ATA before any mint happens.
   app.post<{ Body: ReportDepositRequest }>('/crosschain/deposit', async (req, reply) => {
     const userId = requireUserId(req);
-    const { sourceChain, txHash, amountUsd } = req.body ?? ({} as ReportDepositRequest);
+    const { sourceChain, txHash } = req.body ?? ({} as ReportDepositRequest);
     if (!isEvmNetwork(sourceChain ?? '')) return reply.code(400).send({ error: 'unsupported_network' });
     if (!EVM_TX_RE.test(txHash ?? '')) return reply.code(400).send({ error: 'invalid_request' });
-    if (!amountUsd || amountUsd <= 0) return reply.code(400).send({ error: 'invalid_amount' });
+    const amountUsd = positiveAmount(req.body?.amountUsd);
+    if (amountUsd === null) return reply.code(400).send({ error: 'invalid_amount' });
     if (!evmMinterConfigured()) return reply.code(503).send({ error: 'crosschain_unavailable' });
 
     const solWallet = await getWalletForUser(userId);

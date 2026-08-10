@@ -37,6 +37,8 @@ import {
   recordDeposit,
   withUserLock,
 } from '../db/queries';
+import { amt, positiveAmount, USDC_DECIMALS } from '../lib/amount';
+import { formatAmount } from '../lib/units';
 import { checkSendLimit, scoreAndRecord, screenAddress, screenHandle } from '../services/compliance';
 import { KYC_APPROVED_TIER } from '../services/kyc';
 import { metrics } from '../services/metrics';
@@ -88,8 +90,9 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
 
   app.post<{ Body: CreateRequestRequest }>('/requests', async (req, reply) => {
     const userId = requireUserId(req);
-    const { toHandle, amountUsd, note } = req.body ?? ({} as CreateRequestRequest);
-    if (!amountUsd || amountUsd <= 0) return reply.code(400).send({ error: 'invalid_amount' });
+    const { toHandle, note } = req.body ?? ({} as CreateRequestRequest);
+    const amountUsd = positiveAmount(req.body?.amountUsd);
+    if (amountUsd === null) return reply.code(400).send({ error: 'invalid_amount' });
     const to = toHandle ? await findUserByHandle(toHandle) : null;
     return createRequest({ fromUserId: userId, toUserId: to?.id ?? null, amountUsd, note });
   });
@@ -125,8 +128,9 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
   // gated). Exactly one must be set. All compliance controls run for BOTH modes (docs/16 §6).
   app.post<{ Body: PrepareTransferRequest }>('/transfer/prepare', async (req, reply) => {
     const userId = requireUserId(req);
-    const { toHandle, toAddress, amountUsd, note, idempotencyKey } = req.body ?? ({} as PrepareTransferRequest);
-    if (!amountUsd || amountUsd <= 0) return reply.code(400).send({ error: 'invalid_amount' });
+    const { toHandle, toAddress, note, idempotencyKey } = req.body ?? ({} as PrepareTransferRequest);
+    const amountUsd = positiveAmount(req.body?.amountUsd);
+    if (amountUsd === null) return reply.code(400).send({ error: 'invalid_amount' });
     if ((toHandle && toAddress) || (!toHandle && !toAddress)) {
       return reply.code(400).send({ error: 'invalid_recipient' });
     }
@@ -311,10 +315,11 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
       return reply.code(403).send({ error: 'faucet_disabled' });
     }
     const userId = requireUserId(req);
-    const requested = req.body?.amountUsd;
+    const requested = positiveAmount(req.body?.amountUsd);
     // Official-USDC treasury faucet (docs/19): defaults sized to Circle's faucet drip rate so one
-    // request can't drain the treasury (was 100/1000 when we held the mint authority).
-    const amountUsd = requested && requested > 0 ? Math.min(requested, 50) : 10;
+    // request can't drain the treasury (was 100/1000 when we held the mint authority). An
+    // unusable amount falls back to the default rather than 400 — this is a dev convenience.
+    const amountUsd = requested === null ? 10 : Math.min(requested, 50);
 
     const wallet = await getWalletForUser(userId);
     if (!wallet?.address) return reply.code(404).send({ error: 'wallet_not_found' });
