@@ -40,8 +40,20 @@ yarn install       # run from this monorepo/ directory
 
 All commands run from the **monorepo root**.
 
-**One rule: every `dev:*` starts that frontend _plus_ the backend it talks to.** Nothing needs a
-second terminal except mobile.
+**One rule: every `dev:*` starts that frontend _plus_ the backend it talks to.** One command, one
+terminal, no "now open a second tab and start the API".
+
+All three frontends do talk to it, so all three start it:
+
+- **web** — everything. Auth, balance, activity, quotes, orders.
+- **admin** — the operator console is backend reads end to end; it has no other data source.
+- **landing** — it is a *static export* with no database of its own. The f-list form POSTs to
+  `${API_URL}/waitlist`, so the signup you are testing reaches Postgres through the backend or not
+  at all.
+
+Starting it is cheap even when you only want to look at a page: the backend boots **without a
+database** (pools are created lazily, `/health` reports `"database":"none"`). You only feel a
+missing Postgres at the moment something tries to write.
 
 | Command | Starts | Ports |
 |---|---|---|
