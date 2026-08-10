@@ -114,10 +114,10 @@ export interface MerchantProfile {
   treasuryAddress: string;
   /** Staked USDC — skin in the game. Slashed on an upheld dispute; below the floor the LP is
    *  auto-suspended out of routing. */
-  bondUsdc: number;
-  minBondUsdc: number;
+  bondUsdc: string;
+  minBondUsdc: string;
   /** How much the LP can have in flight at once. */
-  floatUsdc: number;
+  floatUsdc: string;
   /** Live smoothed reputation signals (fractions 0–1) — shown only to the merchant themselves. */
   successRate: number;
   disputeRate: number;
@@ -154,7 +154,7 @@ export interface SubmitPayoutRequest {
 }
 
 export interface StakePrepareRequest {
-  amountUsd: number;
+  amountUsd: string | number;
 }
 
 /** M7: lifecycle of a real-vendor identity check. */
@@ -648,8 +648,8 @@ export interface AdminMerchant {
   status: 'online' | 'offline' | 'suspended';
   kybStatus: 'pending' | 'approved' | 'rejected';
   payoutRail: string;
-  bondUsdc: number;
-  floatUsdc: number;
+  bondUsdc: string;
+  floatUsdc: string;
   successRate: number;
   disputeRate: number;
   positiveRate: number;

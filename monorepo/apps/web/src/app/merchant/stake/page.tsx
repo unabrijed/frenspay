@@ -58,7 +58,9 @@ export default function MerchantStake() {
     return null;
   }
 
-  const shortfall = Math.max(0, merchant.minBondUsdc - merchant.bondUsdc);
+  // Number() at the point of use: these are decimal strings on the wire, and `-` / `<` on a string
+  // is either a coercion or a LEXICAL compare ("900.000000" < "2000.000000" is false).
+  const shortfall = Math.max(0, Number(merchant.minBondUsdc) - Number(merchant.bondUsdc));
 
   return (
     <Screen edges={['top']} style={styles.safe}>

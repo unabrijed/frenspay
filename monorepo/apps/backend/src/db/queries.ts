@@ -2323,7 +2323,8 @@ export async function listRiskEventsAdmin(limit = 50, cursor?: string): Promise<
   };
 }
 
-/** Thin DTO mapper over listAllMerchants — numerics arrive as strings from pg. */
+/** Thin DTO mapper over listAllMerchants. Money columns pass THROUGH as the decimal strings pg
+ *  hands back — numeric(20,6) already carries the scale, so no conversion is needed or wanted. */
 export async function listMerchantsAdmin(): Promise<AdminMerchant[]> {
   const rows = await listAllMerchants();
   return rows.map((m) => ({
@@ -2332,8 +2333,8 @@ export async function listMerchantsAdmin(): Promise<AdminMerchant[]> {
     status: m.status,
     kybStatus: m.kyb_status,
     payoutRail: m.payout_rail,
-    bondUsdc: Number(m.bond_usdc),
-    floatUsdc: Number(m.float_usdc),
+    bondUsdc: m.bond_usdc,
+    floatUsdc: m.float_usdc,
     successRate: Number(m.success_rate),
     disputeRate: Number(m.dispute_rate),
     positiveRate: Number(m.positive_rate),

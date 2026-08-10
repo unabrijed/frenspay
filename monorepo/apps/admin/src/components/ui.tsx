@@ -10,8 +10,14 @@ import { ApiError } from '@/services/api';
 
 /* ---- format helpers ---- */
 
-export const usd = (n: number) =>
-  n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+/** Money arrives from the API as a canonical decimal string (docs/01 § Money & decimals). Printing
+ *  is the one place it may become a `number` — so the parse lives here, once, and nowhere else. */
+export const usd = (n: string | number) =>
+  (typeof n === 'string' ? Number(n) : n).toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 2,
+  });
 
 export const at = (iso: string) => new Date(iso).toLocaleString();
 

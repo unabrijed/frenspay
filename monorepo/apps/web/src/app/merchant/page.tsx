@@ -113,7 +113,9 @@ export default function MerchantHome() {
 
   const live = (orders ?? []).filter(isLive);
   const done = (orders ?? []).filter((o) => !isLive(o));
-  const belowFloor = merchant.bondUsdc < merchant.minBondUsdc;
+  // Number() on both sides: a bare `<` between two decimal STRINGS compares them lexically, so
+  // "900.000000" would read as above a "2000.000000" floor and the warning would never show.
+  const belowFloor = Number(merchant.bondUsdc) < Number(merchant.minBondUsdc);
 
   return (
     <Screen edges={['top']} style={styles.safe}>
