@@ -8,6 +8,17 @@ the app icon, `@fpay/*` package names, the `fpay://` scheme, and all in-app copy
 Two frens: the dots are heads, and the curve rises at each end into a body beneath one of them, with
 the dip as the space between them. Flat `#a6341f` (`brand.terracotta`).
 
+**Two frens sitting either side — not a smiley.** Two dots over a curve is one bad reading away from
+a face, and the whole mark stops working the moment it lands there: it becomes decoration instead of
+the picture of the product. Two rules keep it on the right side.
+
+1. **It never blinks.** Every gesture is a body gesture — the two lean toward each other, hop
+   together, and pass the bead between them. An eyelid is the single cheapest way to turn the pair
+   back into one face, so no wink and no blink, anywhere. (Both shipped on the landing for a while
+   and have been removed; the slot the wink used now carries the app's rest-lean.)
+2. **It never goes in an avatar slot.** A circular frame around two dots and a curve is a face by
+   construction. Avatars stay initials. The icon cut is for favicons, app icons and tiles.
+
 **The f mark is retired.** It is gone from the tree — recover from git history if it is ever wanted
 again — and nothing should reference `logo-mark.svg`.
 
@@ -16,7 +27,7 @@ again — and nothing should reference `logo-mark.svg`.
 | File | Ratio | Use |
 | --- | --- | --- |
 | `logo-lockup.svg` | 2.05:1 | headers and anything horizontal |
-| `logo-icon.svg` | 1:1 | every square slot — favicon, app icon, avatar |
+| `logo-icon.svg` | 1:1 | every square slot — favicon, app icon, tile (never an avatar) |
 
 **Never feed the lockup into a square output.** Measured: at 16px it renders 13×6 and turns to mush,
 and even at 96px it fills only 41% of a square tile. `generate.mjs` is arranged so square outputs can
