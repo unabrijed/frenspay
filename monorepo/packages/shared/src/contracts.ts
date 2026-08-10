@@ -130,8 +130,8 @@ export interface MerchantOrder {
   referenceCode: string;
   state: OrderState;
   resolution: OrderResolution | null;
-  amountInr: number;
-  amountUsdc: number;
+  amountInr: string;
+  amountUsdc: string;
   /** The payee's real UPI ID — what the merchant actually pays. */
   payoutDestination?: string;
   payoutName?: string;
@@ -431,11 +431,11 @@ export type PayoutMethod = 'UPI' | 'Pix' | 'bank';
 export interface Quote {
   id: string;
   direction: OrderDirection;
-  amountInr: number;
-  amountUsdc: number;
-  rate: number; // INR per 1 USDC, after merchant spread
-  feeInr: number;
-  networkFeeInr: number;
+  amountInr: string;
+  amountUsdc: string;
+  rate: string; // INR per 1 USDC, after merchant spread
+  feeInr: string;
+  networkFeeInr: string;
   etaMinSecs: number;
   etaMaxSecs: number;
   payoutMethod: PayoutMethod;
@@ -482,7 +482,7 @@ export interface Order {
   resolution: OrderResolution | null;
   direction: OrderDirection;
   referenceCode: string;
-  amountUsdc: number;
+  amountUsdc: string;
   quote: Quote;
   merchantName: string;
   payoutMethod: PayoutMethod;
@@ -501,7 +501,7 @@ export interface Order {
 
 export interface QuoteRequest {
   direction: OrderDirection;
-  amountInr: number;
+  amountInr: string | number;
   payoutMethod?: PayoutMethod;
   /** Where the fiat actually goes (UPI VPA). Server-validated; required for a `spend` quote. */
   payoutDestination?: string;
@@ -582,14 +582,14 @@ export interface AdminOrderDetailResponse {
 /** One health read: what's flowing, what's stuck, what needs a human. */
 export interface AdminOverviewResponse {
   orderCounts: Partial<Record<OrderState, number>>;
-  openDisputes: Array<{ id: string; orderId: string; merchantName: string; amountUsdc: number; createdAt: string }>;
+  openDisputes: Array<{ id: string; orderId: string; merchantName: string; amountUsdc: string; createdAt: string }>;
   /** Non-terminal orders carrying a resolution overlay (delayed / needs_action / under_review). */
   stuckOrders: Array<{
     id: string;
     state: OrderState;
     resolution: OrderResolution;
     userHandle: string;
-    amountUsdc: number;
+    amountUsdc: string;
     updatedAt: string; // ISO 8601
   }>;
   /** Recent compliance decisions that weren't a plain allow. */
@@ -598,7 +598,7 @@ export interface AdminOverviewResponse {
     userHandle: string | null;
     kind: string;
     decision: 'review' | 'block';
-    amountUsdc: number | null;
+    amountUsdc: string | null;
     reason: string | null;
     createdAt: string; // ISO 8601
   }>;
@@ -667,7 +667,7 @@ export interface AdminRiskEvent {
   kind: string;
   decision: 'allow' | 'review' | 'block';
   score: number;
-  amountUsdc: number | null;
+  amountUsdc: string | null;
   reason: string | null;
   counterparty: string | null;
   createdAt: string; // ISO 8601

@@ -666,11 +666,11 @@ function toQuote(r: QuoteRow): Quote {
   return {
     id: r.id,
     direction: r.direction,
-    amountInr: Number(r.amount_inr),
-    amountUsdc: Number(r.amount_usdc),
-    rate: Number(r.rate),
-    feeInr: Number(r.fee_inr),
-    networkFeeInr: Number(r.network_fee_inr),
+    amountInr: r.amount_inr,
+    amountUsdc: r.amount_usdc,
+    rate: r.rate,
+    feeInr: r.fee_inr,
+    networkFeeInr: r.network_fee_inr,
     etaMinSecs: r.eta_min_secs,
     etaMaxSecs: r.eta_max_secs,
     payoutMethod: r.payout_method,
@@ -687,11 +687,13 @@ export async function insertQuote(input: {
   userId: string;
   merchantId: string | null;
   direction: OrderDirection;
-  amountInr: number;
-  amountUsdc: number;
-  rate: number;
-  feeInr: number;
-  networkFeeInr: number;
+  // Canonical decimal strings, not numbers: pg hands numeric back as a string and takes one just
+  // as happily, so the value goes in and comes out byte-identical with no float in the middle.
+  amountInr: string;
+  amountUsdc: string;
+  rate: string;
+  feeInr: string;
+  networkFeeInr: string;
   etaMinSecs: number;
   etaMaxSecs: number;
   payoutMethod: PayoutMethod;
@@ -799,11 +801,11 @@ function toOrder(r: OrderJoinRow, events?: OrderEvent[]): Order {
   const quote: Quote = {
     id: r.quote_id,
     direction: r.q_direction,
-    amountInr: Number(r.q_amount_inr),
-    amountUsdc: Number(r.q_amount_usdc),
-    rate: Number(r.q_rate),
-    feeInr: Number(r.q_fee_inr),
-    networkFeeInr: Number(r.q_network_fee_inr),
+    amountInr: r.q_amount_inr,
+    amountUsdc: r.q_amount_usdc,
+    rate: r.q_rate,
+    feeInr: r.q_fee_inr,
+    networkFeeInr: r.q_network_fee_inr,
     etaMinSecs: r.q_eta_min_secs,
     etaMaxSecs: r.q_eta_max_secs,
     payoutMethod: r.q_payout_method,
@@ -820,7 +822,7 @@ function toOrder(r: OrderJoinRow, events?: OrderEvent[]): Order {
     resolution: r.resolution,
     direction: r.q_direction,
     referenceCode: r.reference_code,
-    amountUsdc: Number(r.amount_usdc),
+    amountUsdc: r.amount_usdc,
     quote,
     merchantName: quote.merchantName,
     payoutMethod: r.q_payout_method,
@@ -2201,7 +2203,7 @@ export async function adminOverview(): Promise<AdminOverviewResponse> {
       id: r.id,
       orderId: r.order_id,
       merchantName: r.merchant_name,
-      amountUsdc: Number(r.amount_usdc),
+      amountUsdc: r.amount_usdc,
       createdAt: r.created_at.toISOString(),
     })),
     stuckOrders: stuck.rows.map((r) => ({
@@ -2209,7 +2211,7 @@ export async function adminOverview(): Promise<AdminOverviewResponse> {
       state: r.state,
       resolution: r.resolution,
       userHandle: r.handle,
-      amountUsdc: Number(r.amount_usdc),
+      amountUsdc: r.amount_usdc,
       updatedAt: r.updated_at.toISOString(),
     })),
     riskFlags: risk.rows.map((r) => ({
@@ -2217,7 +2219,7 @@ export async function adminOverview(): Promise<AdminOverviewResponse> {
       userHandle: r.handle,
       kind: r.kind,
       decision: r.decision,
-      amountUsdc: r.amount_usdc == null ? null : Number(r.amount_usdc),
+      amountUsdc: r.amount_usdc,
       reason: r.reason,
       createdAt: r.created_at.toISOString(),
     })),
@@ -2314,7 +2316,7 @@ export async function listRiskEventsAdmin(limit = 50, cursor?: string): Promise<
       kind: r.kind,
       decision: r.decision,
       score: r.score,
-      amountUsdc: r.amount_usdc == null ? null : Number(r.amount_usdc),
+      amountUsdc: r.amount_usdc,
       reason: r.reason,
       counterparty: r.counterparty,
       createdAt: r.created_at.toISOString(),

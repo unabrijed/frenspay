@@ -9,7 +9,7 @@ import { getActiveSigner } from './signer';
 
 export async function createQuote(input: {
   direction: OrderDirection;
-  amountInr: number;
+  amountInr: string | number;
   payoutMethod?: PayoutMethod;
   /** The payee's real UPI ID — WHO the merchant pays. `payoutMethod` is only the rail. */
   payoutDestination?: string;

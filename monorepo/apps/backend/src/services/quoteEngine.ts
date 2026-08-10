@@ -5,6 +5,8 @@
 import type { OrderDirection, PayoutMethod, Quote, RouteQuality } from '@fpay/shared';
 
 import { insertQuote } from '../db/queries';
+import { amt, INR_DECIMALS, USDC_DECIMALS } from '../lib/amount';
+import { BN, divUp, formatAmount, RATE_DECIMALS } from '../lib/units';
 
 import { getMidRate } from './fxRate';
 import { rankMerchants } from './routing';
@@ -35,6 +37,9 @@ export async function createQuote(
   // Rank on a provisional USDC amount (live mid rate, no spread) for the float hard-filter; the winning
   // LP's spread then sets the final rate. Capture the mid once so both legs use the same value.
   const mid = getMidRate();
+  const amountInr = amt(input.amountInr);
+  // money:number — the ranking float-filter only. rankMerchants compares available LP capacity and
+  // scores it; it never moves money, so a sub-ulp difference can only shift an exact-boundary tie.
   const provisionalUsdc = input.amountInr / mid;
   const ranked = await rankMerchants({ payoutMethod: input.payoutMethod, amountUsdc: provisionalUsdc });
   const top = ranked[0];
@@ -43,18 +48,23 @@ export async function createQuote(
 
   // Worse-than-mid rate for the user: the spread shaves INR-per-USDC, so they spend a little more
   // USDC for the same fiat amount. (amountUsdc = amountInr / rate.)
-  const rate = Number((mid * (1 - merchant.spread_bps / 10_000)).toFixed(4));
-  const amountUsdc = Number((input.amountInr / rate).toFixed(6));
+  //
+  // Both directions are deliberate and they agree: the rate rounds DOWN (fewer rupees per USDC) and
+  // the USDC the user owes rounds UP, so a sub-cent remainder always lands on the user's side of the
+  // trade rather than leaving the LP short. Exact arithmetic throughout — the old
+  // `.toFixed(4)`/`.toFixed(6)` pair rounded half-up, which could hand back a cent nobody funded.
+  const rate = amt(mid).times(10_000 - merchant.spread_bps).div(10_000).dp(RATE_DECIMALS, BN.ROUND_DOWN);
+  const amountUsdc = divUp(amountInr, rate, USDC_DECIMALS);
 
   return insertQuote({
     userId,
     merchantId: merchant.id,
     direction: input.direction,
-    amountInr: input.amountInr,
-    amountUsdc,
-    rate,
-    feeInr: FLAT_FEE_INR,
-    networkFeeInr: NETWORK_FEE_INR,
+    amountInr: formatAmount(amountInr, INR_DECIMALS),
+    amountUsdc: formatAmount(amountUsdc, USDC_DECIMALS),
+    rate: formatAmount(rate, RATE_DECIMALS),
+    feeInr: formatAmount(amt(FLAT_FEE_INR), INR_DECIMALS),
+    networkFeeInr: formatAmount(amt(NETWORK_FEE_INR), INR_DECIMALS),
     etaMinSecs: merchant.avg_completion_secs,
     etaMaxSecs: merchant.avg_completion_secs * 2,
     payoutMethod: input.payoutMethod,

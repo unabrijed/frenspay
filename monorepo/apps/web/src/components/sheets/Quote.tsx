@@ -76,8 +76,10 @@ export function QuoteSheet() {
           {/* Show the destination the payment will actually reach. This is the anti-wrong-send
               confirmation every UPI app does — the last chance to catch a bad scan. */}
           {quote.payoutDestination ? <Line k="Paying to" v={quote.payoutDestination} /> : null}
-          <Line k="Today's rate" v={`$1 = ₹${quote.rate.toFixed(2)}`} />
-          <Line k="Fee" v={inrRaw(quote.feeInr + quote.networkFeeInr)} />
+          <Line k="Today's rate" v={`$1 = ₹${Number(quote.rate).toFixed(2)}`} />
+          {/* Number() both legs: these are decimal STRINGS on the wire, and `+` on two strings
+              concatenates — "40.00" + "8.00" would render as ₹40.008. */}
+          <Line k="Fee" v={inrRaw(Number(quote.feeInr) + Number(quote.networkFeeInr))} />
           <Line k="Total time" v={fmtEta(quote.etaMinSecs, quote.etaMaxSecs)} />
           {/* Name the operator behind the VPA suffix when known (@okaxis → Google Pay) — part of
               the same anti-wrong-send confirmation as the destination line above. */}

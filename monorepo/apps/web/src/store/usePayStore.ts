@@ -1019,7 +1019,7 @@ export const usePayStore = create<PayState>()(
             const order = await apiConfirmOrder(q.id);
             // Optimistically debit the escrowed USDC so a second order can't see the same balance;
             // refreshOrder() reconciles against the chain on completion/refund.
-            set((s) => ({ order, balanceUSD: +(s.balanceUSD - q.amountUsdc).toFixed(2), busy: false }));
+            set((s) => ({ order, balanceUSD: +(s.balanceUSD - Number(q.amountUsdc)).toFixed(2), busy: false }));
             get().open('tracking');
             return;
           } catch (e) {
