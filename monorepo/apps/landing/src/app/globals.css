@@ -339,9 +339,10 @@ button:not(:disabled),
 
 /* Every part has to pivot on ITSELF. transform-box initially resolves to
    `view-box`, so `transform-origin: 50% 50%` meant the centre of the 342x167
-   viewBox — 53.5 units BELOW the dots. fp-wink's `scale: 1 0.18` therefore
-   dragged the right dot 44 units (7.4px at full size) down toward the middle of
-   the mark while flattening it: a slide, not a blink.
+   viewBox — 53.5 units BELOW the dots. Any `scale` on a dot therefore dragged it
+   44 units (7.4px at full size) down toward the middle of the mark while
+   squashing it: a slide, not a squash in place. (The since-deleted wink is how
+   this was found; fp-hop and the bead have the same exposure.)
    fill-box rather than the `view-box` + explicit transform-origin used by the
    illustrated objects further down: that idiom needs the pivot written into the
    CSS, and this mark's coordinates are GENERATED into logo-geometry.ts. Copying
@@ -410,30 +411,16 @@ button:not(:disabled),
   }
 }
 
-/* Rest: an occasional wink, long gap so it reads as a glance rather than a tic.
-   Delete this block to switch it off — nothing else depends on it.
-   The third slot is normally empty and is the press-blink's only way in. It has
-   to be a slot rather than an overriding rule because CSS matches animations by
-   INDEX: redeclaring the shorthand elsewhere would restart fp-dot-in too, so the
-   dot would drop in again every time you released the join button. `none` is a
-   valid <single-animation>, so the unpressed state costs nothing. */
-.things-home .fp-logo[data-state='idle'] .fp-logo-dot-r {
-  animation:
-    fp-dot-in 420ms var(--ease-soft) 120ms both,
-    fp-wink 9s ease-in-out 2.4s infinite,
-    var(--fp-blink, none);
-}
-
-@keyframes fp-wink {
-  0%,
-  94%,
-  100% {
-    scale: 1 1;
-  }
-  97% {
-    scale: 1 0.18;
-  }
-}
+/* The rest-wink and the press-blink used to live here, in a three-slot shorthand on
+   the right dot. Both are gone on purpose: the mark is two frens sitting either side,
+   the dots are their heads, and an eyelid is the one gesture that turns the pair back
+   into a single smiling face — which is the reading the whole mark is designed to
+   avoid. Everything that survives is a BODY gesture: the hover lean below, the glance
+   down at the form, the bead, the hop. The dot-r entrance it redeclared is still
+   covered by the base rule above.
+   The app makes the same trade the other way round: apps/web/src/app/globals.css
+   spends this slot on an occasional rest-lean, so the mark still has idle life
+   without an eye. */
 
 /* Hover: the two lean in and the dip deepens. Pointer only — this does nothing
    on touch and should not try to. */
@@ -473,21 +460,6 @@ button:not(:disabled),
 
 .things-hero:has(.tearoff-field input:focus) .things-home .fp-logo-link {
   translate: 4px 8px;
-}
-
-/* Going for the submit: one blink, like catching your eye just before it happens.
-   :active rather than a post-submit state because the point is the anticipation —
-   the joining bead already owns everything after the press. Released early the
-   keyframe is simply cut and the eye snaps open, which reads as a faster blink
-   rather than as a bug, so no fill is set. */
-.things-hero:has(.tearoff-strip button[type='submit']:active) .things-home .fp-logo {
-  --fp-blink: fp-blink 180ms var(--ease-soft);
-}
-
-@keyframes fp-blink {
-  50% {
-    scale: 1 0.18;
-  }
 }
 
 /* Joining: something passes from one fren to the other, on a loop. This is the
