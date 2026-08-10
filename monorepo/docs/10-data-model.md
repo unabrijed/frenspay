@@ -144,11 +144,11 @@ accounts yet. `users.referred_by` is the self-reference that carries the invite 
 |---|---|---|
 | **users** | one row per person | keyed to Privy DID; unique canonical **immutable** `handle`; opt-in E.164 `phone` (partial unique index `uq_users_phone` = the pay-by-phone mapper); best-effort `country` (dialing default); `kyc_tier` drives M5 limits; `role ∈ user/merchant/admin`; `referred_by` self-FK + `referral_limit` (default 3) = the invite-only gate, enforced at row creation in `/auth/sync` |
 | **wallets** | a user's chain address(es) | `chain='solana'`; unique `address` |
-| **transfers** | the money ledger | `kind ∈ send/add/pay/escrow_fund/escrow_release`; `status ∈ pending/confirmed/failed`; unique `signature`; `chain` (confirmer polls `'solana'` only); `idempotency_key` (unique per sender — prepare replay/dedupe) |
-| **payment_requests** | "you owe me $X" | `status ∈ open/paid/cancelled`; links the fulfilling `transfer_id` |
+| **transfers** | the money ledger | `amount_usdc numeric(20,6)`, `> 0`; `kind ∈ send/add/pay/escrow_fund/escrow_release`; `status ∈ pending/confirmed/failed`; unique `signature`; `chain` (confirmer polls `'solana'` only); `idempotency_key` (unique per sender — prepare replay/dedupe) |
+| **payment_requests** | "you owe me $X" | `amount_usdc numeric(20,6)`, `> 0`; `status ∈ open/paid/cancelled`; links the fulfilling `transfer_id` |
 | **merchants** | the LP network (simulated) | ranking signals (`success_rate`/`dispute_rate`/`avg_completion_secs`/`spread_bps`/`float_usdc`) kept **live by M4** + `base_*` seed priors; lifecycle (`status` incl. `suspended`, `kyb_status`), `bond_usdc`, `sim_behavior` |
-| **quotes** | a 45s-locked price | INR + USDC legs, `rate`, fees, ETA, `route_quality`, `expires_at` |
-| **orders** | the 7-state machine | `state` + transient `resolution`; links escrow fund/release transfers; `expires_at` = escalation deadline |
+| **quotes** | a 45s-locked price | the fiat leg is **2dp** (`amount_inr numeric(20,2)`) and the crypto leg **6dp** (`amount_usdc numeric(20,6)`) — they are different scales and the code must say which it means; `rate` 6dp (the engine emits 4), fees, ETA, `route_quality`, `expires_at` |
+| **orders** | the 7-state machine | `amount_usdc numeric(20,6)`, `> 0`; `state` + transient `resolution`; links escrow fund/release transfers; `expires_at` = escalation deadline |
 | **order_events** | append-only timeline | powers the live tracker; `(from_state, to_state, event, detail)` |
 | **order_routing_attempts** *(M3)* | routing audit + tried-set + **M4 scoring substrate** | `(sequence, outcome, reason)`; `released`/`failed` outcomes feed `success_rate` |
 | **disputes** *(M4)* | user disputes on completed orders | `(status open/resolved, resolution upheld/rejected)`; upheld draws down the LP's bond + feeds `dispute_rate` |
@@ -165,7 +165,17 @@ accounts yet. `users.referred_by` is the self-reference that carries the invite 
   bug of a DB balance drifting from the chain — we read the chain for truth and reconcile.
 - **Append-only `order_events`.** The timeline is derived from an immutable log, so the UI and any
   audit see the same history; state is never "rewritten."
-- **CHECK constraints + idempotent migrations.** States/kinds are constrained at the DB level; a
+- **`numeric`, never `float8` — and the string it returns is the point.** Every money column is
+  `numeric`, so storage is exact, `sum()` is exact, and a value too big for the column is *rejected*
+  rather than silently mangled. `pg` hands `numeric` back as a **string**, and the app keeps it that
+  way all the way to the client — see [01 · Money & decimals](01-architecture.md#money--decimals).
+  What `numeric(20,6)` does **not** protect against is precision it can simply absorb: a 10-decimal
+  amount is silently rounded to 6 by the *cast*, before any CHECK runs. That's why the app layer
+  rejects excess precision instead of trusting the column, and why `0002_money_checks.sql` only
+  claims what a constraint can actually enforce — sign.
+- **CHECK constraints + idempotent migrations.** States/kinds are constrained at the DB level, and
+  `0002_money_checks.sql` adds the money ones (`amount_usdc > 0` on every ledger leg, `>= 0` on
+  balances and fees) — the last guard that survives a *new* route forgetting to validate. A
   bottom-of-file `do $$ … $$` block backfills constraints on older databases (e.g. widening
   `transfers.kind` for escrow). No migration framework yet — `schema.sql` is re-runnable.
 - **Indexes** cover the hot reads: transfers by user, orders by user and by `(state, expires_at)` (the

@@ -117,3 +117,18 @@ deploys ahead of DNS. The app-side loop closed too: "Share invite" points at the
 instead of the app origin, and the invite gate offers an f-list exit instead of a dead end. Pending:
 the **landing page half is deferred** while that redesign is in flight (no `?ref=` read, no share
 link, no `?v=1` state), plus Resend domain verification and `db:init` on stage.
+
+**2026-08-10 increment (docs/01): money stopped being a float.** Every amount is now a **decimal
+string** at rest and on the wire, a BigNumber inside a calculation, a `bigint` of base units at the
+chain edge, and a `number` only when printed — one invariant, one module (`units.ts`, mirrored into
+the backend and byte-compared by `check:money`). The live bugs it closed were all *missing
+validation*, not lost precision: a 10-decimal amount was silently truncated to 6, `1e-9` passed the
+`> 0` guard and built a zero-value transaction, and `1e308` reached Postgres as a 500. Rounding now
+has a direction with a name — what the user owes rounds up, what fpay delivers rounds down, and a
+protocol fee ceiling rounds up because rounding *that* one down reverts a CCTP burn on-chain. Two
+real defects fell out of it: the fast-lane rail fee was quantized to cents, so a $1 transfer owed
+Circle $0.0001 and collected nothing, and the quote's half-up `.toFixed()` pair could hand back a
+cent nobody funded. `0002_money_checks.sql` adds sign constraints as the backstop, and `check:money`
+(now in `check:all`) guards the two traps TypeScript can't see — `<` between decimal strings compares
+*lexically*, and `+` *concatenates*. Pending: nothing in this workstream; `apps/mobile` still carries
+the old float shape but is parked outside the workspace.

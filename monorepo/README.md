@@ -185,6 +185,14 @@ endpoints + deploy steps live in [`apps/backend/README.md`](./apps/backend/READM
 
 ---
 
+## Money convention
+
+Every amount is a **decimal string** at rest and on the wire, a BigNumber inside a calculation, and a
+`number` only when printed. Never `parseFloat` an amount, never write `1e6`, never compare two of
+them with a bare `<`. The whole rule, with the reasons and the costs, is
+[docs/01 § Money & decimals](docs/01-architecture.md#money--decimals). The code is
+`packages/shared/src/units.ts`, and `yarn check:money` enforces it.
+
 ## Env convention (`NODE_ENV` / stage prefix)
 
 `NODE_ENV` selects a **prefix**, and every value is read under it — `stage → STAGE_*`. Same
@@ -234,9 +242,14 @@ yarn typecheck        # tsc --noEmit across all five workspaces
 yarn check:all        # every self-check below, stops at the first failure
 ```
 
-`check:all` is the closest thing to a test suite: six plain assert scripts, **no DB and no network**,
-about a second end to end. Run one on its own when you know what you touched —
-`check:env` · `check:paytarget` · `check:rails` · `check:waitlist` · `check:scenes` · `check:email`.
+`check:all` is the closest thing to a test suite: seven plain assert scripts, **no DB and no
+network**, about a second end to end. Run one on its own when you know what you touched —
+`check:env` · `check:money` · `check:paytarget` · `check:rails` · `check:waitlist` · `check:scenes` ·
+`check:email`.
+
+`check:money` is the one to run after touching anything that carries an amount: it covers the
+parse/format round-trip, the rounding law, the backend mirror of `units.ts`, and the two traps the
+compiler can't see (`<` on two decimal strings compares them lexically; `+` concatenates).
 
 End-to-end smoke tests are manual: walk the flow in the browser (`yarn dev:web`), and hit the
 backend with `curl localhost:3001/health` plus the endpoints in the backend README.

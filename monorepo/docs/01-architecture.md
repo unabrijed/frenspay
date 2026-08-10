@@ -15,7 +15,7 @@ monorepo/
 │   ├── web/         Next.js consumer app (full feature set incl. cash-out)
 │   └── mobile/      Expo app (P2P only today; no order flow yet)
 ├── packages/
-│   └── shared/      @fpay/shared — TypeScript types + money helpers (RATE, inr(), usd())
+│   └── shared/      @fpay/shared — TypeScript types + the money module (units.ts) + formatters
 └── anchor/          Solana program (Rust + Anchor) — the on-chain escrow
 ```
 
@@ -24,7 +24,7 @@ monorepo/
 | Backend | **Fastify 5 + tsx** (no build step), ESM | one process; a background poller runs inside it |
 | Web | **Next.js App Router + Zustand + Privy web SDK** | mobile-first browser UI |
 | Mobile | **Expo + Privy Expo SDK** | consumer P2P; cash-out flow not ported |
-| Shared | raw TS (`main: ./src/index.ts`) | backend imports **types only** (see below) |
+| Shared | raw TS (`main: ./src/index.ts`), one runtime dep (bignumber.js) | backend imports **types only** (see below) |
 | Chain | **Solana devnet, SPL "USDC"** (6 dp), Anchor 0.32 | controlled devnet mint in dev |
 | Data | **Postgres** (Railway/Supabase) | access control in the API layer, no RLS |
 | Infra | Privy (wallets), Helius (RPC + webhooks) | both have free tiers |
@@ -154,6 +154,67 @@ flowchart LR
 
 ---
 
+## Money & decimals
+
+Floats and money don't mix, and on a chain the failure isn't a rounding error — it's a reverted
+transaction. So one invariant, everywhere:
+
+> **An amount is a decimal string at rest and on the wire, a `BigNumber` inside a calculation, a
+> `bigint` of base units at the chain edge, and a `number` only at the moment it is printed.**
+
+Four states, four conversions, each with exactly one function — all in
+`packages/shared/src/units.ts`:
+
+| State | Looks like | How you leave it |
+|---|---|---|
+| **At rest** — Postgres `numeric(20,6)` | `"25.000000"` | `pg` hands back a string; pass it through |
+| **On the wire** — every money field in `contracts.ts` | `"25.000000"` | `normalizeAmount(raw, dec)` on the way in |
+| **In a calculation** — BigNumber | — | `parseAmount` / `formatAmount` |
+| **At the chain edge** — SPL `u64`, ERC-20 `uint256` | `25000000n` | `toBaseUnits` / `fromBaseUnits` |
+| **On screen** — a `number`, finally | `$25.00` | `Number()` at the render call site, and nowhere else |
+
+**`decimals` is always a parameter, never baked in.** On Solana it comes from the mint itself
+(`solana.ts:decimals()`, memoized), which is the runtime authority; `USDC_DECIMALS = 6` is the
+compile-time default for paths with no mint to read. **Never write `1e6`.** This matters more than
+the single-asset lock suggests — at 6dp a `number` is exact below $1e9, but at **18dp it stops being
+exact above 0.009 units**, so the day a non-6dp asset arrives, code that assumed a scale is already
+wrong.
+
+**The rounding law — round so the platform is never short.** What the user *owes* rounds **up**;
+what fpay *delivers* rounds **down**; a fee ceiling handed to a protocol rounds **up**. Both
+directions are named functions (`divUp` / `divDown`, `roundUp` / `roundDown`) so no call site leans
+on a default. The last clause is the one that isn't about money: round a CCTP `maxFee` down and the
+**burn reverts on-chain** — a failed transaction, not a lost cent.
+
+Bignumber.js is configured through `BigNumber.clone()`, not `.config()`, because the latter is
+process-global and any dependency could move our arithmetic under us. The clone also disables
+exponential notation entirely — `"1e-7"` is not a valid `numeric` literal and is wrong on the wire.
+
+> **Quirk worth knowing:** `pg` returns `numeric` as a **string**, and that is correct and
+> load-bearing — it's what makes the value exact from the column to the client. **Never add
+> `pg.types.setTypeParser(1700, parseFloat)`**: it would silently downgrade every money read in the
+> system and nothing would fail loudly. `yarn check:money` asserts nobody has.
+
+> **Quirk worth knowing:** `units.ts` exists **twice** — `packages/shared/src/units.ts` and
+> `apps/backend/src/lib/units.ts` — for exactly the types-only reason 60 lines up. `check:money`
+> compares them byte-for-byte, because a client and a trust boundary that disagree on what a valid
+> amount is would be worse than either being wrong alone.
+
+**The costs, named.** Display parses back to `number` — printing is where exactness stops mattering
+and readability starts. Routing, compliance, and merchant-stats thresholds also stay `number`: they
+compare and score, they never move money, so a 1-ulp difference only shifts a decision at an exact
+cap boundary. Those sites carry a `money:number` comment, which is a claim a reader can check rather
+than a silent exception. And TypeScript cannot help with the two traps that survive the flip — `<`
+between two decimal strings compares them **lexically**, and `+` **concatenates** — so `check:money`
+greps for both against the fields `contracts.ts` currently declares as strings. Finally, there is
+**no token registry and none should be added**: single-asset is a locked product decision
+([docs/16](16-direct-address-send-plan.md)), and because every helper already takes `decimals` as a
+parameter, a second asset is a new constant rather than a new subsystem.
+
+Run it: `yarn check:money`.
+
+---
+
 ## Why this shape
 
 - **Thin clients, fat backend.** Pricing, state, and chain logic live server-side so web + mobile stay
@@ -187,6 +248,7 @@ out in its own doc.
 
 - `apps/backend/src/server.ts` · `routes/index.ts` · `config.ts`
 - `apps/backend/src/services/{solana,escrowProgram,quoteEngine,routing,orderMachine,simMerchant,confirmer,helius,email}.ts`
-- `apps/backend/src/db/{schema.sql,queries.ts}`
-- `packages/shared/src/{contracts.ts,money.ts}`
+- `apps/backend/src/db/{schema.sql,queries.ts}` · `db/migrations/*.sql`
+- `apps/backend/src/lib/{units.ts,amount.ts}` — the mirrored money module + its HTTP-side wrapper
+- `packages/shared/src/{contracts.ts,units.ts,money.ts}` · `scripts/check-money.ts`
 - `anchor/programs/escrow/src/lib.rs`

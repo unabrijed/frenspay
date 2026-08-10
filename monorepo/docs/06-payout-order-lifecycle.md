@@ -15,12 +15,19 @@ This is the M1 milestone. Escrow (07) and routing (08) plug into it; this doc is
 `quoteEngine.createQuote` picks a merchant (via [routing](08-routing-and-failover.md)), then prices:
 
 ```
-rate      = getMidRate() × (1 − merchant.spread_bps / 10_000)   // worse-than-mid for the user
-amountUsdc = amountInr / rate
+rate      = getMidRate() × (1 − merchant.spread_bps / 10_000)   // worse-than-mid for the user, rounded DOWN to 4dp
+amountUsdc = amountInr / rate                                    // rounded UP to 6dp
 fees      = flat platform fee + network fee (illustrative for M1)
 eta       = merchant.avg_completion_secs … ×2
 expiresAt = now + 45s
 ```
+
+**Both rounding directions are deliberate, and they agree.** The rate rounds *down* (fewer rupees
+per USDC) and the USDC the user owes rounds *up*, so a sub-cent remainder always lands on the user's
+side of the trade rather than leaving the LP short — the rounding law in
+[01 · Money & decimals](01-architecture.md#money--decimals). Measured: ₹500 at 87.5500 quotes
+`5.711023`, not `5.711022`. The whole calculation is exact — the old `.toFixed(4)` / `.toFixed(6)`
+pair rounded half-up, which could hand back a cent nobody funded.
 
 The quote is persisted (so the order can verify it hasn't expired) and carries `routeQuality`. The FX
 **mid rate is now live (M7)** — `getMidRate()` returns a cached, range-validated USD→INR rate refreshed
