@@ -8,7 +8,7 @@ import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { config } from '../config';
+import { config } from '../envConfig';
 
 import { applyPending, listMigrationFiles, migrationStatus } from './migrations';
 import { getPool } from './pool';

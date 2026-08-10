@@ -1,6 +1,6 @@
 // registry.ts — which rail serves which corridor. Config, not code: BRIDGE_RAIL_OUT /
 // BRIDGE_RAIL_IN name the defaults; adding a rail = one import + one array entry.
-import { config } from '../../config';
+import { config } from '../../envConfig';
 
 import { registerRails } from './machine';
 import type { Rail } from './rail';

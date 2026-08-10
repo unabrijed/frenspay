@@ -4,7 +4,7 @@
 //
 // No-op unless HELIUS_API_KEY + PUBLIC_BASE_URL are set (i.e. a deployed backend on Helius RPC).
 // Locally / on public devnet RPC it's skipped — the confirmer poller is the working fallback.
-import { config } from '../config';
+import { config } from '../envConfig';
 
 import { feePayer } from './solana';
 

@@ -22,7 +22,7 @@ import type {
 import { PublicKey } from '@solana/web3.js';
 
 import { requireMerchant, requireUserId } from '../auth';
-import { config } from '../config';
+import { config } from '../envConfig';
 import {
   claimOrderPayout,
   createPendingTransfer,

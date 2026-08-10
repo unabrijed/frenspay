@@ -4,7 +4,7 @@
 // swaps this for @fastify/rate-limit + Redis at M7.
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
-import { config } from '../config';
+import { config } from '../envConfig';
 
 import { metrics } from './metrics';
 

@@ -9,7 +9,7 @@
 //   2. Unconfigured is a valid state, not an error. With RESEND_API_KEY unset this no-ops and logs
 //      once, so local dev and any deploy predating the DNS setup behave normally.
 // Callers should use `void sendEmail(...)` so the response isn't held open for Resend's round trip.
-import { config } from '../config';
+import { config } from '../envConfig';
 
 let warnedUnconfigured = false;
 

@@ -17,7 +17,7 @@ import type {
 } from '@fpay/shared';
 
 import { requireUserId } from '../auth';
-import { config } from '../config';
+import { config } from '../envConfig';
 import {
   attachTransferSignature,
   cancelRequest,

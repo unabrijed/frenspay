@@ -35,7 +35,7 @@ import type {
   TransactionsResponse,
 } from '@fpay/shared';
 
-import { API_URL, DEV_USER_ID } from './env';
+import { API_URL, DEV_USER_ID } from './envConfig';
 
 let authToken: string | null = null;
 /** Set by Privy after login (M3). Until then requests fall back to the dev header. */

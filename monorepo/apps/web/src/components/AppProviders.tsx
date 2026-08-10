@@ -7,7 +7,7 @@ import type { ReactNode } from 'react';
 
 import { Splash } from '@/components/ui/Splash';
 import { LiveSync } from '@/hooks/useLiveSync';
-import { USE_PRIVY } from '@/services/env';
+import { USE_PRIVY } from '@/services/envConfig';
 
 // `loading` shows the splash while the Privy chunk downloads on the client (ssr:false means it
 // only renders client-side), so the post-hydration window is never a blank frame.

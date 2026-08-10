@@ -1,7 +1,7 @@
 // confirmer.ts — M2 transfer confirmation.
 // Dev: poll on-chain status for pending transfers and flip the DB row. Prod also has the
 // Helius webhook (POST /webhooks/helius) for push confirmation; this poller is the fallback.
-import { config } from '../config';
+import { config } from '../envConfig';
 import { hasDatabase } from '../db/pool';
 import { expireStaleUnsignedTransfers, getPendingSignatures, setTransferStatus } from '../db/queries';
 

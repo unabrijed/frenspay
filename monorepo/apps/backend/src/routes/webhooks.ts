@@ -3,7 +3,7 @@
 // poller is the fallback).
 import type { FastifyInstance } from 'fastify';
 
-import { config } from '../config';
+import { config } from '../envConfig';
 import { setTransferStatusBySignature } from '../db/queries';
 import { getKycProvider } from '../services/kyc';
 import { applyKycForSession } from '../services/kyc/poller';

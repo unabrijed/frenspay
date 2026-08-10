@@ -15,7 +15,7 @@ import type {
   MeResponse,
 } from '@fpay/shared';
 
-import { API_URL, DEV_USER_ID } from './env';
+import { API_URL, DEV_USER_ID } from './envConfig';
 
 let authToken: string | null = null;
 /** Set by Privy after login. Until then requests fall back to the dev header. */

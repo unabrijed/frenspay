@@ -17,7 +17,7 @@ import type { DisplayCurrency } from '@/lib/money';
 import { parseScannedQR } from '@/lib/qr';
 import { api, ApiError, setAuthToken } from '@/services/api';
 import { getActiveSigner } from '@/services/signer';
-import { USE_PRIVY } from '@/services/env';
+import { USE_PRIVY } from '@/services/envConfig';
 import { confirmOrder as apiConfirmOrder, createQuote as apiCreateQuote, getOrder as apiGetOrder } from '@/services/orders';
 import { wallet, type Friend, type Payee, type Txn } from '@/services/wallet';
 

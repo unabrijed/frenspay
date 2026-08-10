@@ -22,7 +22,7 @@ import {
   type TransactionInstruction,
 } from '@solana/web3.js';
 
-import { config } from '../config';
+import { config } from '../envConfig';
 
 import { connection, decimals, feePayer, toUsdcBaseUnits, usdcMint } from './solana';
 

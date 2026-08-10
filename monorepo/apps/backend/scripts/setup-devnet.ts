@@ -18,7 +18,7 @@ import {
 } from '@solana/spl-token';
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, Transaction } from '@solana/web3.js';
 
-import { config } from '../src/config';
+import { config } from '../src/envConfig';
 import { getPool } from '../src/db/pool';
 
 const DECIMALS = 6;

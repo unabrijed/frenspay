@@ -1,6 +1,6 @@
 import pg from 'pg';
 
-import { config } from '../config';
+import { config } from '../envConfig';
 
 // Railway provides DATABASE_URL. Pools are created lazily so the server can boot
 // (and serve /health + the stubbed routes) before a database is attached.

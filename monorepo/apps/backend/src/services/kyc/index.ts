@@ -1,5 +1,5 @@
 // KYC provider selector. KYC_PROVIDER=didit → real hosted flow; anything else → dev sim.
-import { config } from '../../config';
+import { config } from '../../envConfig';
 
 import { diditProvider } from './didit';
 import type { KycProvider } from './provider';

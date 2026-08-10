@@ -6,7 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import type { AuthSyncRequest, MeResponse, ResolveHandleResponse } from '@fpay/shared';
 
 import { requirePrivyDid, requireUserId } from '../auth';
-import { config } from '../config';
+import { config } from '../envConfig';
 import {
   canonicalHandle,
   findUserByHandle,

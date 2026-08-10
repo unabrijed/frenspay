@@ -5,7 +5,7 @@
 // the exact webhook signature/canonical-string format, which we still verify best-effort for authenticity.
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-import { config } from '../../config';
+import { config } from '../../envConfig';
 
 import type { KycDecision, KycProvider, KycStartResult } from './provider';
 

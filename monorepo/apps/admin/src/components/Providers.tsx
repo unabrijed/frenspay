@@ -10,7 +10,7 @@ import { PrivyProvider, usePrivy } from '@privy-io/react-auth';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { setAuthToken, setTokenRefresher } from '@/services/api';
-import { PRIVY_APP_ID, PRIVY_CLIENT_ID, USE_PRIVY } from '@/services/env';
+import { PRIVY_APP_ID, PRIVY_CLIENT_ID, USE_PRIVY } from '@/services/envConfig';
 
 function AuthGate({ children }: { children: ReactNode }) {
   const { ready, authenticated, login, getAccessToken } = usePrivy();

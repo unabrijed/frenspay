@@ -14,7 +14,7 @@ import type { FastifyInstance } from 'fastify';
 
 import type { WaitlistJoinRequest, WaitlistJoinResponse } from '@fpay/shared';
 
-import { config } from '../config';
+import { config } from '../envConfig';
 import { addWaitlistEmail, countWaitlistFrens, verifyWaitlistEmail, waitlistPosition } from '../db/queries';
 import { sendEmail, waitlistConfirmEmail } from '../services/email';
 

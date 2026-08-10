@@ -4,7 +4,7 @@ import type { ApiPaymentRequest, CreateRequestRequest, Txn, WalletProvider } fro
 import { truncateAddress } from '@fpay/shared';
 
 import { api } from './api';
-import { DEV_SECRET_KEY, SOLANA_RPC_URL } from './env';
+import { DEV_SECRET_KEY, SOLANA_RPC_URL } from './envConfig';
 import { apiTxnToTxn } from './mappers';
 import { DevKeypairSigner, getActiveSigner, setActiveSigner } from './signer';
 

@@ -146,11 +146,21 @@ endpoints + deploy steps live in [`apps/backend/README.md`](./apps/backend/READM
 logical keys, one place to switch environments later. The web app is the exception: Next
 *forces* `NODE_ENV`, so its tier comes from `NEXT_PUBLIC_APP_ENV` instead.
 
+Every app reads env through exactly one file, all named `envConfig.ts` and all resolving the same
+three tiers:
+
 | Surface | Stage selector | Var pattern | Read in |
 |---|---|---|---|
-| Backend | `NODE_ENV=stage` | `STAGE_DATABASE_URL`, `STAGE_PRIVY_APP_SECRET`, … | `apps/backend/src/config.ts` |
-| Web | `NEXT_PUBLIC_APP_ENV=stage` | `NEXT_PUBLIC_STAGE_*` | `apps/web/src/services/env.ts` |
-| Mobile | `NODE_ENV` (Expo forces it) | `EXPO_PUBLIC_STAGE_*` | `apps/mobile/src/services/env.ts` |
+| Backend | `NODE_ENV=stage` | `STAGE_DATABASE_URL`, `STAGE_PRIVY_APP_SECRET`, … | `apps/backend/src/envConfig.ts` |
+| Web | `NEXT_PUBLIC_APP_ENV=stage` | `NEXT_PUBLIC_STAGE_*` | `apps/web/src/services/envConfig.ts` |
+| Admin | `NEXT_PUBLIC_APP_ENV=stage` | `NEXT_PUBLIC_STAGE_*` | `apps/admin/src/services/envConfig.ts` |
+| Landing | `NEXT_PUBLIC_APP_ENV=stage` | `NEXT_PUBLIC_STAGE_*` | `apps/landing/src/lib/envConfig.ts` |
+| Mobile (parked) | `NODE_ENV` (Expo forces it) | `EXPO_PUBLIC_STAGE_*` | `apps/mobile/src/services/env.ts` |
+
+The three Next apps carry a byte-identical tier block. That duplication is forced, not sloppy:
+Next only inlines **literal** `process.env.NEXT_PUBLIC_*` references appearing in the app's own
+source, and the backend may only `import type` from `@fpay/shared`. `yarn check:env` asserts the
+blocks stay identical and that nothing reads `process.env` outside an `envConfig.ts`.
 
 `PORT` (backend) stays unprefixed — the host platform injects it. See each app's
 `.env.example`.

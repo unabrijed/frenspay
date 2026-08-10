@@ -3,7 +3,7 @@
 // reachability, the three EVM RPCs, and wallet balances. Run: npx tsx scripts/check-cctp.ts
 import { PublicKey } from '@solana/web3.js';
 
-import { config } from '../src/config';
+import { config } from '../src/envConfig';
 import { EVM_CHAINS, EVM_NETWORK_IDS, SOLANA_TOKEN_MESSENGER_MINTER_V2 } from '../src/services/bridge/cctp/constants';
 import { evmMinterConfigured, getMinterBalances, minterAddress, publicClient } from '../src/services/bridge/cctp/evm';
 import { fetchFastFeeBps } from '../src/services/bridge/cctp/iris';

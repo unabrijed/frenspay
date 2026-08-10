@@ -5,11 +5,13 @@
 // These helpers (a) log each gate's elapsed time in dev so the real stall is MEASURED, not guessed,
 // and (b) back a last-resort auto-reload if a Splash stays on screen past a ceiling.
 
+import { IS_DEV } from '@/services/envConfig';
+
 const start = typeof performance !== 'undefined' ? performance.now() : 0;
 
 /** Dev-only: log a boot milestone with ms since first module eval. No-op in production. */
 export function bootTrace(label: string): void {
-  if (process.env.NODE_ENV === 'production') return;
+  if (!IS_DEV) return;
   if (typeof console === 'undefined') return;
   const ms = typeof performance !== 'undefined' ? Math.round(performance.now() - start) : 0;
   // eslint-disable-next-line no-console

@@ -5,7 +5,7 @@
 // Dev mode (Privy not configured): fall back to the `x-dev-user-id` header.
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
-import { config } from './config';
+import { config } from './envConfig';
 import { findUserById, findUserByPrivyDid, getMerchantForUser, type MerchantRow } from './db/queries';
 import { privyConfigured, verifyAccessToken } from './services/privy';
 

@@ -10,8 +10,13 @@ const envPath = [
 ].find((p) => existsSync(p));
 if (envPath) loadDotenv({ path: envPath });
 
-// Env config — the ONE place backend env is read. NODE_ENV picks the tier; each tier reads its
-// prefixed vars DIRECTLY from .env:
+// envConfig.ts — the ONE place backend env is read. Every app has one of these; the three Next
+// apps key their tier off NEXT_PUBLIC_APP_ENV (Next forces NODE_ENV, so it can never carry
+// 'stage'), while the backend is a plain Node process and keys off NODE_ENV directly. Same three
+// tiers, same prefix rule, so `NODE_ENV=production` is the single switch that takes the whole
+// system live — including which chains are real (see services/bridge/cctp/constants.ts EVM_CHAINS).
+//
+// NODE_ENV picks the tier; each tier reads its prefixed vars DIRECTLY from .env:
 //   local / development  → LOCAL_<KEY> → STAGE_<KEY>   (LOCAL_ overrides what differs — DB, CORS;
 //                          everything else deliberately shares the STAGE_ values)
 //   stage                → STAGE_<KEY>

@@ -19,6 +19,7 @@
     "dev:landing": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/landing dev & wait",
     "dev:backend": "yarn workspace @fpay/backend dev",
     "brand": "node brand/generate.mjs",
+    "check:env": "node scripts/check-env.mjs",
     "typecheck": "yarn workspace @fpay/shared tsc --noEmit && yarn workspace @fpay/backend tsc --noEmit && yarn workspace @fpay/web tsc --noEmit && yarn workspace @fpay/admin tsc --noEmit && yarn workspace @fpay/landing tsc --noEmit"
   }
 }

@@ -3,7 +3,7 @@
 // we verify it and map the Privy DID (claims.userId) to our DB user in auth.ts.
 import { PrivyClient } from '@privy-io/server-auth';
 
-import { config } from '../config';
+import { config } from '../envConfig';
 
 let _client: PrivyClient | null = null;
 function client(): PrivyClient {

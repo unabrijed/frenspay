@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { Keypair, Transaction } from '@solana/web3.js';
 
-import { config } from '../src/config';
+import { config } from '../src/envConfig';
 import { buildUsdcTransfer, connection, getTransferStatus, getUsdcBalance } from '../src/services/solana';
 
 const here = dirname(fileURLToPath(import.meta.url));

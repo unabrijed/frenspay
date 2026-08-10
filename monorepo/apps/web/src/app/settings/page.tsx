@@ -13,7 +13,7 @@ import { Pressable, View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
 import { Txt } from '@/components/ui/Txt';
 import { colors, fonts, GUTTER, radii, type } from '@/lib/theme';
-import { IS_DEV, LANDING_URL } from '@/services/env';
+import { IS_DEV, LANDING_URL } from '@/services/envConfig';
 import { usePayStore } from '@/store/usePayStore';
 
 export default function Settings() {

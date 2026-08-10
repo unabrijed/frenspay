@@ -3,7 +3,7 @@
 // the cached value, or the configured fallback before the first successful fetch) — quoting never blocks
 // on the network. startFxRefresher() keeps the cache warm in the background. The merchant spread is
 // applied on top in quoteEngine; this is the spread-free mid.
-import { config } from '../config';
+import { config } from '../envConfig';
 
 const SANE_MIN = 50; // INR per USD — a plausibility band; outside this we distrust the source.
 const SANE_MAX = 150;

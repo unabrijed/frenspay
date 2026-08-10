@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 
 import { Splash } from '@/components/ui/Splash';
 import { bootTrace } from '@/lib/boot';
-import { PRIVY_APP_ID, PRIVY_CLIENT_ID } from '@/services/env';
+import { PRIVY_APP_ID, PRIVY_CLIENT_ID } from '@/services/envConfig';
 
 import { PrivyBridge } from './PrivyBridge';
 

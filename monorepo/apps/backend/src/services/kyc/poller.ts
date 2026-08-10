@@ -2,7 +2,7 @@
 // applies vendor decisions, and the webhook just calls applyKycForSession() to make it instant. Both
 // upgrade tiers only from the vendor's authoritative `pollDecision`, so a forged webhook can't promote
 // anyone (it can at most trigger a re-check of a session we already issued).
-import { config } from '../../config';
+import { config } from '../../envConfig';
 import { hasDatabase } from '../../db/pool';
 import {
   getPendingKycSessions,

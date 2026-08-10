@@ -15,7 +15,7 @@ import { Txt } from '@/components/ui/Txt';
 import { Screen } from '@/components/ui/Screen';
 import { colors, type } from '@/lib/theme';
 import { ApiError } from '@/services/api';
-import { LANDING_URL } from '@/services/env';
+import { LANDING_URL } from '@/services/envConfig';
 import { wallet } from '@/services/wallet';
 import { usePayStore, useStoreHydrated } from '@/store/usePayStore';
 

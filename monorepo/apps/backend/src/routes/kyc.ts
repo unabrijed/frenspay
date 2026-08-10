@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import type { KycSimVerifyResponse, KycStartResponse } from '@fpay/shared';
 
 import { requireUserId } from '../auth';
-import { config } from '../config';
+import { config } from '../envConfig';
 import { getUserKycTier, setKycSession, setUserKycTier } from '../db/queries';
 import { getKycProvider } from '../services/kyc';
 import { notifyKycUpgraded } from '../services/notify';

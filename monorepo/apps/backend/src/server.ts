@@ -1,7 +1,7 @@
 import cors from '@fastify/cors';
 import Fastify from 'fastify';
 
-import { config } from './config';
+import { config } from './envConfig';
 import { pendingMigrations } from './db/migrations';
 import { hasDatabase } from './db/pool';
 import { registerRoutes } from './routes/index';

@@ -3,7 +3,7 @@
 // config (config.ts). Domain ids mirror @fpay/shared CCTP_DOMAINS (backend re-declares: type-only
 // imports from shared).
 
-import { config } from '../../../config';
+import { config } from '../../../envConfig';
 
 export const CCTP_DOMAIN: Record<string, number> = {
   ethereum: 0,

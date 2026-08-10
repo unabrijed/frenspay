@@ -1,10 +1,16 @@
-// env.ts — the ONE place web env is read. Next inlines `process.env.NEXT_PUBLIC_*` as STATIC
+// envConfig.ts — the ONE place web env is read. Next inlines `process.env.NEXT_PUBLIC_*` as STATIC
 // literals + forces NODE_ENV (development in `next dev`, production in a build), so NODE_ENV can
 // never carry 'stage'. The tier therefore comes from NEXT_PUBLIC_APP_ENV:
 //   local (default under `next dev`)      → NEXT_PUBLIC_LOCAL_<KEY> → NEXT_PUBLIC_STAGE_<KEY>
 //   stage (a stage deploy sets APP_ENV)   → NEXT_PUBLIC_STAGE_<KEY>
 //   production (default in a build)       → NEXT_PUBLIC_<KEY>
 // Bare NEXT_PUBLIC_* names exist ONLY in production builds/hosts — dev tiers never read them.
+//
+// This file is the REFERENCE implementation of the tier block. apps/admin and apps/landing carry a
+// byte-identical copy of it, asserted by `yarn check:env`. It deliberately is NOT imported from
+// @fpay/shared: Next only inlines LITERAL process.env references appearing in the app's own source,
+// so a shared reader would resolve to undefined at runtime. (The backend can't import it either —
+// runtime value imports from @fpay/shared fail under tsx; see apps/backend/src/envConfig.ts.)
 const isProduction = process.env.NODE_ENV === 'production';
 const APP_ENV = process.env.NEXT_PUBLIC_APP_ENV || (isProduction ? 'production' : 'local');
 const isProdEnv = APP_ENV === 'production';
@@ -27,16 +33,6 @@ const E = {
     process.env.NEXT_PUBLIC_LOCAL_SOLANA_RPC_URL,
     process.env.NEXT_PUBLIC_STAGE_SOLANA_RPC_URL,
     process.env.NEXT_PUBLIC_SOLANA_RPC_URL,
-  ),
-  devUserId: pick(
-    process.env.NEXT_PUBLIC_LOCAL_DEV_USER_ID,
-    process.env.NEXT_PUBLIC_STAGE_DEV_USER_ID,
-    process.env.NEXT_PUBLIC_DEV_USER_ID,
-  ),
-  devSecretKey: pick(
-    process.env.NEXT_PUBLIC_LOCAL_DEV_SECRET_KEY,
-    process.env.NEXT_PUBLIC_STAGE_DEV_SECRET_KEY,
-    process.env.NEXT_PUBLIC_DEV_SECRET_KEY,
   ),
   privyAppId: pick(
     process.env.NEXT_PUBLIC_LOCAL_PRIVY_APP_ID,
@@ -62,8 +58,27 @@ export const API_URL = E.apiUrl || DEFAULT_API_URL;
 export const SOLANA_RPC_URL = E.solanaRpcUrl || 'https://api.devnet.solana.com';
 
 // Dev signing path (no Privy): a seeded user id + secret key from apps/backend/.devnet/keys.json.
-export const DEV_USER_ID = E.devUserId ?? '';
-export const DEV_SECRET_KEY = E.devSecretKey ?? '';
+//
+// SECURITY — read this before touching the shape below. `DEV_SECRET_KEY` is a RAW SOLANA PRIVATE
+// KEY, and every NEXT_PUBLIC_* read is inlined into the browser bundle as a literal. Two rules make
+// it impossible to ship:
+//
+//   1. The reads live INSIDE the `isProduction` ternary, not in the `E` object above. `E` is an
+//      eagerly-constructed literal that other exports depend on, so it can never be eliminated —
+//      putting the key there inlines it into a production bundle no matter what the export does with
+//      it afterwards. (Measured: gating only the export still leaked the bytes into three chunks.)
+//      `isProduction` folds to a compile-time constant, so here the whole branch is dead code.
+//   2. The bare (production) name is NEVER read. A dev signing key has no production tier by
+//      construction, so setting `NEXT_PUBLIC_DEV_SECRET_KEY` on a prod host does nothing at all.
+//
+// `yarn check:env` builds with a sentinel key set and greps the chunks, so this is asserted rather
+// than assumed. The name still says SECRET on purpose: it is one, and hiding that would be worse.
+export const DEV_USER_ID = isProduction
+  ? ''
+  : process.env.NEXT_PUBLIC_LOCAL_DEV_USER_ID || process.env.NEXT_PUBLIC_STAGE_DEV_USER_ID || '';
+export const DEV_SECRET_KEY = isProduction
+  ? ''
+  : process.env.NEXT_PUBLIC_LOCAL_DEV_SECRET_KEY || process.env.NEXT_PUBLIC_STAGE_DEV_SECRET_KEY || '';
 
 // Privy. When the app id is set the app mounts Privy and uses email-OTP + the embedded Solana wallet.
 export const PRIVY_APP_ID = E.privyAppId ?? '';

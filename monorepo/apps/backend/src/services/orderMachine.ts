@@ -8,7 +8,7 @@ import { randomBytes } from 'node:crypto';
 
 import type { Order, OrderResolution, OrderState, PayoutMethod } from '@fpay/shared';
 
-import { config } from '../config';
+import { config } from '../envConfig';
 import {
   appendOrderEvent,
   casOrderState,

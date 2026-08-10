@@ -13,7 +13,7 @@ import {
 } from '@solana/spl-token';
 import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
 
-import { config } from '../config';
+import { config } from '../envConfig';
 
 let _connection: Connection | null = null;
 export function connection(): Connection {

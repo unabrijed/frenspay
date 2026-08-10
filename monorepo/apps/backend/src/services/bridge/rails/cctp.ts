@@ -4,7 +4,7 @@
 import { PublicKey } from '@solana/web3.js';
 import { getAssociatedTokenAddress } from '@solana/spl-token';
 
-import { config } from '../../../config';
+import { config } from '../../../envConfig';
 import { attachPlatformTransferSignature, failUnsignedTransfer, type BridgeTransferRow } from '../../../db/queries';
 import { metrics } from '../../metrics';
 import { usdcMint } from '../../solana';

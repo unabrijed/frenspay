@@ -1,6 +1,6 @@
 // iris.ts — Circle's attestation service (Iris). Plain fetch, no client lib. Sandbox host on
 // dev/stage, prod host in production (config.irisApiUrl). Pre-finality lookups 404 → null.
-import { config } from '../../../config';
+import { config } from '../../../envConfig';
 
 export interface IrisMessage {
   status: 'complete' | 'pending_confirmations';

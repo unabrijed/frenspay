@@ -14,7 +14,7 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
-import { config } from '../../../config';
+import { config } from '../../../envConfig';
 
 import { EVM_CHAINS, type EvmNetworkId } from './constants';
 

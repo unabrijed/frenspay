@@ -36,8 +36,10 @@ Then **allow `http://localhost:3000` as an origin in your Privy dashboard app** 
 
 ## Notes
 - Env mirrors the stage convention: `NEXT_PUBLIC_APP_ENV` selects the prefix, values read
-  under `NEXT_PUBLIC_STAGE_*` (`src/services/env.ts`). Next only inlines **static literal**
-  `process.env.NEXT_PUBLIC_*` references.
+  under `NEXT_PUBLIC_STAGE_*` (`src/services/envConfig.ts` — the one place this app reads env,
+  and the reference copy of the tier block every app shares). Next only inlines **static literal**
+  `process.env.NEXT_PUBLIC_*` references, which is why it can't move into `@fpay/shared`.
+  `yarn check:env` guards the drift.
 - Privy Solana peer deps (`@solana/kit`, `@solana-program/*`) are installed with
   `--ignore-engines` (they demand Node ≥24 but are browser-bundled); `next.config.ts` stubs
   Privy's unused `@stripe/crypto` + `@farcaster/mini-app-solana` imports.
