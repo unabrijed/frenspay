@@ -107,13 +107,11 @@ Free tier is 3,000/month, 100/day.
 
 ## Pre-push build gate
 
-`monorepo/.githooks/pre-push` refuses a push that would not deploy — it diffs what you are pushing
-and runs only what that touches:
-
-| Touched | Runs |
-| ------- | ---- |
-| any `package.json` / `yarn.lock` | `yarn install --frozen-lockfile` — a stale lockfile fails the deploy but a warm local `node_modules` hides it |
-| `apps/backend/`, `packages/shared/` | `yarn workspace @fpay/backend tsc --noEmit` — Railway has no build step, so this is the only gate before a type error crashes the server at boot |
+`monorepo/.githooks/pre-push` builds EVERYTHING on every push — only successful builds leave the
+machine: `yarn install --frozen-lockfile`, then the landing/web/admin builds (each app's Vercel
+buildCommand verbatim), then `yarn workspace @fpay/backend tsc --noEmit` (Railway has no build
+step, so the typecheck is the only gate before a type error crashes the server at boot). It also
+asserts every `vercel.json` ignoreCommand fails open (exit 1) on an unreachable SHA.
 
 Enable once per clone (git config, not a committed setting):
 

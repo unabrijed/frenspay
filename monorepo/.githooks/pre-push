@@ -1,44 +1,28 @@
 #!/bin/sh
 # Build gate. A commit that cannot build does not leave this machine.
 #
-# Runs the same command the deploy would: `next build` for the Vercel apps (which is
-# their vercel.json buildCommand verbatim), `tsc --noEmit` for the backend, which has
-# no build step — Railway just starts it under tsx, so a type error there ships and
-# crashes at runtime with nothing red anywhere first.
-#
-# Only builds what the push actually touches, using the same watched paths as each
-# app's vercel.json ignoreCommand. A gate that runs three minutes on every push is a
-# gate that gets bypassed into uselessness.
+# Every push builds EVERYTHING: install + all three Vercel apps (their vercel.json
+# buildCommand verbatim) + `tsc --noEmit` for the backend, which has no build step —
+# Railway just starts it under tsx, so a type error there ships and crashes at runtime
+# with nothing red anywhere first. Full gate costs a few minutes per push; that is the
+# point — only successful builds get pushed.
 #
 # Enable (once per clone):  git config core.hooksPath monorepo/.githooks
 # Bypass (deliberately):    git push --no-verify
-#
-# No `set -e` here on purpose: `hit … && { … }` returns non-zero whenever a path group
-# is untouched, which under -e would abort the hook — and an aborted pre-push hook
-# exits 0 and waves the push through. Every command carries its own `|| fail` instead.
 
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
 zero=0000000000000000000000000000000000000000
-changed=""
 
 # stdin, one line per ref being pushed: <local ref> <local sha> <remote ref> <remote sha>
-while read -r _local_ref local_sha _remote_ref remote_sha; do
-	[ -z "$local_sha" ] && continue        # blank line
-	[ "$local_sha" = "$zero" ] && continue # deleting a branch, nothing to build
-	if [ "$remote_sha" = "$zero" ]; then
-		# new branch on the remote — no base to diff against, so assume everything
-		changed="$changed
-$(git ls-tree -r --name-only "$local_sha")"
-	else
-		changed="$changed
-$(git diff --name-only "$remote_sha" "$local_sha")"
-	fi
+# Only a push that carries commits gets built — branch deletions have nothing to build.
+pushing=""
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+	[ -z "$local_sha" ] && continue
+	[ "$local_sha" = "$zero" ] && continue
+	pushing=1
 done
-
-[ -n "$(printf '%s' "$changed" | tr -d '[:space:]')" ] || exit 0 # nothing to push
-
-hit() { printf '%s\n' "$changed" | grep -qE "$1"; }
+[ -n "$pushing" ] || exit 0
 
 fail() {
 	printf '\n\033[31mpre-push refused: %s failed.\033[0m\n' "$1" >&2
@@ -49,49 +33,35 @@ fail() {
 step() { printf '\n\033[1mpre-push: %s\033[0m\n' "$1"; }
 
 # The ignore step runs *before* the build on Vercel, so no amount of building catches a
-# regression in it — and a broken one takes the whole deploy down (see DEPLOY.md). Assert
-# each ignoreCommand still fails open with exactly 1 on a SHA outside the shallow clone.
-if hit 'monorepo/apps/[^/]+/vercel\.json'; then
-	step "vercel.json ignore commands fail open"
-	for cfg in monorepo/apps/*/vercel.json; do
-		cmd=$(node -p "require('./$cfg').ignoreCommand || ''")
-		[ -n "$cmd" ] || continue
-		(cd "$(dirname "$cfg")" && VERCEL_GIT_PREVIOUS_SHA=$zero sh -c "$cmd")
-		got=$?
-		[ "$got" = "1" ] && continue
-		printf '  %s exited %s on an unreachable SHA; must be 1.\n' "$cfg" "$got" >&2
-		printf '  0 silently skips the deploy forever, 128 errors it. See DEPLOY.md.\n' >&2
-		fail "vercel.json ignore-command fail-open check"
-	done
-fi
-
-shared='monorepo/(packages/shared/|yarn\.lock)'
+# regression in it — and a broken one takes the whole deploy down (see DEPLOY.stage.md).
+# Assert each ignoreCommand still fails open with exactly 1 on a SHA outside the shallow clone.
+step "vercel.json ignore commands fail open"
+for cfg in monorepo/apps/*/vercel.json; do
+	cmd=$(node -p "require('./$cfg').ignoreCommand || ''")
+	[ -n "$cmd" ] || continue
+	(cd "$(dirname "$cfg")" && VERCEL_GIT_PREVIOUS_SHA=$zero VERCEL_GIT_COMMIT_REF=stage sh -c "$cmd")
+	got=$?
+	[ "$got" = "1" ] && continue
+	printf '  %s exited %s on an unreachable SHA; must be 1.\n' "$cfg" "$got" >&2
+	printf '  0 silently skips the deploy forever, 128 errors it. See DEPLOY.stage.md.\n' >&2
+	fail "vercel.json ignore-command fail-open check"
+done
 
 # Vercel and Railway both install with --frozen-lockfile; it fails on a lockfile that
 # does not cover every declared dep, which a local node_modules happily masks.
-if hit 'package\.json|monorepo/yarn\.lock'; then
-	step "yarn install --frozen-lockfile"
-	(cd monorepo && yarn install --frozen-lockfile) || fail "yarn install --frozen-lockfile"
-fi
+step "yarn install --frozen-lockfile"
+(cd monorepo && yarn install --frozen-lockfile) || fail "yarn install --frozen-lockfile"
 
-if hit "monorepo/apps/landing/|monorepo/yarn\.lock"; then
-	step "@fpay/landing build"
-	(cd monorepo && yarn workspace @fpay/landing build) || fail "@fpay/landing build"
-fi
+step "@fpay/landing build"
+(cd monorepo && yarn workspace @fpay/landing build) || fail "@fpay/landing build"
 
-if hit "monorepo/apps/web/|$shared"; then
-	step "@fpay/web build"
-	(cd monorepo && yarn workspace @fpay/web build) || fail "@fpay/web build"
-fi
+step "@fpay/web build"
+(cd monorepo && yarn workspace @fpay/web build) || fail "@fpay/web build"
 
-if hit "monorepo/apps/admin/|$shared"; then
-	step "@fpay/admin build"
-	(cd monorepo && yarn workspace @fpay/admin build) || fail "@fpay/admin build"
-fi
+step "@fpay/admin build"
+(cd monorepo && yarn workspace @fpay/admin build) || fail "@fpay/admin build"
 
-if hit "monorepo/apps/backend/|$shared"; then
-	step "@fpay/backend typecheck"
-	(cd monorepo && yarn workspace @fpay/backend tsc --noEmit) || fail "@fpay/backend typecheck"
-fi
+step "@fpay/backend typecheck"
+(cd monorepo && yarn workspace @fpay/backend tsc --noEmit) || fail "@fpay/backend typecheck"
 
 exit 0
