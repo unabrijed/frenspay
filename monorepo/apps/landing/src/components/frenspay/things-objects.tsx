@@ -115,88 +115,41 @@ export function RelayNote() {
   );
 }
 
-/* frens pay. — a paper note tearing along its perforation into two halves, one
-   for each fren. Both halves share the same jagged edge polyline so the pieces
-   visibly belong to one sheet. */
-const NOTE_TEAR = 'L398 470 L392 428 L407 386 L390 342 L406 300 L388 258 L408 214 L390 172 Z';
-const NOTE_LEFT = `M400 130 L178 130 Q150 130 150 158 L150 442 Q150 470 178 470 ${NOTE_TEAR}`;
-const NOTE_RIGHT = `M400 130 L622 130 Q650 130 650 158 L650 442 Q650 470 622 470 ${NOTE_TEAR}`;
+/* frens pay. — a bead leaves each fren along its own lane, they pass at the
+   centre, and each settles in the other's ring; then it runs back.
+   Two travellers going opposite ways is the whole point: relay is one thing
+   crossing a distance, this is an exchange. Rings on both ends because both
+   frens are payer and payee.
+   This replaced a note tearing along a perforation, which was built out of
+   receipt parts — a ruled sheet, a dashed tear line, a boxed postmark — and read
+   as one. Nothing here is paper.
+   Travel is transforms only, sampled from the two lane cubics at
+   t = 0, .25, .5, .75, 1, so it needs nothing from CSS but the keyframes. */
+const PAY_LANE_TOP = 'M120 300 C240 140 560 140 680 300';
+const PAY_LANE_BOTTOM = 'M120 300 C240 460 560 460 680 300';
 
-// Airmail chevrons: one dash constant walked along each edge, alternating
-// accent, so both halves carry the same border without four path constants.
-const chevrons = (from: number, to: number, y: number, accent: boolean) => {
-  const step = 26;
-  const marks = [];
-  for (let x = from; x + step <= to; x += step) {
-    const odd = Math.round((x - from) / step) % 2 === (accent ? 1 : 0);
-    if (!odd) continue;
-    marks.push(`M${x} ${y + 6} L${x + 11} ${y - 6} L${x + 22} ${y + 6}`);
-  }
-  return marks.join(' ');
-};
-
-const AIRMAIL = [
-  { accent: false, stroke: 'var(--color-terra)' },
-  { accent: true, stroke: 'var(--color-terra-ctr)' },
-] as const;
-
-export function PayNote() {
+export function PaySwap() {
   return (
     <svg viewBox="0 0 800 600" fill="none" aria-hidden="true">
-      <g className="obj-note-left">
-        <path d={NOTE_LEFT} stroke="var(--color-ink)" strokeWidth="7" strokeLinejoin="round" />
-        {AIRMAIL.map(({ accent, stroke }) => (
-          <path
-            key={stroke}
-            d={`${chevrons(170, 384, 152, accent)} ${chevrons(170, 384, 448, accent)}`}
-            stroke={stroke}
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        ))}
-        {/* Postmark: a cancelled corner, no letters, no glyphs. */}
-        <rect x="186" y="188" width="52" height="52" rx="9" stroke="var(--color-terra-ctr)" strokeWidth="4" />
+      {[120, 680].map((cx) => (
+        <circle key={cx} cx={cx} cy="300" r="30" stroke="var(--color-terra-ctr)" strokeWidth="7" />
+      ))}
+      {[PAY_LANE_TOP, PAY_LANE_BOTTOM].map((d) => (
         <path
-          d="M196 206 L228 206 M196 222 L220 222"
-          stroke="var(--color-terra-ctr)"
-          strokeWidth="4"
-          strokeLinecap="round"
-        />
-        <path
-          d="M195 290 L340 290 M195 340 L320 340"
-          stroke="var(--color-terra)"
+          key={d}
+          d={d}
+          stroke="var(--color-ink)"
           strokeWidth="5"
           strokeLinecap="round"
+          strokeDasharray="2 16"
         />
-      </g>
-      <g className="obj-note-right">
-        <path d={NOTE_RIGHT} stroke="var(--color-ink)" strokeWidth="7" strokeLinejoin="round" />
-        {AIRMAIL.map(({ accent, stroke }) => (
-          <path
-            key={stroke}
-            d={`${chevrons(416, 630, 152, accent)} ${chevrons(416, 630, 448, accent)}`}
-            stroke={stroke}
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        ))}
-        <path
-          d="M460 290 L610 290 M460 340 L590 340"
-          stroke="var(--color-terra)"
-          strokeWidth="5"
-          strokeLinecap="round"
-        />
-      </g>
-      <path
-        className="obj-note-perforation"
-        d="M399 124 L399 476"
-        stroke="var(--color-terra-ctr)"
-        strokeWidth="3"
-        strokeLinecap="round"
-        strokeDasharray="1 11"
-      />
+      ))}
+      {/* The transform attribute is frame 0, so the beads rest in their rings
+          rather than in the corner where CSS transforms are unsupported or
+          reduced motion has switched the animation off. CSS wins over it when
+          both apply. */}
+      <circle className="obj-pay-give" r="17" fill="var(--color-ink)" transform="translate(120 300)" />
+      <circle className="obj-pay-take" r="17" fill="var(--color-terra)" transform="translate(680 300)" />
     </svg>
   );
 }

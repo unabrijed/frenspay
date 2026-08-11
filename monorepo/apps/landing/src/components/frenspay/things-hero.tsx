@@ -6,7 +6,7 @@ import type { CSSProperties, KeyboardEvent, PointerEvent } from 'react';
 import { InlineFListForm } from '@/components/frenspay/inline-f-list-form';
 import { FrensLogo } from '@/components/frenspay/logo';
 import { ThingsBackdrop } from '@/components/frenspay/things-backdrop';
-import { PayNote, PlayCradle, RelayNote, StayKnot } from '@/components/frenspay/things-objects';
+import { PaySwap, PlayCradle, RelayNote, StayKnot } from '@/components/frenspay/things-objects';
 import { FRENSPAY_COPY } from '@/lib/frenspay-copy';
 
 // play and pay sit opposite each other: in a four-slide loop that is the only
@@ -24,7 +24,7 @@ import { FRENSPAY_COPY } from '@/lib/frenspay-copy';
 const SLIDES = [
   { word: 'play', ...FRENSPAY_COPY.slides.play, sky: '#fad5a0', Object: PlayCradle, side: 'right' },
   { word: 'stay', ...FRENSPAY_COPY.slides.stay, sky: '#fbe6c8', Object: StayKnot, side: 'left' },
-  { word: 'pay', ...FRENSPAY_COPY.slides.pay, sky: '#f9ddb8', Object: PayNote, side: 'left' },
+  { word: 'pay', ...FRENSPAY_COPY.slides.pay, sky: '#f9ddb8', Object: PaySwap, side: 'left' },
   { word: 'relay', ...FRENSPAY_COPY.slides.relay, sky: '#fce5c2', Object: RelayNote, side: 'right' },
 ] as const;
 

@@ -15,8 +15,6 @@
   --color-peach: #ffdad3;
   --color-peach-dim: #ffb4a5;
   --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
-  /* Paper tearing: fast in the middle, settled at both ends. */
-  --paper-ease: cubic-bezier(0.76, 0, 0.24, 1);
 }
 
 :root {
@@ -632,22 +630,15 @@ button:not(:disabled),
 }
 
 /* Without transform-box the px in these keyframes are not viewBox units and
-   every translate lands in the wrong place. The note halves hinge on the tear
-   line at the sheet's centre; the relay note keeps the SVG default origin of
-   0 0, which is its own centre because its children are drawn around it. */
+   every translate lands in the wrong place. All three keep the SVG default
+   origin of 0 0 and are drawn around it — the relay note by its children, the
+   pay beads by being circles at the origin — so each translate is simply the
+   point it travels to. */
 .obj-relay-note,
-.obj-note-left,
-.obj-note-right {
+.obj-pay-give,
+.obj-pay-take {
   transform-box: view-box;
-}
-
-.obj-relay-note {
   transform-origin: 0 0;
-}
-
-.obj-note-left,
-.obj-note-right {
-  transform-origin: 400px 300px;
 }
 
 /* Idle loops, only while the slide is showing. `d` is animatable in CSS in every
@@ -739,60 +730,56 @@ button:not(:disabled),
   }
 }
 
-/* Tears once on arrival, then the two halves breathe. */
-.things-object.is-active .obj-note-left {
-  animation: tear-left 1.6s var(--paper-ease) forwards, note-breathe 5s ease-in-out 1.6s infinite alternate;
+/* Out, pass at the centre, settle in the other ring — then back. `alternate` is
+   what makes it mutual rather than a one-way delivery, and it means the loop
+   never jumps. The two beads start at opposite ends, so they are counter-phased
+   by construction and never share a ring. Sampled from the lane cubics in
+   things-objects at t = 0, .25, .5, .75, 1, same as relay-pass above. */
+.things-object.is-active .obj-pay-give {
+  animation: pay-give 5.5s ease-in-out infinite alternate;
 }
 
-.things-object.is-active .obj-note-right {
-  animation: tear-right 1.6s var(--paper-ease) forwards, note-breathe 5s ease-in-out 1.6s infinite alternate;
+.things-object.is-active .obj-pay-take {
+  animation: pay-take 5.5s ease-in-out infinite alternate;
 }
 
-.things-object.is-active .obj-note-perforation {
-  animation: perforation 1.6s linear forwards;
-}
-
-@keyframes tear-left {
+/* The hold at 8% is the beat at the hand-off; without it the reversal is
+   instant and the exchange reads as a pendulum. */
+@keyframes pay-give {
   0%,
-  55% {
-    transform: translateX(0) rotate(0deg);
+  8% {
+    transform: translate(120px, 300px);
+  }
+  31% {
+    transform: translate(241px, 210px);
+  }
+  54% {
+    transform: translate(400px, 180px);
+  }
+  77% {
+    transform: translate(559px, 210px);
   }
   100% {
-    transform: translateX(-60px) rotate(-2.4deg);
+    transform: translate(680px, 300px);
   }
 }
 
-@keyframes tear-right {
+@keyframes pay-take {
   0%,
-  55% {
-    transform: translateX(0) rotate(0deg);
+  8% {
+    transform: translate(680px, 300px);
+  }
+  31% {
+    transform: translate(559px, 390px);
+  }
+  54% {
+    transform: translate(400px, 420px);
+  }
+  77% {
+    transform: translate(241px, 390px);
   }
   100% {
-    transform: translateX(60px) rotate(2.4deg);
-  }
-}
-
-@keyframes note-breathe {
-  from {
-    translate: 0 -3px;
-  }
-  to {
-    translate: 0 3px;
-  }
-}
-
-@keyframes perforation {
-  0%,
-  25% {
-    opacity: 0;
-  }
-  40%,
-  55% {
-    opacity: 1;
-  }
-  80%,
-  100% {
-    opacity: 0;
+    transform: translate(120px, 300px);
   }
 }
 
