@@ -68,10 +68,18 @@ is now a **live, cached, range-validated** USD→INR feed (M7) and the quote scr
 so the disclosure is accurate. Remaining for a real launch: a regulated FX provider with an SLA + the
 formal disclosures that pair with real payout (**M7 vendor leg**).
 
-### 5. On-ramp / payout (real fiat) — ⬜ *deferred to M7*
+### 5. On-ramp / payout (real fiat) — ⬜ *deferred to M7; seam built*
 Converting fiat↔crypto and paying out to bank rails (UPI/Pix/bank) is the **regulated core** and needs
 **licensed partners** (PSP/MSB/VASP) who carry the fiat-leg licenses, plus KYC + source-of-funds at
 entry. Deliberately last; the faucet/simulated payout move nothing of legal consequence until then.
+The *seam* for that partner now exists and is no longer only "simulated": a payout-provider registry
+(`payout_providers` + `services/payout/`, key-gated test mode) drives the fiat leg per corridor, and
+**which settlement model a corridor uses is a licensing decision, not a code detail** — the `lp`
+marketplace has no affirmative live-phase legal support in any corridor researched so far, while the
+`provider` model lands AML/tax reporting once, on the licensed entity. See
+[23](23-settlement-models-and-provider-registry.md) for the model comparison, the per-country table,
+and the jurisdiction gaps this doc still owes (Indonesia BI/OJK/PJP/PDP, TH PDPA, PH DPA,
+entity/incorporation, 194S/115BBH tax, FIU fields).
 
 ### 6. AML / sanctions / monitoring — 🟡 *structure built (M5); real lists/geo at M7*
 Sanctions/address **screening** (against a seeded denylist), a per-tx **fraud score** (allow / review /
