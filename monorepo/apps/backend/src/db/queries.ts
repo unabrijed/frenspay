@@ -980,9 +980,15 @@ export interface WorkerOrderRow {
   escrow_release_transfer_id: string | null;
   merchant_id: string | null;
   treasury_address: string | null;
-  /** NULL = a real (human) merchant — the sim behaviours must not be applied to it. */
-  sim_behavior: 'happy' | 'slow' | 'no_receipt' | 'timeout' | null;
+  /** NULL = a real (human) merchant — the sim behaviours must not be applied to it.
+   *  'psp' = the payout provider (services/payout) executes the fiat leg via API. */
+  sim_behavior: 'happy' | 'slow' | 'no_receipt' | 'timeout' | 'psp' | null;
   payout_method: PayoutMethod | null;
+  /** Fiat leg the provider disburses (quote columns; names from the India-only era). */
+  currency: string;
+  amount_inr: string;
+  payout_destination: string | null;
+  payout_name: string | null;
   /** Non-null once a real merchant reported paying the fiat leg (the dispute window is running). */
   payout_claimed_at: Date | null;
   /** Live, so the worker never releases escrow on an order the payer is actively disputing. */
@@ -995,6 +1001,7 @@ export async function listWorkerOrders(): Promise<WorkerOrderRow[]> {
     `select o.id, o.user_id, o.reference_code, o.state, o.resolution, o.amount_usdc, o.updated_at,
             o.expires_at, o.escrow_release_transfer_id, o.merchant_id, o.payout_claimed_at,
             m.treasury_address, m.sim_behavior, q.payout_method,
+            q.currency, q.amount_inr, q.payout_destination, q.payout_name,
             exists (select 1 from disputes d where d.order_id = o.id and d.status = 'open') as dispute_open
        from orders o
        left join merchants m on m.id = o.merchant_id
@@ -1002,6 +1009,15 @@ export async function listWorkerOrders(): Promise<WorkerOrderRow[]> {
       where o.state in ('payment_detected','merchant_confirms')`,
   );
   return rows;
+}
+
+/** Resolve an order by its public reference — the webhook fast path (poller stays authoritative). */
+export async function getOrderByReference(reference: string): Promise<{ id: string; merchant_id: string | null } | null> {
+  const { rows } = await getPool().query<{ id: string; merchant_id: string | null }>(
+    `select id, merchant_id from orders where reference_code = $1`,
+    [reference],
+  );
+  return rows[0] ?? null;
 }
 
 /** Includes the merchant's sim_behavior so the caller can pick a human-sized SLA (NULL = real). */

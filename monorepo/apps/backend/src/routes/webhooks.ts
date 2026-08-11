@@ -1,13 +1,14 @@
-// webhooks.ts — inbound vendor callbacks. Both are thin + verified: Helius (tx confirmations;
-// the confirmer poller is the fallback) and the KYC vendor (session-changed ping; the reconciler
-// poller is the fallback).
+// webhooks.ts — inbound vendor callbacks. All are thin + verified: Helius (tx confirmations;
+// the confirmer poller is the fallback), the KYC vendor (session-changed ping; the reconciler
+// poller is the fallback), and Xendit payouts (status ping; the order worker's provider poll is
+// the fallback).
 import type { FastifyInstance } from 'fastify';
 
 import { config } from '../envConfig';
-import { setTransferStatusBySignature } from '../db/queries';
+import { claimOrderPayout, getOrderByReference, setTransferStatusBySignature } from '../db/queries';
 import { getKycProvider } from '../services/kyc';
 import { applyKycForSession } from '../services/kyc/poller';
-import { onTransferConfirmedAndNotify } from '../services/orderMachine';
+import { DISPUTE_WINDOW_MS, onTransferConfirmedAndNotify } from '../services/orderMachine';
 
 export async function registerWebhookRoutes(app: FastifyInstance) {
   // --- M2: Helius webhook for push confirmation (poller in confirmer.ts is the fallback) ---
@@ -52,6 +53,31 @@ export async function registerWebhookRoutes(app: FastifyInstance) {
       void applyKycForSession(sessionId, (m) => req.log.info(m)).catch((err) =>
         req.log.warn({ err, sessionId }, 'kyc webhook processing failed'),
       );
+    }
+    return { ok: true };
+  });
+
+  // Xendit payout webhook: a fast "this disbursement succeeded" hint — the order worker's provider
+  // poll is the authoritative fallback (same contract as Helius/KYC above). Verified by the shared
+  // callback token; a forged/duplicate call is harmless anyway: claimOrderPayout is a CAS, and we
+  // only ever act on SUCCEEDED for a reference we minted.
+  app.post('/webhooks/xendit', async (req, reply) => {
+    if (!config.xenditCallbackToken || req.headers['x-callback-token'] !== config.xenditCallbackToken) {
+      return reply.code(401).send({ error: 'unauthorized' });
+    }
+    const data = ((req.body ?? {}) as { data?: Record<string, unknown> }).data ?? (req.body as Record<string, unknown>);
+    const reference = typeof data?.reference_id === 'string' ? data.reference_id : null;
+    const status = typeof data?.status === 'string' ? data.status : null;
+    if (reference && status === 'SUCCEEDED') {
+      const order = await getOrderByReference(reference);
+      if (order?.merchant_id) {
+        await claimOrderPayout({
+          orderId: order.id,
+          merchantId: order.merchant_id,
+          reference: `xendit:${reference}`,
+          windowMs: DISPUTE_WINDOW_MS,
+        });
+      }
     }
     return { ok: true };
   });

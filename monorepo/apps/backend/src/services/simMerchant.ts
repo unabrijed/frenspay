@@ -1,12 +1,16 @@
 // simMerchant.ts — the merchant/LP worker + escalation timers (M1 simulated rails, M2-hardened).
 // Runs each confirmer tick over orders in payment_detected / merchant_confirms.
 //
-// TWO KINDS OF MERCHANT, told apart by `sim_behavior`:
+// THREE KINDS OF MERCHANT, told apart by `sim_behavior`:
 //   sim_behavior NOT NULL → a seeded SIMULATED LP; this worker plays its part per the behaviour:
 //     happy      → confirm payout, release escrow
 //     slow       → delayed, then recovers and releases
 //     no_receipt → under_review, then refund on grace
 //     timeout    → no response → delayed → under_review → refund
+//     psp        → the payout provider (services/payout) executes the fiat leg via API; on success
+//                  the worker claims through the SAME claimOrderPayout CAS a human uses, and the
+//                  real-merchant release path below finishes the order. No provider configured →
+//                  never claims → the shared escalation ladder makes the user whole.
 //   sim_behavior NULL     → a REAL (human) merchant. The worker never pays on their behalf; it only
 //     releases escrow once they've marked the order paid AND the dispute window closed clean, or
 //     escalates when they go silent. Applying a sim behaviour here would release a real merchant's
@@ -18,13 +22,15 @@
 import {
   appendOrderEvent,
   casOrderState,
+  claimOrderPayout,
   expireStaleOrders,
   hasOpenDispute,
   listWorkerOrders,
   withUserLock,
 } from '../db/queries';
 
-import { flagResolution, refundToUser, releaseToMerchant, rerouteOrder } from './orderMachine';
+import { DISPUTE_WINDOW_MS, flagResolution, refundToUser, releaseToMerchant, rerouteOrder } from './orderMachine';
+import { payoutProviderFor } from './payout/provider';
 
 const SIM_DELAY_MS = 4_000; // a healthy LP confirms ~one tick after the funds are detected (demo-tuned)
 const STUCK_RELEASE_MS = 20_000; // merchant_confirms with no release tx this long → recover + retry
@@ -64,10 +70,50 @@ export async function runOrderWorkerOnce(log?: (m: string) => void): Promise<voi
         continue;
       }
 
-      // REAL (human) merchant — sim_behavior is NULL. The sim behaviours must never touch these:
-      // a real merchant row inheriting 'happy' would get its escrow auto-released ~4s after
-      // payment_detected and the person would never even see the order.
-      if (o.sim_behavior == null && o.state === 'payment_detected') {
+      // PSP-driven LP: drive the fiat leg through the payout provider. Unclaimed + unescalated
+      // only — once claimed it joins the real-merchant release path below; once escalating, the
+      // shared ladder owns it (reroute → refund keeps the payer whole even if the PSP never pays).
+      if (o.sim_behavior === 'psp' && o.state === 'payment_detected' && !o.payout_claimed_at && o.resolution == null) {
+        const provider = o.payout_method ? payoutProviderFor(o.payout_method) : null;
+        if (provider && o.payout_destination && o.merchant_id) {
+          // initiate is idempotent by reference (order reference_code = provider reference_id),
+          // so calling it every tick until the status lands is the retry loop.
+          await provider.initiate({
+            reference: o.reference_code,
+            amountFiat: o.amount_inr,
+            currency: o.currency,
+            destination: o.payout_destination,
+            name: o.payout_name ?? undefined,
+          });
+          const status = await provider.check(o.reference_code);
+          if (status === 'paid') {
+            await claimOrderPayout({
+              orderId: o.id,
+              merchantId: o.merchant_id,
+              reference: `${provider.id}:${o.reference_code}`,
+              windowMs: DISPUTE_WINDOW_MS,
+            });
+            log?.(`order ${o.id} fiat leg disbursed via ${provider.id}`);
+          } else if (status === 'failed') {
+            await flagResolution(o.id, 'payment_detected', 'under_review', 'psp_payout_failed');
+            log?.(`order ${o.id} → under_review (${provider.id} payout failed)`);
+          } else if (slaReached) {
+            await flagResolution(o.id, 'payment_detected', 'delayed', 'psp_payout_slow');
+            log?.(`order ${o.id} → delayed (${provider.id} payout still pending)`);
+          }
+        } else if (slaReached) {
+          // No provider configured (or a destination-less order) — same silence ladder as a
+          // no-show human LP.
+          await flagResolution(o.id, 'payment_detected', 'delayed', 'no_response');
+          log?.(`order ${o.id} → delayed (psp LP has no provider configured)`);
+        }
+        continue;
+      }
+
+      // REAL (human) merchant — sim_behavior NULL — or a PSP LP whose disbursement already claimed:
+      // the sim behaviours must never touch these. A real merchant row inheriting 'happy' would get
+      // its escrow auto-released ~4s after payment_detected before the person ever saw the order.
+      if ((o.sim_behavior == null || o.sim_behavior === 'psp') && o.state === 'payment_detected') {
         if (o.payout_claimed_at) {
           // They reported paying — release when the dispute window closes clean. The dispute is
           // re-read INSIDE the per-user lock so a dispute landing mid-tick can't lose the race.

@@ -155,6 +155,14 @@ export const config = {
   } as Record<string, number>,
   fxRefreshMs: num('FX_REFRESH_MS', 21_600_000, { min: 1000 }), // 6h default
 
+  // Xendit payouts, TEST MODE ONLY (Indonesia corridor fiat leg). Key unset = the payout-provider
+  // registry is empty and 'psp' LPs escalate like a silent merchant — the safe default everywhere.
+  // Live keys are a licensing/counsel decision (docs/11), not an env change.
+  xenditApiUrl: env('XENDIT_API_URL', 'https://api.xendit.co'),
+  xenditSecretKey: env('XENDIT_SECRET_KEY'),
+  // Shared token Xendit echoes in x-callback-token on webhooks; unset = webhook rejected.
+  xenditCallbackToken: env('XENDIT_CALLBACK_TOKEN'),
+
   // Landing f list: transactional email (Resend REST — no SDK, see services/email.ts) plus the HMAC
   // key that mints share codes and confirm tokens. BOTH unset is the safe default: no codes are
   // minted and no mail is sent, and /waitlist still accepts signups exactly as it did before. That
