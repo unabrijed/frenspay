@@ -92,6 +92,10 @@ export default function Settings() {
             />
           ) : null}
           <Txt style={type.version}>v0.1</Txt>
+          {/* Requested credit for the free FX endpoint we quote from (exchangerate-api.com/docs/free). */}
+          <a href="https://www.exchangerate-api.com" target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
+            <Txt style={type.version}>Rates By Exchange Rate API</Txt>
+          </a>
         </View>
       </View>
     </Screen>

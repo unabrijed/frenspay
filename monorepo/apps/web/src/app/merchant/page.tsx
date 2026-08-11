@@ -17,7 +17,7 @@ import { Pressable, View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
 import { Txt } from '@/components/ui/Txt';
 import { friendlyError } from '@/lib/errors';
-import { inrRaw, usd } from '@/lib/money';
+import { fiatRaw, usd } from '@/lib/money';
 import { colors, fonts, GUTTER, radii, type } from '@/lib/theme';
 import { getMerchantOrders } from '@/services/merchant';
 import { usePayStore } from '@/store/usePayStore';
@@ -32,7 +32,7 @@ function OrderRow({ o, onPress }: { o: MerchantOrder; onPress: () => void }) {
   return (
     <Row onPress={onPress}>
       <RowMeta>
-        <Txt style={[type.rowName, clamp1]}>{inrRaw(o.amountInr)}</Txt>
+        <Txt style={[type.rowName, clamp1]}>{fiatRaw(o.amountInr, o.currency)}</Txt>
         <Txt style={[type.rowTime, { marginTop: 2 }, clamp1]}>
           {o.payoutDestination ?? o.payoutName ?? o.referenceCode}
         </Txt>

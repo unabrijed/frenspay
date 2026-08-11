@@ -14,12 +14,24 @@ import { Skeleton, TxListSkeleton } from '@/components/ui/Skeleton';
 import { Pressable, View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
 import { Txt } from '@/components/ui/Txt';
-import { inr, usd } from '@/lib/money';
+import { fiatSymbol, inr, usd } from '@/lib/money';
 import { colors, GUTTER, radii, shadows, type } from '@/lib/theme';
 import type { Txn } from '@/services/wallet';
+import { RAILS } from '@fpay/shared';
 import { usePayStore } from '@/store/usePayStore';
 
 const fmtUsd = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// "India & Indonesia" — derived from the rails registry (the only country list, docs/21), so a
+// corridor going live never leaves this hero line behind.
+const region = (iso: string): string => {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(iso) ?? iso;
+  } catch {
+    return iso;
+  }
+};
+const ACTIVE_IN = RAILS.filter((r) => r.live).map((r) => region(r.country)).join(' & ');
 
 export default function Home() {
   const router = useRouter();
@@ -68,13 +80,15 @@ export default function Home() {
         <View style={styles.hero}>
           <View style={styles.locPill}>
             <Icons.Pin size={16} color={colors.secondary} />
-            <Txt style={type.eyebrow}>Active in India</Txt>
+            <Txt style={type.eyebrow}>Active in {ACTIVE_IN}</Txt>
           </View>
           <Txt style={[type.sub, { marginTop: 18 }]}>Global balance</Txt>
           {loaded ? (
             <View className="fp-arrive" style={styles.heroAmt}>
-              <Txt style={[type.heroBalance, styles.dollar]}>{displayCurrency === 'USD' ? '$' : '₹'}</Txt>
-              <Txt style={type.heroBalance}>{displayCurrency === 'USD' ? fmtUsd(bal) : inr(bal, fxRate).slice(1)}</Txt>
+              {/* Strip exactly the symbol's own length — 'Rp' is two chars, so a hardcoded slice(1)
+                  would leak a stray letter the day a multi-char symbol lands here. */}
+              <Txt style={[type.heroBalance, styles.dollar]}>{displayCurrency === 'USD' ? '$' : fiatSymbol(displayCurrency)}</Txt>
+              <Txt style={type.heroBalance}>{displayCurrency === 'USD' ? fmtUsd(bal) : inr(bal, fxRate).slice(fiatSymbol(displayCurrency).length)}</Txt>
             </View>
           ) : (
             <Skeleton w={190} h={44} r={12} style={{ marginTop: 8 }} />

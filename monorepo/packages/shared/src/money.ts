@@ -2,24 +2,33 @@
 // that will be stored or sent: printing is the one place an amount is allowed to become a `number`
 // (see units.ts and docs/01-architecture.md § Money & decimals).
 // Brand rule: the rupee symbol is ₹ (never "Rs"); every money figure is set in mono.
+// Per-currency since the Indonesia corridor: each fiat formats in its own convention (en-IN
+// lakh/crore for ₹; id-ID dot-thousands for Rp, whole-rupiah always).
+import { FIAT_DECIMALS } from './units';
 
-/** Offline fallback only. The live mid rate comes from the backend (`/fx/rate`, cached +
- *  range-validated); this is what the client is seeded with before the first fetch lands. */
+/** Offline fallback only. The live mid rates come from the backend (`/fx/rate`, cached +
+ *  range-validated per currency); these seed the client before the first fetch lands. */
 export const RATE = 87.55;
+export const FALLBACK_RATES: Record<string, number> = { INR: RATE, IDR: 16_500 };
 
-// en-IN grouping (lakh/crore style). Hermes/Node ship Intl; fall back to a manual
-// grouper if it is ever unavailable.
-function groupIN(n: number): string {
+/** Symbol + grouping locale per display currency. An unknown currency falls back to its ISO code
+ *  as the "symbol" — ugly beats wrong. */
+const FIAT_STYLE: Record<string, { symbol: string; locale: string }> = {
+  INR: { symbol: '₹', locale: 'en-IN' },
+  IDR: { symbol: 'Rp', locale: 'id-ID' },
+};
+
+/** '₹' / 'Rp'. Exported so a layout that styles the symbol separately (the home hero) can strip
+ *  exactly the right length instead of assuming one character. */
+export const fiatSymbol = (currency: string): string => FIAT_STYLE[currency]?.symbol ?? currency + ' ';
+
+/** Group a whole-number part in the currency's own locale. Intl ships everywhere we run; if it
+ *  ever throws, ungrouped digits beat a hand-rolled wrong grouping. */
+function group(currency: string, n: number): string {
   try {
-    return new Intl.NumberFormat('en-IN').format(n);
+    return new Intl.NumberFormat(FIAT_STYLE[currency]?.locale ?? 'en-US').format(n);
   } catch {
-    const s = Math.round(n).toString();
-    const neg = s.startsWith('-');
-    const digits = neg ? s.slice(1) : s;
-    if (digits.length <= 3) return s;
-    const last3 = digits.slice(-3);
-    const rest = digits.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',');
-    return (neg ? '-' : '') + rest + ',' + last3;
+    return String(n);
   }
 }
 
@@ -29,18 +38,26 @@ export type MoneyLike = string | number;
 
 const num = (v: MoneyLike): number => (typeof v === 'string' ? Number(v) : v);
 
-/** "1 USD = 95.25 INR" for the rate-locked line. Pass the live rate — the no-arg form falls back to
- *  the static one, which drifts (it was ~8 rupees off the live mid at the time of writing).
- *  Declared here, below `num`, because RATE_LABEL calls it at module-eval time. */
-export const rateLabel = (rate: MoneyLike = RATE): string => `1 USD = ${num(rate).toFixed(2)} INR`;
+/** "1 USD = 95.25 INR" / "1 USD = 17,862 IDR" for the rate-locked line. Pass the live rate — the
+ *  no-arg form falls back to the static one, which drifts. Whole-unit currencies group instead of
+ *  showing fake decimals. Declared here, below `num`, because RATE_LABEL calls it at module-eval time. */
+export const rateLabel = (rate: MoneyLike = RATE, currency: string = 'INR'): string => {
+  const dp = FIAT_DECIMALS[currency] ?? 2;
+  const r = num(rate);
+  return `1 USD = ${dp === 0 ? group(currency, Math.round(r)) : r.toFixed(2)} ${currency}`;
+};
 
 /** @deprecated Use {@link rateLabel} with the live rate. Kept so the parked mobile app compiles. */
 export const RATE_LABEL = rateLabel();
 
-/** Rupees for a USD amount, rounded. Pass a live rate (M7) to override the static fallback `RATE`.
- *  e.g. inr(420) -> "₹36,771"; inr(420, 94.4) -> "₹39,648" */
+/** Fiat for a USD amount at a live rate, rounded to the currency's own minor unit.
+ *  e.g. fiatFromUsd(420, 'INR', 94.4) -> "₹39,648"; fiatFromUsd(5, 'IDR', 17862) -> "Rp89,310" */
+export const fiatFromUsd = (usdAmount: MoneyLike, currency: string, rate: MoneyLike): string =>
+  fiatRaw(num(usdAmount) * num(rate), currency);
+
+/** Rupees for a USD amount, rounded — the INR shorthand of {@link fiatFromUsd}. */
 export const inr = (usdAmount: MoneyLike, rate: MoneyLike = RATE): string =>
-  '₹' + groupIN(Math.round(num(usdAmount) * num(rate)));
+  '₹' + group('INR', Math.round(num(usdAmount) * num(rate)));
 
 /** USD figure with 2 decimals. e.g. usd(5.71) -> "$5.71" */
 export const usd = (n: MoneyLike): string => '$' + num(n).toFixed(2);
@@ -53,17 +70,24 @@ export const formatMoney = (usdAmount: MoneyLike, currency: DisplayCurrency): st
   currency === 'USD' ? usd(usdAmount) : inr(usdAmount);
 
 /**
- * Format a raw rupee figure, keeping paise when there are any.
- *   inrRaw(500) -> "₹500"   ·   inrRaw(249.5) -> "₹249.50"   ·   inrRaw("500.00") -> "₹500"
+ * Format a raw fiat figure in its own currency, keeping fractional minor units only when present
+ * (and only when the currency has any — IDR is whole-rupiah).
+ *   fiatRaw(500, 'INR') -> "₹500"  ·  fiatRaw(249.5, 'INR') -> "₹249.50"
+ *   fiatRaw('17900.00', 'IDR') -> "Rp17,900"-style in id-ID grouping ("Rp17.900")
  *
- * The paise half matters: a dynamic UPI QR can carry them, and rounding a ₹249.50 invoice to "₹250"
- * on screen while quoting something else is the kind of disagreement users notice. Whole amounts are
- * unchanged, so every existing caller renders byte-identically.
+ * The fraction half matters: a dynamic QR can carry it, and rounding a ₹249.50 invoice to "₹250"
+ * on screen while quoting something else is the kind of disagreement users notice. (The DB stores
+ * every corridor at 2dp scale, so "17900.00" arriving for a 0dp currency is normal — formatting
+ * per-currency here is exactly why.)
  */
-export const inrRaw = (rupees: MoneyLike): string => {
-  const [whole, paise] = num(rupees).toFixed(2).split('.');
-  return '₹' + groupIN(Number(whole)) + (paise === '00' ? '' : '.' + paise);
+export const fiatRaw = (amount: MoneyLike, currency: string = 'INR'): string => {
+  const dp = FIAT_DECIMALS[currency] ?? 2;
+  const [whole, frac] = num(amount).toFixed(dp).split('.');
+  return fiatSymbol(currency) + group(currency, Number(whole)) + (frac && Number(frac) !== 0 ? '.' + frac : '');
 };
+
+/** Raw rupee figure — the INR shorthand of {@link fiatRaw}. inrRaw(249.5) -> "₹249.50". */
+export const inrRaw = (rupees: MoneyLike): string => fiatRaw(rupees, 'INR');
 
 /** USD needed to cover a rupee amount. */
 export const rupeesToUsd = (rupees: MoneyLike): number => num(rupees) / RATE;

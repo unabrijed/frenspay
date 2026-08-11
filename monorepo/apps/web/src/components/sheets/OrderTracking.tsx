@@ -14,7 +14,7 @@ import { Btn, TextLink } from '@/components/ui/Button';
 import { Grab, SheetBody, SheetHeader, Spacer } from '@/components/ui/primitives';
 import { Pressable, View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
-import { inrRaw } from '@/lib/money';
+import { fiatRaw } from '@/lib/money';
 import { colors, type } from '@/lib/theme';
 import { usePayStore } from '@/store/usePayStore';
 
@@ -116,7 +116,7 @@ export function OrderTracking() {
   if (!order) return null;
   if (order.state === 'completed') {
     return (
-      <Outcome title="Paid" headline={`${inrRaw(order.quote.amountInr)} paid`} inst="Paid from your balance" onClose={close}>
+      <Outcome title="Paid" headline={`${fiatRaw(order.quote.amountInr, order.quote.currency)} paid`} inst="Paid from your balance" onClose={close}>
         {/* One-tap feedback — never names the merchant (the LP stays invisible per "just pay"). */}
         {order.feedbackUp === undefined ? (
           <View style={styles.feedback}>
@@ -137,7 +137,7 @@ export function OrderTracking() {
     );
   }
   if (order.state === 'refunded') {
-    return <Outcome title="Refunded" headline={`${inrRaw(order.quote.amountInr)} refunded`} inst="You’ve been made whole" onClose={close} />;
+    return <Outcome title="Refunded" headline={`${fiatRaw(order.quote.amountInr, order.quote.currency)} refunded`} inst="You’ve been made whole" onClose={close} />;
   }
   if (order.state === 'failed') {
     // Terminal failure (e.g. never funded / abandoned) — a clear result card, not a dead-end timeline.
@@ -146,7 +146,7 @@ export function OrderTracking() {
         kind="no"
         icon={<Icons.XBig size={28} color={colors.muted} />}
         title="Payment cancelled"
-        headline={`${inrRaw(order.quote.amountInr)} not paid`}
+        headline={`${fiatRaw(order.quote.amountInr, order.quote.currency)} not paid`}
         inst="No money left your balance. Please try again."
         onClose={close}
       />

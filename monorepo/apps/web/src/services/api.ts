@@ -150,7 +150,8 @@ export const api = {
   getNotifications: () => req<NotificationsResponse>('/notifications'),
   readAllNotifications: () => req<{ ok: true }>('/notifications/read-all', { method: 'POST' }),
   // M7: live FX mid rate (INR per USD) for standalone display; quotes carry their own locked rate.
-  fxRate: () => req<{ rate: number; asOf: string | null }>('/fx/rate'),
+  fxRate: (currency = 'INR') =>
+    req<{ currency: string; rate: number; asOf: string | null }>(`/fx/rate?currency=${currency}`),
   // ---- v2 cross-chain (docs/19) ----
   crosschainQuote: (network: string, amountUsd: number, source?: string) =>
     req<CrosschainQuoteResponse>(

@@ -19,7 +19,7 @@ import { Pressable, View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
 import { Txt } from '@/components/ui/Txt';
 import { friendlyError } from '@/lib/errors';
-import { inrRaw, usd } from '@/lib/money';
+import { fiatRaw, usd } from '@/lib/money';
 import { colors, fonts, GUTTER, radii, type } from '@/lib/theme';
 import { getMerchantOrders, markOrderPaid } from '@/services/merchant';
 
@@ -107,8 +107,9 @@ export default function MerchantOrder() {
 
   const vpa = order.payoutDestination;
   // Hands the merchant straight into their own UPI app with the amount pre-filled. Falls back to
-  // copy when no app handles the scheme (desktop).
-  const deepLink = vpa
+  // copy when no app handles the scheme (desktop). UPI-only: QRIS has no equivalent public URI
+  // scheme — an Indonesian LP copies the NMID and pays from their own banking/e-wallet app.
+  const deepLink = vpa && order.payoutMethod === 'UPI'
     ? `upi://pay?pa=${encodeURIComponent(vpa)}${order.payoutName ? `&pn=${encodeURIComponent(order.payoutName)}` : ''}&am=${order.amountInr}&cu=INR`
     : null;
 
@@ -119,7 +120,7 @@ export default function MerchantOrder() {
       </View>
       <View style={styles.scroll}>
         <Txt style={type.kvKey}>Pay this person</Txt>
-        <Txt style={[type.bigAmount, { marginTop: 6 }]}>{inrRaw(order.amountInr)}</Txt>
+        <Txt style={[type.bigAmount, { marginTop: 6 }]}>{fiatRaw(order.amountInr, order.currency)}</Txt>
         <Txt style={type.conv}>You receive {usd(order.amountUsdc)} when it settles</Txt>
 
         {vpa ? (
@@ -127,7 +128,7 @@ export default function MerchantOrder() {
             onPress={() => void navigator.clipboard?.writeText(vpa)}
             style={({ pressed }) => [styles.vpaCard, pressed ? { backgroundColor: colors.surfaceLow } : null]}
           >
-            <Txt style={type.kvKey}>UPI ID, tap to copy</Txt>
+            <Txt style={type.kvKey}>{order.payoutMethod === 'QRIS' ? 'QRIS merchant ID, tap to copy' : 'UPI ID, tap to copy'}</Txt>
             <Txt style={[{ ...fonts.mono400, fontSize: 19, color: colors.ink }, styles.vpa]}>{vpa}</Txt>
             {order.payoutName ? <Txt style={type.inst}>{order.payoutName}</Txt> : null}
             {/* Which app/bank processes this VPA (@okaxis → Google Pay) — tells the merchant what

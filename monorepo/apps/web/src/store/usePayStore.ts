@@ -6,7 +6,7 @@
 // signing. The app is always real; balance/activity load from the backend once signed in.
 import type { ApiPaymentRequest, KycStatus, MerchantProfile, Notification, Order, Quote } from '@fpay/shared';
 import type { NetworkId } from '@fpay/shared';
-import { classifyPayTarget, INR_DECIMALS, isoFromE164, phoneCandidates, truncateAddress } from '@fpay/shared';
+import { classifyPayTarget, fiatDecimals, isoFromE164, phoneCandidates, truncateAddress } from '@fpay/shared';
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -77,6 +77,9 @@ interface PayState {
   recoveryPrompted: boolean;
   balanceUSD: number;
   fxRate: number; // live INR-per-USD mid rate (M7), for standalone INR display
+  /** Live mid rates per corridor currency — what the pay keypad estimates in. `fxRate` stays the
+   *  INR alias for the P2P/display-preference sites, which are INR-corridor UX today. */
+  fxRates: Record<string, number>;
   transactions: Txn[];
   notifications: Notification[];
   unread: number;
@@ -262,6 +265,7 @@ export const usePayStore = create<PayState>()(
       recoveryPrompted: false,
       balanceUSD: 0,
       fxRate: 87.55,
+      fxRates: { INR: 87.55, IDR: 16_500 },
       transactions: [],
       notifications: [],
       unread: 0,
@@ -359,7 +363,7 @@ export const usePayStore = create<PayState>()(
         }
         set({ busy: true, error: null });
         try {
-          const [me, bal, txns, reqs, notifs, fx] = await Promise.all([
+          const [me, bal, txns, reqs, notifs, fx, fxIdr] = await Promise.all([
             api.me(),
             wallet.getBalanceUsd(),
             wallet.getTransactions(),
@@ -367,6 +371,7 @@ export const usePayStore = create<PayState>()(
             // Non-critical: a failing /notifications must never blank the dashboard.
             api.getNotifications().catch(() => ({ notifications: get().notifications, unread: get().unread })),
             api.fxRate().catch(() => ({ rate: get().fxRate, asOf: null })),
+            api.fxRate('IDR').catch(() => ({ rate: get().fxRates.IDR, asOf: null })),
           ]);
           set({
             walletAddress: me.walletAddress,
@@ -382,6 +387,7 @@ export const usePayStore = create<PayState>()(
             role: me.role ?? 'user',
             balanceUSD: bal,
             fxRate: fx.rate,
+            fxRates: { ...get().fxRates, INR: fx.rate, IDR: fxIdr.rate },
             transactions: txns,
             requests: reqs,
             notifications: notifs.notifications,
@@ -400,7 +406,7 @@ export const usePayStore = create<PayState>()(
         // Same gate as load(): never poll before the backend user exists (onboarding pre-sync → 401).
         if (USE_PRIVY && !(get().authStatus === 'signedIn' && (get().provisioned || get().onboarded))) return;
         try {
-          const [bal, txns, reqs, notifs, fx] = await Promise.all([
+          const [bal, txns, reqs, notifs, fx, fxIdr] = await Promise.all([
             wallet.getBalanceUsd(),
             wallet.getTransactions(),
             wallet.getRequests(),
@@ -408,6 +414,7 @@ export const usePayStore = create<PayState>()(
             // Only load() pulled this before, so a session left open all day kept its boot-time rate
             // and every "≈ ₹" line drifted from the quote the backend would actually return.
             api.fxRate().catch(() => ({ rate: get().fxRate, asOf: null })),
+            api.fxRate('IDR').catch(() => ({ rate: get().fxRates.IDR, asOf: null })),
           ]);
           // Don't overwrite notifications while the inbox is open — it would resurrect the just-cleared
           // unread badge (the optimistic read-all may not be committed server-side yet).
@@ -417,6 +424,7 @@ export const usePayStore = create<PayState>()(
             transactions: txns,
             requests: reqs,
             fxRate: fx.rate,
+            fxRates: { ...get().fxRates, INR: fx.rate, IDR: fxIdr.rate },
             ...(keepInbox ? {} : { notifications: notifs.notifications, unread: notifs.unread }),
           });
         } catch {
@@ -542,7 +550,12 @@ export const usePayStore = create<PayState>()(
           // Keep the VPA: it's WHO the merchant actually pays. Dropping it (as this used to) left the
           // order with a rail but no destination, so no merchant could have settled it.
           set({ error: null });
-          get().payPayee({ name: res.name ?? res.payee ?? 'Merchant', vpa: res.payee }, res.amountInr ?? 0);
+          get().payPayee({ name: res.name ?? res.payee ?? 'Merchant', vpa: res.payee, rail: 'UPI', currency: 'INR' }, res.amountInr ?? 0);
+        } else if (res.kind === 'qris') {
+          // Same lifecycle on the Indonesian rail — the NMID is the payout destination, IDR the
+          // quote currency. The rail rides on the payee so every quote call names it.
+          set({ error: null });
+          get().payPayee({ name: res.name ?? 'Merchant', vpa: res.payee, rail: 'QRIS', currency: 'IDR' }, res.amountIdr ?? 0);
         } else if (res.kind === 'address') {
           set({ error: null });
           get().startExternalSend(res.address, res.network);
@@ -697,11 +710,12 @@ export const usePayStore = create<PayState>()(
 
       payPayee: (m, rupees = 0) => {
         // The QR is untrusted text — emvqr/payTarget only assert it parses as a finite positive
-        // number, not that it fits the rail. Clamp to paise here (the one funnel scanned amounts
-        // enter through; the resume path at `resumePay` replays an already-clamped value) so a
-        // malformed 3dp QR can't seed an amount the backend would reject at quote time.
-        const paise = 10 ** INR_DECIMALS;
-        set({ payee: m, scannedRupees: Math.round(rupees * paise) / paise });
+        // number, not that it fits the rail. Clamp to the payee currency's minor unit here (the one
+        // funnel scanned amounts enter through; the resume path at `resumePay` replays an
+        // already-clamped value) so a malformed 3dp QR can't seed an amount the backend would
+        // reject at quote time. IDR clamps to whole rupiah.
+        const minor = 10 ** fiatDecimals(m.currency ?? 'INR');
+        set({ payee: m, scannedRupees: Math.round(rupees * minor) / minor });
         if (get().kycTier >= 2) {
           get().open('amount');
         } else {
@@ -983,7 +997,8 @@ export const usePayStore = create<PayState>()(
           const quote = await apiCreateQuote({
             direction: 'spend',
             amountInr: rupees,
-            payoutMethod: 'UPI',
+            // The rail rode in on the scanned payee; the server derives the currency FROM it.
+            payoutMethod: payee.rail ?? 'UPI',
             // WHO the merchant pays. The server re-validates it — this is only the hint.
             payoutDestination: payee.vpa,
             payoutName: payee.name,
@@ -1012,7 +1027,7 @@ export const usePayStore = create<PayState>()(
           const quote = await apiCreateQuote({
             direction: 'spend',
             amountInr: q.amountInr,
-            payoutMethod: 'UPI',
+            payoutMethod: payee.rail ?? 'UPI',
             payoutDestination: payee.vpa,
             payoutName: payee.name,
           });
@@ -1048,7 +1063,7 @@ export const usePayStore = create<PayState>()(
                 const quote = await apiCreateQuote({
                   direction: 'spend',
                   amountInr: q.amountInr,
-                  payoutMethod: 'UPI',
+                  payoutMethod: payee.rail ?? 'UPI',
                   payoutDestination: payee.vpa,
                   payoutName: payee.name,
                 });

@@ -13,7 +13,7 @@ import { View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { vpaOperator } from '@fpay/shared';
 
-import { inrRaw, usd } from '@/lib/money';
+import { fiatRaw, usd } from '@/lib/money';
 import { colors, type } from '@/lib/theme';
 import { usePayStore } from '@/store/usePayStore';
 
@@ -68,7 +68,7 @@ export function QuoteSheet() {
       <SheetHeader eyebrow={`Paying ${payee.name}`} title="Review payment" onClose={close} />
       <SheetBody>
         <View style={styles.headline}>
-          <Txt style={[type.bigAmount, { color: colors.ink }]}>{inrRaw(quote.amountInr)}</Txt>
+          <Txt style={[type.bigAmount, { color: colors.ink }]}>{fiatRaw(quote.amountInr, quote.currency)}</Txt>
           <Txt style={type.conv}>{usd(quote.amountUsdc)} from your balance</Txt>
         </View>
 
@@ -76,10 +76,10 @@ export function QuoteSheet() {
           {/* Show the destination the payment will actually reach. This is the anti-wrong-send
               confirmation every UPI app does — the last chance to catch a bad scan. */}
           {quote.payoutDestination ? <Line k="Paying to" v={quote.payoutDestination} /> : null}
-          <Line k="Today's rate" v={`$1 = ₹${Number(quote.rate).toFixed(2)}`} />
+          <Line k="Today's rate" v={`$1 = ${fiatRaw(quote.rate, quote.currency)}`} />
           {/* Number() both legs: these are decimal STRINGS on the wire, and `+` on two strings
               concatenates — "40.00" + "8.00" would render as ₹40.008. */}
-          <Line k="Fee" v={inrRaw(Number(quote.feeInr) + Number(quote.networkFeeInr))} />
+          <Line k="Fee" v={fiatRaw(Number(quote.feeInr) + Number(quote.networkFeeInr), quote.currency)} />
           <Line k="Total time" v={fmtEta(quote.etaMinSecs, quote.etaMaxSecs)} />
           {/* Name the operator behind the VPA suffix when known (@okaxis → Google Pay) — part of
               the same anti-wrong-send confirmation as the destination line above. */}

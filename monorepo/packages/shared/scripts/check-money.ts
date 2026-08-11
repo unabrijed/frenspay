@@ -24,7 +24,7 @@ import {
   toBaseUnits,
   USDC_DECIMALS,
 } from '../src/units';
-import { inrRaw } from '../src/money';
+import { fiatRaw, fiatSymbol, inrRaw, rateLabel } from '../src/money';
 // The backend's wire-number seam. Imported across the workspace boundary on purpose: the rounding
 // law is one law, and it must hold on both sides of it.
 import { amt, roundDown, roundUp } from '../../../apps/backend/src/lib/amount';
@@ -54,6 +54,17 @@ assert.equal(formatAmount(parseAmount('17900', fiatDecimals('IDR')), fiatDecimal
 throws(() => parseAmount('500.50', fiatDecimals('IDR')), 'fractional rupiah rejected, not rounded');
 throws(() => fiatDecimals('PHP'), 'a currency without decimals must never price a quote');
 ok('fiatDecimals: INR 2dp, IDR 0dp, unknown currency throws');
+
+/* ---- per-currency display: each fiat in its own convention, never fake decimals ---- */
+
+assert.equal(fiatRaw(249.5, 'INR'), '₹249.50', 'INR keeps paise (byte-identical with inrRaw)');
+assert.equal(fiatRaw(249.5, 'INR'), inrRaw(249.5));
+assert.equal(fiatRaw('17900.00', 'IDR'), 'Rp17.900', 'DB 2dp scale in, id-ID whole-rupiah out');
+assert.equal(fiatRaw(1500000, 'IDR'), 'Rp1.500.000', 'id-ID dot-thousands, no lakh grouping');
+assert.equal(fiatSymbol('IDR'), 'Rp');
+assert.equal(rateLabel(95.2535), '1 USD = 95.25 INR', 'INR label unchanged');
+assert.equal(rateLabel(17862.19, 'IDR'), '1 USD = 17.862 IDR', 'whole-unit currencies group, no fake decimals');
+ok('fiatRaw/rateLabel: ₹ en-IN with paise; Rp id-ID whole-rupiah');
 
 /* ---- rejection, not rounding. Each of these silently corrupted an amount before. ---- */
 

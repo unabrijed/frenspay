@@ -24,7 +24,6 @@ export const BN = BigNumber.clone({
 export type Amount = BigNumber;
 
 export const USDC_DECIMALS = 6; // USDC on Solana and on every EVM chain we support
-export const INR_DECIMALS = 2; // transitional: web still imports it; removed when the display sweep lands
 export const RATE_DECIMALS = 4; // quoteEngine emits 4dp; quotes.rate is numeric(20,6) — wider on purpose
 
 /**

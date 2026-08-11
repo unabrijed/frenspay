@@ -12,9 +12,9 @@ import { Keypad } from '@/components/ui/Keypad';
 import { Grab, SearchBar, SheetBody, SheetHeader } from '@/components/ui/primitives';
 import { Pressable, View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
-import { INR_DECIMALS } from '@fpay/shared';
+import { fiatDecimals } from '@fpay/shared';
 
-import { inrRaw, usd } from '@/lib/money';
+import { fiatRaw, usd } from '@/lib/money';
 import { colors, fonts, type } from '@/lib/theme';
 import { usePayStore } from '@/store/usePayStore';
 
@@ -105,7 +105,7 @@ export function Scan() {
           <Txt style={[type.lead, styles.scanError]}>{error}</Txt>
         ) : (
           <Txt style={[type.lead, styles.scanLead]}>
-            {camErr ? CAM_MESSAGES[camErr] : 'Point at any UPI QR, or a friend’s fpay code.'}
+            {camErr ? CAM_MESSAGES[camErr] : 'Point at any UPI or QRIS QR, or a friend’s fpay code.'}
           </Txt>
         )}
         {camErr ? (
@@ -141,41 +141,48 @@ const CORNER_GUIDES = (
   </>
 );
 
+// Whole-digit keypad cap per currency — the same real-world ceiling (~$5–11k) lands at different
+// digit counts when a coffee costs ₹300 in one corridor and Rp 30,000 in the other.
+const WHOLE_DIGITS: Record<string, number> = { INR: 6, IDR: 8 };
+
 export function Amount() {
   const close = usePayStore((s) => s.close);
   const getQuote = usePayStore((s) => s.getQuote);
   const busy = usePayStore((s) => s.busy);
   const payee = usePayStore((s) => s.payee);
   const scannedRupees = usePayStore((s) => s.scannedRupees);
-  const fxRate = usePayStore((s) => s.fxRate);
-  // Dynamic UPI QRs carry the amount → seed it; static QRs (am absent) start blank-ish for entry.
-  const [d, setD] = useState(() => (scannedRupees > 0 ? String(scannedRupees) : '500'));
+  const fxRates = usePayStore((s) => s.fxRates);
+  const currency = payee.currency ?? 'INR';
+  const rate = fxRates[currency];
+  // Dynamic QRs carry the amount → seed it; static QRs (am absent) start blank-ish for entry.
+  const [d, setD] = useState(() => (scannedRupees > 0 ? String(scannedRupees) : currency === 'IDR' ? '50000' : '500'));
   const press = (k: string) => {
     if (k === '⌫') return setD((s) => s.slice(0, -1));
     setD((s) => {
       const next = (s === '0' ? '' : s) + k;
-      const [whole, paise] = next.split('.');
+      const [whole, frac] = next.split('.');
       // Reject the keystroke rather than truncate. A seeded QR decimal is the only way to reach a
-      // fraction at all — the keypad has no '.' key — so manual entry stays whole-rupee as designed,
-      // while a scanned ₹249.50 keeps its paise instead of being read back as ₹249.
-      if (whole.length > 6 || (paise?.length ?? 0) > INR_DECIMALS) return s;
+      // fraction at all — the keypad has no '.' key — so manual entry stays whole-unit as designed,
+      // while a scanned ₹249.50 keeps its paise instead of being read back as ₹249. (IDR has no
+      // fraction at all — fiatDecimals is 0.)
+      if (whole.length > (WHOLE_DIGITS[currency] ?? 6) || (frac?.length ?? 0) > fiatDecimals(currency)) return s;
       return next;
     });
   };
   // Number(), not parseInt(): parseInt("249.5") is 249. Tolerates a mid-edit trailing '.'.
-  const rupees = Number(d) || 0;
-  const u = rupees / fxRate;
+  const amount = Number(d) || 0;
+  const u = amount / rate;
   return (
     <>
       <Grab />
       <SheetHeader eyebrow="Paying" title={payee.name} onClose={close} />
       <SheetBody>
         <View style={styles.amountbig}>
-          <Txt style={[type.bigAmount, { color: colors.ink }]}>{inrRaw(rupees)}</Txt>
+          <Txt style={[type.bigAmount, { color: colors.ink }]}>{fiatRaw(amount, currency)}</Txt>
           <Txt style={type.conv}>{usd(u)} from your balance</Txt>
         </View>
         <Keypad onPress={press} />
-        <Btn label={busy ? 'Getting quote…' : 'Get quote'} variant="ink" disabled={rupees <= 0 || busy} onPress={() => void getQuote(rupees)} />
+        <Btn label={busy ? 'Getting quote…' : 'Get quote'} variant="ink" disabled={amount <= 0 || busy} onPress={() => void getQuote(amount)} />
       </SheetBody>
     </>
   );
