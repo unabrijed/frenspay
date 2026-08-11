@@ -9,7 +9,7 @@ Services:
 - **Web** — Next.js 15 on **Vercel** (`apps/web`, `vercel.json` added).
 - **Admin** — Next.js 15 on **Vercel** (`apps/admin`), the operator console at `admin.frenspay.xyz` (§2b).
 - **Landing** — static Next.js on **Vercel** (`apps/landing`, root directory `monorepo/apps/landing`).
-- **DB** — Railway Postgres (already attached for the local/stage `DATABASE_URL`).
+- **DB** — Supabase Postgres (stage). `STAGE_DATABASE_URL` = the **session pooler** URL — see §1 step 2.
 
 **Deploy isolation:** each Vercel project's `vercel.json` carries an `ignoreCommand` that diffs
 `$VERCEL_GIT_PREVIOUS_SHA` (last successful deploy) against the project's own directory — plus
@@ -61,22 +61,36 @@ Env convention: backend runs with `NODE_ENV=stage` → reads `STAGE_*` keys (see
 A web production build reads unprefixed `NEXT_PUBLIC_*` (see `apps/web/.env.example`). `PORT` and
 `PUBLIC_BASE_URL` are host-level (unprefixed).
 
+**Environments (Railway):** one project, two Railway environments — `stage` and `production`. Each
+environment carries `NODE_ENV` + its own variables and nothing else differs: the start command is
+identical everywhere because `envConfig` keys off `NODE_ENV` (stage→`STAGE_*`, prod→bare). No
+per-env scripts. Branch map: pushing **`stage`** auto-deploys the stage environment; **`sacred`** is
+the prod branch, wired to the `production` environment only at mainnet time — until then a `sacred`
+push deploys nothing.
+
 ---
 
 ## 1. Backend → Railway
 
-1. New Railway **service** from this repo. Root directory: `monorepo` (the yarn workspace root). Builder
+1. New Railway **service** from the GitHub repo (`unabrijed/frenspay`), deploy branch **`stage`**, in
+   the **stage** environment. Root directory: `monorepo` (the yarn workspace root). Builder
    is **Nixpacks** (no Dockerfile). Start command + healthcheck come from `apps/backend/railway.json`
-   (`yarn workspace @fpay/backend start`, `/health`). Node is pinned to 22 via `.nvmrc`.
-2. Attach (or reuse) a **Postgres** plugin and set `STAGE_DATABASE_URL` to its connection string (SSL on;
-   leave `STAGE_PGSSL` unset).
-3. Set service **Variables**:
+   (`yarn workspace @fpay/backend db:deploy && … start`, `/health`) — point the service's
+   config-as-code path at it, or paste those two values into the dashboard. Node is pinned to 22 via
+   `.nvmrc`.
+2. Set `STAGE_DATABASE_URL` to the **Supabase session pooler** URL — same value as the working
+   `apps/backend/.env` (`…pooler.supabase.com:5432`). Never the transaction pooler (port 6543): the
+   backend and the migration runner take session-scoped `pg_advisory_lock`s, which transaction
+   pooling silently breaks.
+3. Set service **Variables** (in the stage environment, BEFORE the first deploy — secret values come
+   from the working `apps/backend/.env`, which is the source of truth):
    ```
    NODE_ENV=stage
-   STAGE_DATABASE_URL=<from the Postgres plugin>
+   STAGE_DATABASE_URL=<Supabase session pooler URL — step 2>
+   STAGE_KYC_PROVIDER=sim                               # stage boot THROWS without KYC config (assertKycConfig); sim until Didit is live
    STAGE_SOLANA_RPC_URL=https://api.devnet.solana.com   # or a Helius devnet URL
-   STAGE_FEE_PAYER_SECRET_KEY=[ ... ]                    # JSON byte array from devnet:setup (below)
-   STAGE_USDC_MINT=vsL2tTkok8U7nMZMpFS1Z5PVJpVmk4uuuvoQQUBvfhf
+   STAGE_FEE_PAYER_SECRET_KEY=[ ... ]                    # JSON byte array — copy from .env
+   STAGE_USDC_MINT=<copy from .env>                      # official Circle devnet USDC (the old custom vsL2t… mint is dead)
    STAGE_PRIVY_APP_ID=<privy app id>
    STAGE_PRIVY_APP_SECRET=<privy app secret>            # backend-only, never in the web build
    PUBLIC_BASE_URL=https://<this-railway-service>.up.railway.app
@@ -90,8 +104,8 @@ A web production build reads unprefixed `NEXT_PUBLIC_*` (see `apps/web/.env.exam
    ```
    yarn db:migrate   # applies pending apps/backend/src/db/migrations/*.sql
    ```
-   (Run locally with `STAGE_DATABASE_URL` pointed at the Railway DB, or via Railway's shell.
-   `db:status` shows what's applied/pending.)
+   (Run locally with `STAGE_DATABASE_URL` pointed at the Supabase session pooler, or via Railway's
+   shell. `db:status` shows what's applied/pending.)
 5. Verify: `curl https://<backend>/health` → `{"status":"ok","database":"configured"}`.
 
 ## 2. Web → Vercel
