@@ -1,10 +1,13 @@
-// check-fx.ts — M7 live FX harness. Pure (no DB): asserts the fallback before any fetch, the range
-// validation (a bad/garbage rate can't poison a quote), a bad source keeps the fallback, and a
-// best-effort live fetch returns a sane INR rate (warns — not fails — if the network is down).
+// check-fx.ts — live-FX harness, per-currency since the Indonesia corridor. Pure by default (no DB,
+// no network — safe in check:all); set FX_CHECK_LIVE=1 for a best-effort live fetch on top.
+// The cross-currency asserts are the point: the pre-corridor bug class was a wrong-currency value
+// that LOOKED plausible (an INR-magnitude number quoting IDR ~200× off), so every band must reject
+// the other corridor's magnitude, and a currency without a band must never price at all.
 // Run: yarn workspace @fpay/backend tsx scripts/check-fx.ts
 import { config } from '../src/envConfig';
 import {
   _resetFxCacheForTest,
+  FX_BANDS,
   getMidRate,
   getMidRateAsOf,
   parseRate,
@@ -19,29 +22,62 @@ function check(name: string, cond: boolean, detail?: string) {
 
 async function main() {
   _resetFxCacheForTest();
-  check('fallback returned before any fetch', getMidRate() === config.fxFallbackRate, `₹${getMidRate()}`);
-  check('getMidRate is always finite (no NaN into money math)', Number.isFinite(getMidRate()));
-  check('asOf is null before any fetch', getMidRateAsOf() === null);
 
-  // Range validation — a bad source value must be rejected so it can't price a quote.
-  check('parseRate accepts a sane value', parseRate({ rates: { INR: 84.2 } }) === 84.2);
-  check('parseRate rejects out-of-range high', parseRate({ rates: { INR: 999 } }) === null);
-  check('parseRate rejects out-of-range low', parseRate({ rates: { INR: 5 } }) === null);
-  check('parseRate rejects a non-number', parseRate({ rates: { INR: 'x' } }) === null);
-  check('parseRate rejects a missing rate', parseRate({}) === null);
-  check('parseRate rejects a null body', parseRate(null) === null);
+  // Every banded currency has a fallback inside its own band, served before any fetch.
+  for (const ccy of Object.keys(FX_BANDS)) {
+    const fb = config.fxFallbackRates[ccy];
+    const band = FX_BANDS[ccy];
+    check(`${ccy}: fallback exists and sits inside its band`, typeof fb === 'number' && fb >= band.min && fb <= band.max, String(fb));
+    check(`${ccy}: fallback returned before any fetch`, getMidRate(ccy) === fb);
+    check(`${ccy}: getMidRate is finite (no NaN into money math)`, Number.isFinite(getMidRate(ccy)));
+    check(`${ccy}: asOf is null before any fetch`, getMidRateAsOf(ccy) === null);
+  }
 
-  // A failing source keeps the previous good value (the fallback here) — never poisons the cache.
+  // Range validation per currency — a sane value passes ITS band and fails every other band.
+  check('INR: sane value accepted', parseRate({ rates: { INR: 95.25 } }, 'INR') === 95.25);
+  check('IDR: sane value accepted', parseRate({ rates: { IDR: 17862.19 } }, 'IDR') === 17862.19);
+  check('IDR: dust value rejected', parseRate({ rates: { IDR: 1.5 } }, 'IDR') === null);
+  check('IDR: INR-magnitude value rejected', parseRate({ rates: { IDR: 95.25 } }, 'IDR') === null);
+  check('INR: IDR-magnitude value rejected', parseRate({ rates: { INR: 17862 } }, 'INR') === null);
+  check('parseRate reads the REQUESTED currency, never a sibling', parseRate({ rates: { INR: 95.25 } }, 'IDR') === null);
+  check('unknown currency never prices (the PHP guard)', parseRate({ rates: { PHP: 60.83 } }, 'PHP') === null);
+  check('non-number rejected', parseRate({ rates: { INR: 'x' } }, 'INR') === null);
+  check('missing rate rejected', parseRate({}, 'INR') === null);
+  check('null body rejected', parseRate(null, 'INR') === null);
+  check('getMidRate throws on a currency without a band/fallback', (() => {
+    try {
+      getMidRate('PHP');
+      return false;
+    } catch {
+      return true;
+    }
+  })());
+
+  // A failing source keeps the previous good value (the fallbacks here) — never poisons the cache.
   await refreshMidRate(undefined, 'https://invalid.invalid.invalid/none');
-  check('bad source keeps the fallback (no poison)', getMidRate() === config.fxFallbackRate);
+  check('bad source keeps every fallback (no poison)',
+    Object.keys(FX_BANDS).every((c) => getMidRate(c) === config.fxFallbackRates[c]));
 
-  // Best-effort live fetch.
-  await refreshMidRate();
-  if (getMidRateAsOf()) {
-    const r = getMidRate();
-    check('live fetch returns a sane INR rate', r >= 50 && r <= 150, `₹${r} as of ${getMidRateAsOf()}`);
-  } else {
-    console.log('⚠ live fetch unavailable (offline?) — fallback retained; not counted as a failure');
+  // A response carrying one good and one garbage currency updates ONLY the good one.
+  const half = { rates: { INR: 95.25, IDR: 2 } };
+  for (const ccy of Object.keys(FX_BANDS)) {
+    const r = parseRate(half, ccy);
+    if (ccy === 'INR') check('partial payload: INR parses', r === 95.25);
+    else check(`partial payload: ${ccy} garbage rejected independently`, r === null);
+  }
+
+  // Best-effort live fetch — opt-in so check:all stays offline-fast (root package.json contract).
+  if (process.env.FX_CHECK_LIVE === '1') {
+    await refreshMidRate();
+    if (getMidRateAsOf('INR')) {
+      for (const ccy of Object.keys(FX_BANDS)) {
+        const band = FX_BANDS[ccy];
+        const r = getMidRate(ccy);
+        check(`${ccy}: live rate in band`, r >= band.min && r <= band.max, `${r} as of ${getMidRateAsOf(ccy)}`);
+      }
+    } else {
+      console.log('⚠ live fetch unavailable (offline?) — fallbacks retained; not counted as a failure');
+    }
   }
 
   console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`);

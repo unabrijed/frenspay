@@ -1,50 +1,73 @@
-// fxRate.ts — M7 live FX. The INR-per-USD mid rate, fetched from a free, no-key source, cached, and
-// RANGE-VALIDATED so a bad/garbage API response can never poison a quote. getMidRate() is sync (returns
-// the cached value, or the configured fallback before the first successful fetch) — quoting never blocks
-// on the network. startFxRefresher() keeps the cache warm in the background. The merchant spread is
-// applied on top in quoteEngine; this is the spread-free mid.
+// fxRate.ts — live FX, per-currency since the Indonesia corridor (M7 built it INR-only). ONE fetch
+// serves every currency — the free source returns a full `rates` map — but each currency has its own
+// cache slot, plausibility band, and fallback, so a bad/garbage value in one can never poison
+// another's quote. getMidRate(ccy) is sync (returns the cached value, or the configured fallback
+// before the first successful fetch) — quoting never blocks on the network. startFxRefresher()
+// keeps the cache warm in the background. The merchant spread is applied on top in quoteEngine;
+// this is the spread-free mid.
 import { config } from '../envConfig';
 
-const SANE_MIN = 50; // INR per USD — a plausibility band; outside this we distrust the source.
-const SANE_MAX = 150;
+/**
+ * The currencies quotes can price in + their plausibility bands (units per USD); outside the band
+ * we distrust the source. Per-currency on purpose: a single band can't hold both INR (~95) and IDR
+ * (~17,900), and a band that admits both would wave a wrong-currency value through. MIRRORS the
+ * rail currencies in packages/shared/src/rails.ts (backend `import type` rule — see lib/units.ts
+ * header); check-fx.ts keeps it honest.
+ */
+export const FX_BANDS: Record<string, { min: number; max: number }> = {
+  INR: { min: 50, max: 150 },
+  IDR: { min: 12_000, max: 25_000 }, // live ≈ 17,900 (2026-08) with headroom; still rejects an INR-magnitude value
+};
 
-let cached = { rate: config.fxFallbackRate, fetchedAt: 0 };
+const cache: Record<string, { rate: number; fetchedAt: number }> = {};
 
-/** Extract + validate `rates.INR` from a source payload. Returns null if missing / non-finite / insane. */
-export function parseRate(body: unknown): number | null {
-  const inr = (body as { rates?: Record<string, number> } | null)?.rates?.INR;
-  if (typeof inr !== 'number' || !Number.isFinite(inr) || inr < SANE_MIN || inr > SANE_MAX) return null;
-  return Number(inr.toFixed(4));
+/** Extract + validate `rates[ccy]` from a source payload. Null if the currency is unknown to us,
+ *  or the value is missing / non-finite / outside the band. */
+export function parseRate(body: unknown, ccy: string): number | null {
+  const band = FX_BANDS[ccy];
+  if (!band) return null;
+  const v = (body as { rates?: Record<string, number> } | null)?.rates?.[ccy];
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < band.min || v > band.max) return null;
+  return Number(v.toFixed(4));
 }
 
-/** The current INR-per-USD mid rate (cached). Falls back to config.fxFallbackRate until a fetch lands.
- *  Belt-and-suspenders: never return a non-finite value into money math. */
-export function getMidRate(): number {
-  return Number.isFinite(cached.rate) ? cached.rate : config.fxFallbackRate;
+/** The current mid rate for `ccy` (cached), or the configured fallback until a fetch lands.
+ *  Throws on a currency with no band/fallback — a typo here must never price a quote. */
+export function getMidRate(ccy: string = 'INR'): number {
+  const v = cache[ccy]?.rate ?? config.fxFallbackRates[ccy];
+  if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`no FX rate for ${ccy}`);
+  return v;
 }
 
-/** ISO timestamp of the last good rate, or null while still on the fallback. */
-export function getMidRateAsOf(): string | null {
-  return cached.fetchedAt ? new Date(cached.fetchedAt).toISOString() : null;
+/** ISO timestamp of the last good rate for `ccy`, or null while still on the fallback. */
+export function getMidRateAsOf(ccy: string = 'INR'): string | null {
+  const at = cache[ccy]?.fetchedAt;
+  return at ? new Date(at).toISOString() : null;
 }
 
-/** Fetch + validate + cache the live rate. Never throws; on any failure keeps the previous good value. */
-export async function refreshMidRate(log?: (m: string) => void, url = config.fxSourceUrl): Promise<number> {
+/** Fetch once, validate + cache every banded currency independently. Never throws; a currency whose
+ *  value is missing/insane keeps its previous good value (or fallback) — no cross-poisoning. */
+export async function refreshMidRate(log?: (m: string) => void, url = config.fxSourceUrl): Promise<void> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) throw new Error(`http ${res.status}`);
-    const rate = parseRate(await res.json());
-    if (rate == null) throw new Error('rate missing or out of range');
-    cached = { rate, fetchedAt: Date.now() };
-    log?.(`fx: 1 USD = ₹${rate}`);
+    const body: unknown = await res.json();
+    const got: string[] = [];
+    for (const ccy of Object.keys(FX_BANDS)) {
+      const rate = parseRate(body, ccy);
+      if (rate == null) continue;
+      cache[ccy] = { rate, fetchedAt: Date.now() };
+      got.push(`${ccy} ${rate}`);
+    }
+    if (!got.length) throw new Error('no rate in range for any currency');
+    log?.(`fx: 1 USD = ${got.join(' · ')}`);
   } catch (e) {
-    log?.(`fx refresh failed (${String(e)}); keeping ₹${cached.rate}`);
+    log?.(`fx refresh failed (${String(e)}); keeping last-good/fallback rates`);
   }
-  return cached.rate;
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;
-/** Prime the rate once + refresh on an interval. Idempotent; unref'd so it never holds the process open. */
+/** Prime the rates once + refresh on an interval. Idempotent; unref'd so it never holds the process open. */
 export function startFxRefresher(intervalMs = config.fxRefreshMs, log?: (m: string) => void): void {
   if (timer) return;
   void refreshMidRate(log);
@@ -52,7 +75,7 @@ export function startFxRefresher(intervalMs = config.fxRefreshMs, log?: (m: stri
   timer.unref?.();
 }
 
-/** Test seam: reset the cache to the fallback (used by check-fx). */
+/** Test seam: reset every slot to the fallback (used by check-fx). */
 export function _resetFxCacheForTest(): void {
-  cached = { rate: config.fxFallbackRate, fetchedAt: 0 };
+  for (const k of Object.keys(cache)) delete cache[k];
 }

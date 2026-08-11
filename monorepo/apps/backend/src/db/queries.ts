@@ -646,6 +646,7 @@ interface QuoteRow {
   user_id: string;
   merchant_id: string | null;
   direction: OrderDirection;
+  currency: string;
   amount_inr: string;
   amount_usdc: string;
   rate: string;
@@ -666,6 +667,7 @@ function toQuote(r: QuoteRow): Quote {
   return {
     id: r.id,
     direction: r.direction,
+    currency: r.currency,
     amountInr: r.amount_inr,
     amountUsdc: r.amount_usdc,
     rate: r.rate,
@@ -687,6 +689,7 @@ export async function insertQuote(input: {
   userId: string;
   merchantId: string | null;
   direction: OrderDirection;
+  currency: string;
   // Canonical decimal strings, not numbers: pg hands numeric back as a string and takes one just
   // as happily, so the value goes in and comes out byte-identical with no float in the middle.
   amountInr: string;
@@ -704,10 +707,10 @@ export async function insertQuote(input: {
 }): Promise<Quote> {
   const { rows } = await getPool().query<QuoteRow>(
     `with ins as (
-       insert into quotes (user_id, merchant_id, direction, amount_inr, amount_usdc, rate,
+       insert into quotes (user_id, merchant_id, direction, currency, amount_inr, amount_usdc, rate,
                            fee_inr, network_fee_inr, eta_min_secs, eta_max_secs,
                            payout_method, route_quality, payout_destination, payout_name, expires_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        returning *
      )
      select ins.*, m.name as merchant_name
@@ -716,6 +719,7 @@ export async function insertQuote(input: {
       input.userId,
       input.merchantId,
       input.direction,
+      input.currency,
       input.amountInr,
       input.amountUsdc,
       input.rate,
@@ -767,6 +771,7 @@ interface OrderJoinRow {
   quote_id: string;
   // joined quote columns (aliased)
   q_direction: OrderDirection;
+  q_currency: string;
   q_amount_inr: string;
   q_amount_usdc: string;
   q_rate: string;
@@ -786,7 +791,7 @@ interface OrderJoinRow {
 const ORDER_SELECT = `
   select o.id, o.user_id, o.state, o.resolution, o.amount_usdc, o.reference_code,
          o.payout_claimed_at, o.feedback_up, o.created_at, o.updated_at, o.quote_id,
-         q.direction as q_direction, q.amount_inr as q_amount_inr, q.amount_usdc as q_amount_usdc,
+         q.direction as q_direction, q.currency as q_currency, q.amount_inr as q_amount_inr, q.amount_usdc as q_amount_usdc,
          q.rate as q_rate, q.fee_inr as q_fee_inr, q.network_fee_inr as q_network_fee_inr,
          q.eta_min_secs as q_eta_min_secs, q.eta_max_secs as q_eta_max_secs,
          q.payout_method as q_payout_method, q.route_quality as q_route_quality,
@@ -801,6 +806,7 @@ function toOrder(r: OrderJoinRow, events?: OrderEvent[]): Order {
   const quote: Quote = {
     id: r.quote_id,
     direction: r.q_direction,
+    currency: r.q_currency,
     amountInr: r.q_amount_inr,
     amountUsdc: r.q_amount_usdc,
     rate: r.q_rate,
@@ -1443,6 +1449,7 @@ export interface MerchantOrderRow {
   payout_claimed_at: Date | null;
   expires_at: Date | null;
   created_at: Date;
+  currency: string;
   amount_inr: string;
   payout_method: PayoutMethod;
   payout_destination: string | null;
@@ -1454,7 +1461,7 @@ export async function listMerchantOrders(merchantId: string, limit = 50): Promis
   const { rows } = await getPool().query<MerchantOrderRow>(
     `select o.id, o.reference_code, o.state, o.resolution, o.amount_usdc, o.payout_utr,
             o.payout_claimed_at, o.expires_at, o.created_at,
-            q.amount_inr, q.payout_method, q.payout_destination, q.payout_name
+            q.currency, q.amount_inr, q.payout_method, q.payout_destination, q.payout_name
        from orders o join quotes q on q.id = o.quote_id
       where o.merchant_id = $1
         and o.state in ('payment_detected','merchant_confirms','funds_released','completed')

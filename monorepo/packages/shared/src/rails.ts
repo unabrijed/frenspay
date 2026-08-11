@@ -5,7 +5,7 @@
 // Going live for a new rail is the multi-currency milestone (per-currency quotes/FX/LP rails),
 // not a flag flip here.
 
-export type RailId = 'upi' | 'promptpay' | 'pix' | 'duitnow';
+export type RailId = 'upi' | 'qris' | 'promptpay' | 'pix' | 'duitnow';
 
 export interface Rail {
   id: RailId;
@@ -17,6 +17,7 @@ export interface Rail {
 
 export const RAILS: Rail[] = [
   { id: 'upi', name: 'UPI', country: 'IN', currency: 'INR', live: true },
+  { id: 'qris', name: 'QRIS', country: 'ID', currency: 'IDR', live: true }, // Indonesia corridor (sim LPs; PSP sandbox behind it)
   { id: 'promptpay', name: 'PromptPay', country: 'TH', currency: 'THB', live: false },
   { id: 'pix', name: 'Pix', country: 'BR', currency: 'BRL', live: false },
   { id: 'duitnow', name: 'DuitNow', country: 'MY', currency: 'MYR', live: false },

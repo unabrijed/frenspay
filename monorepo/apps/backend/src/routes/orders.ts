@@ -32,7 +32,8 @@ import {
   updateOrder,
   withUserLock,
 } from '../db/queries';
-import { INR_DECIMALS, positiveAmount } from '../lib/amount';
+import { fiatDecimals, positiveAmount } from '../lib/amount';
+import { RAIL_CURRENCY } from '../lib/rails';
 import { checkCashOutLimit } from '../services/compliance';
 import { getMidRate } from '../services/fxRate';
 import { recomputeMerchantStats } from '../services/merchantStats';
@@ -60,24 +61,49 @@ import { createQuote } from '../services/quoteEngine';
  */
 const VPA_RE = /^[a-z0-9.\-_]{2,}@[a-z0-9\-_]{2,}$/i;
 
+/**
+ * Per-rail payout-destination gates — the ONLY validation between a scanned string and a human/PSP
+ * acting on it. UPI = the VPA above. QRIS = the merchant proxy off the QR (NMID / merchant PAN):
+ * shape varies by acquirer, so bound it to printable, non-@ (never a VPA by accident), sane length.
+ * A rail with no entry here cannot take a destination at all.
+ */
+const DESTINATION_RE: Record<string, RegExp> = {
+  UPI: VPA_RE,
+  QRIS: /^(?!.*@)[a-z0-9][a-z0-9 .\-/]{4,63}$/i,
+};
+
+// Same floor as the external-send rails (routes/money.ts MIN_EXTERNAL_SEND_USD): an on-chain escrow
+// plus an LP payout for micro-amounts is dust-spam, and it's currency-blind — 0.01 INR and 1 IDR
+// both price to a real, fundable USDC order without it (found by the prism skeptic pass).
+const MIN_ORDER_USD = 1;
+
 export async function registerOrderRoutes(app: FastifyInstance) {
   // Quote Engine: a locked rate+fee+ETA, valid 45s. Routing picks the best simulated merchant/LP.
   app.post<{ Body: QuoteRequest }>('/orders/quote', async (req, reply) => {
     const userId = requireUserId(req);
-    const { direction, payoutMethod, payoutDestination, payoutName } = req.body ?? ({} as QuoteRequest);
-    // The fiat leg is 2dp, not 6 — a rupee amount with more precision than a rupee has is a bug
-    // in the caller, not something to round away on their behalf.
-    const amountInr = positiveAmount(req.body?.amountInr, INR_DECIMALS);
-    if (amountInr === null) return reply.code(400).send({ error: 'invalid_amount' });
-    // WHO gets the rupees. The client parsed it out of a QR, but that's a hint — this is the trust
-    // boundary, and a merchant will act on this string by hand.
+    const { direction, payoutDestination, payoutName } = req.body ?? ({} as QuoteRequest);
+    // The RAIL is the currency authority (docs/21; never the user's country, never the QR's own
+    // claim). A rail we can't price (no corridor/FX band) is refused here, not guessed at.
+    const payoutMethod = req.body?.payoutMethod ?? 'UPI';
+    const currency = RAIL_CURRENCY[payoutMethod];
+    if (!currency) return reply.code(400).send({ error: 'unsupported_payout_method' });
+    // The fiat leg carries the currency's own minor unit (INR 2dp, IDR 0dp) — an amount with more
+    // precision than the currency has is a bug in the caller, not something to round away.
+    const amountFiat = positiveAmount(req.body?.amountInr, fiatDecimals(currency));
+    if (amountFiat === null) return reply.code(400).send({ error: 'invalid_amount' });
+    // WHO gets the fiat. The client parsed it out of a QR, but that's a hint — this is the trust
+    // boundary, and a merchant/PSP will act on this string.
     const destination = payoutDestination?.trim().toLowerCase();
-    if (destination && !VPA_RE.test(destination)) {
+    if (destination && !DESTINATION_RE[payoutMethod]?.test(destination)) {
       return reply.code(400).send({ error: 'invalid_payout_destination' });
+    }
+    const estUsd = amountFiat / getMidRate(currency);
+    if (estUsd < MIN_ORDER_USD) {
+      return reply.code(400).send({ error: 'amount_too_small', minUsd: MIN_ORDER_USD });
     }
     // M5: enforce cash-out (merchant-pay) KYC limits before pricing. Estimate USD from the live mid
     // rate (M7); blocks under-tier users.
-    const cashLimit = await checkCashOutLimit(userId, amountInr / getMidRate());
+    const cashLimit = await checkCashOutLimit(userId, estUsd);
     if (!cashLimit.ok) {
       return reply.code(403).send({
         error: 'limit_exceeded',
@@ -90,8 +116,9 @@ export async function registerOrderRoutes(app: FastifyInstance) {
     }
     const quote = await createQuote(userId, {
       direction: direction === 'cash_out' ? 'cash_out' : 'spend',
-      amountInr,
-      payoutMethod: payoutMethod ?? 'UPI',
+      amountInr: amountFiat,
+      currency,
+      payoutMethod,
       payoutDestination: destination,
       payoutName: payoutName?.trim().slice(0, 80),
     });

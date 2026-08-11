@@ -24,8 +24,24 @@ export const BN = BigNumber.clone({
 export type Amount = BigNumber;
 
 export const USDC_DECIMALS = 6; // USDC on Solana and on every EVM chain we support
-export const INR_DECIMALS = 2;
+export const INR_DECIMALS = 2; // transitional: web still imports it; removed when the display sweep lands
 export const RATE_DECIMALS = 4; // quoteEngine emits 4dp; quotes.rate is numeric(20,6) — wider on purpose
+
+/**
+ * Minor units per fiat currency fpay quotes in — decimals stay a parameter (docs/01), this is the
+ * lookup, not a constant to bake in. IDR is 0 by practice, not ISO: sen hasn't circulated in
+ * decades, and no keypad, rail, or PSP deals in fractional rupiah. Storage is unaffected — the DB
+ * keeps numeric(20,2) scale for every corridor ("17900" stores as 17900.00); this governs
+ * validation at the trust boundary, fee rounding, and display.
+ */
+export const FIAT_DECIMALS: Record<string, number> = { INR: 2, IDR: 0 };
+
+/** fiatDecimals('INR') → 2. Throws on a currency we don't price — a typo must not become a quote. */
+export function fiatDecimals(currency: string): number {
+  const d = FIAT_DECIMALS[currency];
+  if (d == null) throw new Error(`unknown fiat currency ${currency}`);
+  return d;
+}
 
 /** numeric(20,6) holds 20 significant digits with 6 after the point, so 14 before it. */
 const MAX_AMOUNT = new BN(10).pow(14);

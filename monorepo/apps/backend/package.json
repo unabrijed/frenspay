@@ -15,7 +15,8 @@
     "db:init": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "devnet:setup": "tsx scripts/setup-devnet.ts",
-    "check:waitlist": "tsx scripts/check-waitlist.ts"
+    "check:waitlist": "tsx scripts/check-waitlist.ts",
+    "check:fx": "tsx scripts/check-fx.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

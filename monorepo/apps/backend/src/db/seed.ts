@@ -47,6 +47,8 @@ async function main() {
   await pool.query('delete from orders');
   await pool.query('delete from quotes');
   await pool.query('delete from merchants');
+  // The two QRIS rows are the Indonesia corridor's routing pool — float is USDC (rail-agnostic LP
+  // capacity), so only payout_rail differs; routing.ts filters on it unchanged.
   await pool.query(
     `insert into merchants (name, payout_rail, status, treasury_address, success_rate, avg_completion_secs, spread_bps, float_usdc, dispute_rate, kyb_status, bond_usdc, base_success_rate, base_avg_completion_secs, base_dispute_rate, sim_behavior)
      values
@@ -54,13 +56,17 @@ async function main() {
        ($3, 'UPI','online',$4,  0.972, 200, 25,  80000, 0.006, 'approved', 6000, 0.972, 200, 0.006, 'happy'),
        ($5, 'UPI','online',$6,  0.951,  70, 90,  60000, 0.012, 'approved', 5000, 0.951,  70, 0.012, 'happy'),
        ($7, 'UPI','online',$8,  0.960, 180, 80, 100000, 0.008, 'approved', 6000, 0.960, 180, 0.008, 'slow'),
-       ($9, 'UPI','online',$10, 0.940, 150, 60,  40000, 0.030, 'approved', 3000, 0.940, 150, 0.030, 'no_receipt')`,
+       ($9, 'UPI','online',$10, 0.940, 150, 60,  40000, 0.030, 'approved', 3000, 0.940, 150, 0.030, 'no_receipt'),
+       ($11,'QRIS','online',$12, 0.988, 130, 55, 100000, 0.004, 'approved', 8000, 0.988, 130, 0.004, 'happy'),
+       ($13,'QRIS','online',$14, 0.955, 210, 35,  60000, 0.010, 'approved', 5000, 0.955, 210, 0.010, 'happy')`,
     [
       'RapidPay LP', treasuryFor('pay-merchant-rapidpay'),
       'ThriftPay LP', treasuryFor('pay-merchant-thriftpay'),
       'BoltRoute LP', treasuryFor('pay-merchant-boltroute'),
       'SteadyRails LP', treasuryFor('pay-merchant-steadyrails'),
       'FlakeLP', treasuryFor('pay-merchant-flakelp'),
+      'NusantaraPay LP', treasuryFor('pay-merchant-nusantarapay'),
+      'GarudaRoute LP', treasuryFor('pay-merchant-garudaroute'),
     ],
   );
 

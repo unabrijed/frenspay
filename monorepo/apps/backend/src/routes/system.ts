@@ -1,7 +1,8 @@
-// system.ts — operational endpoints (no auth, no PII).
+// system.ts — operational endpoints (no PII; /fx/rate is the one authed route here, see below).
 import type { FastifyInstance } from 'fastify';
 
-import { getMidRate, getMidRateAsOf } from '../services/fxRate';
+import { requireUserId } from '../auth';
+import { FX_BANDS, getMidRate, getMidRateAsOf } from '../services/fxRate';
 import { metrics } from '../services/metrics';
 
 export async function registerSystemRoutes(app: FastifyInstance) {
@@ -11,6 +12,14 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     return metrics.prometheus();
   });
 
-  // M7: the live mid-market FX rate (for a standalone "today's rate" display; quotes carry their own).
-  app.get('/fx/rate', async () => ({ rate: getMidRate(), asOf: getMidRateAsOf() }));
+  // The live mid-market FX rate for the app's own displays (quotes carry their own). Authed on
+  // purpose: the upstream source's terms forbid offering "programmatic or automatic access to
+  // exchange rate data" — serving our signed-in users is our end purpose, an open re-export is a
+  // rate API. `?currency=` selects the corridor (default INR); unknown currency → 400.
+  app.get<{ Querystring: { currency?: string } }>('/fx/rate', async (req, reply) => {
+    requireUserId(req);
+    const currency = req.query?.currency ?? 'INR';
+    if (!FX_BANDS[currency]) return reply.code(400).send({ error: 'unknown_currency' });
+    return { currency, rate: getMidRate(currency), asOf: getMidRateAsOf(currency) };
+  });
 }

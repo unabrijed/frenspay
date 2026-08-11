@@ -23,7 +23,13 @@ export interface Txn {
  */
 export interface Payee {
   name: string;
+  /** The payout destination on the rail — a UPI VPA, or a QRIS NMID. (Named for the India-only
+   *  era; it is rail-generic now.) */
   vpa?: string;
+  /** Payout rail + its fiat currency. Absent = the UPI/INR default, so every pre-corridor caller
+   *  and persisted value keeps working unchanged. */
+  rail?: PayoutMethod;
+  currency?: string;
 }
 
 /** @deprecated Use {@link Payee}. Retained so apps/mobile (mock settlement path) compiles unchanged. */
@@ -130,6 +136,8 @@ export interface MerchantOrder {
   referenceCode: string;
   state: OrderState;
   resolution: OrderResolution | null;
+  /** ISO 4217 fiat of the leg the LP pays out (see Quote.currency). */
+  currency: string;
   amountInr: string;
   amountUsdc: string;
   /** The payee's real UPI ID — what the merchant actually pays. */
@@ -418,8 +426,11 @@ export type OrderDirection = 'spend' | 'cash_out';
 /** Plain-English route-quality label surfaced on the quote screen ("complex scoring underneath"). */
 export type RouteQuality = 'high' | 'medium' | 'low';
 
-/** Payout rail the merchant/LP settles fiat on. */
-export type PayoutMethod = 'UPI' | 'Pix' | 'bank';
+/** Payout rail the merchant/LP settles fiat on. A runtime const (not just a union) so validators
+ *  and the backend mirror (apps/backend/src/lib/rails.ts — `import type` rule) can be drift-checked
+ *  by check-rails.ts instead of silently disagreeing. */
+export const PAYOUT_METHODS = ['UPI', 'QRIS', 'Pix', 'bank'] as const;
+export type PayoutMethod = (typeof PAYOUT_METHODS)[number];
 
 /**
  * A locked quote for one order. Symmetric across directions: `amountInr` is the fiat leg and
@@ -431,6 +442,10 @@ export type PayoutMethod = 'UPI' | 'Pix' | 'bank';
 export interface Quote {
   id: string;
   direction: OrderDirection;
+  /** ISO 4217 fiat of the amount/fee legs, derived from the payout rail (INR for UPI, IDR for
+   *  QRIS). Field names still say `Inr` from the India-only era — the rename is a separate,
+   *  mechanical change; `currency` is what code must branch on. */
+  currency: string;
   amountInr: string;
   amountUsdc: string;
   rate: string; // INR per 1 USDC, after merchant spread

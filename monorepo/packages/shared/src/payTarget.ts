@@ -16,7 +16,8 @@ import { railById } from './rails';
 
 export type PayTarget =
   | { kind: 'handle'; handle: string } // another fpay user → in-app USDC send
-  | { kind: 'upi'; payee: string; name?: string; amountInr?: number; note?: string } // shop → merchant rail
+  | { kind: 'upi'; payee: string; name?: string; amountInr?: number; note?: string } // Indian shop → merchant rail
+  | { kind: 'qris'; payee: string; name?: string; amountIdr?: number } // Indonesian shop (NMID) → merchant rail
   | { kind: 'address'; address: string; network: 'solana' | 'evm' } // raw wallet → on-chain send
   | { kind: 'phone'; number: string } // directory lookup (the caller builds the candidates)
   | { kind: 'unsupported'; reason: string } // recognized but not payable (e.g. a non-USDC request)
@@ -102,10 +103,18 @@ export function classifyPayTarget(text: string): PayTarget {
   if (raw.startsWith('000201')) {
     const t = parseEmvQr(raw);
     if (!t) return { kind: 'unknown', raw };
+    // The RAIL is the currency authority: an undeclared tag 53 means the rail's own currency; a
+    // declared MISMATCH means never prefill — a foreign-currency amount seeded onto the keypad
+    // misprices by orders of magnitude (an unmapped '360' once made Rp read as ₹, ~200×).
+    const railCurrency = railById(t.rail).currency;
+    const amount = !t.currency || t.currency === railCurrency ? t.amount : undefined;
     if (t.rail === 'upi' && t.kind === 'vpa') {
       // India's EMV merchant codes carry the same VPA as a upi:// link — join the live pay path.
-      // The amount seeds the keypad only when the QR prices in INR (or declares no currency).
-      return { kind: 'upi', payee: t.address, name: t.name, amountInr: !t.currency || t.currency === 'INR' ? t.amount : undefined };
+      return { kind: 'upi', payee: t.address, name: t.name, amountInr: amount };
+    }
+    if (t.rail === 'qris' && t.address) {
+      // Indonesia's national template carries the NMID — the payout destination on the QRIS rail.
+      return { kind: 'qris', payee: t.address, name: t.name, amountIdr: amount };
     }
     const rail = railById(t.rail);
     return { kind: 'unsupported', reason: `That's a ${rail.name} (${regionName(rail.country)}) code — fpay can't pay ${rail.name} yet.` };

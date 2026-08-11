@@ -15,9 +15,9 @@ import {
   BN,
   divDown,
   divUp,
+  fiatDecimals,
   formatAmount,
   fromBaseUnits,
-  INR_DECIMALS,
   normalizeAmount,
   parseAmount,
   RATE_DECIMALS,
@@ -43,8 +43,17 @@ for (const s of ['0.000001', '1.000000', '25.000000', '5.711023', '9999999999999
   assert.equal(formatAmount(parseAmount(s, USDC_DECIMALS), USDC_DECIMALS), s);
 }
 assert.equal(formatAmount(parseAmount('25', USDC_DECIMALS), USDC_DECIMALS), '25.000000', 'canonicalizes');
-assert.equal(formatAmount(parseAmount('500', INR_DECIMALS), INR_DECIMALS), '500.00');
+assert.equal(formatAmount(parseAmount('500', fiatDecimals('INR')), fiatDecimals('INR')), '500.00');
 ok('parse → format round-trips, and canonicalizes to fixed dp');
+
+/* ---- per-currency fiat decimals: IDR is whole-rupiah at the trust boundary ---- */
+
+assert.equal(fiatDecimals('INR'), 2);
+assert.equal(fiatDecimals('IDR'), 0);
+assert.equal(formatAmount(parseAmount('17900', fiatDecimals('IDR')), fiatDecimals('IDR')), '17900', 'no "Rp x.00"');
+throws(() => parseAmount('500.50', fiatDecimals('IDR')), 'fractional rupiah rejected, not rounded');
+throws(() => fiatDecimals('PHP'), 'a currency without decimals must never price a quote');
+ok('fiatDecimals: INR 2dp, IDR 0dp, unknown currency throws');
 
 /* ---- rejection, not rounding. Each of these silently corrupted an amount before. ---- */
 
@@ -83,7 +92,7 @@ ok('EXPONENTIAL_AT is disabled — no "1e-7" can reach Postgres or the wire');
 
 /* ---- the rounding law: user owes → up, fpay delivers → down. The two must differ. ---- */
 
-const inr = parseAmount('500', INR_DECIMALS);
+const inr = parseAmount('500', fiatDecimals('INR'));
 const rate = parseAmount('87.5500', RATE_DECIMALS);
 assert.equal(formatAmount(divUp(inr, rate, USDC_DECIMALS), USDC_DECIMALS), '5.711023');
 assert.equal(formatAmount(divDown(inr, rate, USDC_DECIMALS), USDC_DECIMALS), '5.711022');

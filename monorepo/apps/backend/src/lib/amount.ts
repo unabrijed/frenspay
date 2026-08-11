@@ -7,9 +7,9 @@
 // What this rejects that the old `!amount || amount <= 0` did not: more decimal places than the
 // asset has (silently truncated to 6 before), exponent notation, NaN/Infinity, and anything too
 // large for numeric(20,6) — which used to surface as a Postgres 22003, i.e. a 500.
-import { type Amount, BN, formatAmount, INR_DECIMALS, normalizeAmount, USDC_DECIMALS } from './units';
+import { type Amount, BN, fiatDecimals, formatAmount, normalizeAmount, USDC_DECIMALS } from './units';
 
-export { INR_DECIMALS, USDC_DECIMALS };
+export { fiatDecimals, USDC_DECIMALS };
 
 /**
  * An amount the system can represent exactly, or null. Zero is allowed — use for balances and

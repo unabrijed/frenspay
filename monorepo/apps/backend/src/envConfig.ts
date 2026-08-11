@@ -52,10 +52,13 @@ function envSource(key: string): string {
 }
 
 /** Read a numeric env var, returning `def` if it's missing / non-finite / outside [min,max]. Prevents a
- *  malformed value from seeding NaN into money math (e.g. the FX fallback rate → poisoned quotes). */
+ *  malformed value from seeding NaN into money math (e.g. the FX fallback rate → poisoned quotes).
+ *  Discarding an EXPLICITLY-set value warns at boot — "configured but silently ignored" cost us a
+ *  prism round to spot (an IDR-magnitude FX_FALLBACK_RATE booted clean and quoted at the default). */
 function num(key: string, def: number, range?: { min?: number; max?: number }): number {
   const n = Number(env(key, String(def)));
   if (!Number.isFinite(n) || (range?.min != null && n < range.min) || (range?.max != null && n > range.max)) {
+    if (env(key) !== '') console.warn(`[env] ${envSource(key)}=${env(key)} is invalid/out-of-range — using ${def}`);
     return def;
   }
   return n;
@@ -138,14 +141,19 @@ export const config = {
   bridgeRailOut: env('BRIDGE_RAIL_OUT', 'cctp_standard'),
   bridgeRailIn: env('BRIDGE_RAIL_IN', 'cctp_fast'),
 
-  // M7: live FX. A free, no-key source returning `rates.INR`; cached + range-validated, falling back to
-  // FX_FALLBACK_RATE on any failure. Refreshed in the background so quoting never blocks on the network.
+  // M7 live FX, per-currency since the Indonesia corridor. A free, no-key source returning a full
+  // `rates` map; cached + range-validated per currency, falling back to these on any failure.
+  // Refreshed in the background so quoting never blocks on the network.
   fxSourceUrl: env('FX_SOURCE_URL', 'https://open.er-api.com/v6/latest/USD'),
-  // Validated: a bad FX_FALLBACK_RATE must never seed NaN into a quote (NaN comparisons silently pass
-  // the cash-out cap). Same plausibility band as the live-rate validator; bad refresh interval can't
-  // become a hot loop (floored).
-  fxFallbackRate: num('FX_FALLBACK_RATE', 87.55, { min: 50, max: 150 }),
-  fxRefreshMs: num('FX_REFRESH_MS', 600_000, { min: 1000 }), // 10 min default
+  // Validated per currency: a bad fallback must never seed NaN into a quote (NaN comparisons
+  // silently pass the cash-out cap), and each band matches services/fxRate.ts FX_BANDS — a single
+  // validator can't hold both INR (~95) and IDR (~17,900). Bad refresh interval can't become a hot
+  // loop (floored). The source updates once a day, so 6h is already generous.
+  fxFallbackRates: {
+    INR: num('FX_FALLBACK_RATE', 87.55, { min: 50, max: 150 }),
+    IDR: num('FX_FALLBACK_RATE_IDR', 16_500, { min: 12_000, max: 25_000 }),
+  } as Record<string, number>,
+  fxRefreshMs: num('FX_REFRESH_MS', 21_600_000, { min: 1000 }), // 6h default
 
   // Landing f list: transactional email (Resend REST — no SDK, see services/email.ts) plus the HMAC
   // key that mints share codes and confirm tokens. BOTH unset is the safe default: no codes are

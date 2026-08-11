@@ -36,6 +36,7 @@ import {
   type MerchantRow,
 } from '../db/queries';
 import { amt, nonNegativeAmount, positiveAmount, USDC_DECIMALS } from '../lib/amount';
+import { PAYOUT_METHODS } from '../lib/rails';
 import { formatAmount } from '../lib/units';
 import { KYC_APPROVED_TIER } from '../services/kyc';
 import { DISPUTE_WINDOW_MS } from '../services/orderMachine';
@@ -68,6 +69,7 @@ function toMerchantOrder(r: MerchantOrderRow): MerchantOrder {
     referenceCode: r.reference_code,
     state: r.state,
     resolution: r.resolution,
+    currency: r.currency,
     amountInr: r.amount_inr,
     amountUsdc: r.amount_usdc,
     payoutDestination: r.payout_destination ?? undefined,
@@ -102,7 +104,7 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
       const { name, payoutMethod, treasuryAddress } = req.body ?? {};
       const rail = payoutMethod ?? 'UPI';
       if (!name || !treasuryAddress) return reply.code(400).send({ error: 'missing_fields' });
-      if (!['UPI', 'Pix', 'bank'].includes(rail)) return reply.code(400).send({ error: 'invalid_rail' });
+      if (!PAYOUT_METHODS.includes(rail)) return reply.code(400).send({ error: 'invalid_rail' });
       try {
         new PublicKey(treasuryAddress); // release target — must be a valid Solana address
       } catch {

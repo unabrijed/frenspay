@@ -27,8 +27,10 @@ function tlv(s: string): Tlv[] | null {
 
 const get = (fields: Tlv[], tag: string) => fields.find((f) => f.tag === tag)?.value;
 
-// EMV tag 53 is a numeric ISO 4217 code; we only name the scan-and-pay currencies.
-const NUMERIC_CURRENCY: Record<string, string> = { '356': 'INR', '764': 'THB', '986': 'BRL', '458': 'MYR' };
+// EMV tag 53 is a numeric ISO 4217 code; we only name the scan-and-pay currencies. A rail's code
+// missing here is not cosmetic: the classifier treats an unmapped currency as undeclared, and an
+// undeclared currency defaults to the RAIL's own — '360' absent once meant Rp seeded a ₹ keypad.
+const NUMERIC_CURRENCY: Record<string, string> = { '356': 'INR', '360': 'IDR', '764': 'THB', '986': 'BRL', '458': 'MYR' };
 
 /** PromptPay proxy "0066812345678" → "+66812345678"; national IDs / e-wallet IDs pass through. */
 const promptPayPhone = (v: string) => '+' + v.replace(/^00/, '');
@@ -71,6 +73,16 @@ function railFromTemplate(sub: Tlv[]): Omit<RailTarget, 'name' | 'amount' | 'cur
   if (guiUpper.startsWith('A000000615')) {
     const proxy = sub.find((f) => f.tag !== '00')?.value ?? '';
     return { rail: 'duitnow', kind: 'merchant', address: proxy };
+  }
+
+  // Indonesia — QRIS. Every QRIS code carries Bank Indonesia's national template (canonically in
+  // root tag 51) alongside acquirer-specific ones (tag 26+, e.g. ID.CO.SHOPEE.WWW — those name no
+  // rail we know, so the loop walks on to this one). Sub-tag 01 is the 15-char PTEN-issued NMID
+  // ("ID" + digits), the stable national merchant id; 03 is the business-size criteria (UMI/UKE/…).
+  // GPNQR is the domestic-scheme sibling GUI seen in the wild on the same template.
+  if (guiUpper === 'ID.CO.QRIS.WWW' || guiUpper === 'ID.OR.GPNQR.WWW') {
+    const nmid = get(sub, '01') ?? sub.find((f) => f.tag !== '00')?.value ?? '';
+    return { rail: 'qris', kind: 'merchant', address: nmid };
   }
 
   // India — Bharat QR / UPI merchant template carries the VPA alongside the AID.
