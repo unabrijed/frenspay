@@ -126,7 +126,7 @@ response is not.
   you" above the form, queue position + copyable share link on success, `?v=1` / `?v=0` confirm
   states, and demo links that relay a cached `@handle` on to the app.
 - ⬜ Sending is inert until the Resend domain verifies and the four backend vars are set
-  ([DEPLOY §2d](../DEPLOY.md)).
+  ([stage deploy — waitlist / Resend](../DEPLOY.stage.md)).
 - ⬜ `NEXT_PUBLIC_APP_URL` is unset, so the landing "try the demo" links still fall back to `#`. The
   referral relay works the moment a real web-app URL is filled in.
 - ⬜ No invite-send: moving someone from the queue into an actual account is still a manual step.
@@ -148,4 +148,4 @@ response is not.
 - [02 · Auth & identity](02-auth-identity.md) — the invite-only gate the f list feeds
 - [10 · Data model](10-data-model.md) — the `waitlist` table
 - [14 · Notifications & infra](14-notifications-and-infra.md) — rate limiting, best-effort delivery
-- [DEPLOY §2d](../DEPLOY.md) — env vars, Resend DNS records
+- [Stage deploy — waitlist / Resend](../DEPLOY.stage.md) — env vars, Resend DNS records
