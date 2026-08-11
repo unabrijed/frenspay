@@ -1,4 +1,5 @@
-FROM node:22-slim
+# node >=24: apps/web's @solana-program/token@0.14 demands it, and this install covers every workspace.
+FROM node:24-slim
 WORKDIR /app
 
 # Manifests first so the install layer caches across source-only changes.
