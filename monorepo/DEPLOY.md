@@ -73,12 +73,14 @@ push deploys nothing.
 ## 1. Backend → Railway
 
 1. New Railway **service** from the GitHub repo (`unabrijed/frenspay`), deploy branch **`stage`**, in
-   the **stage** environment. **Leave Root Directory unset**: the repo root carries `railway.json` +
-   `nixpacks.toml` that Railway picks up automatically — they pin Node 22, install at `monorepo/`
-   (the yarn workspace root), and run `yarn workspace @fpay/backend db:deploy && … start` with the
-   `/health` healthcheck. (Setting Root Directory to `monorepo` also works — then the config is
-   `apps/backend/railway.json` and Node comes from `.nvmrc` — but the root files exist precisely so
-   no dashboard build config is required.)
+   the **stage** environment. **Leave Root Directory unset.** The build is the repo-root
+   **`Dockerfile`** (root `railway.json` pins `builder: DOCKERFILE` + the `/health` healthcheck):
+   `node:22-slim`, `yarn install --frozen-lockfile` at `monorepo/` (the workspace root), then
+   `db:deploy && start` as the container CMD — migrations still run before the server, and the
+   backend still runs TS via `tsx` with no build step. Nixpacks is gone; it could not detect the
+   app through the `payments/` repo root and kept failing. The root `.dockerignore` keeps secrets
+   (`.env*`, `.devnet/`) and dead weight (`anchor/`, `docs/`, `brand/`, mobile) out of the image —
+   keep it that way when adding files.
 2. Set `STAGE_DATABASE_URL` to the **Supabase session pooler** URL — same value as the working
    `apps/backend/.env` (`…pooler.supabase.com:5432`). Never the transaction pooler (port 6543): the
    backend and the migration runner take session-scoped `pg_advisory_lock`s, which transaction
@@ -94,7 +96,7 @@ push deploys nothing.
    STAGE_USDC_MINT=<copy from .env>                      # official Circle devnet USDC (the old custom vsL2t… mint is dead)
    STAGE_PRIVY_APP_ID=<privy app id>
    STAGE_PRIVY_APP_SECRET=<privy app secret>            # backend-only, never in the web build
-   PUBLIC_BASE_URL=https://<this-railway-service>.up.railway.app
+   PUBLIC_BASE_URL=https://<this-railway-service>.up.railway.app   # → https://stage.api.frenspay.xyz once the custom domain is attached (prod: api.frenspay.xyz)
    STAGE_CORS_ORIGIN=https://<your-web-domain>          # fill in after step 2 (Vercel URL)
    ```
    The fee-payer secret, USDC mint, and a funded fee-payer wallet already exist locally from
