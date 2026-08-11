@@ -27,9 +27,26 @@ SHA ⇒ can't prove nothing changed ⇒ build), which then succeeds and resets t
 gap closes itself. The `|| exit 1` matters because git signals that failure with **128**, and only
 `0` (skip) and `1` (build) are documented codes — 128 is what took the deploy down in the first
 place, so every non-zero path is normalised to 1. Net effect: unset, empty, unreachable, or any
-other git error all build. Railway has no in-repo equivalent: set **Watch Paths** in
-the service dashboard (Settings → Watch Paths) to `monorepo/apps/backend/**` and
-`monorepo/packages/shared/**` so web/admin/landing commits stop redeploying the backend.
+other git error all build.
+
+**Branch gate:** each `ignoreCommand` opens with `case "$VERCEL_GIT_COMMIT_REF" in stage|sacred)`,
+so any other branch exits 0 (skip) before the diff even runs — feature branches deploy nothing,
+anywhere. Delete the `case` from an app's `vercel.json` if preview deploys are ever wanted back.
+Railway's side of both gates: the branch is the environment's deploy trigger (stage env ← `stage`,
+production env ← `sacred`, dashboard setting), and path isolation is `build.watchPatterns` in the
+root `railway.json` — backend code, `packages/shared`, the workspace manifests/lockfile, and the
+root build files (`Dockerfile`, `.dockerignore`, `railway.json`). No dashboard Watch Paths needed.
+
+The resulting trigger matrix:
+
+| Push | Backend (Railway) | Web / Admin (Vercel) | Landing (Vercel) |
+| ---- | ----------------- | -------------------- | ---------------- |
+| any branch except `stage`/`sacred` | nothing (env not wired to it) | nothing (branch gate) | nothing |
+| `stage`/`sacred` touching only `apps/backend/` | deploys | skip | skip |
+| … touching only one frontend's dir | skip | that app only | that app only if landing |
+| … touching `packages/shared/` | deploys | both deploy | skip (landing mirrors tokens by hand) |
+| … touching `yarn.lock` / root build files | deploys | all deploy (lockfile) | deploys (lockfile) |
+| … docs/brand only | skip | skip | skip |
 
 **Build gate before push:** `monorepo/.githooks/pre-push` refuses a push that would not deploy. It
 diffs what you are pushing against the remote and runs only what that touches, using the same watched
@@ -115,7 +132,10 @@ push deploys nothing.
 
 1. New Vercel project from this repo. **Root Directory: `monorepo/apps/web`** (the git repo root is
    `payments/`, one level above the monorepo; Vercel auto-detects the yarn workspace and installs at
-   `monorepo/`). `apps/web/vercel.json` pins framework + the workspace build.
+   `monorepo/`). `apps/web/vercel.json` pins framework + the workspace build. **Production Branch:
+   `sacred`** (Settings → Git); stage = deployments of the `stage` branch, with Preview env vars
+   scoped to `stage` (`NEXT_PUBLIC_APP_ENV=stage` + the `NEXT_PUBLIC_STAGE_*` values). Same two
+   settings on the admin and landing projects.
 2. Production **Environment Variables** (read at build time, inlined by Next):
    ```
    NEXT_PUBLIC_API_URL=https://<backend>.up.railway.app

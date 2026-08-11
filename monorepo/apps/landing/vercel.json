@@ -3,5 +3,5 @@
   "framework": "nextjs",
   "installCommand": "yarn install --frozen-lockfile",
   "buildCommand": "yarn workspace @fpay/landing build",
-  "ignoreCommand": "git cat-file -e \"$VERCEL_GIT_PREVIOUS_SHA^{commit}\" 2>/dev/null && git diff --quiet \"$VERCEL_GIT_PREVIOUS_SHA\" HEAD -- . ../../yarn.lock || exit 1"
+  "ignoreCommand": "case \"$VERCEL_GIT_COMMIT_REF\" in stage|sacred) ;; *) exit 0 ;; esac; git cat-file -e \"$VERCEL_GIT_PREVIOUS_SHA^{commit}\" 2>/dev/null && git diff --quiet \"$VERCEL_GIT_PREVIOUS_SHA\" HEAD -- . ../../yarn.lock || exit 1"
 }
