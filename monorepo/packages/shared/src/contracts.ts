@@ -693,6 +693,24 @@ export interface AdminRiskEventsResponse {
   nextCursor?: string;
 }
 
+/** One payout-provider registry row (docs/23) — routing metadata only; credentials live in server
+ *  env and never cross this wire. */
+export interface AdminPayoutProvider {
+  id: string;
+  adapter: string;
+  /** A PayoutMethod, or '*' (serves every rail). */
+  payoutMethod: string;
+  priority: number;
+  enabled: boolean;
+  /** Whether the server resolves a usable credential for this row — presence only, never values.
+   *  enabled && !hasCredentials = an inert row the console should flag. */
+  hasCredentials: boolean;
+}
+
+export interface AdminPayoutProvidersResponse {
+  providers: AdminPayoutProvider[];
+}
+
 export interface AdminDenylistEntry {
   id: string;
   kind: 'address' | 'handle';
@@ -739,4 +757,11 @@ export interface AdminDenylistAddRequest {
   kind: 'address' | 'handle';
   value: string;
   reason?: string;
+}
+
+/** The SUBTRACT-only surface (docs/23 invariant 11): enable/disable + reorder. Rows are created by
+ *  seed/SQL and adapters by deploys — there is deliberately no create or delete request. */
+export interface AdminPayoutProviderUpdateRequest {
+  enabled?: boolean;
+  priority?: number;
 }

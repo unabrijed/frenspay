@@ -8,6 +8,7 @@ import { SignOut } from './Providers';
 const LINKS = [
   { href: '/', label: 'Overview' },
   { href: '/merchants', label: 'Merchants' },
+  { href: '/providers', label: 'Providers' },
   { href: '/users', label: 'Users' },
   { href: '/risk', label: 'Risk' },
   { href: '/denylist', label: 'Denylist' },

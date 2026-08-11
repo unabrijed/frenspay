@@ -108,6 +108,12 @@ export async function payoutProviderById(id: string, log?: (m: string) => void):
   return row ? instantiate(row, log) : null;
 }
 
+/** Admin display only: would this row enter the registry if enabled? A presence boolean — the
+ *  console flags enabled-but-inert rows; credential VALUES never leave the server. */
+export function providerHasCredentials(row: PayoutProviderRow): boolean {
+  return ADAPTERS[row.adapter]?.(row) != null;
+}
+
 /** Fail fast at boot (server.ts, beside assertKycConfig): a typo'd release destination must not
  *  wait for the first escrow release to surface — in the provider model the fiat leaves first. */
 export function assertPayoutConfig(): void {

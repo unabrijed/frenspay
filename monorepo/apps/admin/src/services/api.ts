@@ -9,6 +9,8 @@ import type {
   AdminOrderDetailResponse,
   AdminOrdersResponse,
   AdminOverviewResponse,
+  AdminPayoutProviderUpdateRequest,
+  AdminPayoutProvidersResponse,
   AdminRiskEventsResponse,
   AdminUsersResponse,
   AdminWaitlistResponse,
@@ -88,6 +90,7 @@ export const api = {
   riskEvents: (cursor?: string) => req<AdminRiskEventsResponse>(cursored('/admin/risk-events', cursor)),
   denylist: () => req<AdminDenylistResponse>('/admin/denylist'),
   actions: (cursor?: string) => req<AdminActionsResponse>(cursored('/admin/actions', cursor)),
+  payoutProviders: () => req<AdminPayoutProvidersResponse>('/admin/payout-providers'),
 
   // writes (every one lands in the admin_actions audit trail server-side)
   merchantKyb: (id: string, decision: 'approve' | 'reject') =>
@@ -108,4 +111,9 @@ export const api = {
   denylistAdd: (body: AdminDenylistAddRequest) =>
     req<{ ok: true; id: string }>('/admin/denylist', { method: 'POST', body: JSON.stringify(body) }),
   denylistRemove: (id: string) => req<{ ok: true }>(`/admin/denylist/${id}`, { method: 'DELETE' }),
+  payoutProviderUpdate: (id: string, body: AdminPayoutProviderUpdateRequest) =>
+    req<{ ok: true; enabled: boolean; priority: number }>(`/admin/payout-providers/${id}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 };
