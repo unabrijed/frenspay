@@ -229,7 +229,9 @@ fee-payer (it signs every transfer). See `apps/backend/src/services/helius.ts`.
 
 ## Mainnet later (not built)
 
-Going to real money is a deliberate, separate step:
+Going to real money is a deliberate, separate step. The full bare-name variable list for the
+`production` environment lives in `apps/backend/.env.production.example` — same start command as
+stage, only the variables differ. The checklist:
 - Use **Circle's USDC mint** (`EPjFWdd5...`) and a **mainnet RPC** (Helius mainnet).
 - **Disable the faucet** — `/devnet/faucet` is already gated to `config.isDevelopment`; ensure prod isn't
   flagged development. Funding becomes **deposit-only** (the existing USDC deposit address in Add money).
