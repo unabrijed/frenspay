@@ -29,16 +29,34 @@ for (const r of RAILS.filter((x) => x.live)) {
   assert.ok(FIAT_DECIMALS[r.currency] != null, `live rail ${r.id}: no FIAT_DECIMALS for ${r.currency}`);
 }
 
-// The backend's rail vocabulary is a MIRROR (it can only `import type` from this package) — the
+// The backend's corridor registry is a MIRROR (it can only `import type` from this package) — the
 // same keep-them-honest pattern as check-paytarget's VPA_RE assert. Every payout method must
-// appear verbatim in apps/backend/src/lib/rails.ts, and the DB CHECK (0004) must allow it.
+// appear verbatim in apps/backend/src/lib/corridors.ts, and the DB CHECKs (0004 quotes/merchants,
+// 0005 payout_providers) must allow it.
 {
-  const backendRails = readFileSync(join(ROOT, 'apps/backend/src/lib/rails.ts'), 'utf8');
-  const migration = readFileSync(join(ROOT, 'apps/backend/src/db/migrations/0004_corridor_currency.sql'), 'utf8');
+  const corridors = readFileSync(join(ROOT, 'apps/backend/src/lib/corridors.ts'), 'utf8');
+  const migration4 = readFileSync(join(ROOT, 'apps/backend/src/db/migrations/0004_corridor_currency.sql'), 'utf8');
+  const migration5 = readFileSync(join(ROOT, 'apps/backend/src/db/migrations/0005_payout_providers.sql'), 'utf8');
   for (const m of PAYOUT_METHODS) {
-    assert.ok(backendRails.includes(`'${m}'`), `backend lib/rails.ts is missing payout method '${m}'`);
-    assert.ok(migration.includes(`'${m}'`), `migration 0004 CHECK is missing payout method '${m}'`);
+    assert.ok(corridors.includes(`'${m}'`), `backend lib/corridors.ts is missing payout method '${m}'`);
+    assert.ok(migration4.includes(`'${m}'`), `migration 0004 CHECK is missing payout method '${m}'`);
+    assert.ok(migration5.includes(`'${m}'`), `migration 0005 payout_providers CHECK is missing payout method '${m}'`);
   }
+
+  // Every LIVE rail must be priceable on the backend too: its currency literal must appear in the
+  // corridor registry (a rail flipped live without a corridor fails here, not inside a quote).
+  for (const r of RAILS.filter((x) => x.live)) {
+    assert.ok(corridors.includes(`'${r.currency}'`), `live rail ${r.id}: backend corridors.ts has no '${r.currency}' corridor`);
+  }
+
+  // Every provider-model corridor needs its platform settlement row in the seed (docs/23):
+  // a `model: 'provider'` entry with no 'psp' merchant on that rail quotes no_merchant forever.
+  const seed = readFileSync(join(ROOT, 'apps/backend/src/db/seed.ts'), 'utf8');
+  const providerKeys = [...corridors.matchAll(/^  (\w+): \{\n    currency: '\w+',\n    model: 'provider'/gm)].map((m) => m[1]);
+  for (const k of providerKeys) {
+    assert.ok(seed.includes(`'${k}'`) && seed.includes(`'psp'`), `provider corridor ${k}: seed.ts has no platform 'psp' merchant row for it`);
+  }
+  assert.ok(providerKeys.includes('QRIS'), 'QRIS is the provider-model corridor (docs/23) — registry regex drifted if this fails');
 }
 
 // --- UPI operator resolution ---

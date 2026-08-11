@@ -31,7 +31,7 @@ export async function createQuote(
   input: {
     direction: OrderDirection;
     amountInr: number;
-    /** Fiat currency of the amount/fees — derived from the RAIL at the route (lib/rails.ts). */
+    /** Fiat currency of the amount/fees — derived from the RAIL at the route (lib/corridors.ts). */
     currency: string;
     payoutMethod: PayoutMethod;
     /** WHO the merchant pays (validated per rail). `payoutMethod` is only the rail. */

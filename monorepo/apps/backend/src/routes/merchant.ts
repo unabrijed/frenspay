@@ -36,7 +36,7 @@ import {
   type MerchantRow,
 } from '../db/queries';
 import { amt, nonNegativeAmount, positiveAmount, USDC_DECIMALS } from '../lib/amount';
-import { PAYOUT_METHODS } from '../lib/rails';
+import { CORRIDORS, PAYOUT_METHODS } from '../lib/corridors';
 import { formatAmount } from '../lib/units';
 import { KYC_APPROVED_TIER } from '../services/kyc';
 import { DISPUTE_WINDOW_MS } from '../services/orderMachine';
@@ -105,6 +105,11 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
       const rail = payoutMethod ?? 'UPI';
       if (!name || !treasuryAddress) return reply.code(400).send({ error: 'missing_fields' });
       if (!PAYOUT_METHODS.includes(rail)) return reply.code(400).send({ error: 'invalid_rail' });
+      // Provider-model corridors settle through the platform's own row (docs/23) — there is no
+      // external LP network to join on those rails.
+      if (CORRIDORS[rail]?.model === 'provider') {
+        return reply.code(400).send({ error: 'rail_not_open_to_lps' });
+      }
       try {
         new PublicKey(treasuryAddress); // release target — must be a valid Solana address
       } catch {
