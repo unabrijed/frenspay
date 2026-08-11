@@ -1,7 +1,17 @@
-# Deploy — backend → Railway production (mainnet)
+# Deploy — production (mainnet): backend → Railway, frontends → Vercel
 
-Backend only. Stage/devnet is `DEPLOY.stage.md` — read that first; prod is the same build with
-different variables. Going to real money is a deliberate, separate step.
+Stage/devnet is `DEPLOY.stage.md` — read that first; prod is the same shapes with different
+variables. Going to real money is a deliberate, separate step. Ship = merge `stage` → `sacred`.
+
+**Vercel prod projects** (twins of the stage table in `DEPLOY.stage.md`, same invariants —
+branch-pin Ignored Build Step `[ "$VERCEL_GIT_COMMIT_REF" = "sacred" ] && exit 1 || exit 0`,
+Skip-unaffected Enabled, Node 24):
+
+| project | Production Branch | Root Directory | domain |
+| ------- | ----------------- | -------------- | ------ |
+| web (prod) | `sacred` | **`monorepo`** | app.frenspay.xyz (TBD) |
+| admin (prod) | `sacred` | `monorepo/apps/admin` | admin.frenspay.xyz |
+| landing (prod) | `sacred` | `monorepo/apps/landing` | frenspay.xyz |
 
 ## Model
 
