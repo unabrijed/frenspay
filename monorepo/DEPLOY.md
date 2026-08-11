@@ -73,11 +73,12 @@ push deploys nothing.
 ## 1. Backend → Railway
 
 1. New Railway **service** from the GitHub repo (`unabrijed/frenspay`), deploy branch **`stage`**, in
-   the **stage** environment. Root directory: `monorepo` (the yarn workspace root). Builder
-   is **Nixpacks** (no Dockerfile). Start command + healthcheck come from `apps/backend/railway.json`
-   (`yarn workspace @fpay/backend db:deploy && … start`, `/health`) — point the service's
-   config-as-code path at it, or paste those two values into the dashboard. Node is pinned to 22 via
-   `.nvmrc`.
+   the **stage** environment. **Leave Root Directory unset**: the repo root carries `railway.json` +
+   `nixpacks.toml` that Railway picks up automatically — they pin Node 22, install at `monorepo/`
+   (the yarn workspace root), and run `yarn workspace @fpay/backend db:deploy && … start` with the
+   `/health` healthcheck. (Setting Root Directory to `monorepo` also works — then the config is
+   `apps/backend/railway.json` and Node comes from `.nvmrc` — but the root files exist precisely so
+   no dashboard build config is required.)
 2. Set `STAGE_DATABASE_URL` to the **Supabase session pooler** URL — same value as the working
    `apps/backend/.env` (`…pooler.supabase.com:5432`). Never the transaction pooler (port 6543): the
    backend and the migration runner take session-scoped `pg_advisory_lock`s, which transaction
