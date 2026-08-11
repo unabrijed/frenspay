@@ -4,7 +4,8 @@ Stage/devnet is `DEPLOY.stage.md` — read that first; prod is the same shapes w
 variables. Going to real money is a deliberate, separate step. Ship = merge `stage` → `sacred`.
 
 **Vercel prod projects** (twins of the stage table in `DEPLOY.stage.md`, same invariants —
-Ignored Build Step empty, Skip-unaffected Enabled, Node 24):
+branch-pin Ignored Build Step `[ "$VERCEL_GIT_COMMIT_REF" = "sacred" ] && exit 1 || exit 0`,
+Skip-unaffected Enabled, Node 24):
 
 | project | Production Branch | Root Directory | domain |
 | ------- | ----------------- | -------------- | ------ |

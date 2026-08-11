@@ -119,11 +119,34 @@ Ship to prod by merging `stage` → `sacred` (PR).
 | admin (stage) | `stage` | `monorepo/apps/admin` | `apps/admin/vercel.json` |
 | landing (stage, optional) | `stage` | `monorepo/apps/landing` | `apps/landing/vercel.json` |
 
-Invariants on EVERY project (dashboard):
-- **Ignored Build Step: empty/Automatic** and **Skip deployment for unaffected projects: Enabled**.
-  There are deliberately NO `ignoreCommand`s in the repo — path scoping is Vercel's built-in
-  workspace-graph detection (web/admin also rebuild on `packages/shared`; landing only on its own
-  dir). Known fail-open: root-level changes (docs, lockfile) may build all frontends.
+### Branch pin — each project builds ONLY its own branch
+
+Both env projects share one `vercel.json`, so the pin can only live in the dashboard. Two ways,
+either works:
+
+**A (preferred, if the toggle exists):** Settings → Git (or Settings → Environments → Preview) →
+disable **Preview Deployments**. Only the Production Branch ever builds after that.
+
+**B (works everywhere):** Settings → Git → **Ignored Build Step** → select the custom/Bash-script
+option and paste ONE line. Exit codes are inverted from intuition: **exit 1 = BUILD, exit 0 = SKIP.**
+
+Stage projects (build only `stage`):
+
+```bash
+[ "$VERCEL_GIT_COMMIT_REF" = "stage" ] && exit 1 || exit 0
+```
+
+Prod projects (build only `sacred`):
+
+```bash
+[ "$VERCEL_GIT_COMMIT_REF" = "sacred" ] && exit 1 || exit 0
+```
+
+Other invariants on EVERY project (dashboard):
+- **Skip deployment for unaffected projects: Enabled** (under Root Directory). Path scoping is
+  Vercel's built-in workspace-graph detection — deliberately NO `ignoreCommand`s in the repo
+  (web/admin also rebuild on `packages/shared`; landing only on its own dir). Known fail-open:
+  root-level changes (docs, lockfile) may build all frontends of the matching branch.
 - **Node.js Version: 24** (`@solana-program/token` engine floor; `.yarnrc` ignore-engines masks it
   at install, set it anyway for runtime parity).
 - Web's Root Directory is the **workspace root**, not the app dir — the app-subdir pattern breaks
