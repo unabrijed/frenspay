@@ -622,8 +622,9 @@ export interface MerchantRow {
   base_success_rate: string;
   base_avg_completion_secs: number;
   base_dispute_rate: string;
-  /** NULL = a REAL (human) merchant — the sim worker must not drive it. */
-  sim_behavior: 'happy' | 'slow' | 'no_receipt' | 'timeout' | null;
+  /** NULL = a REAL (human) merchant — the sim worker must not drive it.
+   *  'psp' = a platform settlement row (docs/23): the payout provider executes the fiat leg. */
+  sim_behavior: 'happy' | 'slow' | 'no_receipt' | 'timeout' | 'psp' | null;
   user_id: string | null;
 }
 
@@ -639,6 +640,70 @@ export async function listRoutableMerchants(): Promise<MerchantRow[]> {
 export async function listAllMerchants(): Promise<MerchantRow[]> {
   const { rows } = await getPool().query<MerchantRow>(`select * from merchants`);
   return rows;
+}
+
+/* ---- payout-provider registry (docs/23; migration 0005) ---- */
+
+export interface PayoutProviderRow {
+  id: string;
+  adapter: string;
+  payout_method: string; // a PAYOUT_METHODS entry, or '*' (serves every rail)
+  priority: number;
+  enabled: boolean;
+}
+
+/** Enabled rows serving a rail, minus ids already tried on this order — priority asc, ties by id
+ *  (a total order, so "next" is well-defined). The credential gate lives in the caller
+ *  (services/payout/provider.ts): a row is data, never sufficient to move money on its own. */
+export async function listPayoutProviderRows(
+  payoutMethod: string,
+  excludeIds: readonly string[],
+): Promise<PayoutProviderRow[]> {
+  const { rows } = await getPool().query<PayoutProviderRow>(
+    `select * from payout_providers
+      where enabled and payout_method in ($1, '*') and id <> all($2::text[])
+      order by priority, id`,
+    [payoutMethod, excludeIds as string[]],
+  );
+  return rows;
+}
+
+/** By id, DISABLED ROWS INCLUDED: a sticky order keeps polling the account that may hold its
+ *  money — disable affects selection only (project-model invariant 13). */
+export async function getPayoutProviderRow(id: string): Promise<PayoutProviderRow | null> {
+  const { rows } = await getPool().query<PayoutProviderRow>(`select * from payout_providers where id = $1`, [id]);
+  return rows[0] ?? null;
+}
+
+/** Admin console read — every row, ladder order. */
+export async function listAllPayoutProviders(): Promise<PayoutProviderRow[]> {
+  const { rows } = await getPool().query<PayoutProviderRow>(`select * from payout_providers order by priority, id`);
+  return rows;
+}
+
+/** Admin console write: enabled/priority only — the SUBTRACT-only surface (invariant 11). Rows are
+ *  created by seed/SQL, adapters by deploys; there is deliberately no insert or delete here. */
+export async function updatePayoutProvider(
+  id: string,
+  patch: { enabled?: boolean; priority?: number },
+): Promise<PayoutProviderRow | null> {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  let i = 1;
+  if (patch.enabled !== undefined) {
+    sets.push(`enabled = $${++i}`);
+    vals.push(patch.enabled);
+  }
+  if (patch.priority !== undefined) {
+    sets.push(`priority = $${++i}`);
+    vals.push(patch.priority);
+  }
+  if (!sets.length) return getPayoutProviderRow(id);
+  const { rows } = await getPool().query<PayoutProviderRow>(
+    `update payout_providers set ${sets.join(', ')} where id = $1 returning *`,
+    [id, ...vals],
+  );
+  return rows[0] ?? null;
 }
 
 interface QuoteRow {
@@ -991,6 +1056,12 @@ export interface WorkerOrderRow {
   payout_name: string | null;
   /** Non-null once a real merchant reported paying the fiat leg (the dispute window is running). */
   payout_claimed_at: Date | null;
+  /** Sticky provider binding (invariant 13): set before the first initiate, advanced only via CAS. */
+  payout_provider_id: string | null;
+  /** The failover exclusion set — every provider id ever bound on this order. */
+  payout_providers_tried: string[];
+  /** The vendor's own payout id, once check() reports one. */
+  payout_provider_ref: string | null;
   /** Live, so the worker never releases escrow on an order the payer is actively disputing. */
   dispute_open: boolean;
 }
@@ -1000,6 +1071,7 @@ export async function listWorkerOrders(): Promise<WorkerOrderRow[]> {
   const { rows } = await getPool().query<WorkerOrderRow>(
     `select o.id, o.user_id, o.reference_code, o.state, o.resolution, o.amount_usdc, o.updated_at,
             o.expires_at, o.escrow_release_transfer_id, o.merchant_id, o.payout_claimed_at,
+            o.payout_provider_id, o.payout_providers_tried, o.payout_provider_ref,
             m.treasury_address, m.sim_behavior, q.payout_method,
             q.currency, q.amount_inr, q.payout_destination, q.payout_name,
             exists (select 1 from disputes d where d.order_id = o.id and d.status = 'open') as dispute_open
@@ -1011,10 +1083,29 @@ export async function listWorkerOrders(): Promise<WorkerOrderRow[]> {
   return rows;
 }
 
-/** Resolve an order by its public reference — the webhook fast path (poller stays authoritative). */
-export async function getOrderByReference(reference: string): Promise<{ id: string; merchant_id: string | null } | null> {
-  const { rows } = await getPool().query<{ id: string; merchant_id: string | null }>(
-    `select id, merchant_id from orders where reference_code = $1`,
+/** Resolve an order by its public reference — the webhook fast path (poller stays authoritative).
+ *  Carries the provider binding so the webhook can assert callback↔order account identity, and
+ *  enough context to record an orphaned disbursement instead of dropping the signal. */
+export async function getOrderByReference(reference: string): Promise<{
+  id: string;
+  merchant_id: string | null;
+  state: OrderState;
+  user_id: string;
+  amount_usdc: string;
+  payout_provider_id: string | null;
+  payout_provider_ref: string | null;
+} | null> {
+  const { rows } = await getPool().query<{
+    id: string;
+    merchant_id: string | null;
+    state: OrderState;
+    user_id: string;
+    amount_usdc: string;
+    payout_provider_id: string | null;
+    payout_provider_ref: string | null;
+  }>(
+    `select id, merchant_id, state, user_id, amount_usdc, payout_provider_id, payout_provider_ref
+       from orders where reference_code = $1`,
     [reference],
   );
   return rows[0] ?? null;
@@ -1383,6 +1474,55 @@ export async function creditStakeOnConfirm(transferId: string, stakeTreasuryAddr
  * and `state = 'payment_detected'` means a released/refunded/rerouted order can't be claimed.
  * Opens the dispute window by moving expires_at — the worker releases escrow at that deadline.
  */
+/**
+ * Bind an order to a payout provider BEFORE its first initiate (invariant 13): vendor idempotency
+ * does not span accounts, so the binding — not per-tick selection — is what makes an admin flip or
+ * a restart unable to double-disburse. `coalesce` keeps the first writer; the returned id is the
+ * binding to actually initiate against (a racing tick gets the same answer, not its own candidate).
+ * Also appends to the tried set exactly when this call is the one that bound.
+ */
+export async function bindOrderPayoutProvider(orderId: string, providerId: string): Promise<string | null> {
+  const { rows } = await getPool().query<{ payout_provider_id: string }>(
+    `update orders
+        set payout_provider_id = coalesce(payout_provider_id, $2),
+            payout_providers_tried = case when payout_provider_id is null
+                                          then array_append(payout_providers_tried, $2)
+                                          else payout_providers_tried end,
+            updated_at = now()
+      where id = $1 and state = 'payment_detected'
+      returning payout_provider_id`,
+    [orderId, providerId],
+  );
+  return rows[0]?.payout_provider_id ?? null;
+}
+
+/** Failover: advance the binding from a provider that terminally FAILED to the next one — a CAS on
+ *  the old value (the reassignOrderMerchant shape), so two ticks can't both advance. */
+export async function advanceOrderPayoutProvider(
+  orderId: string,
+  fromProviderId: string,
+  toProviderId: string,
+): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update orders
+        set payout_provider_id = $3,
+            payout_providers_tried = array_append(payout_providers_tried, $3),
+            payout_provider_ref = null,
+            updated_at = now()
+      where id = $1 and payout_provider_id = $2 and state = 'payment_detected'`,
+    [orderId, fromProviderId, toProviderId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/** Record the vendor's own payout id the first time check() reports one — post-mortem evidence. */
+export async function setOrderPayoutProviderRef(orderId: string, ref: string): Promise<void> {
+  await getPool().query(
+    `update orders set payout_provider_ref = coalesce(payout_provider_ref, $2), updated_at = now() where id = $1`,
+    [orderId, ref],
+  );
+}
+
 export async function claimOrderPayout(input: {
   orderId: string;
   merchantId: string;
@@ -1517,13 +1657,26 @@ export async function insertDispute(input: { orderId: string; merchantId: string
 
 export async function getDisputeRow(
   id: string,
-): Promise<{ id: string; orderId: string; merchantId: string; status: string } | null> {
-  const { rows } = await getPool().query<{ id: string; order_id: string; merchant_id: string; status: string }>(
-    `select id, order_id, merchant_id, status from disputes where id = $1`,
+): Promise<{ id: string; orderId: string; merchantId: string; status: string; merchantSimBehavior: string | null } | null> {
+  const { rows } = await getPool().query<{
+    id: string;
+    order_id: string;
+    merchant_id: string;
+    status: string;
+    sim_behavior: string | null;
+  }>(
+    // sim_behavior along for the ride: 'psp' identifies a platform settlement row, whose bond is
+    // exempt from dispute draws (docs/23 — the only bond top-up path is user_id-gated, so a drawn
+    // platform row could never recover).
+    `select d.id, d.order_id, d.merchant_id, d.status, m.sim_behavior
+       from disputes d left join merchants m on m.id = d.merchant_id
+      where d.id = $1`,
     [id],
   );
   const r = rows[0];
-  return r ? { id: r.id, orderId: r.order_id, merchantId: r.merchant_id, status: r.status } : null;
+  return r
+    ? { id: r.id, orderId: r.order_id, merchantId: r.merchant_id, status: r.status, merchantSimBehavior: r.sim_behavior }
+    : null;
 }
 
 export async function resolveDispute(id: string, resolution: 'upheld' | 'rejected'): Promise<boolean> {

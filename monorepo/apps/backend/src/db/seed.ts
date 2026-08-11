@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 
 import { Keypair } from '@solana/web3.js';
 
+import { config } from '../envConfig';
 import { getPool } from './pool';
 
 /** Deterministic devnet treasury pubkey for a merchant (stable across seeds; receive-only). */
@@ -72,7 +73,7 @@ async function main() {
   // neither re-key it nor undo an operator's status flip (admin-suspending this row is the
   // corridor kill switch). user_id stays NULL — structurally unreachable via the merchant portal.
   // spread_bps here IS the platform's corridor take; the payout provider executes the fiat leg.
-  const platformTreasury = process.env.PLATFORM_TREASURY_ADDRESS || treasuryFor('pay-platform-treasury');
+  const platformTreasury = config.platformTreasuryAddress || treasuryFor('pay-platform-treasury');
   await pool.query(
     `insert into merchants (id, name, payout_rail, status, treasury_address, success_rate, avg_completion_secs, spread_bps, float_usdc, dispute_rate, kyb_status, bond_usdc, base_success_rate, base_avg_completion_secs, base_dispute_rate, sim_behavior)
      values ('a0000000-0000-4000-8000-000000000001', 'fpay Indonesia', 'QRIS', 'online', $1, 0.99, 60, 60, 1000000, 0.001, 'approved', 5000, 0.99, 60, 0.001, 'psp')

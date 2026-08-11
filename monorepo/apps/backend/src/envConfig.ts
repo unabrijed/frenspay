@@ -155,13 +155,28 @@ export const config = {
   } as Record<string, number>,
   fxRefreshMs: num('FX_REFRESH_MS', 21_600_000, { min: 1000 }), // 6h default
 
-  // Xendit payouts, TEST MODE ONLY (Indonesia corridor fiat leg). Key unset = the payout-provider
-  // registry is empty and 'psp' LPs escalate like a silent merchant — the safe default everywhere.
-  // Live keys are a licensing/counsel decision (docs/11), not an env change.
+  // Payout providers (docs/23). Rows in `payout_providers` are routing metadata; THESE are the
+  // credentials, keyed by provider row id — the cctpFeeUsd pattern: statically enumerated so the
+  // env↔code grep link survives, dynamically looked up by id. An id absent (or placeholder) here
+  // makes its row inert: a DB row is never sufficient to move money (project-model invariant 11).
+  // TEST MODE ONLY — live keys are a licensing/counsel decision (docs/11), not an env change.
+  // XENDIT_SECRET_KEY/XENDIT_CALLBACK_TOKEN stay as fallbacks for xendit_id (the fxFallbackRates
+  // precedent: tolerate the deployed name rather than renaming a live var).
   xenditApiUrl: env('XENDIT_API_URL', 'https://api.xendit.co'),
-  xenditSecretKey: env('XENDIT_SECRET_KEY'),
-  // Shared token Xendit echoes in x-callback-token on webhooks; unset = webhook rejected.
-  xenditCallbackToken: env('XENDIT_CALLBACK_TOKEN'),
+  payoutSecretKeys: {
+    xendit_id: env('XENDIT_ID_SECRET_KEY') || env('XENDIT_SECRET_KEY'),
+  } as Record<string, string>,
+  // Per-provider token the vendor echoes in x-callback-token on /webhooks/xendit/:providerId;
+  // unset = that provider's webhook is rejected (the poller stays authoritative).
+  payoutCallbackTokens: {
+    xendit_id: env('XENDIT_ID_CALLBACK_TOKEN') || env('XENDIT_CALLBACK_TOKEN'),
+  } as Record<string, string>,
+  // Release destination seeded into provider-model platform merchant rows (docs/23). PUBLIC KEY
+  // ONLY — nothing signs from it — but unlike the stake treasury it IS a release target, so it's
+  // parse-validated at boot (assertPayoutConfig): in the provider model the fiat leaves first, and
+  // a typo'd-but-valid address would burn escrow after real money moved. Unset locally = the seed
+  // derives a deterministic devnet key.
+  platformTreasuryAddress: env('PLATFORM_TREASURY_ADDRESS'),
 
   // Landing f list: transactional email (Resend REST — no SDK, see services/email.ts) plus the HMAC
   // key that mints share codes and confirm tokens. BOTH unset is the safe default: no codes are

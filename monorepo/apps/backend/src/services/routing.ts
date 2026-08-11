@@ -43,9 +43,12 @@ export async function rankMerchants(input: {
   const exclude = new Set(input.excludeIds ?? []);
   const all = (await listRoutableMerchants()).filter((m) => !exclude.has(m.id));
 
-  // Prefer the matching rail; fall back to any rail only if none match.
-  const railed = all.filter((m) => m.payout_rail === input.payoutMethod);
-  const byRail = railed.length > 0 ? railed : all;
+  // Rail is a HARD filter (project-model invariant 15). The old any-rail fallback leaked money
+  // both directions once corridors stopped being interchangeable: a rerouted QRIS order's escrow
+  // could release to a 'happy' UPI sim that never paid the payee, and a UPI order could quote
+  // against the QRIS platform settlement row into a guaranteed refund round-trip. An empty rail
+  // pool now fails fast — `createQuote` → no_merchant, `rerouteOrder` → refund.
+  const byRail = all.filter((m) => m.payout_rail === input.payoutMethod);
 
   // Live available float = total float − committed (in-flight) float. A saturated LP has little
   // headroom and drops out until its orders clear.
