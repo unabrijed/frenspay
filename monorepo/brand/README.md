@@ -16,8 +16,15 @@ the picture of the product. Two rules keep it on the right side.
    together, and pass the bead between them. An eyelid is the single cheapest way to turn the pair
    back into one face, so no wink and no blink, anywhere. (Both shipped on the landing for a while
    and have been removed; the slot the wink used now carries the app's rest-lean.)
-2. **It never goes in an avatar slot.** A circular frame around two dots and a curve is a face by
-   construction. Avatars stay initials. The icon cut is for favicons, app icons and tiles.
+2. **It never goes in a _user_ avatar slot.** A circular frame around two dots and a curve is a face
+   by construction, and a person's avatar is the one place that misreading actually costs something —
+   the mark stops being the product and starts being that person. User avatars stay initials. The
+   icon cut is for favicons, app icons and tiles.
+
+   The brand's own social accounts are the exception, and the only one: there the mark is *supposed*
+   to be read as the mark, and a profile picture that is not the logo is just a worse logo. `yarn
+   brand` emits the X avatar in both colourways for that reason — check the terracotta one at 48px,
+   the timeline size, before choosing, because that is where the two-element mark is weakest.
 
 **The f mark is retired.** It is gone from the tree — recover from git history if it is ever wanted
 again — and nothing should reference `logo-mark.svg`.
@@ -48,7 +55,7 @@ which is not in the repo. That is also why the social card is mark-only.
 ## Regenerating
 
 ```
-yarn brand        # from monorepo/ — rewrites all 20 derived assets
+yarn brand        # from monorepo/ — rewrites all 23 derived assets
 ```
 
 Everything it lists is generated. Edit the two source SVGs, re-run, commit the outputs. Nothing at
@@ -61,11 +68,16 @@ build time depends on the script.
 | `apps/landing/public/logo-{lockup,icon,stacked}.svg` | bare, terracotta |
 | `apps/landing/public/logo-{lockup,icon,stacked}-cream.svg` | for dark surfaces — the mobile foot is solid ink and the social card is terracotta, where the terracotta mark is nearly invisible |
 | `apps/landing/src/app/opengraph-image.png` | 1200×630, cream icon cut on terracotta |
+| `brand/social/x-avatar{,-cream}.png` | 400², full-bleed icon cut — X crops to a circle, so no squircle |
+| `brand/social/x-banner.png` | 1500×500, the `pay` scene bottom-cropped. Mark-free by design |
 | `apps/landing/src/components/frenspay/logo-geometry.ts` | the lockup's numbers, for the animated inline React logo |
 | `apps/mobile/assets/images/*` | 1024² icon / adaptive layers / splash, 48² web favicon |
 
 66% leaves the mark comfortable in the squircle without crowding its corners. Android's adaptive
 foreground drops to 52% so the art survives a full circular mask.
+
+`brand/social/` is the one output nothing serves — it is uploaded to X by hand. It is generated
+anyway so the account cannot drift off the mark the way `apps/mobile` did.
 
 ### Why the geometry is emitted as TypeScript
 

@@ -141,6 +141,45 @@ await emit(
     .toBuffer(),
 );
 
+// ---- social: X / Twitter ----------------------------------------------------------------------
+// Uploaded by hand; nothing at build time reads brand/social/. PNG because X will not take an SVG.
+//
+// Full-bleed, NOT the squircle used for icon.svg: X crops a profile picture to a circle, so a
+// rounded-square plate only loses its corners.
+//
+// ICON_SCALE (0.66) is deliberately overridden. It is tuned for a squircle, where the corners are
+// the constraint; here the constraint is the inscribed circle, and 0.66 leaves the ink only ~45% of
+// the tile's height, which is what turns the mark to a blob at the 48px timeline size. The art's own
+// box is 256x173 of the 256 viewBox, so at scale s the half-diagonal is 154.5s and must clear r=200
+// — s <= 1.29, i.e. a scale term of 0.83. 0.78 takes most of that and keeps ~12px of air.
+const AVATAR_SCALE = 0.78;
+// Both colourways: which one holds up at 48px is a look-at-it call, and the second line is free.
+await emit(
+  'brand/social/x-avatar.png',
+  await png(square(400, { bg: TERRA, colour: CREAM, scale: AVATAR_SCALE })),
+);
+await emit(
+  'brand/social/x-avatar-cream.png',
+  await png(square(400, { bg: CREAM, scale: AVATAR_SCALE })),
+);
+
+// Header, 1500x500. No wordmark and no tagline: the name is already the avatar and the X display
+// name, and a third copy on the header is the thing to avoid. (It would also be impossible — see
+// stacked() on why sharp cannot typeset Hanken Grotesk.)
+//
+// `cover` + `bottom` crops ~195 rows of sky off the top, which is the most the source allows and
+// puts the horizon at 69% of the banner. That matters: everything X overlays is along the bottom,
+// so the two figures need to sit above it, and the bottom-left where the avatar lands must be
+// empty. In `pay` it is open water.
+const BANNER_SCENE = 'pay'; // swap to play / stay / relay — this is the only line that changes
+await emit(
+  'brand/social/x-banner.png',
+  await sharp(resolve(REPO, `apps/landing/public/scenes/${BANNER_SCENE}-2000.webp`))
+    .resize(1500, 500, { fit: 'cover', position: 'bottom' })
+    .png({ compressionLevel: 9 })
+    .toBuffer(),
+);
+
 // ---- mobile (parked out of the workspace, but must not be left on the retired f) --------------
 const M = 'apps/mobile/assets/images';
 await emit(`${M}/icon.png`, await png(square(1024, { bg: CREAM })));
