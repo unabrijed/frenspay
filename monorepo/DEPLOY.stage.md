@@ -1,7 +1,8 @@
-# Stage deploy — backend → Railway (Solana devnet)
+# Stage deploy — backend → Railway, frontends → Vercel (Solana devnet)
 
-Backend only: Fastify (`apps/backend`) on Railway, stage environment, devnet USDC.
-DB is Supabase Postgres. Prod/mainnet is a separate doc: `DEPLOY.md`.
+Backend: Fastify (`apps/backend`) on Railway, stage environment, devnet USDC. DB is Supabase
+Postgres. Frontends: per-environment Vercel projects (the OMS model — see §Frontends).
+Prod/mainnet is a separate doc: `DEPLOY.md`.
 
 ## Build model
 
@@ -104,6 +105,30 @@ Verify. Until the domain verifies, every send 403s and the failure is logged, no
 | CNAME | `resend._domainkey` | (the DKIM value Resend shows) |
 
 Free tier is 3,000/month, 100/day.
+
+## Frontends → Vercel (stage projects)
+
+Model copied from OMS (it's the proven one): **one Vercel project per app per environment**. A
+stage project's *Production Branch* is `stage`; the prod twin's is `sacred` (see `DEPLOY.md`).
+Stage env vars live as that project's plain Production-env variables — no Preview-scoped juggling.
+Ship to prod by merging `stage` → `sacred` (PR).
+
+| project | Production Branch | Root Directory | config file |
+| ------- | ----------------- | -------------- | ----------- |
+| web (stage) | `stage` | **`monorepo`** | root `vercel.json` (builds `@fpay/web`, output `apps/web/.next`) |
+| admin (stage) | `stage` | `monorepo/apps/admin` | `apps/admin/vercel.json` |
+| landing (stage, optional) | `stage` | `monorepo/apps/landing` | `apps/landing/vercel.json` |
+
+Invariants on EVERY project (dashboard):
+- **Ignored Build Step: empty/Automatic** and **Skip deployment for unaffected projects: Enabled**.
+  There are deliberately NO `ignoreCommand`s in the repo — path scoping is Vercel's built-in
+  workspace-graph detection (web/admin also rebuild on `packages/shared`; landing only on its own
+  dir). Known fail-open: root-level changes (docs, lockfile) may build all frontends.
+- **Node.js Version: 24** (`@solana-program/token` engine floor; `.yarnrc` ignore-engines masks it
+  at install, set it anyway for runtime parity).
+- Web's Root Directory is the **workspace root**, not the app dir — the app-subdir pattern breaks
+  `@vercel/next`'s serverBuild on this repo (`noop.js` → `Cannot find module …server.runtime.prod.js`).
+  Admin keeps the subdir pattern; if its first deploy ever hits that same error, that's why.
 
 ## Pre-push build gate
 

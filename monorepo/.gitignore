@@ -28,3 +28,6 @@ yarn-error.*
 .DS_Store
 *.pem
 .brand-preview/
+
+# Vercel CLI local artifacts
+.vercel
