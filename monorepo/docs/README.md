@@ -68,6 +68,8 @@ milestone and are deliberately not rewritten. Renamed since they were written:
 | 19 | [Cross-chain USDC rails](19-crosschain-cctp-rails.md) | CCTP V2 behind a rail abstraction: outbound sends to Base/Eth/Arb + inbound deposits (smart-wallet, sponsored), full Sepolia staging | ✅ / 🟡 funding |
 | 20 | [Waitlist & referral loop](20-waitlist-referral-loop.md) | the f list: one `?ref=` for two referrer kinds, HMAC-derived share codes, double opt-in confirm email | ✅ / ⬜ landing |
 | 21 | [Scan & pay rails](21-scan-and-pay-rails.md) | reading EMVCo merchant QRs, naming the processing network, and which rail each scan lands on | ✅ |
+| 22 | [Indonesia corridor + Asia research](22-indonesia-corridor-and-asia-research.md) | QRIS/IDR as currency-generalization, provider/cost research, ranked next corridors | ✅ |
+| 23 | [Settlement models & provider registry](23-settlement-models-and-provider-registry.md) | `lp` vs `provider` per corridor, the platform settlement row, DB provider registry + its safety invariants, corridor economics | 🟡 |
 
 ---
 

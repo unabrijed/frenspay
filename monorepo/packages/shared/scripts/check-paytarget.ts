@@ -110,7 +110,7 @@ ok('a token-pinned Solana Pay request still refuses rather than substituting USD
 
 /* ---- the mirrors the backend keeps by hand ---- */
 
-const orders = readFileSync(join(ROOT, 'apps/backend/src/routes/orders.ts'), 'utf8');
+const corridors = readFileSync(join(ROOT, 'apps/backend/src/lib/corridors.ts'), 'utf8');
 const shared = readFileSync(join(ROOT, 'packages/shared/src/payTarget.ts'), 'utf8');
 const vpaOf = (src: string, where: string) => {
   const m = src.match(/const VPA_RE = (\/.*\/i);/);
@@ -118,7 +118,7 @@ const vpaOf = (src: string, where: string) => {
   return m![1];
 };
 assert.equal(
-  vpaOf(orders, 'routes/orders.ts'),
+  vpaOf(corridors, 'lib/corridors.ts'),
   vpaOf(shared, 'shared/payTarget.ts'),
   'backend VPA_RE has drifted from shared — the client and the trust boundary disagree on what is payable',
 );

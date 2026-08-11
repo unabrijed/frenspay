@@ -16,6 +16,8 @@ import type {
   AdminOrderDetailResponse,
   AdminOrdersResponse,
   AdminOverviewResponse,
+  AdminPayoutProviderUpdateRequest,
+  AdminPayoutProvidersResponse,
   AdminRiskEventsResponse,
   AdminUsersResponse,
   AdminWaitlistResponse,
@@ -29,6 +31,7 @@ import {
   getOrderAdmin,
   insertAdminAction,
   listAdminActions,
+  listAllPayoutProviders,
   listDenylist,
   listMerchantsAdmin,
   listOrdersAdmin,
@@ -40,8 +43,10 @@ import {
   removeDenylistEntry,
   setMerchantKyb,
   setMerchantStatus,
+  updatePayoutProvider,
 } from '../db/queries';
 import { settleDispute } from '../services/orderMachine';
+import { providerHasCredentials } from '../services/payout/provider';
 
 export async function registerAdminRoutes(app: FastifyInstance) {
   /* ---- reads ---- */
@@ -117,7 +122,51 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     },
   );
 
+  // The payout-provider ladder (docs/23): who serves each rail, in what order, on or off — and
+  // whether each row's env credential actually resolves (enabled + no creds = inert, flag it).
+  app.get('/admin/payout-providers', async (req): Promise<AdminPayoutProvidersResponse> => {
+    await requireAdmin(req);
+    const rows = await listAllPayoutProviders();
+    return {
+      providers: rows.map((r) => ({
+        id: r.id,
+        adapter: r.adapter,
+        payoutMethod: r.payout_method,
+        priority: r.priority,
+        enabled: r.enabled,
+        hasCredentials: providerHasCredentials(r),
+      })),
+    };
+  });
+
   /* ---- writes (every one audits) ---- */
+
+  // The SUBTRACT-only surface (invariant 11): disable/enable-what-has-creds + reorder. Rows come
+  // from seed/SQL, adapters from deploys — enabling a NEW money-mover is a deploy, not a click.
+  app.post<{ Params: { id: string }; Body: AdminPayoutProviderUpdateRequest }>(
+    '/admin/payout-providers/:id',
+    async (req, reply) => {
+      const adminId = await requireAdmin(req);
+      const { enabled, priority } = req.body ?? {};
+      if (enabled === undefined && priority === undefined) return reply.code(400).send({ error: 'empty_patch' });
+      if (enabled !== undefined && typeof enabled !== 'boolean') return reply.code(400).send({ error: 'invalid_enabled' });
+      if (priority !== undefined && (!Number.isInteger(priority) || priority < 1 || priority > 10_000)) {
+        return reply.code(400).send({ error: 'invalid_priority' });
+      }
+      const row = await updatePayoutProvider(req.params.id, { enabled, priority });
+      if (!row) return reply.code(404).send({ error: 'provider_not_found' });
+      await insertAdminAction({
+        adminUserId: adminId,
+        action: 'payout_provider_update',
+        targetKind: 'payout_provider',
+        targetId: req.params.id,
+        note: [enabled !== undefined ? `enabled=${enabled}` : null, priority !== undefined ? `priority=${priority}` : null]
+          .filter(Boolean)
+          .join(' '),
+      });
+      return { ok: true, enabled: row.enabled, priority: row.priority };
+    },
+  );
 
   app.post<{ Params: { id: string }; Body: AdminKybRequest }>('/admin/merchants/:id/kyb', async (req, reply) => {
     const adminId = await requireAdmin(req);

@@ -33,7 +33,7 @@ import {
   withUserLock,
 } from '../db/queries';
 import { fiatDecimals, positiveAmount } from '../lib/amount';
-import { RAIL_CURRENCY } from '../lib/rails';
+import { CORRIDORS } from '../lib/corridors';
 import { checkCashOutLimit } from '../services/compliance';
 import { getMidRate } from '../services/fxRate';
 import { recomputeMerchantStats } from '../services/merchantStats';
@@ -48,30 +48,6 @@ import {
 } from '../services/orderMachine';
 import { createQuote } from '../services/quoteEngine';
 
-/**
- * A UPI VPA: local@psp, e.g. 'shop@okhdfcbank'. MIRRORS `VPA_RE` in packages/shared/src/payTarget.ts
- * — the backend can only `import type` from @fpay/shared (tsx won't transpile the workspace's raw
- * .ts), so shared runtime values are copied at the trust boundary rather than imported. Same
- * precedent as `canonicalHandle` / `normalizePhone` in db/queries.ts. `check-paytarget.ts` asserts
- * the two stay in step.
- *
- * The suffix forbids a dot: every real PSP/bank handle is a single label (okaxis, ybl, hdfcbank, …)
- * while an email domain has one. Without that, `someone@gmail.com` passed this gate and could be
- * quoted, escrowed, and handed to a merchant to pay by hand.
- */
-const VPA_RE = /^[a-z0-9.\-_]{2,}@[a-z0-9\-_]{2,}$/i;
-
-/**
- * Per-rail payout-destination gates — the ONLY validation between a scanned string and a human/PSP
- * acting on it. UPI = the VPA above. QRIS = the merchant proxy off the QR (NMID / merchant PAN):
- * shape varies by acquirer, so bound it to printable, non-@ (never a VPA by accident), sane length.
- * A rail with no entry here cannot take a destination at all.
- */
-const DESTINATION_RE: Record<string, RegExp> = {
-  UPI: VPA_RE,
-  QRIS: /^(?!.*@)[a-z0-9][a-z0-9 .\-/]{4,63}$/i,
-};
-
 // Same floor as the external-send rails (routes/money.ts MIN_EXTERNAL_SEND_USD): an on-chain escrow
 // plus an LP payout for micro-amounts is dust-spam, and it's currency-blind — 0.01 INR and 1 IDR
 // both price to a real, fundable USDC order without it (found by the prism skeptic pass).
@@ -85,8 +61,9 @@ export async function registerOrderRoutes(app: FastifyInstance) {
     // The RAIL is the currency authority (docs/21; never the user's country, never the QR's own
     // claim). A rail we can't price (no corridor/FX band) is refused here, not guessed at.
     const payoutMethod = req.body?.payoutMethod ?? 'UPI';
-    const currency = RAIL_CURRENCY[payoutMethod];
-    if (!currency) return reply.code(400).send({ error: 'unsupported_payout_method' });
+    const corridor = CORRIDORS[payoutMethod];
+    if (!corridor) return reply.code(400).send({ error: 'unsupported_payout_method' });
+    const currency = corridor.currency;
     // The fiat leg carries the currency's own minor unit (INR 2dp, IDR 0dp) — an amount with more
     // precision than the currency has is a bug in the caller, not something to round away.
     const amountFiat = positiveAmount(req.body?.amountInr, fiatDecimals(currency));
@@ -94,7 +71,7 @@ export async function registerOrderRoutes(app: FastifyInstance) {
     // WHO gets the fiat. The client parsed it out of a QR, but that's a hint — this is the trust
     // boundary, and a merchant/PSP will act on this string.
     const destination = payoutDestination?.trim().toLowerCase();
-    if (destination && !DESTINATION_RE[payoutMethod]?.test(destination)) {
+    if (destination && !corridor.destinationRe?.test(destination)) {
       return reply.code(400).send({ error: 'invalid_payout_destination' });
     }
     const estUsd = amountFiat / getMidRate(currency);

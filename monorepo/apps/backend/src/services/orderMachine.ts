@@ -25,6 +25,7 @@ import {
   getSendNotifyInfo,
   getWalletForUser,
   insertOrder,
+  insertRiskEvent,
   insertRoutingAttempt,
   listRoutingAttempts,
   markLatestAttemptOutcome,
@@ -56,6 +57,13 @@ export const MERCHANT_CLAIM_MS = 600_000; // 10 min
 
 /** After the merchant reports paying, how long the payer has to dispute before the escrow releases. */
 export const DISPUTE_WINDOW_MS = 120_000; // 2 min
+
+/**
+ * Claim SLA for a provider-driven (platform 'psp' row) order: a real vendor disbursement sits in
+ * ACCEPTED/REQUESTED well past ORDER_SLA_MS's 30s, and the first escalation used to close the
+ * polling gate for good — 120s keeps the demo brisk without manufacturing false "delayed" flags.
+ */
+export const PROVIDER_SLA_MS = 120_000;
 
 /** M3: cap on routing attempts per order (initial assignment + up to 2 reroutes) before refunding. */
 export const MAX_ROUTING_ATTEMPTS = 3;
@@ -140,9 +148,11 @@ export async function onTransferConfirmed(transferId: string): Promise<void> {
   // Advance from waiting_payment OR pay_instructions: a confirmed deposit is authoritative even if the
   // user's /fund-submit call dropped (otherwise the escrow funds while the order stays stuck → stranded).
   if (funded && (funded.state === 'waiting_payment' || funded.state === 'pay_instructions')) {
-    // A real merchant (sim_behavior NULL) is a person who has to open a banking app — give them the
-    // human-sized claim SLA, not the 30s a simulated worker needs.
-    const slaMs = funded.sim_behavior == null ? MERCHANT_CLAIM_MS : ORDER_SLA_MS;
+    // Three claim clocks: a real merchant (sim_behavior NULL) is a person who has to open a banking
+    // app — the human-sized SLA; a provider-driven platform row ('psp') is a vendor disbursement
+    // that outlives 30s but not minutes; everything else is a sim worker reacting in one tick.
+    const slaMs =
+      funded.sim_behavior == null ? MERCHANT_CLAIM_MS : funded.sim_behavior === 'psp' ? PROVIDER_SLA_MS : ORDER_SLA_MS;
     await updateOrder(funded.id, { state: 'payment_detected', expiresAt: new Date(Date.now() + slaMs) });
     await appendOrderEvent(funded.id, funded.state, 'payment_detected', 'fund_confirmed');
     return;
@@ -281,7 +291,25 @@ export async function settleDispute(
   // no escrow left to move — the refund branch simply finds no claimable state.)
   const order = await getOrderSimRow(dispute.orderId);
   if (resolution === 'upheld') {
-    await drawDownBond(dispute.merchantId, DISPUTE_PENALTY_USDC); // fine the LP's bond
+    if (dispute.merchantSimBehavior === 'psp') {
+      // Platform settlement row (docs/23): the platform fining its own bond is fiction, and the
+      // only bond top-up path is user_id-gated — a drawn platform row could never recover and the
+      // corridor would strand. The platform simply eats the double loss (payer refunded below,
+      // fiat already went out); the risk_events row is the record the admin dashboard surfaces.
+      if (order) {
+        await insertRiskEvent({
+          userId: order.userId,
+          kind: 'provider_dispute_upheld',
+          amountUsd: order.amountUsdc,
+          decision: 'review',
+          score: 0,
+          reason: `dispute ${disputeId} upheld on provider order ${order.reference} — platform absorbs the loss`,
+          counterparty: dispute.merchantId,
+        });
+      }
+    } else {
+      await drawDownBond(dispute.merchantId, DISPUTE_PENALTY_USDC); // fine the LP's bond
+    }
     if (order && order.state === 'payment_detected') {
       await refundToUser({
         orderId: order.id,

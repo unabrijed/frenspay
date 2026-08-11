@@ -12,11 +12,14 @@ import { registerHeliusWebhook } from './services/helius';
 import { assertKycConfig } from './services/kyc';
 import { startKycPoller } from './services/kyc/poller';
 import { metrics } from './services/metrics';
+import { assertPayoutConfig } from './services/payout/provider';
 import { startRateLimitSweeper } from './services/rateLimit';
 
 async function start() {
   // Fail fast on a misconfigured real KYC provider before accepting traffic.
   assertKycConfig();
+  // Same for payouts: a typo'd platform treasury must not wait for the first escrow release.
+  assertPayoutConfig();
 
   // Warn (don't apply) on schema drift: a dev laptop must not mutate the shared stage DB at boot,
   // and a fatal boot migration on Railway would crash-loop. Hosts apply via db:deploy in startCommand.

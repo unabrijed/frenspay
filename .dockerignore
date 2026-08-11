@@ -1,0 +1,15 @@
+# Secrets — these exist on disk with real values and must NEVER enter the image.
+**/.env*
+**/.devnet
+
+# Bulk that the backend never reads at runtime (IDLs are vendored into apps/backend/src).
+.git
+**/node_modules
+**/.next
+monorepo/anchor
+monorepo/apps/mobile
+monorepo/brand
+monorepo/design-reference
+monorepo/docs
+*.pdf
+*.md
