@@ -46,9 +46,10 @@ async function main() {
   await pool.query('delete from order_events');
   await pool.query('delete from orders');
   await pool.query('delete from quotes');
-  await pool.query('delete from merchants');
-  // The two QRIS rows are the Indonesia corridor's routing pool — float is USDC (rail-agnostic LP
-  // capacity), so only payout_rail differs; routing.ts filters on it unchanged.
+  // Platform settlement rows (sim_behavior='psp') survive the reset: they are the settlement
+  // counterparty for provider-model corridors (docs/23), not sim-network rows — deleting one
+  // re-keys a row other systems treat as an identity. They're upserted below instead.
+  await pool.query(`delete from merchants where sim_behavior is distinct from 'psp'`);
   await pool.query(
     `insert into merchants (name, payout_rail, status, treasury_address, success_rate, avg_completion_secs, spread_bps, float_usdc, dispute_rate, kyb_status, bond_usdc, base_success_rate, base_avg_completion_secs, base_dispute_rate, sim_behavior)
      values
@@ -56,18 +57,42 @@ async function main() {
        ($3, 'UPI','online',$4,  0.972, 200, 25,  80000, 0.006, 'approved', 6000, 0.972, 200, 0.006, 'happy'),
        ($5, 'UPI','online',$6,  0.951,  70, 90,  60000, 0.012, 'approved', 5000, 0.951,  70, 0.012, 'happy'),
        ($7, 'UPI','online',$8,  0.960, 180, 80, 100000, 0.008, 'approved', 6000, 0.960, 180, 0.008, 'slow'),
-       ($9, 'UPI','online',$10, 0.940, 150, 60,  40000, 0.030, 'approved', 3000, 0.940, 150, 0.030, 'no_receipt'),
-       ($11,'QRIS','online',$12, 0.988, 130, 55, 100000, 0.004, 'approved', 8000, 0.988, 130, 0.004, 'happy'),
-       ($13,'QRIS','online',$14, 0.955, 210, 35,  60000, 0.010, 'approved', 5000, 0.955, 210, 0.010, 'happy')`,
+       ($9, 'UPI','online',$10, 0.940, 150, 60,  40000, 0.030, 'approved', 3000, 0.940, 150, 0.030, 'no_receipt')`,
     [
       'RapidPay LP', treasuryFor('pay-merchant-rapidpay'),
       'ThriftPay LP', treasuryFor('pay-merchant-thriftpay'),
       'BoltRoute LP', treasuryFor('pay-merchant-boltroute'),
       'SteadyRails LP', treasuryFor('pay-merchant-steadyrails'),
       'FlakeLP', treasuryFor('pay-merchant-flakelp'),
-      'NusantaraPay LP', treasuryFor('pay-merchant-nusantarapay'),
-      'GarudaRoute LP', treasuryFor('pay-merchant-garudaroute'),
     ],
+  );
+
+  // QRIS is a provider-model corridor (docs/23): ONE platform-owned settlement row replaces the
+  // old NusantaraPay/GarudaRoute sim pool. Fixed uuid + identity-only upsert so a re-seed can
+  // neither re-key it nor undo an operator's status flip (admin-suspending this row is the
+  // corridor kill switch). user_id stays NULL — structurally unreachable via the merchant portal.
+  // spread_bps here IS the platform's corridor take; the payout provider executes the fiat leg.
+  const platformTreasury = process.env.PLATFORM_TREASURY_ADDRESS || treasuryFor('pay-platform-treasury');
+  await pool.query(
+    `insert into merchants (id, name, payout_rail, status, treasury_address, success_rate, avg_completion_secs, spread_bps, float_usdc, dispute_rate, kyb_status, bond_usdc, base_success_rate, base_avg_completion_secs, base_dispute_rate, sim_behavior)
+     values ('a0000000-0000-4000-8000-000000000001', 'fpay Indonesia', 'QRIS', 'online', $1, 0.99, 60, 60, 1000000, 0.001, 'approved', 5000, 0.99, 60, 0.001, 'psp')
+     on conflict (id) do update set
+       name = excluded.name, payout_rail = excluded.payout_rail,
+       treasury_address = excluded.treasury_address, spread_bps = excluded.spread_bps,
+       float_usdc = excluded.float_usdc, sim_behavior = excluded.sim_behavior`,
+    [platformTreasury],
+  );
+
+  // Payout-provider registry rows (docs/23). The denylist bucket, not the merchants one:
+  // enabled/priority are operator state set from the admin console, and `do nothing` seeds the
+  // shape without reverting a toggle on re-seed. xendit_id ships disabled (inert until its env
+  // key exists AND someone turns it on); the sim payer is the zero-key dev backstop at the
+  // bottom of the ladder, and the code excludes the sim adapter in production regardless.
+  await pool.query(
+    `insert into payout_providers (id, adapter, payout_method, priority, enabled) values
+       ('xendit_id', 'xendit', 'QRIS', 10, false),
+       ('sim', 'sim', '*', 90, true)
+     on conflict (id) do nothing`,
   );
 
   // M5: simulated sanctions denylist — one address + one handle that screening must block.
