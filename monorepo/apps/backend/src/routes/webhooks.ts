@@ -2,13 +2,16 @@
 // the confirmer poller is the fallback), the KYC vendor (session-changed ping; the reconciler
 // poller is the fallback), and Xendit payouts (status ping; the order worker's provider poll is
 // the fallback).
+import { timingSafeEqual } from 'node:crypto';
+
 import type { FastifyInstance } from 'fastify';
 
 import { config } from '../envConfig';
-import { claimOrderPayout, getOrderByReference, setTransferStatusBySignature } from '../db/queries';
+import { appendOrderEvent, claimOrderPayout, getOrderByReference, insertRiskEvent, setTransferStatusBySignature } from '../db/queries';
 import { getKycProvider } from '../services/kyc';
 import { applyKycForSession } from '../services/kyc/poller';
 import { DISPUTE_WINDOW_MS, onTransferConfirmedAndNotify } from '../services/orderMachine';
+import { payoutProviderById } from '../services/payout/provider';
 
 export async function registerWebhookRoutes(app: FastifyInstance) {
   // --- M2: Helius webhook for push confirmation (poller in confirmer.ts is the fallback) ---
@@ -57,27 +60,77 @@ export async function registerWebhookRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  // Xendit payout webhook: a fast "this disbursement succeeded" hint — the order worker's provider
-  // poll is the authoritative fallback (same contract as Helius/KYC above). Verified by the shared
-  // callback token; a forged/duplicate call is harmless anyway: claimOrderPayout is a CAS, and we
-  // only ever act on SUCCEEDED for a reference we minted.
-  app.post('/webhooks/xendit', async (req, reply) => {
-    if (!config.xenditCallbackToken || req.headers['x-callback-token'] !== config.xenditCallbackToken) {
-      return reply.code(401).send({ error: 'unauthorized' });
-    }
+  // Xendit payout webhook, per provider ACCOUNT (docs/23): /webhooks/xendit/:providerId — the path
+  // names the payout_providers row whose callback token must sign the call, because one vendor is
+  // many accounts (xendit_id, xendit_th, …) and a token must never claim another account's order.
+  // The webhook is a HINT, never the authority (the KYC contract two handlers up): after auth we
+  // assert the order is bound to THIS provider, then re-derive the status from the provider's own
+  // check() before touching the CAS. A claim that returns false on a refunded/completed order is
+  // the one signal that fiat left the building on an order we already settled — it is RECORDED
+  // (order_event + risk_events), never dropped: the old handler's silent 200 also stopped the
+  // vendor retry that would have surfaced the conflict.
+  app.post<{ Params: { providerId: string } }>('/webhooks/xendit/:providerId', async (req, reply) => {
+    const { providerId } = req.params;
+    const expected = config.payoutCallbackTokens[providerId];
+    const got = req.headers['x-callback-token'];
+    const tokenOk =
+      typeof expected === 'string' &&
+      expected.length > 0 &&
+      typeof got === 'string' &&
+      got.length === expected.length &&
+      timingSafeEqual(Buffer.from(got), Buffer.from(expected));
+    if (!tokenOk) return reply.code(401).send({ error: 'unauthorized' });
+
     const data = ((req.body ?? {}) as { data?: Record<string, unknown> }).data ?? (req.body as Record<string, unknown>);
     const reference = typeof data?.reference_id === 'string' ? data.reference_id : null;
     const status = typeof data?.status === 'string' ? data.status : null;
-    if (reference && status === 'SUCCEEDED') {
-      const order = await getOrderByReference(reference);
-      if (order?.merchant_id) {
-        await claimOrderPayout({
+    if (!reference || !status) return { ok: true };
+
+    const order = await getOrderByReference(reference);
+    // Account identity: a valid token for account A must not act on an order bound to account B
+    // (references are order-scoped, identical across accounts).
+    if (!order || !order.merchant_id || order.payout_provider_id !== providerId) return { ok: true };
+
+    const orphan = async (why: string) => {
+      await appendOrderEvent(order.id, order.state, order.state, 'payout_orphaned', {
+        provider: providerId,
+        providerRef: order.payout_provider_ref,
+        reference,
+        raw: status,
+        why,
+      });
+      await insertRiskEvent({
+        userId: order.user_id,
+        kind: 'payout_orphaned_webhook',
+        amountUsd: Number(order.amount_usdc),
+        decision: 'review',
+        score: 0,
+        reason: `${why}: ${providerId} reports ${status} for ${reference} while order is ${order.state}`,
+        counterparty: `${providerId}:${reference}`,
+      });
+    };
+
+    if (status === 'SUCCEEDED') {
+      // Re-derive before claiming — the webhook body is unauthenticated data wearing a valid
+      // envelope; the provider's API is the authority.
+      const provider = await payoutProviderById(providerId, (m) => req.log.warn(m));
+      const chk = await provider?.check(reference).catch(() => null);
+      if (chk?.status === 'paid') {
+        const claimed = await claimOrderPayout({
           orderId: order.id,
           merchantId: order.merchant_id,
-          reference: `xendit:${reference}`,
+          reference: `${providerId}:${reference}`,
           windowMs: DISPUTE_WINDOW_MS,
         });
+        if (!claimed && (order.state === 'refunded' || order.state === 'completed' || order.state === 'funds_released')) {
+          await orphan('paid_after_settlement');
+        }
       }
+    } else if (status === 'REVERSED' && (order.state === 'funds_released' || order.state === 'completed')) {
+      // Post-RELEASE reversal: escrow is already gone, the fiat unwound at the vendor. Nothing to
+      // freeze — record the incident loudly. (Pre-release reversals are caught by the worker's
+      // release gate; this is the only observer once the order settles.)
+      await orphan('reversed_after_release');
     }
     return { ok: true };
   });
