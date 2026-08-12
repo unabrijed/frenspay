@@ -10,6 +10,8 @@ import type {
   AdminDenylistAddRequest,
   AdminDenylistResponse,
   AdminDisputeResolveRequest,
+  AdminInviteMintRequest,
+  AdminInvitesResponse,
   AdminKybRequest,
   AdminMerchantStatusRequest,
   AdminMerchantsResponse,
@@ -27,12 +29,15 @@ import { requireAdmin } from '../auth';
 import {
   addDenylistEntry,
   adminOverview,
+  findUserByHandle,
   getDisputeForOrder,
   getOrderAdmin,
   insertAdminAction,
+  inviteCodeStatus,
   listAdminActions,
   listAllPayoutProviders,
   listDenylist,
+  listInviteCodesAdmin,
   listMerchantsAdmin,
   listOrdersAdmin,
   listOrderTransfersAdmin,
@@ -40,11 +45,14 @@ import {
   listRoutingAttemptsAdmin,
   listUsersAdmin,
   listWaitlist,
+  mintInviteCodes,
   removeDenylistEntry,
+  revokeInviteCode,
   setMerchantKyb,
   setMerchantStatus,
   updatePayoutProvider,
 } from '../db/queries';
+import { canonicalInviteCode } from '../services/invites';
 import { settleDispute } from '../services/orderMachine';
 import { providerHasCredentials } from '../services/payout/provider';
 
@@ -91,6 +99,16 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       await requireAdmin(req);
       const page = await listUsersAdmin(Number(req.query.limit ?? 50), req.query.cursor);
       return { users: page.items, nextCursor: page.nextCursor };
+    },
+  );
+
+  // "Who has what" — the console is the ONLY place a code is readable after its owner's one look.
+  app.get<{ Querystring: { limit?: string; cursor?: string } }>(
+    '/admin/invites',
+    async (req): Promise<AdminInvitesResponse> => {
+      await requireAdmin(req);
+      const page = await listInviteCodesAdmin(Number(req.query.limit ?? 50), req.query.cursor);
+      return { invites: page.items, nextCursor: page.nextCursor };
     },
   );
 
@@ -253,6 +271,59 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       targetKind: 'denylist',
       targetId: req.params.id,
     });
+    return { ok: true };
+  });
+
+  /**
+   * Mint invite codes. This is the endpoint whose absence was the blocker: with the allowance
+   * living on the user row and no route touching users, nobody could produce an invite at all.
+   *
+   * Omit ownerHandle for HOUSE codes (owner_id null). They belong to nobody, so no allowance
+   * constrains them and the account they create has no referrer — the honest record of "an operator
+   * let this person in", not a forged friendship.
+   *
+   * The response carries the codes in clear. It is the only bulk view of them that exists, and the
+   * whole point of minting is to hand them to someone.
+   */
+  app.post<{ Body: AdminInviteMintRequest }>('/admin/invites', async (req, reply) => {
+    const adminId = await requireAdmin(req);
+    const { count, ownerHandle, note } = req.body ?? {};
+    // Capped at 50 per call: a fat-fingered 5000 would be tedious to walk back, and nothing
+    // legitimate needs more in one go.
+    if (!Number.isInteger(count) || count < 1 || count > 50) {
+      return reply.code(400).send({ error: 'invalid_count' });
+    }
+    let ownerId: string | null = null;
+    if (ownerHandle) {
+      const owner = await findUserByHandle(ownerHandle);
+      if (!owner) return reply.code(404).send({ error: 'owner_not_found' });
+      ownerId = owner.id;
+    }
+    const codes = await mintInviteCodes(ownerId, count, note?.trim() || undefined);
+    await insertAdminAction({
+      adminUserId: adminId,
+      action: 'invite_mint',
+      targetKind: 'invite',
+      // No single target row, so record the grant itself. 'house' is the meaningful distinction.
+      targetId: ownerId ? `user:${ownerHandle}` : 'house',
+      note: [`count=${codes.length}`, note?.trim()].filter(Boolean).join(' '),
+    });
+    return { ok: true, codes };
+  });
+
+  /** Revoke an UNUSED code. Burned codes are history and stay that way — the account they created
+   *  still exists, so pretending the invite never happened would make the audit trail lie. */
+  app.delete<{ Params: { code: string } }>('/admin/invites/:code', async (req, reply) => {
+    const adminId = await requireAdmin(req);
+    const code = canonicalInviteCode(req.params.code);
+    if (!code) return reply.code(404).send({ error: 'code_not_found' });
+    if (!(await revokeInviteCode(code))) {
+      // Only the failure path pays for a second read, to say WHICH kind of no this was.
+      const status = await inviteCodeStatus(code);
+      if (!status) return reply.code(404).send({ error: 'code_not_found' });
+      return reply.code(409).send({ error: status === 'burned' ? 'code_used' : 'already_revoked' });
+    }
+    await insertAdminAction({ adminUserId: adminId, action: 'invite_revoke', targetKind: 'invite', targetId: code });
     return { ok: true };
   });
 }

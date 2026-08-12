@@ -38,3 +38,9 @@ alter table users add column if not exists invites_revealed_at timestamptz;
 -- which is auditable and produces real objects. users.referred_by STAYS: it now points at the
 -- redeemed code's owner_id, so invite lineage is unchanged and still write-once.
 alter table users drop column if exists referral_limit;
+
+-- admin_actions gains four action names — invite_mint, invite_revoke, role_grant, role_revoke —
+-- and one target_kind, 'invite'. No DDL needed: both columns are free text with no CHECK, which is
+-- exactly why they were built that way. The enumerating comment on the table in 0001 is stale and
+-- stays stale: it was applied, so editing it now would trip the checksum drift warning. This is the
+-- forward-only place to record them.

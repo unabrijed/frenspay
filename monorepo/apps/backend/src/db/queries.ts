@@ -129,7 +129,9 @@ export async function findUserByPrivyDid(did: string): Promise<UserRow | null> {
  * rather than the codes we hoped for, so a shortfall is visible instead of imaginary.
  */
 async function mintCodesFor(
-  client: PoolClient,
+  // Pool and PoolClient both satisfy this — the sync path needs its own client (it is mid-
+  // transaction), the admin path does not.
+  client: Pick<PoolClient, 'query'>,
   ownerId: string | null,
   count: number,
   opts: { onlyIfNone?: boolean; note?: string } = {},
@@ -2695,6 +2697,68 @@ export async function addDenylistEntry(
 export async function removeDenylistEntry(id: string): Promise<boolean> {
   const { rowCount } = await getPool().query(`delete from denylist where id = $1`, [id]);
   return (rowCount ?? 0) > 0;
+}
+
+/* ---- admin: invite codes ---- */
+
+/** Every code, newest first, with both ends resolved to handles. Keyset tiebreak is `code` (text,
+ *  the PK) rather than a uuid, so the cursor casts to ::text — otherwise identical to the other
+ *  admin lists. */
+export async function listInviteCodesAdmin(limit = 50, cursor?: string): Promise<Page<AdminInviteCode>> {
+  const n = clampLimit(limit, 50, 100);
+  const c = parseCursor(cursor);
+  const { rows } = await getPool().query<{
+    code: string;
+    owner_handle: string | null;
+    redeemed_by_handle: string | null;
+    redeemed_at: Date | null;
+    revoked_at: Date | null;
+    note: string | null;
+    created_at: Date;
+  }>(
+    `select i.code, o.handle as owner_handle, r.handle as redeemed_by_handle,
+            i.redeemed_at, i.revoked_at, i.note, i.created_at
+       from invite_codes i
+       left join users o on o.id = i.owner_id
+       left join users r on r.id = i.redeemed_by
+      where ($2::timestamptz is null or (i.created_at, i.code) < ($2::timestamptz, $3::text))
+      order by i.created_at desc, i.code desc limit $1`,
+    [n + 1, c?.at ?? null, c?.id ?? null],
+  );
+  const pageRows = rows.slice(0, n);
+  const last = pageRows[pageRows.length - 1];
+  return {
+    items: pageRows.map((r) => ({
+      code: r.code,
+      ownerHandle: r.owner_handle,
+      // Revoked wins over redeemed: if an operator somehow revoked a burned code, the operator's
+      // action is the more recent truth and the more useful thing to show.
+      status: r.revoked_at ? 'revoked' : r.redeemed_at ? 'burned' : 'unused',
+      redeemedByHandle: r.redeemed_by_handle,
+      redeemedAt: r.redeemed_at?.toISOString() ?? null,
+      revokedAt: r.revoked_at?.toISOString() ?? null,
+      note: r.note,
+      createdAt: r.created_at.toISOString(),
+    })),
+    nextCursor: rows.length > n && last ? `${last.created_at.toISOString()}|${last.code}` : undefined,
+  };
+}
+
+/** Mint from the console. `ownerId` null = a house code, constrained by nobody's allowance — the
+ *  reason this endpoint exists at all. Returns what actually landed, not what was asked for. */
+export async function mintInviteCodes(ownerId: string | null, count: number, note?: string): Promise<string[]> {
+  return mintCodesFor(getPool(), ownerId, count, { note });
+}
+
+/** Revoke an unused code. False = it wasn't revokable (gone, burned, or already revoked); the
+ *  caller re-reads inviteCodeStatus to say which, so the happy path stays one statement. */
+export async function revokeInviteCode(code: string): Promise<boolean> {
+  const res = await getPool().query(
+    `update invite_codes set revoked_at = now()
+      where code = $1 and redeemed_at is null and revoked_at is null`,
+    [code],
+  );
+  return res.rowCount === 1;
 }
 
 /** Audit trail: every /admin/* mutation records who did what before responding. */
