@@ -26,13 +26,13 @@ monorepo/
 ## Prerequisites
 
 ```bash
-nvm use            # Node 22 (repo pins it via .nvmrc)
+nvm use            # Node 24 (repo pins it via .nvmrc)
 corepack enable    # honors the pinned Yarn (yarn@1.22.22)
 yarn install       # run from this monorepo/ directory
 ```
 
-> Run everything under **Node 22**. (The default Node 25 mostly works, but the repo is
-> pinned to 22 — `nvm use` first.)
+> Run everything under **Node 24** (`@solana-program/token` needs ≥24; Railway's image and the
+> Vercel projects are pinned to it too). `nvm use` first.
 
 ---
 
@@ -83,8 +83,9 @@ Ctrl-C stops the whole group; nothing is left holding a port.
 | `yarn workspace @fpay/<app> <cmd>` | Run any script in a specific workspace |
 
 Every repo-level tool is typed the short way. The deliberate exception is per-app **`build`** and
-**`start`** — `apps/*/vercel.json` and `.githooks/pre-push` run those exact strings, so a root alias
-would be a second way to say something deploy config already says one way, and the two can drift.
+**`start`** — the Vercel configs (the root `vercel.json` for web, `apps/{admin,landing}/vercel.json`)
+and `.githooks/pre-push` run those exact strings, so a root alias would be a second way to say
+something deploy config already says one way, and the two can drift.
 
 > **There is no `yarn mobile` / `yarn dev:mobile`.** `apps/mobile` is parked out of the workspace, so
 > it has no installed dependencies and no root script — see [Mobile app](#mobile-app-appsmobile-parked)
@@ -215,8 +216,11 @@ Next only inlines **literal** `process.env.NEXT_PUBLIC_*` references appearing i
 source, and the backend may only `import type` from `@fpay/shared`. `yarn check:env` asserts the
 blocks stay identical and that nothing reads `process.env` outside an `envConfig.ts`.
 
-`PORT` (backend) stays unprefixed — the host platform injects it. See each app's
-`.env.example`.
+Two kinds of vars sit outside the `NEXT_PUBLIC_*` pattern: host-level ones (`PORT` — the platform
+injects it, `PUBLIC_BASE_URL`), and the web deploy access gate's server-only keys
+(`STAGE_ACCESS_KEY` on the stage Vercel project / bare `ACCESS_KEY` on prod — read by
+`apps/web/src/middleware.ts`, never inlined into a browser bundle). See each app's `.env.example`
+and `DEPLOY.stage.md`.
 
 ---
 
@@ -260,6 +264,9 @@ backend with `curl localhost:3001/health` plus the endpoints in the backend READ
 
 - **Env changes don't take effect** — `NEXT_PUBLIC_*` is inlined at start, not read at runtime;
   restart `yarn dev:web`.
+- **Every route shows an "Enter your access key" form** — the deploy access gate is on because
+  `STAGE_ACCESS_KEY` is set in `apps/web/.env.local`. Enter that value once, or remove the line
+  (unset = gate off, the local default). On a stage/prod domain that form is correct behavior.
 - **Privy login rejected on web** — add `http://localhost:3000` as an allowed origin in the
   Privy dashboard app; confirm `NEXT_PUBLIC_STAGE_PRIVY_APP_ID` is set.
 - **`/balance` is 0 / Send errors with "no mint"** — `devnet:setup` hasn't run (or
@@ -280,10 +287,13 @@ Once the parked mobile app is resumed:
 
 ## Deploy
 
-The backend deploys on **Railway** (Nixpacks, `railway.json`, Node pinned via `.nvmrc`).
-Full steps + the env-var checklist live in [`apps/backend/README.md`](./apps/backend/README.md).
+Backend on **Railway** (repo-root `Dockerfile`, `node:24-slim`, Supabase Postgres), frontends on
+**Vercel** — one project per app per environment (`stage` branch → stage projects, `sacred` →
+prod). The deployed web app sits behind a shared **access-key gate** until launch. The runbooks —
+every dashboard setting, variable, domain step, and test — are
+[`DEPLOY.stage.md`](./DEPLOY.stage.md) (start here) and [`DEPLOY.md`](./DEPLOY.md) (prod/mainnet).
 
 ## Cost note
 Everything here is free to develop with: Solana **devnet**, Helius free RPC, Privy free
-tier, Railway's free/low trial tier, and the free **web** workflow (no EAS needed — and if
-mobile is resumed, the Android dev build is local + free).
+tier, Railway's free/low trial tier, Vercel's free Hobby tier for the frontends, and the free
+**web** workflow (no EAS needed — and if mobile is resumed, the Android dev build is local + free).

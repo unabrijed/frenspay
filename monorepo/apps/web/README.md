@@ -8,7 +8,7 @@ an embedded Solana wallet work **with no device or dev build**.
 ## Run
 
 ```bash
-# from the monorepo root (Node 22 — `nvm use` first)
+# from the monorepo root (Node 24 — `nvm use` first)
 yarn dev:web                          # web :3000 + backend :3001
 yarn workspace @fpay/web build         # production build
 yarn workspace @fpay/web start         # serve the production build
@@ -18,6 +18,10 @@ yarn workspace @fpay/web tsc --noEmit  # typecheck just this app
 **There is no mock mode** — the app always talks to the real backend. With an empty `.env.local`
 you get the shell and nothing more: Privy never mounts, requests go out unauthenticated and come
 back 401, and the first send throws *"No active signer configured"*. Pick one of the two paths.
+
+If every route instead shows an **"Enter your access key"** form, the deploy access gate is on:
+`STAGE_ACCESS_KEY` is set in `.env.local`. Enter that value once (the device remembers it) or
+remove the line — unset = gate off, the local default. Deployed stage/prod always run gated.
 
 ## Signing in
 
@@ -49,3 +53,7 @@ strips. Full notes in `.env.example` and the [root README](../../README.md#web-a
 - Privy Solana peer deps (`@solana/kit`, `@solana-program/*`) are installed with
   `--ignore-engines` (they demand Node ≥24 but are browser-bundled); `next.config.ts` stubs
   Privy's unused `@stripe/crypto` + `@farcaster/mini-app-solana` imports.
+- This app ships **server-side code**: `src/middleware.ts` (the deploy access gate) + the
+  `app/gate/route.ts` handler. That's why it deploys as a Next server on Vercel and can never
+  become a static export like landing — gate details and the per-env keys
+  (`STAGE_ACCESS_KEY`/`ACCESS_KEY`) live in `../../DEPLOY.stage.md`.
