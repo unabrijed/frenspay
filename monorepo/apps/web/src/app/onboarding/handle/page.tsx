@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 
 import { Icons } from '@/components/icons';
 import { BackButton } from '@/components/ui/BackButton';
-import { Btn, TextLink } from '@/components/ui/Button';
+import { Btn } from '@/components/ui/Button';
 import { Splash } from '@/components/ui/Splash';
 import { View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
@@ -166,14 +166,15 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
             />
           </View>
           {err ? <Txt style={[type.note, { color: colors.danger, marginTop: 8 }]}>{err}</Txt> : null}
+          {/* This used to read "No invite? Join the f list →" and it was an escape hatch. It isn't
+              one any more: the f list is itself invite-only, so that link sent someone with no code
+              to a form demanding the code they'd just said they didn't have. There is no way in
+              without one, and saying so is kinder than a door that opens onto the same wall. */}
           {gated ? (
-            <TextLink
-              label="No invite? Join the f list →"
-              onPress={() => {
-                window.location.href = `${LANDING_URL}/#flist`;
-              }}
-              style={{ marginTop: 10 }}
-            />
+            <Txt style={[type.note, { marginTop: 10 }]}>
+              fpay is invite-only — you need a code from a fren. They can find theirs on{' '}
+              {LANDING_URL.replace(/^https?:\/\//, '')}.
+            </Txt>
           ) : null}
         </View>
       </View>
