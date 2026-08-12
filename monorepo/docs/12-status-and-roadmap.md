@@ -146,3 +146,22 @@ points at the git root. The deployed web app now sits behind a **shared access-k
 unset = off) — web's first server-side code, which makes it permanently a Next server rather than a
 static export. Both DEPLOY files are now step-by-step runbooks (settings, variables, domains,
 tests). Pending: first admin deploy (the tracing-root fix), stage web/API custom domains.
+
+**2026-08-12 increment (docs/02, docs/20): the invite code became a real thing.** The gate used to
+be an existing user's `@handle` plus a counter on their row (`users.referral_limit`), which meant
+**nobody — not even an admin — could generate an invite**: the only lever was a hand-written
+`UPDATE`, exactly as the baseline migration's own comment instructed. Codes are now rows
+(`invite_codes`), so they can be minted, listed, revoked and audited. Redemption moved **inside the
+account-creation transaction**, where `select … for update` on the single code row replaced the
+lock-the-referrer-then-count-in-a-separate-statement dance — a net deletion, and stronger: two
+people racing one code, one wins, the other reads `redeemed_at` and gets a clean 403. Unknown, used
+and revoked collapse to one `invalid_invite` so the endpoint can't be used as an oracle. The
+**landing page is now the door** (`POST /invite/check`, public and check-only — it never burns and
+never reserves, because reserving would mean holding a lock across a redirect and a whole signup),
+with the f list demoted to the fallback. Each account gets **three codes shown exactly once**,
+server-enforced via `users.invites_revealed_at`: lose one, lose a fren. Admin gained an invites
+console (house codes, owned by nobody, are the standing answer to "we're out") and **team
+management** — promoting an operator was the other SQL-only hole, with `ADMIN_EMAILS` naming root
+admins who can't be demoted so one bad click can't lock everyone out. `users.email` is finally
+written, from Privy, after existing unused since the baseline. Pending: the square logo cut sweeping
+the rest of the apps, and automating queue → invite-send.

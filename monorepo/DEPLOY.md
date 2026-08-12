@@ -58,5 +58,16 @@ variables live per Vercel project (see the block above); web's `ACCESS_KEY` is d
 - `CORS_ORIGIN` must list EVERY prod browser origin (see the CORS section in `DEPLOY.stage.md` —
   same rule, bare variable name).
 - A **security review** before handling real funds (key custody, rate-limits, abuse).
-- Decide the door: keep `ACCESS_KEY` set (invite-only mainnet) or unset it (public launch — the
-  gate is the launch switch, see the Vercel block above).
+- **Decide the door — there are now two, and they don't stack well.** `ACCESS_KEY` is one shared
+  secret checked in `apps/web/src/middleware.ts` (device cookie, no identity); invite codes are
+  per-person and enforced at `/auth/sync`. Since the landing gate hands a valid-code holder to the
+  web app, they hit the access-key wall *anyway* and still can't get in unless you also send them
+  the shared key — two secrets per invited user, which defeats the invite.
+  - Recommended at launch: **unset `ACCESS_KEY`** and let the invite code be the only door. That is
+    what it is for, and it is the same launch switch described in the Vercel block above.
+  - Keep both only while the deploy itself is meant to be private (a build nobody outside the team
+    should reach), and accept that invites are inert until you unset it.
+- Set `ADMIN_EMAILS` (bare name in prod) before the console has a second operator — see the
+  root-admins section in `DEPLOY.stage.md` for why it is the lockout recovery path.
+- Set landing's `NEXT_PUBLIC_APP_URL` to the prod web origin, or accepted invite codes redirect to
+  `localhost:3000`.

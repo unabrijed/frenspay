@@ -142,7 +142,8 @@ accounts yet. `users.referred_by` is the self-reference that carries the invite 
 
 | Table | Purpose | Notes |
 |---|---|---|
-| **users** | one row per person | keyed to Privy DID; unique canonical **immutable** `handle`; opt-in E.164 `phone` (partial unique index `uq_users_phone` = the pay-by-phone mapper); best-effort `country` (dialing default); `kyc_tier` drives M5 limits; `role ∈ user/merchant/admin`; `referred_by` self-FK + `referral_limit` (default 3) = the invite-only gate, enforced at row creation in `/auth/sync` |
+| **users** | one row per person | keyed to Privy DID; unique canonical **immutable** `handle`; opt-in E.164 `phone` (partial unique index `uq_users_phone` = the pay-by-phone mapper); best-effort `country` (dialing default); `kyc_tier` drives M5 limits; `role ∈ user/merchant/admin` (granted from the console, or by `ADMIN_EMAILS` for root admins); `referred_by` self-FK = who invited them (the redeemed code's owner; null for a house code); `invites_revealed_at` gates the one-look reveal |
+| **invite_codes** | the invite-only gate | `code` PK (`FP-XXXX-XXXX`, Crockford base32 minus I/L/O/U, plain text so the console can read it back); `owner_id` null = house code minted by an admin; `redeemed_by` **unique** = an account burns at most one code ever; status is derived from `redeemed_at`/`revoked_at`, never stored. Redemption happens inside the `/auth/sync` transaction under `select … for update` |
 | **wallets** | a user's chain address(es) | `chain='solana'`; unique `address` |
 | **transfers** | the money ledger | `amount_usdc numeric(20,6)`, `> 0`; `kind ∈ send/add/pay/escrow_fund/escrow_release`; `status ∈ pending/confirmed/failed`; unique `signature`; `chain` (confirmer polls `'solana'` only); `idempotency_key` (unique per sender — prepare replay/dedupe) |
 | **payment_requests** | "you owe me $X" | `amount_usdc numeric(20,6)`, `> 0`; `status ∈ open/paid/cancelled`; links the fulfilling `transfer_id` |
@@ -208,7 +209,9 @@ accounts yet. `users.referred_by` is the self-reference that carries the invite 
   `denylist` + `risk_events` (M5), `notifications` (M6); idempotent constraint + column backfills;
   owner-scoped queries.
 - ✅ Post-M6 growth + ops tables: `admin_actions` (console audit trail), `users.role`,
-  `users.referred_by`/`referral_limit` (invite-only gate), and `waitlist` + its referral columns.
+  `invite_codes` + `users.referred_by`/`invites_revealed_at` (invite-only gate), and `waitlist` +
+  its referral columns. `users.referral_limit` was dropped in `0007`: the count of `invite_codes`
+  rows is the allowance, so a separate counter could only drift from it.
 - 🟡 `waitlist.ref_code` is null on rows written before the referral loop; the `coalesce` in
   `addWaitlistEmail` backfills one the next time that address is submitted, so legacy rows stay
   code-less until they re-submit.

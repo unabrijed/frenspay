@@ -115,6 +115,20 @@ effectively inert and the poller did the work — on mainnet it genuinely functi
 devnet-era webhook exists at the same URL, delete it in the Helius dashboard first (registration
 is idempotent by URL and would report "already registered").
 
+## Required once the console has more than one operator: root admins
+
+```
+STAGE_ADMIN_EMAILS=unabrijed@gmail.com
+```
+
+Comma-separated Privy login addresses that are admin regardless of `users.role`, and that the
+console refuses to demote. Everyone else is promoted from Admin → Users. This exists as the lockout
+recovery path: the demote guards mean a bad click can't strip the last admin, and if one somehow
+does, the env var still lets someone in without a psql session.
+
+Matched against `users.email`, which `/auth/sync` now fills from Privy — so an operator has to have
+signed into the app at least once before the match can work.
+
 ## Optional: waitlist / referral emails (Resend)
 
 All four vars, or nothing happens (unset is a deliberate, safe state — `/waitlist` keeps accepting
@@ -202,8 +216,11 @@ Ship to prod by merging `stage` → `sacred` (PR).
    landing (stage):
    ```
    NEXT_PUBLIC_APP_ENV=stage
-   NEXT_PUBLIC_STAGE_API_URL=<same as web>                    # the waitlist posts here
+   NEXT_PUBLIC_STAGE_API_URL=<same as web>                    # the waitlist + /invite/check post here
+   NEXT_PUBLIC_STAGE_APP_URL=https://stage.frenspay.xyz       # where a valid invite code hands off
    ```
+   Without `NEXT_PUBLIC_STAGE_APP_URL` the invite gate falls back to `http://localhost:3000`, so
+   every accepted code on a deployed landing page sends the visitor nowhere. Set it with the others.
 5. **Deploy**: push `stage` (or Deployments → Redeploy). Watch the log: install and build must run
    the `vercel.json` commands verbatim, and web must get past the post-build step (the historical
    crash below) to READY.
