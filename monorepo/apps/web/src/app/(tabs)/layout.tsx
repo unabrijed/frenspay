@@ -18,10 +18,20 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const hydrated = useStoreHydrated();
   const onboarded = usePayStore((s) => s.onboarded);
+  const hasUnseenInvites = usePayStore((s) => s.invites.length > 0);
 
   useEffect(() => {
     if (hydrated && !onboarded) router.replace('/');
   }, [hydrated, onboarded, router]);
+
+  // The one-look invite reveal, guarded HERE rather than wired into the onboarding chain: /me only
+  // returns the codes while they're unacknowledged, so this fires on whichever path reaches the
+  // tabs first — a new user finishing funding, the mainnet fund-skip, or an account that predates
+  // invite codes entirely and just got minted three on its next /me. One guard at the sink covers
+  // every path in, same as the faucet guard in onboarding/fund.
+  useEffect(() => {
+    if (hydrated && onboarded && hasUnseenInvites) router.replace('/onboarding/invites');
+  }, [hydrated, onboarded, hasUnseenInvites, router]);
 
   // Hold the splash until we know the user is onboarded, so tab content never flashes before a
   // guard redirect (and never renders for a user who shouldn't see it).

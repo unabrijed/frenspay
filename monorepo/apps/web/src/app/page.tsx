@@ -15,14 +15,15 @@ export default function Page() {
   const handle = usePayStore((s) => s.handle);
   const authStatus = usePayStore((s) => s.authStatus);
 
-  // Invite links land here as /?ref=@handle. Stash the code before the redirect strips the query —
-  // localStorage (not session) so "got a link today, signed up next week" still prefills. The
-  // handle step reads and clears it. `fpay:resumePay` is the naming precedent.
+  // The landing gate sends verified codes here as /?invite=FP-XXXX-XXXX. Stash it before the
+  // redirect strips the query — localStorage (not session) so "got a code today, signed up next
+  // week" still prefills, and so it survives the Privy email-OTP round trip in between. The handle
+  // step reads and clears it. `fpay:resumePay` is the naming precedent.
   useEffect(() => {
-    const ref = new URLSearchParams(window.location.search).get('ref');
-    if (ref) {
+    const invite = new URLSearchParams(window.location.search).get('invite');
+    if (invite) {
       try {
-        localStorage.setItem('fpay:ref', ref);
+        localStorage.setItem('fpay:invite', invite.toUpperCase());
       } catch {
         /* storage blocked — manual entry still works */
       }
