@@ -113,6 +113,11 @@ stage project's *Production Branch* is `stage`; the prod twin's is `sacred` (see
 Stage env vars live as that project's plain Production-env variables — no Preview-scoped juggling.
 Ship to prod by merging `stage` → `sacred` (PR).
 
+Web is behind a **deploy access gate** (`apps/web/src/middleware.ts`): set `STAGE_ACCESS_KEY` on the
+stage project to a fresh `openssl rand -hex 32`. Every route then serves a key form until the device
+presents the key once (year-long cookie). Unset = gate off. The prod twin sets bare `ACCESS_KEY`
+with a **different** key (`DEPLOY.md`). Rotate the var to evict every device on that environment.
+
 | project | Production Branch | Root Directory | config file |
 | ------- | ----------------- | -------------- | ----------- |
 | web (stage) | `stage` | **`monorepo`** | root `vercel.json` (builds `@fpay/web`, output `apps/web/.next`) |
@@ -149,9 +154,17 @@ Other invariants on EVERY project (dashboard):
   root-level changes (docs, lockfile) may build all frontends of the matching branch.
 - **Node.js Version: 24** (`@solana-program/token` engine floor; `.yarnrc` ignore-engines masks it
   at install, set it anyway for runtime parity).
-- Web's Root Directory is the **workspace root**, not the app dir — the app-subdir pattern breaks
-  `@vercel/next`'s serverBuild on this repo (`noop.js` → `Cannot find module …server.runtime.prod.js`).
-  Admin keeps the subdir pattern; if its first deploy ever hits that same error, that's why.
+- Web only: **Include source files outside of the Root Directory: OFF** (under Root Directory).
+  Root cause of `noop.js` → `Cannot find module …server.runtime.prod.js`: with the toggle ON,
+  `/vercel/path0` is the *git* root (`payments/`), but `next build` records the app dir relative
+  to `outputFileTracingRoot` (the monorepo — pinned in `apps/web/next.config.ts`), so
+  `@vercel/next` resolves Next from `/vercel/path0/apps/web`, which doesn't exist. OFF makes
+  `/vercel/path0` = the monorepo and the roots coincide. (`noop.js` is `resolve-from`'s synthetic
+  module name, not a real file — the crash is the same in any Root Directory pattern.)
+- Admin can't use that toggle (its Root Directory is the app dir; install/build need the workspace
+  root above it) and WILL hit the same crash on its first deploy. Fix then: set admin's
+  `outputFileTracingRoot` to the git root (`payments/`) so its recorded app dir becomes
+  `monorepo/apps/admin`.
 
 ## Pre-push build gate
 

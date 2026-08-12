@@ -5,7 +5,7 @@
 // takes them out of routing entirely.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { BackButton } from '@/components/ui/BackButton';
 import { Btn } from '@/components/ui/Button';
@@ -53,10 +53,12 @@ export default function MerchantStake() {
     }
   };
 
-  if (!merchant) {
-    router.replace('/merchant');
-    return null;
-  }
+  // Redirect in an effect, not during render — the client router touches `location`, which
+  // doesn't exist while this page is being statically prerendered.
+  useEffect(() => {
+    if (!merchant) router.replace('/merchant');
+  }, [merchant, router]);
+  if (!merchant) return null;
 
   // Number() at the point of use: these are decimal strings on the wire, and `-` / `<` on a string
   // is either a coercion or a LEXICAL compare ("900.000000" < "2000.000000" is false).

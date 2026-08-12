@@ -5,7 +5,8 @@ variables. Going to real money is a deliberate, separate step. Ship = merge `sta
 
 **Vercel prod projects** (twins of the stage table in `DEPLOY.stage.md`, same invariants —
 branch-pin Ignored Build Step `[ "$VERCEL_GIT_COMMIT_REF" = "sacred" ] && exit 1 || exit 0`,
-Skip-unaffected Enabled, Node 24):
+Skip-unaffected Enabled, Node 24, and web's **Include source files outside of the Root
+Directory: OFF** — see the root-cause note in `DEPLOY.stage.md`):
 
 | project | Production Branch | Root Directory | domain |
 | ------- | ----------------- | -------------- | ------ |
@@ -39,3 +40,5 @@ injected by Railway; `PUBLIC_BASE_URL=https://api.frenspay.xyz`).
 - `CORS_ORIGIN` must list EVERY prod browser origin (see the CORS section in `DEPLOY.stage.md` —
   same rule, bare variable name).
 - A **security review** before handling real funds (key custody, rate-limits, abuse).
+- Web prod project sets `ACCESS_KEY` (deploy access gate) to a fresh `openssl rand -hex 32` —
+  different from stage's `STAGE_ACCESS_KEY`. See the gate note in `DEPLOY.stage.md`.
