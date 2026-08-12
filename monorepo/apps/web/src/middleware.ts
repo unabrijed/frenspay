@@ -8,10 +8,16 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { colors } from '@fpay/shared';
 
 import { expectedCookie, GATE_COOKIE } from '@/lib/gate';
-import { ACCESS_KEY } from '@/services/envConfig';
+import { ACCESS_KEY, IS_LOCAL_ENV } from '@/services/envConfig';
 
 export async function middleware(req: NextRequest) {
-  if (!ACCESS_KEY) return NextResponse.next(); // no key configured (local dev) — gate off
+  if (!ACCESS_KEY) {
+    // Local dev (`next dev` → tier 'local') runs ungated. A deployed tier with no key is a
+    // misconfiguration — fail closed instead of silently serving the app to strangers.
+    // (Testing a local prod build needs ACCESS_KEY in .env.local or NEXT_PUBLIC_APP_ENV=local.)
+    if (IS_LOCAL_ENV) return NextResponse.next();
+    return new NextResponse('Locked: no access key configured for this deployment.', { status: 503 });
+  }
   if (req.cookies.get(GATE_COOKIE)?.value === (await expectedCookie())) return NextResponse.next();
   // The key submission itself must reach the /gate route handler.
   if (req.method === 'POST' && req.nextUrl.pathname === '/gate') return NextResponse.next();
