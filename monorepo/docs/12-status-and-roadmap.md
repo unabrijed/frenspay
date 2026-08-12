@@ -132,3 +132,17 @@ cent nobody funded. `0002_money_checks.sql` adds sign constraints as the backsto
 (now in `check:all`) guards the two traps TypeScript can't see — `<` between decimal strings compares
 *lexically*, and `+` *concatenates*. Pending: nothing in this workstream; `apps/mobile` still carries
 the old float shape but is parked outside the workspace.
+
+**2026-08-12 increment (DEPLOY.stage.md/DEPLOY.md): stage hosting became real and gated.** The
+backend cut over to a repo-root **Dockerfile** (`node:24-slim`, Supabase session-pooler Postgres,
+migrations before start) on Railway, and the frontends adopted the OMS Vercel model — **one project
+per app per environment** (`stage` branch → stage projects, `sacred` → prod twins). Two hard-won
+invariants got documented at the root cause: web's Vercel project needs **"Include source files
+outside of the Root Directory" OFF** (otherwise `@vercel/next` resolves the app dir against the git
+root while `next build` recorded it against `outputFileTracingRoot`, the `noop.js` →
+`server.runtime.prod.js` crash), and admin will hit the same crash until its `outputFileTracingRoot`
+points at the git root. The deployed web app now sits behind a **shared access-key gate**
+(`src/middleware.ts` + `/gate`: per-env `openssl rand -hex 32` key, year-long hashed device cookie,
+unset = off) — web's first server-side code, which makes it permanently a Next server rather than a
+static export. Both DEPLOY files are now step-by-step runbooks (settings, variables, domains,
+tests). Pending: first admin deploy (the tracing-root fix), stage web/API custom domains.
