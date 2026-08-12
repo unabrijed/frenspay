@@ -27,4 +27,13 @@ export const FRENSPAY_COPY = {
 
   fList: 'join the f-list',
   success: 'fyi, you’re in.',
+
+  // The door. An invite code is the only way in, so it is the default state of the strip and the
+  // f-list is what you fall back to — the reverse of how this page used to read. "let me in" rather
+  // than "enter" or "submit": the whole product is somebody vouching for you, and the button should
+  // sound like a person asking, not a form being processed.
+  invite: 'let me in',
+  inviteLabel: 'invite code',
+  noCode: 'no code? join the f-list',
+  haveCode: 'got a code?',
 } as const;
