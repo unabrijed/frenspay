@@ -3,7 +3,13 @@
 // never to the underlying phone/address — reverse lookup is structurally impossible.
 import type { FastifyInstance } from 'fastify';
 
-import type { AuthSyncRequest, MeResponse, ResolveHandleResponse } from '@fpay/shared';
+import type {
+  AuthSyncRequest,
+  InviteCheckRequest,
+  InviteCheckResponse,
+  MeResponse,
+  ResolveHandleResponse,
+} from '@fpay/shared';
 
 import { requirePrivyDid, requireUserId } from '../auth';
 import { config } from '../envConfig';
@@ -15,6 +21,7 @@ import {
   getInviteStats,
   getMerchantForUser,
   hasAnyUsers,
+  inviteCodeStatus,
   markInvitesRevealed,
   getUserKycStatus,
   getUserKycTier,
@@ -39,6 +46,27 @@ function toKycStatus(s: string): MeResponse['kycStatus'] {
 }
 
 export async function registerAuthRoutes(app: FastifyInstance) {
+  /**
+   * The landing gate's pre-flight — public, because it runs before anyone has an account. Answers
+   * "is this code redeemable?" and NOTHING more: it never burns, never reserves, and holds no lock.
+   * Two people can both get a 200 for the same code and race at /auth/sync, where exactly one wins.
+   *
+   * `code_used` is a deliberate leak — "your friend gave you a dead code" is worth saying, and it
+   * tells a guesser only which strings are worthless. Revoked collapses into `invalid_code`: an
+   * operator killing a code shouldn't advertise that it ever existed. The information actually
+   * worth guarding is which codes are LIVE, and that is the 200 the rate limiter caps.
+   */
+  app.post<{ Body: InviteCheckRequest }>('/invite/check', async (req, reply): Promise<InviteCheckResponse | undefined> => {
+    const code = canonicalInviteCode(req.body?.code ?? '');
+    if (!code) return reply.code(404).send({ error: 'invalid_code' });
+    const status = await inviteCodeStatus(code);
+    if (status === 'burned') return reply.code(409).send({ error: 'code_used' });
+    if (status !== 'unused') return reply.code(404).send({ error: 'invalid_code' });
+    // Hand back the canonical form — the landing page forwards THIS to the app, so what the user
+    // typed loosely ('fp 7k2m qxwd') is normalised once, here, rather than again on every hop.
+    return { ok: true, code };
+  });
+
   app.post<{ Body: AuthSyncRequest }>('/auth/sync', async (req, reply) => {
     const privyDid = requirePrivyDid(req);
     const { handle, walletAddress } = req.body ?? ({} as AuthSyncRequest);
