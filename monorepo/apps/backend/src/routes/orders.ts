@@ -53,9 +53,16 @@ import { createQuote } from '../services/quoteEngine';
 // both price to a real, fundable USDC order without it (found by the prism skeptic pass).
 const MIN_ORDER_USD = 1;
 
+// The /sim/* routes can drive REAL escrow releases/refunds, so they key off the mint as well as
+// the tier — a stage backend pointed at mainnet must never expose them.
+const simEnabled = config.isDevelopment && !config.isMainnet;
+
 export async function registerOrderRoutes(app: FastifyInstance) {
   // Quote Engine: a locked rate+fee+ETA, valid 45s. Routing picks the best simulated merchant/LP.
   app.post<{ Body: QuoteRequest }>('/orders/quote', async (req, reply) => {
+    // Mainnet-lite: the escrow program isn't deployed to mainnet, so merchant-pay is off wherever
+    // the mint is real. Remove this gate (and its twin on POST /orders) when the program ships.
+    if (config.isMainnet) return reply.code(503).send({ error: 'payments_unavailable' });
     const userId = requireUserId(req);
     const { direction, payoutDestination, payoutName } = req.body ?? ({} as QuoteRequest);
     // The RAIL is the currency authority (docs/21; never the user's country, never the QR's own
@@ -105,6 +112,7 @@ export async function registerOrderRoutes(app: FastifyInstance) {
 
   // Confirm a quote → create the order + the unsigned escrow-funding tx (user signs via the client).
   app.post<{ Body: CreateOrderRequest }>('/orders', async (req, reply) => {
+    if (config.isMainnet) return reply.code(503).send({ error: 'payments_unavailable' });
     const userId = requireUserId(req);
     const { quoteId } = req.body ?? ({} as CreateOrderRequest);
     if (!quoteId) return reply.code(400).send({ error: 'missing_fields' });
@@ -185,7 +193,7 @@ export async function registerOrderRoutes(app: FastifyInstance) {
 
   // --- dev-only simulated-merchant controls (drive the lifecycle by hand; disabled in prod) ---
   app.post<{ Params: { id: string } }>('/sim/orders/:id/merchant-confirm', async (req, reply) => {
-    if (!config.isDevelopment) return reply.code(403).send({ error: 'sim_disabled' });
+    if (!simEnabled) return reply.code(403).send({ error: 'sim_disabled' });
     const userId = requireUserId(req);
     const order = await getOrderSimRow(req.params.id);
     if (!order || order.userId !== userId) return reply.code(404).send({ error: 'order_not_found' });
@@ -205,7 +213,7 @@ export async function registerOrderRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string }; Querystring: { reason?: string } }>(
     '/sim/orders/:id/fail',
     async (req, reply) => {
-      if (!config.isDevelopment) return reply.code(403).send({ error: 'sim_disabled' });
+      if (!simEnabled) return reply.code(403).send({ error: 'sim_disabled' });
       const userId = requireUserId(req);
       const order = await getOrderSimRow(req.params.id);
       if (!order || order.userId !== userId) return reply.code(404).send({ error: 'order_not_found' });
@@ -235,7 +243,7 @@ export async function registerOrderRoutes(app: FastifyInstance) {
   // M3 failover demo (dev only): force the assigned LP to fail NOW so the next worker tick re-routes
   // the order to the next-best LP — independent of which LP got picked.
   app.post<{ Params: { id: string } }>('/sim/orders/:id/merchant-fail', async (req, reply) => {
-    if (!config.isDevelopment) return reply.code(403).send({ error: 'sim_disabled' });
+    if (!simEnabled) return reply.code(403).send({ error: 'sim_disabled' });
     const userId = requireUserId(req);
     const order = await getOrderSimRow(req.params.id);
     if (!order || order.userId !== userId) return reply.code(404).send({ error: 'order_not_found' });
@@ -299,7 +307,7 @@ export async function registerOrderRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string }; Querystring: { decision?: string } }>(
     '/sim/merchants/:id/kyb',
     async (req, reply) => {
-      if (!config.isDevelopment) return reply.code(403).send({ error: 'sim_disabled' });
+      if (!simEnabled) return reply.code(403).send({ error: 'sim_disabled' });
       const decision = req.query.decision === 'reject' ? 'reject' : 'approve';
       const ok = await setMerchantKyb(req.params.id, decision);
       if (!ok) return reply.code(409).send({ error: 'not_pending' });
@@ -308,7 +316,7 @@ export async function registerOrderRoutes(app: FastifyInstance) {
   );
 
   app.post('/sim/merchants/recompute', async (req, reply) => {
-    if (!config.isDevelopment) return reply.code(403).send({ error: 'sim_disabled' });
+    if (!simEnabled) return reply.code(403).send({ error: 'sim_disabled' });
     await recomputeMerchantStats((m) => req.log.info(m));
     return { ok: true };
   });
@@ -316,7 +324,7 @@ export async function registerOrderRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string }; Querystring: { for?: string } }>(
     '/sim/disputes/:id/resolve',
     async (req, reply) => {
-      if (!config.isDevelopment) return reply.code(403).send({ error: 'sim_disabled' });
+      if (!simEnabled) return reply.code(403).send({ error: 'sim_disabled' });
       // Settlement logic (bond draw + refund/unfreeze) lives in orderMachine.settleDispute — the
       // same implementation the admin console uses, so the two can't drift.
       const result = await settleDispute(req.params.id, req.query.for !== 'merchant' ? 'upheld' : 'rejected');

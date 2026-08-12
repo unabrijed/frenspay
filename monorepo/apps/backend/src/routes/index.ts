@@ -4,6 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 
 import { authPreHandler } from '../auth';
+import { config } from '../envConfig';
 import { rateLimitHook } from '../services/rateLimit';
 
 import { registerAdminRoutes } from './admin';
@@ -28,7 +29,10 @@ export async function registerRoutes(app: FastifyInstance) {
   await registerSystemRoutes(app);
   await registerAuthRoutes(app);
   await registerMoneyRoutes(app);
-  await registerCrosschainRoutes(app);
+  // Mainnet-lite: CCTP's EVM side keys off isProduction (Sepolia contracts + sandbox Iris on dev
+  // tiers), so a mainnet-mint stage backend must not register cross-chain at all — mixing mainnet
+  // Solana with testnet EVM strands funds. The web client already tolerates the 404s.
+  if (!config.isMainnet || config.isProduction) await registerCrosschainRoutes(app);
   await registerOrderRoutes(app);
   await registerMerchantRoutes(app);
   await registerKycRoutes(app);

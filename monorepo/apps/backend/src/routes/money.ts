@@ -309,9 +309,11 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
     return { signature, status: 'pending' } satisfies SubmitTransferResponse;
   });
 
-  // --- devnet faucet: mint controlled test USDC to the caller's wallet (dev/devnet only) ---
+  // --- devnet faucet: send test USDC from the treasury to the caller's wallet (dev/devnet only).
+  // The isMainnet gate is load-bearing: on a real mint this route would hand out REAL USDC from
+  // the fee-payer's ATA, so it must stay off however NODE_ENV is set. ---
   app.post<{ Body: FaucetRequest }>('/devnet/faucet', async (req, reply) => {
-    if (!config.isDevelopment) {
+    if (!config.isDevelopment || config.isMainnet) {
       return reply.code(403).send({ error: 'faucet_disabled' });
     }
     const userId = requireUserId(req);
