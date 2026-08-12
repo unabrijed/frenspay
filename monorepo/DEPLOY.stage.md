@@ -1,8 +1,24 @@
-# Stage deploy — backend → Railway, frontends → Vercel (Solana devnet)
+# Stage deploy — backend → Railway, frontends → Vercel (Solana **mainnet-lite**)
 
-Backend: Fastify (`apps/backend`) on Railway, stage environment, devnet USDC. DB is Supabase
-Postgres. Frontends: per-environment Vercel projects (the OMS model — see §Frontends).
-Prod/mainnet is a separate doc: `DEPLOY.md`.
+Backend: Fastify (`apps/backend`) on Railway, stage environment, **real mainnet USDC** in
+mainnet-lite mode. DB is Supabase Postgres. Frontends: per-environment Vercel projects (the OMS
+model — see §Frontends). Prod is a separate doc: `DEPLOY.md`.
+
+## Mainnet-lite: what's ON and OFF
+
+Money-realness derives from the **mint**, not NODE_ENV: setting `STAGE_USDC_MINT` to Circle's
+mainnet mint flips `config.isMainnet`, which hard-gates every dev money convenience regardless of
+tier (envConfig.ts). Local dev keeps devnet — it reads the repo `.env`, not these dashboard vars.
+
+| ON (real mainnet USDC)                             | OFF on stage                                   |
+| -------------------------------------------------- | ---------------------------------------------- |
+| Balance + on-chain deposit address (Solana)        | Faucet (403; UI hidden, onboarding skips fund) |
+| P2P sends (@handle) + external sends               | Merchant-pay orders (503 `payments_unavailable` — escrow program not on mainnet yet) |
+| Helius push confirmation (see §Helius)             | Cross-chain CCTP (routes unregistered — EVM side is Sepolia on dev tiers) |
+|                                                    | `/sim/orders/*` (403), staking (leave stake treasury unset → 503) |
+
+`/sim/kyc` stays live (tier gating only — acceptable behind the access gate). Money-in is
+deposit-only: send USDC (Solana) to the address shown in Add money.
 
 ## Build model
 
@@ -36,19 +52,28 @@ Prod/mainnet is a separate doc: `DEPLOY.md`.
    NODE_ENV=stage
    STAGE_DATABASE_URL=<Supabase session pooler URL — step 2>
    STAGE_KYC_PROVIDER=sim                               # stage boot THROWS without KYC config (assertKycConfig); sim until Didit is live
-   STAGE_SOLANA_RPC_URL=https://api.devnet.solana.com   # or a Helius devnet URL
-   STAGE_FEE_PAYER_SECRET_KEY=[ ... ]                    # JSON byte array — copy from .env
-   STAGE_USDC_MINT=<copy from .env>                      # official Circle devnet USDC
+   STAGE_SOLANA_RPC_URL=https://mainnet.helius-rpc.com/?api-key=<KEY>   # mainnet RPC (Helius free tier)
+   STAGE_HELIUS_API_KEY=<KEY>                            # push confirmation — see §Helius
+   STAGE_HELIUS_WEBHOOK_SECRET=<openssl rand -hex 32>
+   STAGE_FEE_PAYER_SECRET_KEY=[ ... ]                    # FRESH mainnet keypair — see below. JSON byte array ONLY (base58 is rejected)
+   STAGE_USDC_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v   # Circle's MAINNET USDC — this is the real-money switch
    STAGE_PRIVY_APP_ID=<privy app id>
    STAGE_PRIVY_APP_SECRET=<privy app secret>            # backend-only, never in a web build
    PUBLIC_BASE_URL=https://<this-railway-service>.up.railway.app   # → https://stage.api.frenspay.xyz once the custom domain is attached (step 6)
    STAGE_CORS_ORIGIN=<see below>
+   # leave STAGE_STAKE_TREASURY_ADDRESS and STAGE_ESCROW_PROGRAM_ID unset (staking 503s, orders are gated)
+   # STAGE_PLATFORM_FEE_BPS optional (default 50) — dormant until merchant-pay ships on mainnet
    ```
    Do **NOT** set `PORT` — Railway injects it and the server binds `process.env.PORT` (host-level
-   vars stay unprefixed by convention, like `PUBLIC_BASE_URL`). The fee-payer secret, USDC mint,
-   and a funded fee-payer wallet already exist locally from `yarn devnet:setup`
-   (`apps/backend/.devnet/keys.json`) — copy those values up. The fee-payer needs a little
-   devnet SOL.
+   vars stay unprefixed by convention, like `PUBLIC_BASE_URL`).
+
+   **The fee-payer is a fresh keypair, never the devnet one** (that key lives in plaintext local
+   files): `solana-keygen new --no-bip39-passphrase -o stage-mainnet-feepayer.json`, paste the JSON
+   byte array as the value, fund the address with **~0.1 real SOL** (it sponsors every tx fee +
+   ATA rent), and keep the file offline. Its ATA also collects the platform fee, so monitor both
+   balances. One-time flip chores: delete the old devnet-era Helius webhook in the Helius dashboard
+   (registration is idempotent **by URL**, so the stale one blocks re-registration), and optionally
+   mark any pending devnet-era bridge rows failed in SQL (the poller retries them harmlessly).
 4. Deploy. Migrations auto-apply at boot — `railway.json` runs `db:deploy` before `start`, so the
    server can never come up against a stale schema. To apply by hand instead:
    ```
@@ -79,16 +104,16 @@ STAGE_CORS_ORIGIN=https://admin.frenspay.xyz,https://frenspay.xyz,https://www.fr
 
 A missing origin breaks that frontend in prod only, silently.
 
-## Optional: Helius — faster confirmation
+## Helius — push confirmation
 
-The confirmer poller already confirms transfers, so this is optional. To enable push confirmation:
-```
-STAGE_SOLANA_RPC_URL=https://devnet.helius-rpc.com/?api-key=<KEY>
-STAGE_HELIUS_API_KEY=<KEY>
-STAGE_HELIUS_WEBHOOK_SECRET=<random secret>
-```
-On boot the backend auto-registers a webhook to `${PUBLIC_BASE_URL}/webhooks/helius` watching the
+The confirmer poller already confirms transfers; Helius makes it push. The vars are in step 3. On
+boot the backend auto-registers a webhook to `${PUBLIC_BASE_URL}/webhooks/helius` watching the
 fee-payer (it signs every transfer). See `apps/backend/src/services/helius.ts`.
+
+Note: registration always used the `enhanced` (mainnet) webhook type, so on devnet it was
+effectively inert and the poller did the work — on mainnet it genuinely functions. If a stale
+devnet-era webhook exists at the same URL, delete it in the Helius dashboard first (registration
+is idempotent by URL and would report "already registered").
 
 ## Optional: waitlist / referral emails (Resend)
 
@@ -161,6 +186,7 @@ Ship to prod by merging `stage` → `sacred` (PR).
    ```
    NEXT_PUBLIC_APP_ENV=stage
    NEXT_PUBLIC_STAGE_API_URL=https://stage.api.frenspay.xyz   # or the *.up.railway.app URL until the API domain exists
+   NEXT_PUBLIC_STAGE_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com   # cluster switch: drives IS_MAINNET (hides faucet UI, Privy chain id)
    NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<privy app id>
    NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<privy client id>
    NEXT_PUBLIC_STAGE_LANDING_URL=https://frenspay.xyz
@@ -188,9 +214,11 @@ Ship to prod by merging `stage` → `sacred` (PR).
 7. **Test**, per app:
    - **web**: the domain serves the access-key form (HTTP 401) on every route; a wrong key shows
      the inline error; the right key lands in the app and a reload skips the form (device cookie).
-     Then the real smoke test: Privy email login, then a devnet action (faucet top-up, a small
-     send) with the Network tab open — every API call goes to the stage API origin, none to
-     localhost, no CORS errors.
+     Then the real smoke test (real money, keep it small): Privy email login → onboarding skips
+     the fund step straight to Home ($0) → Add money shows the Solana deposit address (no faucet,
+     no EVM chips) → send it ~$2 real USDC from an exchange/wallet → balance appears (Helius push
+     or poller) → `/sim/kyc` to tier 2 → a small P2P or external send, verified on Solscan. Network
+     tab open throughout — every API call goes to the stage API origin, no CORS errors.
    - **admin**: loads (no gate configured), Privy login works, and a non-admin account is refused
      by the backend (`role='admin'` is checked server-side).
    - **landing**: static pages render; a waitlist signup round-trips (needs the Resend block
