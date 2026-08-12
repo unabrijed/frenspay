@@ -16,6 +16,7 @@
     "db:seed": "tsx src/db/seed.ts",
     "devnet:setup": "tsx scripts/setup-devnet.ts",
     "check:waitlist": "tsx scripts/check-waitlist.ts",
+    "check:invites": "tsx scripts/check-invites.ts",
     "check:fx": "tsx scripts/check-fx.ts"
   },
   "dependencies": {
