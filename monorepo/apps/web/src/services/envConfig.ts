@@ -56,6 +56,9 @@ const E = {
 const DEFAULT_API_URL = 'http://localhost:3001';
 export const API_URL = E.apiUrl || DEFAULT_API_URL;
 export const SOLANA_RPC_URL = E.solanaRpcUrl || 'https://api.devnet.solana.com';
+// Cluster derives from the RPC URL — the web twin of the backend's mint-derived isMainnet. Gates
+// the faucet UI, the EVM deposit chips (bridge is off on mainnet), and the Privy chain id.
+export const IS_MAINNET = !SOLANA_RPC_URL.includes('devnet');
 
 // Dev signing path (no Privy): a seeded user id + secret key from apps/backend/.devnet/keys.json.
 //

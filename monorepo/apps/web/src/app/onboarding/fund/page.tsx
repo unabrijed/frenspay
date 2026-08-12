@@ -13,6 +13,7 @@ import { sx, View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { Screen } from '@/components/ui/Screen';
 import { colors, type } from '@/lib/theme';
+import { IS_MAINNET } from '@/services/envConfig';
 import { wallet } from '@/services/wallet';
 import { usePayStore, useStoreHydrated } from '@/store/usePayStore';
 
@@ -34,6 +35,17 @@ export default function Fund() {
     if (hydrated && authStatus !== 'signedIn') router.replace('/');
   }, [hydrated, authStatus, router]);
 
+  // This step IS the devnet faucet, so on mainnet it doesn't exist: whoever routes here (the handle
+  // step, the entry router resuming a half-onboarded user) skips straight to Home with $0 — Add
+  // money shows their deposit address instead. One guard at the sink covers every path in.
+  useEffect(() => {
+    if (IS_MAINNET && hydrated && authStatus === 'signedIn') {
+      completeOnboarding();
+      void load();
+      router.replace('/home');
+    }
+  }, [hydrated, authStatus, completeOnboarding, load, router]);
+
   const finish = async () => {
     setErr(null);
     setBusy(true);
@@ -52,7 +64,7 @@ export default function Fund() {
     router.replace('/home');
   };
 
-  if (!hydrated || authStatus !== 'signedIn') return <Splash />;
+  if (!hydrated || authStatus !== 'signedIn' || IS_MAINNET) return <Splash />;
 
   return (
     <Screen edges={['top', 'bottom']} style={styles.safe}>
