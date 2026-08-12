@@ -928,15 +928,17 @@ button:not(:disabled),
   display: none;
 }
 
-/* Input and the giant submit sit side by side. Stacking them would add ~66px to
-   the foot, and the foot's height is what sets how tall the scrim has to be —
-   which is how much of the illustration gets darkened. Mobile stacks, because
-   there is no horizontal room. */
+/* Both inputs and the giant submit sit on one row. Stacking them would add ~66px
+   per field to the foot, and the foot's height is what sets how tall the scrim
+   has to be — which is how much of the illustration gets darkened. Mobile stacks,
+   because there is no horizontal room.
+   The code field is the narrower of the two: 'FP-XXXX-XXXX' is a fixed 12
+   characters where an address is not, so the slack belongs to the email. */
 .things-hero .tearoff-strip form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1fr) auto;
   align-items: end;
-  gap: 10px clamp(20px, 3vw, 44px);
+  gap: 10px clamp(16px, 2.2vw, 32px);
 }
 
 .things-hero .tearoff-field {
@@ -993,8 +995,10 @@ button:not(:disabled),
   box-shadow: 0 2px 0 -1px var(--foot-accent);
 }
 
-/* The page's biggest type, and it is the submit. */
-.things-hero .tearoff-strip button {
+/* The page's biggest type, and it is the submit. Scoped to [type='submit'] rather
+   than every button in the strip: the suggest, copy and (retired) switch links all
+   live in here too, and each was overriding this giant type back down by hand. */
+.things-hero .tearoff-strip button[type='submit'] {
   display: inline-flex;
   min-height: 44px;
   align-items: center;
@@ -1010,13 +1014,13 @@ button:not(:disabled),
   white-space: nowrap;
 }
 
-.things-hero .tearoff-strip button:focus-visible {
+.things-hero .tearoff-strip button[type='submit']:focus-visible {
   border-radius: 3px;
   outline: 2px solid var(--foot-accent);
   outline-offset: 3px;
 }
 
-.things-hero .tearoff-strip button:disabled {
+.things-hero .tearoff-strip button[type='submit']:disabled {
   cursor: wait;
   opacity: 0.62;
 }
@@ -1041,10 +1045,6 @@ button:not(:disabled),
   color: var(--foot-fg);
 }
 
-.things-hero .tearoff-success {
-  gap: 0.4em;
-}
-
 /* A likely typo is an offer, not a failure — peach like the error line would
    read as a rejection, so this is plain cream with the fix as the only
    emphasis. */
@@ -1065,32 +1065,6 @@ button:not(:disabled),
   text-underline-offset: 3px;
 }
 
-/* The other door. Quiet on purpose: an invite code is the way in, and the f-list is the consolation
-   — sizing this like a second CTA would put two equal choices in front of someone who has a code in
-   their hand. Same row treatment as the suggest/error lines so the foot height never jumps. */
-.things-hero .tearoff-switch {
-  grid-column: 1 / -1;
-  margin: 0;
-  font-size: 12px;
-}
-
-.things-hero .tearoff-switch button {
-  border: 0;
-  background: transparent;
-  color: var(--foot-fg);
-  font-size: inherit;
-  font-weight: 600;
-  opacity: 0.72;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  transition: opacity 160ms ease;
-}
-
-.things-hero .tearoff-switch button:hover,
-.things-hero .tearoff-switch button:focus-visible {
-  opacity: 1;
-}
-
 .things-hero .tearoff-error {
   grid-column: 1 / -1;
   margin: 0;
@@ -1101,18 +1075,77 @@ button:not(:disabled),
   font-weight: 600;
 }
 
-/* Matches the submit's scale so the state swap does not jump the foot height —
-   which would change how much of the scene the scrim has to cover. */
+/* The success block. The headline still matches the submit's scale so swapping
+   states does not jump the foot height — but this state is now TALLER than the
+   form, because three codes have to fit. The scrim is sized off the foot at
+   runtime, so it follows; what must not happen is the headline itself resizing. */
 .things-hero .tearoff-success {
+  margin: 0;
+  color: var(--foot-fg);
+}
+
+.things-hero .tearoff-success-line {
   display: flex;
   min-height: 52px;
   align-items: center;
   margin: 0;
-  color: var(--foot-fg);
+  gap: 0.4em;
   font-size: clamp(28px, 4vw, 56px);
   font-weight: 800;
   letter-spacing: -0.03em;
   line-height: 1;
+}
+
+.things-hero .tearoff-invites {
+  margin-top: clamp(14px, 2vw, 22px);
+}
+
+.things-hero .tearoff-invites-lead {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.11em;
+  text-transform: lowercase;
+}
+
+/* The codes themselves, at the scale of an input's value rather than the
+   headline's: they are something to read off and retype, not something to
+   shout. Wrapping to a second line is fine and expected on a narrow screen. */
+.things-hero .tearoff-invites ul {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  gap: 8px clamp(16px, 2.4vw, 34px);
+  list-style: none;
+}
+
+.things-hero .tearoff-invites li {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: clamp(16px, 1.8vw, 21px);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  /* Selectable by design — copy-all is the convenience, not the only way out. */
+  user-select: all;
+}
+
+.things-hero .tearoff-invites-note {
+  margin: 12px 0 0;
+  font-size: 12px;
+  opacity: 0.72;
+}
+
+/* Same quiet treatment the mode switch used to have: a convenience beside the
+   codes, never competing with them. */
+.things-hero .tearoff-copy {
+  margin-top: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--foot-accent);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 /* Depth: quiet ink vignette under the grain */
@@ -1258,14 +1291,15 @@ button:not(:disabled),
     font-size: 16px;
   }
 
-  /* Stacked: the submit gets its own full-width row rather than being squeezed
-     into a second column, where it used to wrap to "join the / f-list →". */
+  /* Stacked: both fields and the submit each get a full-width row rather than
+     being squeezed into columns, where the submit used to wrap to
+     "join the / f-list →". Three rows is the cost of asking for two things. */
   .things-hero .tearoff-strip form {
     grid-template-columns: minmax(0, 1fr);
     gap: 12px;
   }
 
-  .things-hero .tearoff-strip button {
+  .things-hero .tearoff-strip button[type='submit'] {
     justify-content: space-between;
     width: 100%;
   }
