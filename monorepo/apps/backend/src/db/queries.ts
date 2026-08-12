@@ -715,8 +715,6 @@ interface QuoteRow {
   amount_inr: string;
   amount_usdc: string;
   rate: string;
-  fee_inr: string;
-  network_fee_inr: string;
   eta_min_secs: number;
   eta_max_secs: number;
   payout_method: PayoutMethod;
@@ -736,8 +734,6 @@ function toQuote(r: QuoteRow): Quote {
     amountInr: r.amount_inr,
     amountUsdc: r.amount_usdc,
     rate: r.rate,
-    feeInr: r.fee_inr,
-    networkFeeInr: r.network_fee_inr,
     etaMinSecs: r.eta_min_secs,
     etaMaxSecs: r.eta_max_secs,
     payoutMethod: r.payout_method,
@@ -760,8 +756,8 @@ export async function insertQuote(input: {
   amountInr: string;
   amountUsdc: string;
   rate: string;
-  feeInr: string;
-  networkFeeInr: string;
+  /** The platform's in-rate cut in USDC — backend-internal, never in the Quote DTO. */
+  platformFeeUsdc: string;
   etaMinSecs: number;
   etaMaxSecs: number;
   payoutMethod: PayoutMethod;
@@ -773,9 +769,9 @@ export async function insertQuote(input: {
   const { rows } = await getPool().query<QuoteRow>(
     `with ins as (
        insert into quotes (user_id, merchant_id, direction, currency, amount_inr, amount_usdc, rate,
-                           fee_inr, network_fee_inr, eta_min_secs, eta_max_secs,
+                           platform_fee_usdc, eta_min_secs, eta_max_secs,
                            payout_method, route_quality, payout_destination, payout_name, expires_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        returning *
      )
      select ins.*, m.name as merchant_name
@@ -788,8 +784,7 @@ export async function insertQuote(input: {
       input.amountInr,
       input.amountUsdc,
       input.rate,
-      input.feeInr,
-      input.networkFeeInr,
+      input.platformFeeUsdc,
       input.etaMinSecs,
       input.etaMaxSecs,
       input.payoutMethod,
@@ -806,20 +801,44 @@ export async function insertQuote(input: {
 export async function getQuoteRowForUser(
   quoteId: string,
   userId: string,
-): Promise<{ id: string; merchantId: string | null; amountUsdc: number; expiresAt: Date } | null> {
+): Promise<{
+  id: string;
+  merchantId: string | null;
+  amountUsdc: number;
+  /** Raw numeric string, NOT a number — the deposit split subtracts it exactly (a float difference
+   *  can exceed 6dp and parseAmount throws at the chain edge). */
+  platformFeeUsdc: string;
+  expiresAt: Date;
+} | null> {
   const { rows } = await getPool().query<{
     id: string;
     merchant_id: string | null;
     amount_usdc: string;
+    platform_fee_usdc: string;
     expires_at: Date;
-  }>('select id, merchant_id, amount_usdc, expires_at from quotes where id = $1 and user_id = $2', [
-    quoteId,
-    userId,
-  ]);
+  }>(
+    'select id, merchant_id, amount_usdc, platform_fee_usdc, expires_at from quotes where id = $1 and user_id = $2',
+    [quoteId, userId],
+  );
   const r = rows[0];
   return r
-    ? { id: r.id, merchantId: r.merchant_id, amountUsdc: Number(r.amount_usdc), expiresAt: r.expires_at }
+    ? {
+        id: r.id,
+        merchantId: r.merchant_id,
+        amountUsdc: Number(r.amount_usdc),
+        platformFeeUsdc: r.platform_fee_usdc,
+        expiresAt: r.expires_at,
+      }
     : null;
+}
+
+/** The platform's in-rate cut for an order, as the raw numeric string ("0.000000" on pre-fee rows). */
+export async function getOrderPlatformFee(orderId: string): Promise<string> {
+  const { rows } = await getPool().query<{ platform_fee_usdc: string }>(
+    'select q.platform_fee_usdc from orders o join quotes q on q.id = o.quote_id where o.id = $1',
+    [orderId],
+  );
+  return rows[0]?.platform_fee_usdc ?? '0';
 }
 
 interface OrderJoinRow {
@@ -840,8 +859,6 @@ interface OrderJoinRow {
   q_amount_inr: string;
   q_amount_usdc: string;
   q_rate: string;
-  q_fee_inr: string;
-  q_network_fee_inr: string;
   q_eta_min_secs: number;
   q_eta_max_secs: number;
   q_payout_method: PayoutMethod;
@@ -857,7 +874,7 @@ const ORDER_SELECT = `
   select o.id, o.user_id, o.state, o.resolution, o.amount_usdc, o.reference_code,
          o.payout_claimed_at, o.feedback_up, o.created_at, o.updated_at, o.quote_id,
          q.direction as q_direction, q.currency as q_currency, q.amount_inr as q_amount_inr, q.amount_usdc as q_amount_usdc,
-         q.rate as q_rate, q.fee_inr as q_fee_inr, q.network_fee_inr as q_network_fee_inr,
+         q.rate as q_rate,
          q.eta_min_secs as q_eta_min_secs, q.eta_max_secs as q_eta_max_secs,
          q.payout_method as q_payout_method, q.route_quality as q_route_quality,
          q.payout_destination as q_payout_destination, q.payout_name as q_payout_name,
@@ -875,8 +892,6 @@ function toOrder(r: OrderJoinRow, events?: OrderEvent[]): Order {
     amountInr: r.q_amount_inr,
     amountUsdc: r.q_amount_usdc,
     rate: r.q_rate,
-    feeInr: r.q_fee_inr,
-    networkFeeInr: r.q_network_fee_inr,
     etaMinSecs: r.q_eta_min_secs,
     etaMaxSecs: r.q_eta_max_secs,
     payoutMethod: r.q_payout_method,

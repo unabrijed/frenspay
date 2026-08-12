@@ -436,8 +436,8 @@ export type PayoutMethod = (typeof PAYOUT_METHODS)[number];
  * A locked quote for one order. Symmetric across directions: `amountInr` is the fiat leg and
  * `amountUsdc` the crypto leg debited from the user into escrow. The UI labels them per `direction`
  * ("You pay / From balance" for spend; "You cash out / You receive" for cash_out). Locked 45s —
- * timestamps are epoch ms. (`amountUsdc = amountInr / rate`; fees are itemized line items reflecting
- * the merchant spread for M1, mirroring the doc's quote screen math.)
+ * timestamps are epoch ms. (`amountUsdc = amountInr / rate`; there are NO fee fields — the platform's
+ * cut is folded into `rate` and never surfaces to the user, only the all-in conversion rate does.)
  */
 export interface Quote {
   id: string;
@@ -448,9 +448,7 @@ export interface Quote {
   currency: string;
   amountInr: string;
   amountUsdc: string;
-  rate: string; // INR per 1 USDC, after merchant spread
-  feeInr: string;
-  networkFeeInr: string;
+  rate: string; // fiat per 1 USDC, after merchant spread + the platform's in-rate cut
   etaMinSecs: number;
   etaMaxSecs: number;
   payoutMethod: PayoutMethod;

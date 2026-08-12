@@ -64,6 +64,13 @@ function num(key: string, def: number, range?: { min?: number; max?: number }): 
   return n;
 }
 
+// Circle's canonical mainnet USDC mint. Money-realness derives from the MINT, not NODE_ENV:
+// `isMainnet` hard-gates the faucet, the /sim order routes, order creation (until the escrow
+// program deploys to mainnet), and cross-chain — so no tier's dev conveniences can touch real funds
+// even on a stage backend pointed at mainnet.
+const MAINNET_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const usdcMintValue = env('USDC_MINT');
+
 export const config = {
   nodeEnv: node_env,
   isDevelopment,
@@ -84,13 +91,20 @@ export const config = {
   // Solana (devnet by default; Helius RPC recommended for reliability + webhooks).
   solanaRpcUrl: env('SOLANA_RPC_URL', 'https://api.devnet.solana.com'),
   heliusApiKey: env('HELIUS_API_KEY'),
-  // Fee-payer secret as a JSON array of bytes (solana-keygen format) or base58 string.
+  // Fee-payer secret as a JSON array of bytes (solana-keygen format) — parseSecretKey rejects
+  // base58, so a base58 key here fails at first use.
   feePayerSecretKey: env('FEE_PAYER_SECRET_KEY'),
   // On-chain escrow program id (M2). Defaults to the deployed devnet program; the order machine
   // builds deposit/release/refund instructions against it. Falls back to the IDL's address if unset.
   escrowProgramId: env('ESCROW_PROGRAM_ID'),
-  // SPL mint used as "USDC" (a controlled devnet mint in dev; Circle's USDC mint in prod).
-  usdcMint: env('USDC_MINT'),
+  // SPL mint used as "USDC" (Circle's devnet USDC in dev; Circle's mainnet mint = real money).
+  usdcMint: usdcMintValue,
+  // TRUE ⇒ this backend moves real USDC, whatever NODE_ENV says. The gates above key off this.
+  isMainnet: usdcMintValue === MAINNET_USDC_MINT,
+  // The platform's cut on merchant-pay orders, folded into the quoted rate ON TOP of the LP's
+  // spread_bps (quoteEngine) — the user only ever sees the all-in conversion rate, never a fee
+  // line. Collected at deposit into the fee-payer's ATA; returned in full on refund.
+  platformFeeBps: num('PLATFORM_FEE_BPS', 50, { min: 0, max: 500 }),
   // Where merchant/LP stake (their bond — skin in the game) is held. PUBLIC KEY ONLY: nothing in
   // this design ever signs FROM the vault — deposits are user-signed and slashing is a bond
   // decrement, so the platform keeps the USDC. Deliberately NOT the fee-payer's ATA, which doubles

@@ -1,9 +1,11 @@
-// quoteEngine.ts — computes a locked quote (rate + fee + ETA + route quality), valid 45s.
+// quoteEngine.ts — computes a locked quote (rate + ETA + route quality), valid 45s.
 // M7: the mid-market FX rate is LIVE (getMidRate, cached + range-validated per currency); the
-// merchant spread is applied on top. Fees are itemized line items reflecting the spread, mirroring
-// the doc's quote screen math (`You receive = amountFiat / rate`, fees shown separately).
+// merchant spread AND the platform's cut are applied on top. There are NO fee line items — the
+// user only ever sees the all-in conversion rate (`amountUsdc = amountFiat / rate`); the platform's
+// share is the difference between that and the LP's spread-only rate, collected at deposit.
 import type { OrderDirection, PayoutMethod, Quote, RouteQuality } from '@fpay/shared';
 
+import { config } from '../envConfig';
 import { insertQuote } from '../db/queries';
 import { amt, fiatDecimals, USDC_DECIMALS } from '../lib/amount';
 import { BN, divUp, formatAmount, RATE_DECIMALS } from '../lib/units';
@@ -12,11 +14,6 @@ import { getMidRate } from './fxRate';
 import { rankMerchants } from './routing';
 
 const QUOTE_TTL_MS = 45_000; // the architecture's 45-second lock
-// Fees are USD-denominated and converted at the mid per corridor — the same design as the
-// compliance tiers. Priced per-currency they'd silently set a different fee per corridor
-// (₹40 ≈ $0.45, but Rp 40 ≈ $0.002). Illustrative for M1, like the INR literals they replace.
-const FLAT_FEE_USD = 0.45; // platform fee
-const NETWORK_FEE_USD = 0.09; // on-chain network fee
 
 // M3: route quality derives from the composite ranking score, not raw success_rate (internal field;
 // no longer shown to users per the "just pay" UX).
@@ -52,16 +49,24 @@ export async function createQuote(
   if (!top) return { error: 'no_merchant' };
   const merchant = top.merchant;
 
-  // Worse-than-mid rate for the user: the spread shaves fiat-per-USDC, so they spend a little more
-  // USDC for the same fiat amount. (amountUsdc = amountFiat / rate.)
+  // Worse-than-mid rate for the user: the LP spread plus the platform's cut both shave
+  // fiat-per-USDC, so they spend a little more USDC for the same fiat amount. The user sees only
+  // the all-in `rate` (amountUsdc = amountFiat / rate) — never a fee line.
   //
-  // Both directions are deliberate and they agree: the rate rounds DOWN (less fiat per USDC) and
-  // the USDC the user owes rounds UP, so a sub-cent remainder always lands on the user's side of the
-  // trade rather than leaving the LP short. Exact arithmetic throughout — the old
+  // Both directions are deliberate and they agree: rates round DOWN (less fiat per USDC) and the
+  // USDC owed rounds UP, so a sub-cent remainder always lands on the user's side of the trade
+  // rather than leaving the LP short. Exact arithmetic throughout — the old
   // `.toFixed(4)`/`.toFixed(6)` pair rounded half-up, which could hand back a cent nobody funded.
-  // Fees the user owes round UP at the currency's own minor unit (IDR: whole rupiah).
-  const rate = amt(mid).times(10_000 - merchant.spread_bps).div(10_000).dp(RATE_DECIMALS, BN.ROUND_DOWN);
+  const lpRate = amt(mid).times(10_000 - merchant.spread_bps).div(10_000).dp(RATE_DECIMALS, BN.ROUND_DOWN);
+  const rate = amt(mid)
+    .times(10_000 - merchant.spread_bps - config.platformFeeBps)
+    .div(10_000)
+    .dp(RATE_DECIMALS, BN.ROUND_DOWN);
   const amountUsdc = divUp(amountFiat, rate, USDC_DECIMALS);
+  // The platform's cut in USDC: what the user owes at the all-in rate minus what the LP is owed at
+  // their spread-only rate. Both legs round UP (user-owes direction), so the difference can only
+  // land in the platform's favor by sub-cent dust; clamped ≥0 in case both rates collapse to equal.
+  const platformFeeUsdc = BN.max(amountUsdc.minus(divUp(amountFiat, lpRate, USDC_DECIMALS)), 0);
 
   return insertQuote({
     userId,
@@ -71,8 +76,7 @@ export async function createQuote(
     amountInr: formatAmount(amountFiat, fdp),
     amountUsdc: formatAmount(amountUsdc, USDC_DECIMALS),
     rate: formatAmount(rate, RATE_DECIMALS),
-    feeInr: formatAmount(amt(FLAT_FEE_USD).times(mid).dp(fdp, BN.ROUND_UP), fdp),
-    networkFeeInr: formatAmount(amt(NETWORK_FEE_USD).times(mid).dp(fdp, BN.ROUND_UP), fdp),
+    platformFeeUsdc: formatAmount(platformFeeUsdc, USDC_DECIMALS),
     etaMinSecs: merchant.avg_completion_secs,
     etaMaxSecs: merchant.avg_completion_secs * 2,
     payoutMethod: input.payoutMethod,
