@@ -103,10 +103,15 @@ export interface MeResponse {
   merchant?: MerchantProfile;
   /** Coarse role for the admin viewer; 'merchant' is informational (capability = `merchant` field). */
   role?: 'user' | 'merchant' | 'admin';
-  /** Invite allowance (default 3; per-user overrides by hand). Populated by /me only. */
-  referralLimit?: number;
-  /** How many accounts this user's invite code has created. Populated by /me only. */
-  referralsUsed?: number;
+  /** How many invite codes this user owns (3 at signup; admin can mint more). /me only. */
+  invitesTotal?: number;
+  /** How many of them have been burned by someone signing up. /me only. */
+  invitesUsed?: number;
+  /** The code strings themselves — present ONLY until the reveal screen is acknowledged
+   *  (POST /me/invites/ack), then never again. The server, not the client, enforces that: once
+   *  `users.invites_revealed_at` is stamped this field stops being populated. Admin keeps a
+   *  permanent view; the user gets one look. */
+  invites?: string[];
 }
 
 /* ---- merchant (LP) DTOs ---- */
@@ -217,8 +222,25 @@ export interface AuthSyncRequest {
   walletAddress: string;
   /** ISO 3166-1 alpha-2 browser-locale guess; server fills only when unset (weakest source). */
   country?: string;
-  /** Referrer's @handle — the invite code. Server-required only when this sync CREATES the account. */
-  referralCode?: string;
+  /** A one-time invite code ('FP-XXXX-XXXX'). Server-required only when this sync CREATES the
+   *  account, and burned inside that same transaction. Accepts what a human types — the server
+   *  canonicalizes case, spacing and a missing prefix. */
+  inviteCode?: string;
+}
+
+/** POST /invite/check body (public, landing page). Answers "is this code good?" and NOTHING else —
+ *  the code is only ever burned by /auth/sync, inside the account-creation transaction. A 200 here
+ *  is not a reservation: two people holding the same code both pass this and race at signup. */
+export interface InviteCheckRequest {
+  code: string;
+}
+
+/** POST /invite/check response. Failure is an error status (404 invalid_code / 409 code_used), so
+ *  a caller only ever sees this shape on success. */
+export interface InviteCheckResponse {
+  ok: true;
+  /** Canonicalized form of what was sent — pass THIS on to the app, not the raw input. */
+  code: string;
 }
 
 /** POST /waitlist body (public, landing page). city = the demo-rate corridor selected at signup. */
@@ -721,6 +743,28 @@ export interface AdminDenylistResponse {
   entries: AdminDenylistEntry[];
 }
 
+/** One invite code, as the console sees it. Unlike the user-facing view, `code` is always present:
+ *  the string is stored in plain text precisely so an operator can read it back. */
+export interface AdminInviteCode {
+  code: string;
+  /** Whose invite it is. Null = a house code minted from the console, belonging to nobody. */
+  ownerHandle: string | null;
+  /** Derived, not stored: revoked beats redeemed if somehow both are set. */
+  status: 'unused' | 'burned' | 'revoked';
+  /** Who signed up on it. Null unless status is 'burned'. */
+  redeemedByHandle: string | null;
+  redeemedAt: string | null; // ISO 8601
+  revokedAt: string | null; // ISO 8601
+  /** Free-text operator note, set when minting. */
+  note: string | null;
+  createdAt: string; // ISO 8601
+}
+
+export interface AdminInvitesResponse {
+  invites: AdminInviteCode[];
+  nextCursor?: string;
+}
+
 /** One audit row: which admin did what to which target. */
 export interface AdminAction {
   id: string;
@@ -755,6 +799,21 @@ export interface AdminDenylistAddRequest {
   kind: 'address' | 'handle';
   value: string;
   reason?: string;
+}
+
+/** Mint invite codes from the console — the only unbounded source of them. Omit `ownerHandle` for
+ *  house codes (owner_id null): they belong to nobody, so nobody's allowance constrains them, which
+ *  is what makes this the answer to "we've run out of invites". */
+export interface AdminInviteMintRequest {
+  count: number;
+  ownerHandle?: string;
+  note?: string;
+}
+
+/** Promote/demote an operator. 'merchant' is deliberately absent — that role is earned by applying,
+ *  not granted, and this endpoint must never be able to strip it. */
+export interface AdminUserRoleRequest {
+  role: 'user' | 'admin';
 }
 
 /** The SUBTRACT-only surface (docs/23 invariant 11): enable/disable + reorder. Rows are created by
