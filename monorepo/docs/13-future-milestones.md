@@ -28,8 +28,9 @@ fiat legs, live KYC/AML enforcement, FX disclosure, mainnet custody/key hardenin
 the fee-payer + constrained escrow authority). **Counsel sign-off required before launch.**
 
 **Status.** ⬜ Planned. Seams are everywhere by design: `USDC_MINT` → Circle's mint; `solana.ts` faucet
-→ on-ramp partner; simulated LP payout → real PSP; devnet → mainnet RPC. **(Live FX already shipped —
-`fxRate.ts`; what remains is a *regulated* FX provider SLA paired with real payout.)**
+→ on-ramp partner; simulated LP payout → real PSP; devnet → mainnet RPC; the web **access gate** →
+public (`ACCESS_KEY` unset on the prod Vercel project is the launch switch — `DEPLOY.md`). **(Live FX
+already shipped — `fxRate.ts`; what remains is a *regulated* FX provider SLA paired with real payout.)**
 
 ---
 

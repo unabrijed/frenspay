@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { AnchorProvider, BN, Program, Wallet, type Idl } from '@coral-xyz/anchor';
 import {
   createAssociatedTokenAccountInstruction,
+  createTransferCheckedInstruction,
   getAccount,
   getAssociatedTokenAddress,
   TOKEN_PROGRAM_ID,
@@ -60,10 +61,17 @@ export function escrowAddress(reference: string): string {
 /**
  * Build the unsigned `deposit` tx (user signs as token authority, fee-payer sponsors). Same return
  * shape as solana.ts buildUsdcTransfer, so the web signer + /orders/:id/fund-submit flow is unchanged.
+ *
+ * The platform's in-rate cut splits here, atomically with the deposit: the escrow holds only the
+ * LP's portion (amount − fee) and the fee rides a plain transfer to the fee-payer's ATA in the same
+ * user-signed tx — the CCTP fee pattern (bridge/cctp/solana.ts). The fee-payer's ATA (not a cold
+ * treasury) because we hold its key, so a refund can atomically return the fee.
  */
 export async function buildDepositTx(input: {
   userOwner: string;
   amountUsd: number;
+  /** Canonical decimal string (raw quotes.platform_fee_usdc) — subtracted in exact base units. */
+  platformFeeUsd: string;
   reference: string;
 }): Promise<{ unsignedTx: string; feePayer: string }> {
   const user = new PublicKey(input.userOwner);
@@ -72,7 +80,17 @@ export async function buildDepositTx(input: {
   const escrow = escrowPda(input.reference);
   const vault = vaultPda(escrow);
   const userTokenAccount = await getAssociatedTokenAddress(mint, user);
-  const amount = new BN((await toUsdcBaseUnits(input.amountUsd)).toString());
+  const feeBase = await toUsdcBaseUnits(input.platformFeeUsd);
+  const depositBase = (await toUsdcBaseUnits(input.amountUsd)) - feeBase;
+  if (depositBase <= 0n) throw new Error(`platform fee ${input.platformFeeUsd} swallows deposit ${input.amountUsd}`);
+  const amount = new BN(depositBase.toString());
+
+  const pre: TransactionInstruction[] = [];
+  if (feeBase > 0n) {
+    const feeAta = await getAssociatedTokenAddress(mint, fp);
+    pre.push(...(await ensureAta(fp, mint, feeAta)));
+    pre.push(createTransferCheckedInstruction(userTokenAccount, mint, feeAta, user, feeBase, await decimals()));
+  }
 
   const ix = await program()
     .methods.deposit(amount, input.reference)
@@ -90,7 +108,7 @@ export async function buildDepositTx(input: {
     })
     .instruction();
 
-  const tx = new Transaction().add(ix);
+  const tx = new Transaction().add(...pre, ix);
   tx.feePayer = fp;
   tx.recentBlockhash = (await connection().getLatestBlockhash()).blockhash;
   tx.partialSign(feePayer());
@@ -133,8 +151,18 @@ export async function releaseEscrow(input: { reference: string; merchantOwner: s
   return connection().sendRawTransaction(tx.serialize());
 }
 
-/** Build, sign (authority = fee-payer), and broadcast `refund` (vault → user). Returns the signature. */
-export async function refundEscrow(input: { reference: string; userOwner: string }): Promise<string> {
+/**
+ * Build, sign (authority = fee-payer), and broadcast `refund` (vault → user). Returns the signature.
+ * The vault only ever held amount − platform fee, so a make-whole refund also returns the fee from
+ * the fee-payer's ATA (where the deposit split parked it) — one atomic tx, both signed by the
+ * fee-payer. If the fee-payer's ATA can't cover it the whole tx fails and the worker retries.
+ */
+export async function refundEscrow(input: {
+  reference: string;
+  userOwner: string;
+  /** Canonical decimal string (raw quotes.platform_fee_usdc); "0" for pre-fee orders. */
+  platformFeeUsd: string;
+}): Promise<string> {
   const user = new PublicKey(input.userOwner);
   const mint = usdcMint();
   const fp = feePayer().publicKey;
@@ -149,6 +177,11 @@ export async function refundEscrow(input: { reference: string; userOwner: string
     .instruction();
 
   const tx = new Transaction().add(...pre, ix);
+  const feeBase = await toUsdcBaseUnits(input.platformFeeUsd);
+  if (feeBase > 0n) {
+    const feeAta = await getAssociatedTokenAddress(mint, fp);
+    tx.add(createTransferCheckedInstruction(feeAta, mint, destination, fp, feeBase, await decimals()));
+  }
   tx.feePayer = fp;
   tx.recentBlockhash = (await connection().getLatestBlockhash()).blockhash;
   tx.sign(feePayer());

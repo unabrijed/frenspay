@@ -2,7 +2,7 @@
 
 ## What it is
 
-A **yarn-workspaces monorepo** with four apps and two shared packages. The backend is the brain (it
+A **yarn-workspaces monorepo** with five apps (one parked) and a shared package. The backend is the brain (it
 builds transactions, runs the order lifecycle, talks to the chain and the database); the clients are
 thin (they render, collect a signature, and poll). Everything is **always-real against Solana
 devnet** — there is no mock toggle; "simulation" only ever means a *simulated merchant/LP*, never a
@@ -13,7 +13,9 @@ monorepo/
 ├── apps/
 │   ├── backend/     Fastify API (tsx, ESM) — the brain
 │   ├── web/         Next.js consumer app (full feature set incl. cash-out)
-│   └── mobile/      Expo app (P2P only today; no order flow yet)
+│   ├── admin/       Next.js ops console (backend enforces role='admin')
+│   ├── landing/     Next.js static export — marketing site + the f-list waitlist
+│   └── mobile/      Expo app, PARKED — out of the workspace, no installed deps
 ├── packages/
 │   └── shared/      @fpay/shared — TypeScript types + the money module (units.ts) + formatters
 └── anchor/          Solana program (Rust + Anchor) — the on-chain escrow
@@ -23,11 +25,13 @@ monorepo/
 |---|---|---|
 | Backend | **Fastify 5 + tsx** (no build step), ESM | one process; a background poller runs inside it |
 | Web | **Next.js App Router + Zustand + Privy web SDK** | mobile-first browser UI |
-| Mobile | **Expo + Privy Expo SDK** | consumer P2P; cash-out flow not ported |
+| Admin / Landing | **Next.js** console / **static export** marketing site | admin role-gated by the backend; landing hosts the f-list |
+| Mobile | **Expo + Privy Expo SDK** (parked) | consumer P2P; cash-out flow not ported |
 | Shared | raw TS (`main: ./src/index.ts`), one runtime dep (bignumber.js) | backend imports **types only** (see below) |
 | Chain | **Solana devnet, SPL "USDC"** (6 dp), Anchor 0.32 | controlled devnet mint in dev |
-| Data | **Postgres** (Railway/Supabase) | access control in the API layer, no RLS |
+| Data | **Postgres on Supabase** (session pooler — advisory locks) | access control in the API layer, no RLS |
 | Infra | Privy (wallets), Helius (RPC + webhooks) | both have free tiers |
+| Hosting | **Railway** (backend, Dockerfile) + **Vercel** (frontends, one project per app per env) | web gated by a shared access key until launch — runbooks: `../DEPLOY.stage.md`, `../DEPLOY.md` |
 
 > **Quirk worth knowing:** the backend imports from `@fpay/shared` as **types only** (`import type`).
 > Runtime *value* imports from the raw-TS workspace package fail under `tsx`, so shared constants

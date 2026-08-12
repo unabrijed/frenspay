@@ -3,7 +3,7 @@
 // Settings — profile, account rows, replay onboarding. Per screens-more.jsx.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties, ReactNode } from 'react';
-import { useState } from 'react';
+
 
 import { Icons } from '@/components/icons';
 import { BackButton } from '@/components/ui/BackButton';
@@ -13,7 +13,7 @@ import { Pressable, View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
 import { Txt } from '@/components/ui/Txt';
 import { colors, fonts, GUTTER, radii, type } from '@/lib/theme';
-import { IS_DEV, LANDING_URL } from '@/services/envConfig';
+import { IS_DEV } from '@/services/envConfig';
 import { usePayStore } from '@/store/usePayStore';
 
 export default function Settings() {
@@ -26,8 +26,8 @@ export default function Settings() {
   const recoveryPasskey = usePayStore((s) => s.recoveryPasskey);
   const kycTier = usePayStore((s) => s.kycTier);
   const merchant = usePayStore((s) => s.merchant);
-  const referralLimit = usePayStore((s) => s.referralLimit);
-  const referralsUsed = usePayStore((s) => s.referralsUsed);
+  const invitesTotal = usePayStore((s) => s.invitesTotal);
+  const invitesUsed = usePayStore((s) => s.invitesUsed);
   const logout = usePayStore((s) => s.logout);
   const resetForTesting = usePayStore((s) => s.resetForTesting);
   return (
@@ -47,7 +47,7 @@ export default function Settings() {
 
         <VerifyCard tier={kycTier} onPress={() => open('verify')} />
 
-        <ReferralCard used={referralsUsed} limit={referralLimit} handle={handle} />
+        <InviteCard used={invitesUsed} total={invitesTotal} />
 
         <List>
           <SettingsRow k="Recovery" v={recoveryPasskey ? 'Passkey set' : 'Email'} onPress={() => open('recovery')} />
@@ -119,45 +119,26 @@ function SettingsRow({ k, v, icon, accent, onPress }: { k: string; v?: string; i
   );
 }
 
-// Invite friends — fpay is invite-only and your @handle IS the code. The link lands on the MARKETING
-// site (?ref=@handle), not this app: the landing page attributes the f-list signup and relays the
-// handle on to the signup screen, so a fren who isn't ready to install still lands somewhere that
-// explains what fpay is. The app's own entry router reads the same ?ref= if they arrive here direct.
-function ReferralCard({ used, limit, handle }: { used: number; limit: number; handle: string }) {
-  const [copied, setCopied] = useState(false);
-  const left = Math.max(0, limit - used);
-  const onShare = async () => {
-    const url = `${LANDING_URL}/?ref=${encodeURIComponent(handle)}`;
-    const text = `Join me on fpay. My invite code is ${handle}`;
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: 'Join fpay', text, url });
-      } else if (navigator.clipboard) {
-        await navigator.clipboard.writeText(`${text}\n${url}`);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      }
-    } catch {
-      /* user dismissed the share sheet */
-    }
-  };
+// Invite status — COUNTS ONLY, deliberately. The codes were shown once at signup and are gone from
+// the app forever; re-listing them here would quietly undo that ("lose it, lose a fren"), so there
+// is no share button and nothing to copy. What's left is the one thing still worth knowing: how
+// many frens you have left to bring.
+function InviteCard({ used, total }: { used: number; total: number }) {
+  const left = Math.max(0, total - used);
   return (
     <View style={styles.kyc}>
       <View style={styles.kycHead}>
         <View style={{ flex: 1 }}>
-          <Txt style={type.rowName}>Invite friends</Txt>
+          <Txt style={type.rowName}>Your invites</Txt>
           <Txt style={[type.rowTime, { marginTop: 2 }]}>
-            {left > 0 ? `${left} of ${limit} invites left · your code is ${handle || '—'}` : 'All invites used'}
+            {total === 0
+              ? 'No invites yet'
+              : left > 0
+                ? `${left} of ${total} still to give`
+                : `All ${total} used — that's your circle`}
           </Txt>
         </View>
       </View>
-      <Btn
-        label={copied ? 'Copied' : 'Share invite'}
-        variant="secondary"
-        disabled={left === 0}
-        onPress={onShare}
-        style={{ marginTop: 14 }}
-      />
     </View>
   );
 }

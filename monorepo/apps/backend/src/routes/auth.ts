@@ -3,18 +3,26 @@
 // never to the underlying phone/address — reverse lookup is structurally impossible.
 import type { FastifyInstance } from 'fastify';
 
-import type { AuthSyncRequest, MeResponse, ResolveHandleResponse } from '@fpay/shared';
+import type {
+  AuthSyncRequest,
+  InviteCheckRequest,
+  InviteCheckResponse,
+  MeResponse,
+  ResolveHandleResponse,
+} from '@fpay/shared';
 
 import { requirePrivyDid, requireUserId } from '../auth';
 import { config } from '../envConfig';
 import {
   canonicalHandle,
-  findUserByHandle,
+  ensureInviteCodes,
   findUserById,
   findUserByPhone,
+  getInviteStats,
   getMerchantForUser,
-  getReferralStats,
   hasAnyUsers,
+  inviteCodeStatus,
+  markInvitesRevealed,
   getUserKycStatus,
   getUserKycTier,
   getWalletForUser,
@@ -26,7 +34,8 @@ import {
   upsertWalletForChain,
 } from '../db/queries';
 import { screenHandle } from '../services/compliance';
-import { getLinkedPhone, privyConfigured } from '../services/privy';
+import { canonicalInviteCode } from '../services/invites';
+import { getLinkedEmail, getLinkedPhone, privyConfigured } from '../services/privy';
 
 import { toMerchantProfile } from './merchant';
 
@@ -37,6 +46,27 @@ function toKycStatus(s: string): MeResponse['kycStatus'] {
 }
 
 export async function registerAuthRoutes(app: FastifyInstance) {
+  /**
+   * The landing gate's pre-flight — public, because it runs before anyone has an account. Answers
+   * "is this code redeemable?" and NOTHING more: it never burns, never reserves, and holds no lock.
+   * Two people can both get a 200 for the same code and race at /auth/sync, where exactly one wins.
+   *
+   * `code_used` is a deliberate leak — "your friend gave you a dead code" is worth saying, and it
+   * tells a guesser only which strings are worthless. Revoked collapses into `invalid_code`: an
+   * operator killing a code shouldn't advertise that it ever existed. The information actually
+   * worth guarding is which codes are LIVE, and that is the 200 the rate limiter caps.
+   */
+  app.post<{ Body: InviteCheckRequest }>('/invite/check', async (req, reply): Promise<InviteCheckResponse | undefined> => {
+    const code = canonicalInviteCode(req.body?.code ?? '');
+    if (!code) return reply.code(404).send({ error: 'invalid_code' });
+    const status = await inviteCodeStatus(code);
+    if (status === 'burned') return reply.code(409).send({ error: 'code_used' });
+    if (status !== 'unused') return reply.code(404).send({ error: 'invalid_code' });
+    // Hand back the canonical form — the landing page forwards THIS to the app, so what the user
+    // typed loosely ('fp 7k2m qxwd') is normalised once, here, rather than again on every hop.
+    return { ok: true, code };
+  });
+
   app.post<{ Body: AuthSyncRequest }>('/auth/sync', async (req, reply) => {
     const privyDid = requirePrivyDid(req);
     const { handle, walletAddress } = req.body ?? ({} as AuthSyncRequest);
@@ -51,19 +81,35 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     const country = /^[A-Za-z]{2}$/.test(rawCountry) ? rawCountry.toUpperCase() : undefined;
     // Invite gate: fires only when this sync CREATES the account (no row for this DID → authPreHandler
     // left req.userId unset), so existing users re-sync untouched — grandfathered for free. An empty
-    // directory founds itself (first user on a fresh DB). Slot-limit check runs inside the upsert txn.
-    let referredBy: string | undefined;
+    // directory founds itself (first user on a fresh DB). The code is validated and BURNED inside
+    // the upsert transaction, not here: checking it here and spending it there would leave a window
+    // where two people both pass this line.
+    let inviteCode: string | undefined;
     if (!req.userId && (await hasAnyUsers())) {
-      const referrer = await findUserByHandle(req.body?.referralCode ?? '');
-      if (!referrer) return reply.code(403).send({ error: req.body?.referralCode ? 'invalid_referral' : 'referral_required' });
-      referredBy = referrer.id;
+      const canonicalCode = canonicalInviteCode(req.body?.inviteCode ?? '');
+      // No code at all reads differently to a bad one — the first is "you need an invite", the
+      // second is "that isn't one". Beyond that the server never says WHY a code failed.
+      if (!canonicalCode) {
+        return reply.code(403).send({ error: req.body?.inviteCode ? 'invalid_invite' : 'invite_required' });
+      }
+      inviteCode = canonicalCode;
     }
+    // Privy is the only source of a verified address, and it is what ADMIN_EMAILS matches against.
+    // Best-effort: a Privy hiccup must not block a signup, so a failure here just leaves it null.
+    const email = privyConfigured() ? await getLinkedEmail(privyDid).catch(() => null) : null;
     let user;
     try {
-      user = await upsertUserByPrivyDid({ privyDid, handle: canonical, walletAddress, country, referredBy });
+      user = await upsertUserByPrivyDid({
+        privyDid,
+        handle: canonical,
+        walletAddress,
+        country,
+        email: email ?? undefined,
+        inviteCode,
+      });
     } catch (e) {
       const code = (e as { code?: string }).code;
-      if (code === 'referral_limit') return reply.code(403).send({ error: 'referral_limit_reached' });
+      if (code === 'invalid_invite') return reply.code(403).send({ error: 'invalid_invite' });
       if (code === '23505') return reply.code(409).send({ error: 'handle_taken' });
       throw e;
     }
@@ -86,7 +132,11 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     const wallet = await getWalletForUser(userId);
     const evmWallet = await getWalletForUser(userId, 'ethereum');
     const merchant = await getMerchantForUser(userId);
-    const referrals = await getReferralStats(userId);
+    // Grandfathering: accounts that predate invite codes own none, so mint their three on first
+    // read. Idempotent and row-locked, which is why a pure-DDL migration needed no backfill pass.
+    // ponytail: /me writes on the cold path. Move to a one-shot script if this ever gets hot.
+    await ensureInviteCodes(userId);
+    const invites = await getInviteStats(userId, user.invites_revealed_at === null);
     return {
       id: user.id,
       handle: user.handle,
@@ -101,9 +151,20 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       // one extra query here beats a second round trip + loading state for the 99% who aren't LPs.
       merchant: merchant ? toMerchantProfile(merchant) : undefined,
       role: user.role,
-      referralLimit: referrals.limit,
-      referralsUsed: referrals.used,
+      invitesTotal: invites.total,
+      invitesUsed: invites.used,
+      // Present exactly once. Once /me/invites/ack stamps invites_revealed_at this goes undefined
+      // forever — the user's one look is over, and only the admin console can read them after that.
+      invites: invites.codes,
     };
+  });
+
+  /** The user has seen their codes. Idempotent: acking twice is not an error, it just already
+   *  happened. After this /me stops returning the strings, so a client that loses them cannot ask
+   *  again — which is the point ("lose it, lose a fren"). */
+  app.post('/me/invites/ack', async (req) => {
+    await markInvitesRevealed(requireUserId(req));
+    return { ok: true };
   });
 
   // --- directory ---

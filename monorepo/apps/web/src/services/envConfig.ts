@@ -56,6 +56,9 @@ const E = {
 const DEFAULT_API_URL = 'http://localhost:3001';
 export const API_URL = E.apiUrl || DEFAULT_API_URL;
 export const SOLANA_RPC_URL = E.solanaRpcUrl || 'https://api.devnet.solana.com';
+// Cluster derives from the RPC URL — the web twin of the backend's mint-derived isMainnet. Gates
+// the faucet UI, the EVM deposit chips (bridge is off on mainnet), and the Privy chain id.
+export const IS_MAINNET = !SOLANA_RPC_URL.includes('devnet');
 
 // Dev signing path (no Privy): a seeded user id + secret key from apps/backend/.devnet/keys.json.
 //
@@ -92,8 +95,10 @@ export const LANDING_URL = (E.landingUrl || 'https://frenspay.xyz').replace(/\/$
 
 // Deploy access gate (src/middleware.ts): one shared key per environment, no NEXT_PUBLIC_ prefix —
 // it's server-side only (middleware + /gate route), so it resolves undefined in browser bundles and
-// can never be inlined. Unset = gate off, which is the local-dev default.
+// can never be inlined. Unset = gate off on the local tier only; deployed tiers fail CLOSED (the
+// middleware locks the build) so a missing key can never silently expose the app.
 export const ACCESS_KEY = (isProdEnv ? process.env.ACCESS_KEY : process.env.STAGE_ACCESS_KEY) || '';
+export const IS_LOCAL_ENV = APP_ENV === 'local';
 
 // Dev-only build flag: true under `next dev` (yarn web), false in a production build. Gates testing
 // affordances (e.g. the Settings "Reset for testing" action) so they never ship to a prod bundle.

@@ -20,7 +20,7 @@ import { wallet } from '@/services/wallet';
 import { usePayStore, useStoreHydrated } from '@/store/usePayStore';
 
 // Server codes meaning "the invite gate stopped you", as opposed to a handle problem they can fix here.
-const GATE_CODES = new Set(['referral_required', 'invalid_referral', 'referral_limit_reached']);
+const GATE_CODES = new Set(['invite_required', 'invalid_invite']);
 
 export default function Handle() {
   const router = useRouter();
@@ -52,12 +52,14 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
   // Mirror the server's canonical form (lowercase, [a-z0-9_.]) so what you see is what registers.
   const clean = h.trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_.]/g, '');
 
-  // Prefill the invite code stashed by the entry gate (/?ref=@handle). Effect, not initializer —
-  // localStorage isn't there during SSR and an initializer would mismatch hydration.
+  // Prefill the code stashed by the entry router (/?invite=FP-XXXX-XXXX, set by the landing gate).
+  // Effect, not initializer — localStorage isn't there during SSR and an initializer would mismatch
+  // hydration. The field stays editable: someone can reach the app directly, without the landing
+  // page ever having seen their code.
   useEffect(() => {
     try {
-      const ref = localStorage.getItem('fpay:ref');
-      if (ref) setCode(ref);
+      const stashed = localStorage.getItem('fpay:invite');
+      if (stashed) setCode(stashed);
     } catch {
       /* storage blocked */
     }
@@ -93,7 +95,7 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
       // onboarding re-syncs with no code and must not be blocked by client validation.
       await authSync('@' + clean, code.trim() || undefined);
       try {
-        localStorage.removeItem('fpay:ref');
+        localStorage.removeItem('fpay:invite');
       } catch {
         /* storage blocked */
       }
@@ -102,15 +104,15 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
       const apiCode = e instanceof ApiError ? e.code : '';
       setGated(GATE_CODES.has(apiCode));
       setErr(
-        apiCode === 'referral_required'
-          ? 'fpay is invite-only. Ask a friend for their @handle'
-          : apiCode === 'invalid_referral'
+        apiCode === 'invite_required'
+          ? 'fpay is invite-only. Ask a friend for one of their codes'
+          : // Unknown, already used and revoked all arrive as one code — the server won't say which,
+            // so neither can this. "isn't valid" covers all three honestly.
+            apiCode === 'invalid_invite'
             ? "That invite code isn't valid"
-            : apiCode === 'referral_limit_reached'
-              ? 'That code has no invites left'
-              : e instanceof Error
-                ? e.message
-                : String(e),
+            : e instanceof Error
+              ? e.message
+              : String(e),
       );
     } finally {
       setBusy(false);
@@ -156,9 +158,9 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
             <input
               style={sxCodeInput}
               value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="Invite code (a friend's @handle)"
-              autoCapitalize="none"
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              placeholder="Invite code"
+              autoCapitalize="characters"
               autoCorrect="off"
               spellCheck={false}
             />

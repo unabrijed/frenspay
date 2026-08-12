@@ -6,10 +6,22 @@ import type { FormEvent } from 'react';
 import { FrensLogo } from '@/components/frenspay/logo';
 import { captureRef } from '@/components/ref';
 import { isValidEmail, normalizeEmail, suggestEmail } from '@/lib/email';
+import { APP_URL } from '@/lib/envConfig';
 import { FRENSPAY_COPY } from '@/lib/frenspay-copy';
+import { checkInvite, InviteApiError, looksLikeCode } from '@/lib/invite';
 import { joinWaitlist, WaitlistApiError } from '@/lib/waitlist';
 
+// One strip, two modes. `invite` is the default because an invite code is the only way into the
+// product — the f-list is what you fall back to when you don't have one, not the main event.
+//
+// Two modes rather than two forms: the strip's grid (input + the page's biggest type as the submit)
+// sets the height of the foot, which sets how tall the scrim is, which is how much of the
+// illustration gets darkened. A second form stacked below would push all of that around for a
+// control most visitors never touch.
+type Mode = 'invite' | 'flist';
+
 export function InlineFListForm({ onInteractionChange }: { onInteractionChange: (active: boolean) => void }) {
+  const [mode, setMode] = useState<Mode>('invite');
   const [success, setSuccess] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,8 +33,18 @@ export function InlineFListForm({ onInteractionChange }: { onInteractionChange: 
   useEffect(() => {
     captureRef();
     const verification = new URLSearchParams(window.location.search).get('v');
-    if (verification === '1') setSuccess(true);
-    else if (verification === '0') setError('That confirmation link has expired. Try again.');
+    // A confirm-link bounce is about the f-list, so land in that mode however the strip started.
+    if (verification === '1') {
+      setMode('flist');
+      setSuccess(true);
+    } else if (verification === '0') {
+      setMode('flist');
+      setError('That confirmation link has expired. Try again.');
+    } else if (window.location.hash === '#flist') {
+      // The app's "no invite? join the f list →" link points here. Before the strip had modes this
+      // anchor pointed at an id that didn't exist anywhere on the page, so it silently did nothing.
+      setMode('flist');
+    }
 
     return () => {
       mountedRef.current = false;
@@ -30,25 +52,79 @@ export function InlineFListForm({ onInteractionChange }: { onInteractionChange: 
     };
   }, []);
 
+  /** Swap modes. Clears whatever the other mode was complaining about — an email error has nothing
+   *  to say about a code. */
+  const switchTo = (next: Mode) => {
+    setMode(next);
+    setError(null);
+    setSuggestion(null);
+  };
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (busyRef.current) return;
 
     const form = event.currentTarget;
-    const emailField = form.elements.namedItem('email') as HTMLInputElement;
+    const field = form.elements.namedItem(mode === 'invite' ? 'code' : 'email') as HTMLInputElement;
+
+    if (mode === 'invite') {
+      // Uppercase in place so what they see is what gets sent, same reasoning as the email
+      // normalisation below. The server canonicalises for real; this is only cosmetic + a cheap
+      // filter so an obviously-empty entry never spends one of the 10 attempts a minute.
+      const code = field.value.trim().toUpperCase();
+      field.value = code;
+      if (!looksLikeCode(code)) {
+        setError('That doesn’t look like an invite code.');
+        field.focus();
+        return;
+      }
+      busyRef.current = true;
+      setBusy(true);
+      setError(null);
+      onInteractionChange(true);
+      const controller = new AbortController();
+      controllerRef.current = controller;
+      try {
+        const canonical = await checkInvite(code, controller.signal);
+        // Hand off to the app and deliberately STAY busy — the redirect is the success state, and
+        // flipping the button back to idle mid-navigation reads as "nothing happened".
+        window.location.href = `${APP_URL}/?invite=${encodeURIComponent(canonical)}`;
+        return;
+      } catch (caught) {
+        if (controller.signal.aborted || !mountedRef.current) return;
+        if (caught instanceof InviteApiError && caught.status === 409) {
+          setError('That code has already been used.');
+        } else if (caught instanceof InviteApiError && caught.status === 404) {
+          setError('That code isn’t valid.');
+        } else if (caught instanceof InviteApiError && caught.status === 429) {
+          setError('Too many tries. Give it a minute, then try again.');
+        } else {
+          setError('Couldn’t check that right now. Try again.');
+        }
+      } finally {
+        busyRef.current = false;
+        controllerRef.current = null;
+        if (mountedRef.current) {
+          setBusy(false);
+          onInteractionChange(false);
+        }
+      }
+      return;
+    }
+
     // Write the normalised value back into the field, don't just read it. The old
     // code trimmed into a local and then tested `emailField.validity`, which
     // reflects the RAW value — and HTML5 email validation rejects leading and
     // trailing whitespace, so a pasted " you@mail.com " was refused as invalid
     // even though it was perfectly good. Normalising in place also shows the
     // person what will actually be sent.
-    const email = normalizeEmail(emailField.value);
-    emailField.value = email;
+    const email = normalizeEmail(field.value);
+    field.value = email;
 
     if (!isValidEmail(email)) {
       setError('Enter a valid email address.');
       setSuggestion(null);
-      emailField.focus();
+      field.focus();
       return;
     }
 
@@ -94,8 +170,11 @@ export function InlineFListForm({ onInteractionChange }: { onInteractionChange: 
     }
   };
 
+  const invite = mode === 'invite';
+
   return (
     <div
+      id="flist"
       className={`tearoff-strip ${busy ? 'is-busy' : ''}`}
       onFocusCapture={() => onInteractionChange(true)}
       onBlurCapture={(event) => {
@@ -111,16 +190,38 @@ export function InlineFListForm({ onInteractionChange }: { onInteractionChange: 
       ) : (
         <form onSubmit={submit} noValidate aria-describedby={error ? 'f-list-error' : undefined}>
           <div className="tearoff-field">
-            <label htmlFor="f-list-email">email address</label>
-            <input
-              id="f-list-email"
-              name="email"
-              type="email"
-              inputMode="email"
-              autoComplete="email"
-              required
-              aria-invalid={Boolean(error)}
-            />
+            {/* Both modes reuse one field slot: swapping the input's identity rather than rendering
+                two keeps the grid — and therefore the scrim height — fixed. `key` forces a fresh
+                node on switch so a half-typed email never lingers in the code field. */}
+            <label htmlFor={invite ? 'f-list-code' : 'f-list-email'}>
+              {invite ? FRENSPAY_COPY.inviteLabel : 'email address'}
+            </label>
+            {invite ? (
+              <input
+                key="code"
+                id="f-list-code"
+                name="code"
+                type="text"
+                inputMode="text"
+                autoComplete="off"
+                autoCapitalize="characters"
+                spellCheck={false}
+                placeholder="FP-XXXX-XXXX"
+                required
+                aria-invalid={Boolean(error)}
+              />
+            ) : (
+              <input
+                key="email"
+                id="f-list-email"
+                name="email"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                required
+                aria-invalid={Boolean(error)}
+              />
+            )}
           </div>
           {/* The page's biggest type IS the submit. It used to be a separate
               giant link that only focused this form, so "join the f-list"
@@ -130,7 +231,7 @@ export function InlineFListForm({ onInteractionChange }: { onInteractionChange: 
               the flourish, never the message, so reduced-motion and screen-reader
               users lose nothing. */}
           <button type="submit" disabled={busy}>
-            <span>{busy ? 'joining…' : FRENSPAY_COPY.fList}</span>
+            <span>{busy ? 'joining…' : invite ? FRENSPAY_COPY.invite : FRENSPAY_COPY.fList}</span>
             {busy ? (
               <FrensLogo state="joining" className="fp-logo-inline" />
             ) : (
@@ -171,6 +272,11 @@ export function InlineFListForm({ onInteractionChange }: { onInteractionChange: 
               {error}
             </p>
           ) : null}
+          <p className="tearoff-switch">
+            <button type="button" onClick={() => switchTo(invite ? 'flist' : 'invite')}>
+              {invite ? FRENSPAY_COPY.noCode : FRENSPAY_COPY.haveCode}
+            </button>
+          </p>
         </form>
       )}
     </div>

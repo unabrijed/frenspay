@@ -71,6 +71,12 @@ milestone and are deliberately not rewritten. Renamed since they were written:
 | 22 | [Indonesia corridor + Asia research](22-indonesia-corridor-and-asia-research.md) | QRIS/IDR as currency-generalization, provider/cost research, ranked next corridors | ✅ |
 | 23 | [Settlement models & provider registry](23-settlement-models-and-provider-registry.md) | `lp` vs `provider` per corridor, the platform settlement row, DB provider registry + its safety invariants, corridor economics | 🟡 |
 
+**Deployment is not a numbered doc** — the runbooks live at the repo root, next to the code they
+deploy: [`DEPLOY.stage.md`](../DEPLOY.stage.md) (Railway backend + per-env Vercel frontends, every
+setting/variable/domain/test step) and [`DEPLOY.md`](../DEPLOY.md) (prod/mainnet). One
+architecture fact worth knowing from them: the web app ships server-side code (the access-key
+deploy gate — `src/middleware.ts` + `/gate`), so it deploys as a Next server, not a static export.
+
 ---
 
 ## The system at a glance

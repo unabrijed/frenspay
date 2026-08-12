@@ -103,7 +103,10 @@ export function usePaged<T>(fetcher: (cursor?: string) => Promise<{ items: T[]; 
     void load();
   }, [load]);
 
-  return { items, cursor, busy, loaded, err, denied, more: () => void load(cursor) };
+  // `reload` re-fetches from the START, so it drops any extra pages already loaded — the same
+  // trade usePoll's reload makes. Correct for the mutation pages that need it (a mint or a role
+  // change belongs at the top of a newest-first list anyway); scrolling back is the cost.
+  return { items, cursor, busy, loaded, err, denied, more: () => void load(cursor), reload: () => load() };
 }
 
 /* ---- layout blocks ---- */

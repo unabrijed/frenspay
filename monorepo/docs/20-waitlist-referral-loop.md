@@ -6,18 +6,21 @@ The **f list** — the pre-launch queue the landing page collects — plus the t
 grow and make it real: a referral link that attributes who brought whom, and a confirmation email
 that proves an address exists.
 
-fpay is invite-only, and the invite code **is** the referrer's `@handle` (see
-[02 · Auth & identity](02-auth-identity.md)). That covers people who already have an account. It does
-nothing for the much larger group who don't — so the f list gets its own share code, and one `?ref=`
-parameter carries both kinds of referrer:
+fpay is invite-only, and the way in is a real one-time **invite code** entered on this same landing
+page (see [02 · Auth & identity](02-auth-identity.md)). The f list is what the page offers everyone
+who *doesn't* have one — the queue, not the door.
 
-| `?ref=` value | Who sent it | Where it came from |
+So the two loops are now cleanly separate, and share only a page:
+
+| Mechanism | What it is | Where it's redeemed |
 |---|---|---|
-| `@asha` | an app user | Settings → "Share invite" |
-| `k3n8q2wp` | an f-list member | their own confirm email / success card |
+| `FP-XXXX-XXXX` | a real invite code, burned once | the landing strip → the app's signup |
+| `?ref=k3n8q2wp` | f-list attribution only | never redeemed; it credits a queue signup |
 
-Both land on the marketing site. Only the `@handle` form is forwarded onward to the app, because an
-8-character member code is not a handle and would fail the invite gate with `invalid_referral`.
+`?ref=` used to carry an app user's `@handle` too, and `isHandle()` existed to decide which values
+were safe to forward to the app's gate. Invite codes are never handles, so nothing forwards a ref
+any more: **`?ref=` is purely f-list attribution.** An app user no longer has a shareable "code that
+is their handle" at all — they have three codes, seen once at signup.
 
 ## Flow
 
@@ -117,19 +120,23 @@ response is not.
 
 - ✅ Schema (`ref_code` / `referred_by` / `verified_at` + two indexes), `POST /waitlist` with `ref`,
   `GET /waitlist/verify`, Resend mailer, IP-keyed rate limits on both routes.
-- ✅ App side: Settings "Share invite" now points at the marketing site, and the invite gate offers an
-  f-list exit to visitors with no code.
+- ✅ App side: the invite gate offers an f-list exit to visitors with no code. Settings no longer
+  shares anything — the three codes are shown once at signup and are gone from the app after that,
+  so a permanent share card there would quietly undo the one-look rule.
 - ✅ Admin: the F list shows *Referred by* and *Confirmed*, with both in the CSV export.
 - ✅ `scripts/check-waitlist.ts` — asserts token round-trip, that a payload swapped under a valid
   signature is rejected, code stability, and the ref sanitiser.
 - ✅ Landing site: `?ref=` captured to `localStorage` on arrival and sent at submit, "@asha invited
   you" above the form, queue position + copyable share link on success, `?v=1` / `?v=0` confirm
-  states, and demo links that relay a cached `@handle` on to the app.
+  states.
+- ✅ The landing strip is now the **door**: invite code by default, f list as the fallback, and
+  `NEXT_PUBLIC_APP_URL` finally exists so a valid code hands off to the app. The `/#flist` anchor
+  the app has always linked to now resolves (it pointed at an id that existed nowhere on the page).
 - ⬜ Sending is inert until the Resend domain verifies and the four backend vars are set
   ([stage deploy — waitlist / Resend](../DEPLOY.stage.md)).
-- ⬜ `NEXT_PUBLIC_APP_URL` is unset, so the landing "try the demo" links still fall back to `#`. The
-  referral relay works the moment a real web-app URL is filled in.
-- ⬜ No invite-send: moving someone from the queue into an actual account is still a manual step.
+- ⬜ Queue → account is still manual, but no longer blocked: an operator mints a house code in the
+  console and sends it. What's missing is only the *automation* (pick N from the queue, mail each a
+  code), not the ability.
 
 ## Key files
 

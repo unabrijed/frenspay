@@ -74,11 +74,20 @@ export async function requireMerchant(req: FastifyRequest): Promise<MerchantRow>
   return merchant;
 }
 
-/** Throw 403 unless the user carries role='admin' (set by hand / dev seed — read-only viewer gate). */
+/** True if this address is a ROOT admin: named in ADMIN_EMAILS, therefore admin regardless of what
+ *  the users row says, and undemotable. The bootstrap that makes the console recoverable — a bad
+ *  demote can't lock everyone out, because the env still names someone who gets in. */
+export function isRootAdminEmail(email: string | null | undefined): boolean {
+  return Boolean(email) && config.adminEmails.includes(email!.trim().toLowerCase());
+}
+
+/** Throw 403 unless the user is an admin: either role='admin' in the DB (granted from the console)
+ *  or a root admin named in ADMIN_EMAILS. The email is the Privy-verified login address, written to
+ *  users.email at sync — never a self-claimed value. */
 export async function requireAdmin(req: FastifyRequest): Promise<string> {
   const userId = requireUserId(req);
   const user = await findUserById(userId);
-  if (user?.role !== 'admin') {
+  if (user?.role !== 'admin' && !isRootAdminEmail(user?.email)) {
     const err = new Error('not_admin') as Error & { statusCode?: number };
     err.statusCode = 403;
     throw err;

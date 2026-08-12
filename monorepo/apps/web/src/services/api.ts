@@ -97,6 +97,8 @@ export const api = {
   authSync: (body: AuthSyncRequest) =>
     req<MeResponse>('/auth/sync', { method: 'POST', body: JSON.stringify(body) }),
   me: () => req<MeResponse>('/me'),
+  /** One-way: after this /me stops returning the invite strings. */
+  acknowledgeInvites: () => req<{ ok: true }>('/me/invites/ack', { method: 'POST' }),
   kycVerify: (returnUrl?: string) =>
     req<KycVerifyResponse>('/kyc/verify', { method: 'POST', body: JSON.stringify({ returnUrl }) }),
   // Dev-only: reset the caller's backend KYC tier to 1 so the verification flow can be re-tested on

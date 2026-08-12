@@ -42,6 +42,11 @@ export const RATE_LIMIT_RULES: Rule[] = [
   // Public (unauthenticated) landing-page endpoints — anonymous callers key on IP. The confirm click
   // is capped too: it is the one path that can trigger a DB write from a bare GET.
   { method: 'POST', path: '/waitlist', bucket: 'waitlist', limit: 5, windowMs: 60_000 },
+  // The only brute-force surface on the invite gate: unauthenticated, and a 200 names a live code.
+  // The keyspace (40 bits) already makes guessing hopeless; this caps the attempt rate anyway, and
+  // its own bucket keeps a wrong guess from eating the f-list quota. 10/min is generous for someone
+  // fat-fingering a code off a screenshot and useless for anyone enumerating.
+  { method: 'POST', path: '/invite/check', bucket: 'invite', limit: 10, windowMs: 60_000 },
   // Own bucket: sharing 'waitlist' would let confirm clicks consume the (smaller) join quota.
   { method: 'GET', path: '/waitlist/verify', bucket: 'waitlist_verify', limit: 10, windowMs: 60_000 },
 ];

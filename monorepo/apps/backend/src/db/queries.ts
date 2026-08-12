@@ -1,8 +1,11 @@
 // queries.ts — typed data access over the lazy pg pool (db/pool.ts).
 // Maps rows to the @fpay/shared wire DTOs. Phase 1 is USDC-only, so no rupee column.
+import type { PoolClient } from 'pg';
+
 import type {
   AdminAction,
   AdminDenylistEntry,
+  AdminInviteCode,
   AdminMerchant,
   AdminOrder,
   AdminOrderDetailResponse,
@@ -24,6 +27,8 @@ import type {
   RouteQuality,
 } from '@fpay/shared';
 
+import { INVITES_PER_USER, mintCode } from '../services/invites';
+
 import { getLockPool, getPool } from './pool';
 
 export type TransferKind = 'send' | 'add' | 'pay' | 'escrow_fund' | 'escrow_release';
@@ -37,8 +42,9 @@ export interface UserRow {
   phone: string | null;
   country: string | null;
   role: 'user' | 'merchant' | 'admin';
-  referral_limit: number;
   referred_by: string | null;
+  /** Stamped once the user has seen their invite codes; after that /me stops returning them. */
+  invites_revealed_at: Date | null;
 }
 
 export interface WalletRow {
@@ -112,6 +118,36 @@ export async function findUserByPrivyDid(did: string): Promise<UserRow | null> {
 }
 
 /**
+ * Insert `count` fresh codes for an owner (null = house code), returning what actually landed.
+ *
+ * `onlyIfNone` makes it idempotent for the per-account grant: a replayed sync, or two /me calls
+ * racing, must not hand anyone a second set of three. It is safe only while the caller holds a lock
+ * on the owner's user row — both callers do (the sync txn has just written it; ensureInviteCodes
+ * takes `for update` first).
+ *
+ * `on conflict (code) do nothing` covers the ~1e-8 collision. The caller gets the codes that landed
+ * rather than the codes we hoped for, so a shortfall is visible instead of imaginary.
+ */
+async function mintCodesFor(
+  // Pool and PoolClient both satisfy this — the sync path needs its own client (it is mid-
+  // transaction), the admin path does not.
+  client: Pick<PoolClient, 'query'>,
+  ownerId: string | null,
+  count: number,
+  opts: { onlyIfNone?: boolean; note?: string } = {},
+): Promise<string[]> {
+  const { rows } = await client.query<{ code: string }>(
+    `insert into invite_codes (code, owner_id, note)
+     select c, $2, $3 from unnest($1::text[]) as c
+      where $4::boolean is false or not exists (select 1 from invite_codes where owner_id = $2)
+     on conflict (code) do nothing
+     returning code`,
+    [Array.from({ length: count }, mintCode), ownerId, opts.note ?? null, Boolean(opts.onlyIfNone)],
+  );
+  return rows.map((r) => r.code);
+}
+
+/**
  * Upsert the user (by Privy DID) + their wallet. Called by /auth/sync after login.
  * Atomic: user + wallet land together or not at all, so a wallet-insert failure can't
  * leave a walletless user. A handle collision raises PG 23505 (caller maps it to 409).
@@ -122,41 +158,68 @@ export async function upsertUserByPrivyDid(input: {
   displayName?: string;
   walletAddress: string;
   country?: string;
-  /** Referrer's user id — set only when this sync creates the account (invite gate). */
-  referredBy?: string;
+  /** Privy-verified login address, persisted so the console can show it and ADMIN_EMAILS can match. */
+  email?: string;
+  /** CANONICAL invite code to burn — set only when this sync creates the account. */
+  inviteCode?: string;
 }): Promise<UserRow> {
   const client = await getPool().connect();
   try {
     await client.query('begin');
-    if (input.referredBy) {
-      // Lock the referrer row FIRST, count in a SEPARATE statement — under read committed the
-      // second statement gets a fresh snapshot after the lock, so concurrent claims serialize.
-      // (A single `select ... for update` with the count in a subquery re-checks its qual against
-      // a stale snapshot after blocking.)
-      await client.query('select 1 from users where id = $1 for update', [input.referredBy]);
-      const { rows: refRows } = await client.query<{ referral_limit: number; used: number }>(
-        `select referral_limit, (select count(*)::int from users where referred_by = $1) as used
-           from users where id = $1`,
-        [input.referredBy],
+    let referredBy: string | null = null;
+    if (input.inviteCode) {
+      // The whole gate, in one statement. `for update` on the code row IS the concurrency control:
+      // two people racing the same code both block here, and whoever loses re-reads a row with
+      // redeemed_at set and falls out below. This replaced a lock-the-referrer-then-count-in-a-
+      // second-statement dance — one row, one lock, no counting.
+      const { rows: codeRows } = await client.query<{ owner_id: string | null }>(
+        `select owner_id from invite_codes
+          where code = $1 and redeemed_at is null and revoked_at is null
+          for update`,
+        [input.inviteCode],
       );
-      const r = refRows[0];
-      if (!r || r.used >= r.referral_limit) throw Object.assign(new Error('referral_limit'), { code: 'referral_limit' });
+      // Unknown, already burned, and revoked are ONE error on purpose: distinguishing them would
+      // turn this into an oracle telling a guesser which codes exist.
+      if (!codeRows[0]) throw Object.assign(new Error('invalid_invite'), { code: 'invalid_invite' });
+      // NULL for a house code — the account is created with no referrer, which is correct: nobody
+      // invited them.
+      referredBy = codeRows[0].owner_id;
     }
     // Handle is IMMUTABLE after first sync (the onboarding UI promises "can't be changed later",
     // and a freed handle could be re-claimed → payments misdirected). display_name coalesces so a
     // sync without one doesn't null it out. country is the browser-locale guess — the WEAKEST
     // source, so it fills only when NULL (verified-phone/manual picks overwrite via /me/country).
-    // referred_by is NOT in the conflict update: a re-sync must never rewrite invite lineage.
+    // email is the opposite: Privy is authoritative, so a fresh value wins and a missing one leaves
+    // what's there. referred_by is NOT in the conflict update: a re-sync must never rewrite lineage.
     const { rows } = await client.query<UserRow>(
-      `insert into users (privy_did, handle, display_name, country, referred_by)
-       values ($1, $2, $3, $4, $5)
+      `insert into users (privy_did, handle, display_name, country, email, referred_by)
+       values ($1, $2, $3, $4, $5, $6)
        on conflict (privy_did) do update
          set display_name = coalesce(excluded.display_name, users.display_name),
-             country = coalesce(users.country, excluded.country)
+             country = coalesce(users.country, excluded.country),
+             email = coalesce(excluded.email, users.email)
        returning *`,
-      [input.privyDid, input.handle, input.displayName ?? null, input.country ?? null, input.referredBy ?? null],
+      [
+        input.privyDid,
+        input.handle,
+        input.displayName ?? null,
+        input.country ?? null,
+        input.email ?? null,
+        referredBy,
+      ],
     );
     const user = rows[0];
+    if (input.inviteCode) {
+      // Burn it. Same transaction as the account it let in, so there is no window where a code is
+      // spent but the account doesn't exist (or the reverse).
+      await client.query(
+        `update invite_codes set redeemed_by = $2, redeemed_at = now() where code = $1`,
+        [input.inviteCode, user.id],
+      );
+    }
+    // Their own three, minted in the same breath. `where not exists` makes this idempotent, so a
+    // replayed sync can't hand anyone a second set.
+    await mintCodesFor(client, user.id, INVITES_PER_USER, { onlyIfNone: true });
     await client.query(
       `insert into wallets (user_id, address) values ($1, $2)
        on conflict (user_id, chain) do update set address = excluded.address`,
@@ -715,8 +778,6 @@ interface QuoteRow {
   amount_inr: string;
   amount_usdc: string;
   rate: string;
-  fee_inr: string;
-  network_fee_inr: string;
   eta_min_secs: number;
   eta_max_secs: number;
   payout_method: PayoutMethod;
@@ -736,8 +797,6 @@ function toQuote(r: QuoteRow): Quote {
     amountInr: r.amount_inr,
     amountUsdc: r.amount_usdc,
     rate: r.rate,
-    feeInr: r.fee_inr,
-    networkFeeInr: r.network_fee_inr,
     etaMinSecs: r.eta_min_secs,
     etaMaxSecs: r.eta_max_secs,
     payoutMethod: r.payout_method,
@@ -760,8 +819,8 @@ export async function insertQuote(input: {
   amountInr: string;
   amountUsdc: string;
   rate: string;
-  feeInr: string;
-  networkFeeInr: string;
+  /** The platform's in-rate cut in USDC — backend-internal, never in the Quote DTO. */
+  platformFeeUsdc: string;
   etaMinSecs: number;
   etaMaxSecs: number;
   payoutMethod: PayoutMethod;
@@ -773,9 +832,9 @@ export async function insertQuote(input: {
   const { rows } = await getPool().query<QuoteRow>(
     `with ins as (
        insert into quotes (user_id, merchant_id, direction, currency, amount_inr, amount_usdc, rate,
-                           fee_inr, network_fee_inr, eta_min_secs, eta_max_secs,
+                           platform_fee_usdc, eta_min_secs, eta_max_secs,
                            payout_method, route_quality, payout_destination, payout_name, expires_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        returning *
      )
      select ins.*, m.name as merchant_name
@@ -788,8 +847,7 @@ export async function insertQuote(input: {
       input.amountInr,
       input.amountUsdc,
       input.rate,
-      input.feeInr,
-      input.networkFeeInr,
+      input.platformFeeUsdc,
       input.etaMinSecs,
       input.etaMaxSecs,
       input.payoutMethod,
@@ -806,20 +864,44 @@ export async function insertQuote(input: {
 export async function getQuoteRowForUser(
   quoteId: string,
   userId: string,
-): Promise<{ id: string; merchantId: string | null; amountUsdc: number; expiresAt: Date } | null> {
+): Promise<{
+  id: string;
+  merchantId: string | null;
+  amountUsdc: number;
+  /** Raw numeric string, NOT a number — the deposit split subtracts it exactly (a float difference
+   *  can exceed 6dp and parseAmount throws at the chain edge). */
+  platformFeeUsdc: string;
+  expiresAt: Date;
+} | null> {
   const { rows } = await getPool().query<{
     id: string;
     merchant_id: string | null;
     amount_usdc: string;
+    platform_fee_usdc: string;
     expires_at: Date;
-  }>('select id, merchant_id, amount_usdc, expires_at from quotes where id = $1 and user_id = $2', [
-    quoteId,
-    userId,
-  ]);
+  }>(
+    'select id, merchant_id, amount_usdc, platform_fee_usdc, expires_at from quotes where id = $1 and user_id = $2',
+    [quoteId, userId],
+  );
   const r = rows[0];
   return r
-    ? { id: r.id, merchantId: r.merchant_id, amountUsdc: Number(r.amount_usdc), expiresAt: r.expires_at }
+    ? {
+        id: r.id,
+        merchantId: r.merchant_id,
+        amountUsdc: Number(r.amount_usdc),
+        platformFeeUsdc: r.platform_fee_usdc,
+        expiresAt: r.expires_at,
+      }
     : null;
+}
+
+/** The platform's in-rate cut for an order, as the raw numeric string ("0.000000" on pre-fee rows). */
+export async function getOrderPlatformFee(orderId: string): Promise<string> {
+  const { rows } = await getPool().query<{ platform_fee_usdc: string }>(
+    'select q.platform_fee_usdc from orders o join quotes q on q.id = o.quote_id where o.id = $1',
+    [orderId],
+  );
+  return rows[0]?.platform_fee_usdc ?? '0';
 }
 
 interface OrderJoinRow {
@@ -840,8 +922,6 @@ interface OrderJoinRow {
   q_amount_inr: string;
   q_amount_usdc: string;
   q_rate: string;
-  q_fee_inr: string;
-  q_network_fee_inr: string;
   q_eta_min_secs: number;
   q_eta_max_secs: number;
   q_payout_method: PayoutMethod;
@@ -857,7 +937,7 @@ const ORDER_SELECT = `
   select o.id, o.user_id, o.state, o.resolution, o.amount_usdc, o.reference_code,
          o.payout_claimed_at, o.feedback_up, o.created_at, o.updated_at, o.quote_id,
          q.direction as q_direction, q.currency as q_currency, q.amount_inr as q_amount_inr, q.amount_usdc as q_amount_usdc,
-         q.rate as q_rate, q.fee_inr as q_fee_inr, q.network_fee_inr as q_network_fee_inr,
+         q.rate as q_rate,
          q.eta_min_secs as q_eta_min_secs, q.eta_max_secs as q_eta_max_secs,
          q.payout_method as q_payout_method, q.route_quality as q_route_quality,
          q.payout_destination as q_payout_destination, q.payout_name as q_payout_name,
@@ -875,8 +955,6 @@ function toOrder(r: OrderJoinRow, events?: OrderEvent[]): Order {
     amountInr: r.q_amount_inr,
     amountUsdc: r.q_amount_usdc,
     rate: r.q_rate,
-    feeInr: r.q_fee_inr,
-    networkFeeInr: r.q_network_fee_inr,
     etaMinSecs: r.q_eta_min_secs,
     etaMaxSecs: r.q_eta_max_secs,
     payoutMethod: r.q_payout_method,
@@ -1741,14 +1819,80 @@ export async function hasAnyUsers(): Promise<boolean> {
   return rows[0].exists;
 }
 
-/** Invites used vs allowed, for /me. `::int` — pg returns bare count(*) (bigint) as a string. */
-export async function getReferralStats(userId: string): Promise<{ used: number; limit: number }> {
-  const { rows } = await getPool().query<{ referral_limit: number; used: number }>(
-    `select referral_limit, (select count(*)::int from users where referred_by = u.id) as used
-       from users u where u.id = $1`,
+/**
+ * Grandfathering, for accounts created before invite codes existed: mint their three on first /me.
+ * Cheap no-op afterwards — one indexed existence check.
+ *
+ * `for update` on the user row is what makes concurrent /me calls safe: mintCodesFor's `not exists`
+ * guard would otherwise let two of them both decide the user has none and insert three each.
+ */
+export async function ensureInviteCodes(userId: string): Promise<void> {
+  const { rows } = await getPool().query<{ exists: boolean }>(
+    'select exists(select 1 from invite_codes where owner_id = $1)',
     [userId],
   );
-  return rows[0] ? { used: rows[0].used, limit: rows[0].referral_limit } : { used: 0, limit: 0 };
+  if (rows[0].exists) return;
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+    await client.query('select 1 from users where id = $1 for update', [userId]);
+    await mintCodesFor(client, userId, INVITES_PER_USER, { onlyIfNone: true });
+    await client.query('commit');
+  } catch (e) {
+    await client.query('rollback');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Invite counts for /me, plus the code strings themselves when `includeCodes` — which the caller
+ * passes only while users.invites_revealed_at is null. Revoked codes are counted in neither total
+ * nor used: an admin taking one back should read as "you have two", not "you wasted one".
+ *
+ * `::int` — pg returns a bare count(*) (bigint) as a string.
+ */
+export async function getInviteStats(
+  userId: string,
+  includeCodes: boolean,
+): Promise<{ total: number; used: number; codes?: string[] }> {
+  const { rows } = await getPool().query<{ code: string; redeemed_at: Date | null }>(
+    `select code, redeemed_at from invite_codes
+      where owner_id = $1 and revoked_at is null
+      order by created_at asc, code asc`,
+    [userId],
+  );
+  return {
+    total: rows.length,
+    used: rows.filter((r) => r.redeemed_at !== null).length,
+    // All three, burned or not: the reveal screen shows the set they were given, once.
+    codes: includeCodes ? rows.map((r) => r.code) : undefined,
+  };
+}
+
+/** Stamp the one-look flag. `is null` guard makes a second ack a no-op rather than a re-stamp. */
+export async function markInvitesRevealed(userId: string): Promise<void> {
+  await getPool().query(
+    'update users set invites_revealed_at = now() where id = $1 and invites_revealed_at is null',
+    [userId],
+  );
+}
+
+/**
+ * The landing gate's read: is this code redeemable right now? Deliberately does NOT reserve it —
+ * reservation would need a lock held across a browser redirect and a whole signup. Two people can
+ * both get `unused` here and race at /auth/sync, where exactly one wins.
+ */
+export async function inviteCodeStatus(code: string): Promise<'unused' | 'burned' | 'revoked' | null> {
+  const { rows } = await getPool().query<{ redeemed_at: Date | null; revoked_at: Date | null }>(
+    'select redeemed_at, revoked_at from invite_codes where code = $1',
+    [code],
+  );
+  const r = rows[0];
+  if (!r) return null;
+  if (r.revoked_at) return 'revoked';
+  return r.redeemed_at ? 'burned' : 'unused';
 }
 
 /** F-list signup (public write). Email PK = dedupe. `do update` rather than `do nothing` so one
@@ -2553,6 +2697,92 @@ export async function addDenylistEntry(
 export async function removeDenylistEntry(id: string): Promise<boolean> {
   const { rowCount } = await getPool().query(`delete from denylist where id = $1`, [id]);
   return (rowCount ?? 0) > 0;
+}
+
+/**
+ * Promote/demote an operator. Returns the role that actually landed, or null if there was no row.
+ *
+ * The `case` is the reason this isn't a bare update: role is a single column, so demoting an
+ * operator who is ALSO a merchant would flatten them to 'user' and lose that fact. Merchant
+ * capability really lives in the merchants table (requireMerchant reads that, not this), so the
+ * column is informational — but informational and wrong is worse than absent, so a demote puts a
+ * merchant back to 'merchant'.
+ */
+export async function setUserRole(
+  userId: string,
+  role: 'user' | 'admin',
+): Promise<'user' | 'merchant' | 'admin' | null> {
+  const { rows } = await getPool().query<{ role: 'user' | 'merchant' | 'admin' }>(
+    `update users u set role = case
+       when $2 = 'user' and exists (select 1 from merchants where user_id = u.id) then 'merchant'
+       else $2 end
+      where u.id = $1
+      returning u.role`,
+    [userId, role],
+  );
+  return rows[0]?.role ?? null;
+}
+
+/* ---- admin: invite codes ---- */
+
+/** Every code, newest first, with both ends resolved to handles. Keyset tiebreak is `code` (text,
+ *  the PK) rather than a uuid, so the cursor casts to ::text — otherwise identical to the other
+ *  admin lists. */
+export async function listInviteCodesAdmin(limit = 50, cursor?: string): Promise<Page<AdminInviteCode>> {
+  const n = clampLimit(limit, 50, 100);
+  const c = parseCursor(cursor);
+  const { rows } = await getPool().query<{
+    code: string;
+    owner_handle: string | null;
+    redeemed_by_handle: string | null;
+    redeemed_at: Date | null;
+    revoked_at: Date | null;
+    note: string | null;
+    created_at: Date;
+  }>(
+    `select i.code, o.handle as owner_handle, r.handle as redeemed_by_handle,
+            i.redeemed_at, i.revoked_at, i.note, i.created_at
+       from invite_codes i
+       left join users o on o.id = i.owner_id
+       left join users r on r.id = i.redeemed_by
+      where ($2::timestamptz is null or (i.created_at, i.code) < ($2::timestamptz, $3::text))
+      order by i.created_at desc, i.code desc limit $1`,
+    [n + 1, c?.at ?? null, c?.id ?? null],
+  );
+  const pageRows = rows.slice(0, n);
+  const last = pageRows[pageRows.length - 1];
+  return {
+    items: pageRows.map((r) => ({
+      code: r.code,
+      ownerHandle: r.owner_handle,
+      // Revoked wins over redeemed: if an operator somehow revoked a burned code, the operator's
+      // action is the more recent truth and the more useful thing to show.
+      status: r.revoked_at ? 'revoked' : r.redeemed_at ? 'burned' : 'unused',
+      redeemedByHandle: r.redeemed_by_handle,
+      redeemedAt: r.redeemed_at?.toISOString() ?? null,
+      revokedAt: r.revoked_at?.toISOString() ?? null,
+      note: r.note,
+      createdAt: r.created_at.toISOString(),
+    })),
+    nextCursor: rows.length > n && last ? `${last.created_at.toISOString()}|${last.code}` : undefined,
+  };
+}
+
+/** Mint from the console. `ownerId` null = a house code, constrained by nobody's allowance — the
+ *  reason this endpoint exists at all. Returns what actually landed, not what was asked for. */
+export async function mintInviteCodes(ownerId: string | null, count: number, note?: string): Promise<string[]> {
+  return mintCodesFor(getPool(), ownerId, count, { note });
+}
+
+/** Revoke an unused code. False = it wasn't revokable (gone, burned, or already revoked); the
+ *  caller re-reads inviteCodeStatus to say which, so the happy path stays one statement. */
+export async function revokeInviteCode(code: string): Promise<boolean> {
+  const res = await getPool().query(
+    `update invite_codes set revoked_at = now()
+      where code = $1 and redeemed_at is null and revoked_at is null`,
+    [code],
+  );
+  return res.rowCount === 1;
 }
 
 /** Audit trail: every /admin/* mutation records who did what before responding. */

@@ -31,3 +31,12 @@ export async function getLinkedPhone(privyDid: string): Promise<string | null> {
   const user = await client().getUser(privyDid);
   return user.phone?.number ?? null;
 }
+
+/** The user's Privy-verified email — the address they actually logged in with, since the web app's
+ *  only login method is email + OTP. Persisted to users.email at sync so the admin console can show
+ *  it and so ADMIN_EMAILS can match a real, provider-verified address rather than a self-claimed
+ *  one. Same rate-limit caveat as getLinkedPhone above. */
+export async function getLinkedEmail(privyDid: string): Promise<string | null> {
+  const user = await client().getUser(privyDid);
+  return user.email?.address ?? null;
+}

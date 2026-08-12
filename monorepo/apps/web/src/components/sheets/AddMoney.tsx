@@ -13,16 +13,20 @@ import { Chip, Chips, Eyebrow, Field, Grab, List, Row, RowIcon, RowMeta, SheetBo
 import { haptic, Pressable, sx, View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { colors, fonts, type } from '@/lib/theme';
+import { IS_MAINNET } from '@/services/envConfig';
 import { usePayStore } from '@/store/usePayStore';
 
 const CHIPS = [50, 100, 250];
 
-const NETWORKS: Array<{ id: string; name: string; chain: 'evm' | 'solana' }> = [
+const ALL_NETWORKS: Array<{ id: string; name: string; chain: 'evm' | 'solana' }> = [
   { id: 'base', name: 'Base', chain: 'evm' },
   { id: 'arbitrum', name: 'Arbitrum', chain: 'evm' },
   { id: 'ethereum', name: 'Ethereum', chain: 'evm' },
   { id: 'solana', name: 'Solana', chain: 'solana' },
 ];
+// ponytail: on mainnet the EVM chips hide entirely — the smart-wallet bridge (CCTP) is off there,
+// so USDC sent to the EVM address would strand. Restore the chips when cross-chain ships on mainnet.
+const NETWORKS = IS_MAINNET ? ALL_NETWORKS.filter((n) => n.chain === 'solana') : ALL_NETWORKS;
 
 function DepositFromWallet() {
   const evmAddress = usePayStore((s) => s.evmDepositAddress);
@@ -32,7 +36,7 @@ function DepositFromWallet() {
   const checkDeposits = usePayStore((s) => s.checkDeposits);
   const doMoveToBalance = usePayStore((s) => s.doMoveToBalance);
   const error = usePayStore((s) => s.error);
-  const [net, setNet] = useState('base');
+  const [net, setNet] = useState(IS_MAINNET ? 'solana' : 'base');
   const [copied, setCopied] = useState(false);
   const [showQr, setShowQr] = useState(false);
 
@@ -153,28 +157,33 @@ export function AddMoney() {
       <Grab />
       <SheetHeader title="Add money" onClose={close} />
       <SheetBody>
-        <Txt style={type.lead}>Top up your dollar balance.</Txt>
-        <View style={{ marginTop: 16 }}>
-          <Chips>
-            {CHIPS.map((v) => (
-              <Chip key={v} label={`$${v}`} on={amt === v} onPress={() => setAmt(v)} />
-            ))}
-          </Chips>
-        </View>
-        <Field style={{ marginTop: 12 }}>
-          <Txt style={[type.fieldText, { color: colors.muted }]}>$</Txt>
-          <input
-            value={amt ? String(amt) : ''}
-            onChange={(e) => {
-              const n = parseInt(e.target.value.replace(/[^0-9]/g, ''), 10);
-              setAmt(Number.isNaN(n) ? 0 : Math.min(n, 100000));
-            }}
-            inputMode="decimal"
-            placeholder="0"
-            style={sx(type.fieldText, { flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', padding: 0, color: colors.ink })}
-          />
-        </Field>
-        <Btn label={busy ? 'Adding…' : `Add $${amt}`} disabled={amt <= 0 || busy} onPress={() => doAdd(amt)} style={{ marginTop: 16 }} />
+        {/* The faucet is test money — it never exists on mainnet, where deposits are the only way in. */}
+        {IS_MAINNET ? null : (
+          <>
+            <Txt style={type.lead}>Top up your dollar balance.</Txt>
+            <View style={{ marginTop: 16 }}>
+              <Chips>
+                {CHIPS.map((v) => (
+                  <Chip key={v} label={`$${v}`} on={amt === v} onPress={() => setAmt(v)} />
+                ))}
+              </Chips>
+            </View>
+            <Field style={{ marginTop: 12 }}>
+              <Txt style={[type.fieldText, { color: colors.muted }]}>$</Txt>
+              <input
+                value={amt ? String(amt) : ''}
+                onChange={(e) => {
+                  const n = parseInt(e.target.value.replace(/[^0-9]/g, ''), 10);
+                  setAmt(Number.isNaN(n) ? 0 : Math.min(n, 100000));
+                }}
+                inputMode="decimal"
+                placeholder="0"
+                style={sx(type.fieldText, { flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', padding: 0, color: colors.ink })}
+              />
+            </Field>
+            <Btn label={busy ? 'Adding…' : `Add $${amt}`} disabled={amt <= 0 || busy} onPress={() => doAdd(amt)} style={{ marginTop: 16 }} />
+          </>
+        )}
         <DepositFromWallet />
       </SheetBody>
     </>

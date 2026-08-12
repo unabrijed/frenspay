@@ -1,7 +1,8 @@
 'use client';
 
 // Quote.tsx — the "highest-leverage UI": one quote, two choices (Continue / Edit).
-// You pay / from balance · today's rate · fee · total time · payout method. The rate hold is
+// You pay / from balance · today's rate · total time · payout method. No fee line — the
+// platform's cut lives inside the rate (the user only ever sees the conversion). The rate hold is
 // invisible: the quote silently re-fetches near expiry, so the ₹ amount the user typed never
 // changes — only the internal rate/USDC recalculate. Continue confirms and opens the tracker.
 import type { CSSProperties } from 'react';
@@ -77,9 +78,6 @@ export function QuoteSheet() {
               confirmation every UPI app does — the last chance to catch a bad scan. */}
           {quote.payoutDestination ? <Line k="Paying to" v={quote.payoutDestination} /> : null}
           <Line k="Today's rate" v={`$1 = ${fiatRaw(quote.rate, quote.currency)}`} />
-          {/* Number() both legs: these are decimal STRINGS on the wire, and `+` on two strings
-              concatenates — "40.00" + "8.00" would render as ₹40.008. */}
-          <Line k="Fee" v={fiatRaw(Number(quote.feeInr) + Number(quote.networkFeeInr), quote.currency)} />
           <Line k="Total time" v={fmtEta(quote.etaMinSecs, quote.etaMaxSecs)} />
           {/* Name the operator behind the VPA suffix when known (@okaxis → Google Pay) — part of
               the same anti-wrong-send confirmation as the destination line above. */}

@@ -70,9 +70,12 @@ interface PayState {
   // ---- persisted ----
   onboarded: boolean;
   kycTier: number;
-  /** Invite allowance + how many joined via my code. Server truth via /me; ephemeral defaults. */
-  referralLimit: number;
-  referralsUsed: number;
+  /** How many invite codes I own + how many have been burned. Server truth via /me. */
+  invitesTotal: number;
+  invitesUsed: number;
+  /** The code strings — populated by /me ONLY until the reveal screen is acknowledged, then empty
+   *  forever. Never persisted: putting them in localStorage would quietly undo "one look". */
+  invites: string[];
   recovered: boolean;
   recoveryPrompted: boolean;
   balanceUSD: number;
@@ -182,7 +185,9 @@ interface PayState {
   requestOtp: (email: string) => Promise<void>;
   verifyOtp: (code: string) => Promise<void>;
   logout: () => Promise<void>;
-  authSync: (handle: string, referralCode?: string) => Promise<void>;
+  authSync: (handle: string, inviteCode?: string) => Promise<void>;
+  /** Tell the server the codes have been seen, then drop them locally. One-way. */
+  acknowledgeInvites: () => Promise<void>;
   /** Dev-only: reset backend KYC tier + local state and sign out, to re-test onboarding + KYC. */
   resetForTesting: () => Promise<void>;
 
@@ -259,8 +264,9 @@ export const usePayStore = create<PayState>()(
     (set, get) => ({
       onboarded: false,
       kycTier: 1,
-      referralLimit: 3,
-      referralsUsed: 0,
+      invitesTotal: 3,
+      invitesUsed: 0,
+      invites: [],
       recovered: false,
       recoveryPrompted: false,
       balanceUSD: 0,
@@ -381,8 +387,10 @@ export const usePayStore = create<PayState>()(
             evmDepositAddress: me.evmDepositAddress ?? '',
             kycTier: me.kycTier,
             kycStatus: me.kycStatus ?? 'none',
-            referralLimit: me.referralLimit ?? 3,
-            referralsUsed: me.referralsUsed ?? 0,
+            invitesTotal: me.invitesTotal ?? 0,
+            invitesUsed: me.invitesUsed ?? 0,
+            // Absent once acknowledged — the server stops sending them, so this goes back to [].
+            invites: me.invites ?? [],
             merchant: me.merchant ?? null,
             role: me.role ?? 'user',
             balanceUSD: bal,
@@ -484,8 +492,9 @@ export const usePayStore = create<PayState>()(
           unread: 0,
           requests: [],
           kycTier: 1,
-          referralLimit: 3,
-          referralsUsed: 0,
+          invitesTotal: 3,
+          invitesUsed: 0,
+          invites: [],
           recovered: false,
           recoveryPrompted: false,
           onboarded: false,
@@ -509,7 +518,13 @@ export const usePayStore = create<PayState>()(
         }
         await get().logout();
       },
-      authSync: async (handle, referralCode) => {
+      acknowledgeInvites: async () => {
+        await api.acknowledgeInvites();
+        // Drop them here too. /me would stop returning them on the next load anyway, but leaving
+        // them in memory means a back-navigation re-renders the reveal screen with live codes.
+        set({ invites: [] });
+      },
+      authSync: async (handle, inviteCode) => {
         // Browser-locale country guess — weakest source, server fills only when unset.
         // Deliberately no .maximize(): a bare "en" locale must send nothing, not US.
         let country: string | undefined;
@@ -518,7 +533,7 @@ export const usePayStore = create<PayState>()(
         } catch {
           /* no guess */
         }
-        const me = await api.authSync({ handle, walletAddress: get().walletAddress, country, referralCode });
+        const me = await api.authSync({ handle, walletAddress: get().walletAddress, country, inviteCode });
         // Backend user now exists for this Privy identity — unblock data fetches (see `provisioned`).
         set({ walletAddress: me.walletAddress, provisioned: true });
         await get().load();

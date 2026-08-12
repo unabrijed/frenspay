@@ -52,21 +52,22 @@ IP-keyed rate limiter. See [20 · Waitlist & referral loop](../../docs/20-waitli
 **broadcasts** (Privy `signAndSendTransaction` or a dev keypair), then calls `/transfer/submit` with
 `{transferId, signature}`. A background poller (and the Helius webhook) flip the row to `confirmed`.
 
-## Deploy on Railway (Yarn monorepo)
-1. Create a Railway project + a **Postgres** plugin (sets `DATABASE_URL`).
-2. Add a **service** from the repo. Settings:
-   - **Root Directory**: `monorepo` · **Start Command**: `yarn workspace @fpay/backend start`
-     (also in `railway.json`) · **Healthcheck Path**: `/health`.
-3. Nixpacks installs the workspace; Node is pinned to 22 via `monorepo/.nvmrc`.
-4. Set service **Variables**: `NODE_ENV=stage`, then the stage-prefixed values —
-   `STAGE_SOLANA_RPC_URL`, `STAGE_HELIUS_API_KEY`, `STAGE_FEE_PAYER_SECRET_KEY`, `STAGE_USDC_MINT`,
-   `STAGE_PRIVY_APP_ID`/`STAGE_PRIVY_APP_SECRET`/`STAGE_PRIVY_VERIFICATION_KEY`,
-   `STAGE_HELIUS_WEBHOOK_SECRET`, `STAGE_CORS_ORIGIN`. (`PORT` is injected unprefixed by Railway.)
-   For the f list also set `STAGE_RESEND_API_KEY`, `STAGE_EMAIL_FROM`, `STAGE_WAITLIST_SECRET` and
-   `STAGE_LANDING_URL` — all four, or none: unset means no share codes and no mail, and `/waitlist`
-   behaves exactly as it did before the referral loop existed.
-5. Migrations auto-apply on deploy (`railway.json` runs `db:deploy` before `start`). To run by hand:
-   `yarn db:migrate` against the Railway `STAGE_DATABASE_URL`.
-6. Point the Helius webhook at `https://<service>/webhooks/helius?secret=<HELIUS_WEBHOOK_SECRET>`.
+## Deploy on Railway
+
+The step-by-step runbook — every dashboard setting, variable, domain step, and test — is
+[`DEPLOY.stage.md`](../../DEPLOY.stage.md) (prod: [`DEPLOY.md`](../../DEPLOY.md)). The shape, so
+this README doesn't lie by omission:
+
+- Pushing **`stage`** deploys the stage environment; path isolation via `build.watchPatterns` in
+  the repo-root `railway.json`.
+- Build is the repo-root **`Dockerfile`** (`node:24-slim`) — NOT Nixpacks; if the build log shows
+  Nixpacks, the service's Root Directory got set (leave it **unset**). No dashboard start command:
+  the container CMD runs `db:deploy && start`, so migrations always precede the server.
+- DB is **Supabase Postgres** via `STAGE_DATABASE_URL` — always the **session** pooler (`:5432`),
+  never the transaction pooler (it breaks the advisory locks).
+- Variables: `NODE_ENV=stage` + the `STAGE_*` list (KYC config is mandatory — boot throws without
+  it), plus unprefixed host vars: `PORT` (Railway injects — never set) and `PUBLIC_BASE_URL`.
+  Full checklist in the runbook; secret values come from the working `apps/backend/.env`.
+- Healthcheck path `/health`; the Helius webhook self-registers on boot against `PUBLIC_BASE_URL`.
 
 > Cost: Railway's free trial / low-cost hobby tier is fine for Phase 1. No other paid services required.

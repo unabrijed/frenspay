@@ -9,6 +9,8 @@ import { randomBytes } from 'node:crypto';
 import type { Order, OrderResolution, OrderState, PayoutMethod } from '@fpay/shared';
 
 import { config } from '../envConfig';
+import { amt, USDC_DECIMALS } from '../lib/amount';
+import { formatAmount } from '../lib/units';
 import {
   appendOrderEvent,
   casOrderState,
@@ -19,6 +21,7 @@ import {
   getOrderByEscrowFundTransfer,
   getOrderByEscrowReleaseTransfer,
   getOrderForUser,
+  getOrderPlatformFee,
   getOrderSimRow,
   getOrderUserAmount,
   getQuoteRowForUser,
@@ -95,7 +98,12 @@ export async function confirmOrderFromQuote(userId: string, quoteId: string): Pr
   // Same prepare/submit shape as /transfer/prepare, so the web client signs it via the existing signer.
   let built;
   try {
-    built = await buildDepositTx({ userOwner: wallet.address, amountUsd: quote.amountUsdc, reference: referenceCode });
+    built = await buildDepositTx({
+      userOwner: wallet.address,
+      amountUsd: quote.amountUsdc,
+      platformFeeUsd: quote.platformFeeUsdc,
+      reference: referenceCode,
+    });
   } catch {
     return { error: 'solana_unavailable' };
   }
@@ -210,10 +218,13 @@ export async function releaseToMerchant(input: {
   // Broadcast + record FIRST, then advance — a broadcast failure leaves the order in
   // merchant_confirms with no release tx, which the worker's recovery branch resets to retry.
   const signature = await releaseEscrow({ reference: input.reference, merchantOwner: input.treasuryAddress });
+  // The vault only ever held the LP's portion — the platform's in-rate cut split off at deposit —
+  // so the release transfer records amount − fee, not the order's full user debit.
+  const platformFee = await getOrderPlatformFee(input.orderId);
   const { id: releaseTransferId } = await recordEscrowTransfer({
     fromAddress: escrowAddress(input.reference),
     toAddress: input.treasuryAddress,
-    amountUsd: input.amountUsdc,
+    amountUsd: Number(formatAmount(amt(input.amountUsdc).minus(platformFee), USDC_DECIMALS)),
     kind: 'escrow_release',
     signature,
     note: 'order release',
@@ -243,7 +254,12 @@ export async function refundToUser(input: {
 
   let signature: string;
   try {
-    signature = await refundEscrow({ reference: input.reference, userOwner: wallet.address });
+    // Make-whole: vault portion + the platform fee back from the fee-payer's ATA, one atomic tx.
+    signature = await refundEscrow({
+      reference: input.reference,
+      userOwner: wallet.address,
+      platformFeeUsd: await getOrderPlatformFee(input.orderId),
+    });
   } catch (e) {
     // Broadcast failed after claiming — revert so the worker can retry; don't leave a refunded order
     // with no on-chain refund.

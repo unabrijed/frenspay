@@ -1065,6 +1065,32 @@ button:not(:disabled),
   text-underline-offset: 3px;
 }
 
+/* The other door. Quiet on purpose: an invite code is the way in, and the f-list is the consolation
+   — sizing this like a second CTA would put two equal choices in front of someone who has a code in
+   their hand. Same row treatment as the suggest/error lines so the foot height never jumps. */
+.things-hero .tearoff-switch {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12px;
+}
+
+.things-hero .tearoff-switch button {
+  border: 0;
+  background: transparent;
+  color: var(--foot-fg);
+  font-size: inherit;
+  font-weight: 600;
+  opacity: 0.72;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: opacity 160ms ease;
+}
+
+.things-hero .tearoff-switch button:hover,
+.things-hero .tearoff-switch button:focus-visible {
+  opacity: 1;
+}
+
 .things-hero .tearoff-error {
   grid-column: 1 / -1;
   margin: 0;

@@ -31,7 +31,7 @@ Three custody layers, so it is clear who holds funds at each hop:
 - Chain: Solana. Native USDC, sub-cent fees, our ecosystem.
 - Wallet and auth: Privy embedded wallet, passkey login, self-custodial, behind a thin interface.
 - RPC and indexing: Helius (RPC plus transfer webhooks).
-- Backend: Railway — a Fastify (TypeScript) API service plus a managed Railway Postgres database. Realtime via WebSocket/SSE or polling; access control is enforced in the API layer (no Supabase-style RLS). The services below run as part of (or alongside) this service.
+- Backend: Railway — a Fastify (TypeScript) API service; the database is Supabase Postgres (session pooler). Realtime via WebSocket/SSE or polling; access control is enforced in the API layer (no RLS). The services below run as part of (or alongside) this service.
 - Token: Circle's native USDC SPL mint on Solana.
 
 ---

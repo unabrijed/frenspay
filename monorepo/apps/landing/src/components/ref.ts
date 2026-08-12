@@ -46,6 +46,6 @@ export function readRef(): string | null {
   }
 }
 
-/** True for an app user's handle. Only these may be forwarded to the app — an 8-char member code is
- *  not a handle and would trip the invite gate with `invalid_referral`. */
-export const isHandle = (ref: string | null): ref is string => !!ref && ref.startsWith('@');
+// isHandle() lived here to decide which refs were safe to forward to the app's invite gate. That
+// gate now takes real invite codes (lib/invite.ts), which are never handles, so nothing forwards a
+// ref any more and the helper had no callers. `?ref=` is purely f-list attribution now.
