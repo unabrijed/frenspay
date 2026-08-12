@@ -2699,6 +2699,30 @@ export async function removeDenylistEntry(id: string): Promise<boolean> {
   return (rowCount ?? 0) > 0;
 }
 
+/**
+ * Promote/demote an operator. Returns the role that actually landed, or null if there was no row.
+ *
+ * The `case` is the reason this isn't a bare update: role is a single column, so demoting an
+ * operator who is ALSO a merchant would flatten them to 'user' and lose that fact. Merchant
+ * capability really lives in the merchants table (requireMerchant reads that, not this), so the
+ * column is informational — but informational and wrong is worse than absent, so a demote puts a
+ * merchant back to 'merchant'.
+ */
+export async function setUserRole(
+  userId: string,
+  role: 'user' | 'admin',
+): Promise<'user' | 'merchant' | 'admin' | null> {
+  const { rows } = await getPool().query<{ role: 'user' | 'merchant' | 'admin' }>(
+    `update users u set role = case
+       when $2 = 'user' and exists (select 1 from merchants where user_id = u.id) then 'merchant'
+       else $2 end
+      where u.id = $1
+      returning u.role`,
+    [userId, role],
+  );
+  return rows[0]?.role ?? null;
+}
+
 /* ---- admin: invite codes ---- */
 
 /** Every code, newest first, with both ends resolved to handles. Keyset tiebreak is `code` (text,

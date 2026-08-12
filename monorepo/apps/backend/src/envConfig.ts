@@ -201,6 +201,15 @@ export const config = {
   waitlistSecret: env('WAITLIST_SECRET'),
   // Where the confirm link bounces the browser back to — the marketing site, not this API.
   landingUrl: env('LANDING_URL', 'https://frenspay.xyz'),
+
+  // Root admins: comma-separated Privy login addresses that are admin no matter what users.role
+  // says, and that the console cannot demote. Everyone else is granted/revoked from the UI. This
+  // exists so a bad demote can't lock every operator out of the console — the recovery path is an
+  // env var, not a psql session. Matched against the PRIVY-VERIFIED address stored on users.email.
+  adminEmails: (env('ADMIN_EMAILS', '') || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
 };
 
 // Boot visibility: which tier + which DATABASE_URL var won (host only — never credentials).

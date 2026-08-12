@@ -21,15 +21,17 @@ import type {
   AdminPayoutProviderUpdateRequest,
   AdminPayoutProvidersResponse,
   AdminRiskEventsResponse,
+  AdminUserRoleRequest,
   AdminUsersResponse,
   AdminWaitlistResponse,
 } from '@fpay/shared';
 
-import { requireAdmin } from '../auth';
+import { isRootAdminEmail, requireAdmin } from '../auth';
 import {
   addDenylistEntry,
   adminOverview,
   findUserByHandle,
+  findUserById,
   getDisputeForOrder,
   getOrderAdmin,
   insertAdminAction,
@@ -50,6 +52,7 @@ import {
   revokeInviteCode,
   setMerchantKyb,
   setMerchantStatus,
+  setUserRole,
   updatePayoutProvider,
 } from '../db/queries';
 import { canonicalInviteCode } from '../services/invites';
@@ -272,6 +275,42 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       targetId: req.params.id,
     });
     return { ok: true };
+  });
+
+  /**
+   * Promote/demote an operator — the other thing that was SQL-only. Before this, the entire set of
+   * writes to users.role in the repo was: the merchant-apply mirror, a dev seed hardcoded to
+   * @bridge, and a test fixture.
+   *
+   * Two guards, both lockout prevention rather than policy. admin_actions.admin_user_id FKs to
+   * users(id), so an admin row must never be deleted either — demotion is the only removal.
+   */
+  app.post<{ Params: { id: string }; Body: AdminUserRoleRequest }>('/admin/users/:id/role', async (req, reply) => {
+    const adminId = await requireAdmin(req);
+    const role = req.body?.role;
+    if (role !== 'user' && role !== 'admin') return reply.code(400).send({ error: 'invalid_role' });
+    // Demoting yourself 403s every subsequent request, and the way back is a psql session — which
+    // is precisely the situation this whole endpoint exists to end.
+    if (req.params.id === adminId && role === 'user') {
+      return reply.code(409).send({ error: 'cannot_demote_self' });
+    }
+    const target = await findUserById(req.params.id);
+    if (!target) return reply.code(404).send({ error: 'user_not_found' });
+    // A root admin is admin by env, so writing role='user' would change nothing except make the
+    // console display a lie. Refuse rather than pretend.
+    if (role === 'user' && isRootAdminEmail(target.email)) {
+      return reply.code(409).send({ error: 'cannot_demote_root' });
+    }
+    const applied = await setUserRole(req.params.id, role);
+    if (!applied) return reply.code(404).send({ error: 'user_not_found' });
+    await insertAdminAction({
+      adminUserId: adminId,
+      action: role === 'admin' ? 'role_grant' : 'role_revoke',
+      targetKind: 'user',
+      targetId: req.params.id,
+      note: target.handle,
+    });
+    return { ok: true, role: applied };
   });
 
   /**
