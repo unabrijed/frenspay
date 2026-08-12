@@ -243,16 +243,24 @@ export interface InviteCheckResponse {
   code: string;
 }
 
-/** POST /waitlist body (public, landing page). city = the demo-rate corridor selected at signup. */
+/** POST /waitlist body (public, landing page). city = the demo-rate corridor selected at signup.
+ *
+ *  There is no separate "check this code" call any more. Checking and burning have to happen under
+ *  one lock — a pre-flight that returns "good" and a write that spends it are two moments, and two
+ *  people can fit between them. This route is the only door onto the f list. */
 export interface WaitlistJoinRequest {
   email: string;
+  /** REQUIRED. A one-time invite code ('FP-XXXX-XXXX'), spent by this call. Accepts what a human
+   *  types — the server canonicalizes case, spacing, a missing prefix and Crockford's I/L/O. */
+  code: string;
   city?: string;
   /** Who sent them: an app user's '@handle' or another f-list member's ref code. Unknown values are
    *  dropped server-side rather than rejected — a typo'd invite must never block a signup. */
   ref?: string;
 }
 
-/** POST /waitlist response. Always 201 (duplicates included) so the form can't enumerate the list. */
+/** POST /waitlist response. Still 201 for a duplicate EMAIL (so the form can't enumerate the list);
+ *  a bad code is 404 and a spent one is 409, which leaks nothing the caller didn't already hold. */
 export interface WaitlistJoinResponse {
   ok: true;
   /** This member's own share code for `?ref=`. Null while WAITLIST_SECRET is unset (no codes minted). */
@@ -261,6 +269,9 @@ export interface WaitlistJoinResponse {
   position: number;
   /** How many people joined using this member's code. */
   frens: number;
+  /** Their own three invite codes, to pass on. Stable across re-submits — joining twice returns the
+   *  same three and spends no second code. Empty only if minting hit the ~1e-8 collision. */
+  invites: string[];
 }
 
 export interface BalanceResponse {
