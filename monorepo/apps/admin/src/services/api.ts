@@ -5,6 +5,8 @@ import type {
   AdminActionsResponse,
   AdminDenylistAddRequest,
   AdminDenylistResponse,
+  AdminInviteMintRequest,
+  AdminInvitesResponse,
   AdminMerchantsResponse,
   AdminOrderDetailResponse,
   AdminOrdersResponse,
@@ -12,6 +14,7 @@ import type {
   AdminPayoutProviderUpdateRequest,
   AdminPayoutProvidersResponse,
   AdminRiskEventsResponse,
+  AdminUserRoleRequest,
   AdminUsersResponse,
   AdminWaitlistResponse,
   MeResponse,
@@ -89,6 +92,7 @@ export const api = {
   merchants: () => req<AdminMerchantsResponse>('/admin/merchants'),
   riskEvents: (cursor?: string) => req<AdminRiskEventsResponse>(cursored('/admin/risk-events', cursor)),
   denylist: () => req<AdminDenylistResponse>('/admin/denylist'),
+  invites: (cursor?: string) => req<AdminInvitesResponse>(cursored('/admin/invites', cursor)),
   actions: (cursor?: string) => req<AdminActionsResponse>(cursored('/admin/actions', cursor)),
   payoutProviders: () => req<AdminPayoutProvidersResponse>('/admin/payout-providers'),
 
@@ -111,6 +115,12 @@ export const api = {
   denylistAdd: (body: AdminDenylistAddRequest) =>
     req<{ ok: true; id: string }>('/admin/denylist', { method: 'POST', body: JSON.stringify(body) }),
   denylistRemove: (id: string) => req<{ ok: true }>(`/admin/denylist/${id}`, { method: 'DELETE' }),
+  /** The response is the ONLY time these strings are handed back in bulk — show them to the operator. */
+  inviteMint: (body: AdminInviteMintRequest) =>
+    req<{ ok: true; codes: string[] }>('/admin/invites', { method: 'POST', body: JSON.stringify(body) }),
+  inviteRevoke: (code: string) => req<{ ok: true }>(`/admin/invites/${encodeURIComponent(code)}`, { method: 'DELETE' }),
+  userRole: (id: string, body: AdminUserRoleRequest) =>
+    req<{ ok: true; role: string }>(`/admin/users/${id}/role`, { method: 'POST', body: JSON.stringify(body) }),
   payoutProviderUpdate: (id: string, body: AdminPayoutProviderUpdateRequest) =>
     req<{ ok: true; enabled: boolean; priority: number }>(`/admin/payout-providers/${id}`, {
       method: 'POST',

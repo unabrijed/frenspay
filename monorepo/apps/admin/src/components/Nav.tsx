@@ -11,6 +11,7 @@ const LINKS = [
   { href: '/providers', label: 'Providers' },
   { href: '/users', label: 'Users' },
   { href: '/risk', label: 'Risk' },
+  { href: '/invites', label: 'Invites' },
   { href: '/denylist', label: 'Denylist' },
   { href: '/waitlist', label: 'F list' },
   { href: '/audit', label: 'Audit' },
