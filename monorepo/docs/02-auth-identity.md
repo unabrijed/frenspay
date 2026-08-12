@@ -103,9 +103,16 @@ Privy. `requireUserId(req)` throws 401 if unmapped.
   when the sync *creates* the row, so existing users are grandfathered and an empty database founds
   itself. Unknown, used and revoked collapse to one `invalid_invite` so the endpoint can't be used
   as an oracle for which codes exist.
-  - **The landing page is the door.** `POST /invite/check` is public and check-only (it never burns
-    and never reserves), then a valid code is handed to the app as `?invite=`. The f-list is the
-    fallback for people without one.
+  - **A code has TWO doors, and one "spent".** Signup is one; joining the f list is the other, and
+    both burn the same `redeemed_at`, so a code spent on either is dead at the other. They differ
+    only in who is recorded: `redeemed_by` (a user id, UNIQUE — an account burns at most one code
+    ever) or `redeemed_email` (an f-list member, who has no account).
+  - **The landing page no longer hands off to the app.** There was a public check-only
+    `POST /invite/check` that validated a code and forwarded it as `?invite=`; it is deleted. A check
+    that answers "good" and a write that spends it are two moments and two people fit between them,
+    so the code is now spent by the same request that joins the f list. The app is reached with a
+    code an operator mints and mails — the f list is not a way in, it is a queue you need a code to
+    stand in. See [20 · The f list](20-waitlist-referral-loop.md).
   - **Three codes, shown once.** Minted at signup, returned by `/me` only until
     `POST /me/invites/ack` stamps `users.invites_revealed_at`, then never again — lose it, lose a
     fren. Settings shows counts only. The admin console is the sole place a code stays readable,
@@ -118,12 +125,14 @@ Privy. `requireUserId(req)` throws 401 if unmapped.
 
 - Backend: `apps/backend/src/auth.ts` (`requireAdmin`, `isRootAdminEmail`), `services/privy.ts`,
   `services/invites.ts` (`mintCode`, `canonicalInviteCode`), identity + directory + gate routes in
-  `routes/auth.ts` (`/auth/sync`, `/me`, `/invite/check`, `/me/invites/ack`, `/users/resolve`,
-  `/me/phone`, `/me/country`), `db/queries.ts` (`upsertUserByPrivyDid`, `ensureInviteCodes`,
+  `routes/auth.ts` (`/auth/sync`, `/me`, `/me/invites/ack`, `/users/resolve`, `/me/phone`,
+  `/me/country`), the f-list door in `routes/waitlist.ts`, `db/queries.ts`
+  (`upsertUserByPrivyDid`, `joinWaitlistWithCode`, `mintCodesFor`, `ensureInviteCodes`,
   `getInviteStats`, `inviteCodeStatus`, `canonicalHandle`, `normalizePhone`, `findUserByPhone`).
-- Landing: `src/lib/invite.ts`, `components/frenspay/inline-f-list-form.tsx` (the door).
+- Landing: `components/frenspay/inline-f-list-form.tsx` (the f-list door), `lib/{waitlist,invite}.ts`.
 - Web: `src/services/privy/PrivyBridge.tsx`, `app/onboarding/{faceid,handle,invites}/page.tsx`,
   `app/(tabs)/layout.tsx` (the one-look reveal guard), `components/sheets/identity.tsx`.
 - Admin: `src/app/invites/page.tsx` (mint / revoke / who-has-what), `src/app/users/page.tsx` (team).
-- Self-check: `apps/backend/scripts/check-invites.ts` (`yarn check:invites`).
+- Self-check: `apps/backend/scripts/check-invites.ts` (`yarn check:invites`, pure logic) and
+  `check-flist-gate.ts` (`yarn check:flist`, needs a migrated DB).
 - Schema: `users`, `wallets`, `invite_codes` (see [10-data-model](10-data-model.md)).
