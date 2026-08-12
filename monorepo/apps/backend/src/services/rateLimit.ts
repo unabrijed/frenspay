@@ -41,12 +41,12 @@ export const RATE_LIMIT_RULES: Rule[] = [
   { method: 'POST', path: '/orders/:id/feedback', bucket: 'order', limit: 20, windowMs: 60_000 },
   // Public (unauthenticated) landing-page endpoints — anonymous callers key on IP. The confirm click
   // is capped too: it is the one path that can trigger a DB write from a bare GET.
+  // Now also the ONLY brute-force surface on the invite gate — joining spends a code, so this route
+  // both validates and burns, and POST /invite/check no longer exists to be hammered separately.
+  // 5/min is plenty for someone fat-fingering a code off a screenshot and useless for enumerating a
+  // 40-bit keyspace. Tighter than the 10/min the retired pre-flight had, which is the right
+  // direction now that a wrong guess and a real join are the same request.
   { method: 'POST', path: '/waitlist', bucket: 'waitlist', limit: 5, windowMs: 60_000 },
-  // The only brute-force surface on the invite gate: unauthenticated, and a 200 names a live code.
-  // The keyspace (40 bits) already makes guessing hopeless; this caps the attempt rate anyway, and
-  // its own bucket keeps a wrong guess from eating the f-list quota. 10/min is generous for someone
-  // fat-fingering a code off a screenshot and useless for anyone enumerating.
-  { method: 'POST', path: '/invite/check', bucket: 'invite', limit: 10, windowMs: 60_000 },
   // Own bucket: sharing 'waitlist' would let confirm clicks consume the (smaller) join quota.
   { method: 'GET', path: '/waitlist/verify', bucket: 'waitlist_verify', limit: 10, windowMs: 60_000 },
 ];

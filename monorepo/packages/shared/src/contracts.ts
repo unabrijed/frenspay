@@ -228,21 +228,6 @@ export interface AuthSyncRequest {
   inviteCode?: string;
 }
 
-/** POST /invite/check body (public, landing page). Answers "is this code good?" and NOTHING else —
- *  the code is only ever burned by /auth/sync, inside the account-creation transaction. A 200 here
- *  is not a reservation: two people holding the same code both pass this and race at signup. */
-export interface InviteCheckRequest {
-  code: string;
-}
-
-/** POST /invite/check response. Failure is an error status (404 invalid_code / 409 code_used), so
- *  a caller only ever sees this shape on success. */
-export interface InviteCheckResponse {
-  ok: true;
-  /** Canonicalized form of what was sent — pass THIS on to the app, not the raw input. */
-  code: string;
-}
-
 /** POST /waitlist body (public, landing page). city = the demo-rate corridor selected at signup.
  *
  *  There is no separate "check this code" call any more. Checking and burning have to happen under
