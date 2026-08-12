@@ -29,17 +29,12 @@ const E = {
     process.env.NEXT_PUBLIC_STAGE_API_URL,
     process.env.NEXT_PUBLIC_API_URL,
   ),
-  appUrl: pick(
-    process.env.NEXT_PUBLIC_LOCAL_APP_URL,
-    process.env.NEXT_PUBLIC_STAGE_APP_URL,
-    process.env.NEXT_PUBLIC_APP_URL,
-  ),
 };
 
 // Where the f-list form posts. Previously read the BARE name with no tier chain, so a stage deploy
 // (which only sets NEXT_PUBLIC_STAGE_API_URL) fell through to localhost and every signup was lost.
 export const API_URL = (E.apiUrl || 'http://localhost:3001').replace(/\/$/, '');
 
-// Where a valid invite code sends someone. New with the invite gate — until then this site had no
-// link to the app at all, in either direction. Local default is the web app's dev port.
-export const APP_URL = (E.appUrl || 'http://localhost:3000').replace(/\/$/, '');
+// There was an APP_URL here, for handing a valid code off to the app. Gone with the handoff: a code
+// is now spent joining the f list, so it has nothing left to open, and this site links to the app in
+// neither direction again. `NEXT_PUBLIC_*_APP_URL` can come out of the deploy env.

@@ -131,19 +131,23 @@ erDiagram
         text city
         text ref_code UK
         text referred_by
+        text invite_code FK
         timestamptz verified_at
     }
 ```
 
-`waitlist` is deliberately unattached — no FK to `users`, because the people on it don't have
-accounts yet. `users.referred_by` is the self-reference that carries the invite tree.
+`waitlist` has no FK to `users` — the people on it don't have accounts yet — but it is no longer
+fully unattached: `invite_code` FKs `invite_codes`, because the f list is invite-only and which code
+let someone in is real lineage, not a marketing string. (Note the deletion order that implies: a
+waitlist row goes before the code it points at.) `users.referred_by` is the self-reference that
+carries the same tree on the account side.
 
 ## Table by table
 
 | Table | Purpose | Notes |
 |---|---|---|
 | **users** | one row per person | keyed to Privy DID; unique canonical **immutable** `handle`; opt-in E.164 `phone` (partial unique index `uq_users_phone` = the pay-by-phone mapper); best-effort `country` (dialing default); `kyc_tier` drives M5 limits; `role ∈ user/merchant/admin` (granted from the console, or by `ADMIN_EMAILS` for root admins); `referred_by` self-FK = who invited them (the redeemed code's owner; null for a house code); `invites_revealed_at` gates the one-look reveal |
-| **invite_codes** | the invite-only gate | `code` PK (`FP-XXXX-XXXX`, Crockford base32 minus I/L/O/U, plain text so the console can read it back); `owner_id` null = house code minted by an admin; `redeemed_by` **unique** = an account burns at most one code ever; status is derived from `redeemed_at`/`revoked_at`, never stored. Redemption happens inside the `/auth/sync` transaction under `select … for update` |
+| **invite_codes** | the invite-only gate, for **both** doors | `code` PK (`FP-XXXX-XXXX`, Crockford base32 minus I/L/O/U, plain text so the console can read it back); owner is `owner_id` (an account), `owner_email` (an f-list member, who has none), or neither = a house code minted by an admin; redeemer is `redeemed_by` (**unique** — an account burns at most one code ever) or `redeemed_email`; status is derived from `redeemed_at`/`revoked_at`, never stored, so **one code is spent at whichever door it reaches first**. Redemption happens inside the `/auth/sync` or `joinWaitlistWithCode` transaction, under `select … for update` on this row |
 | **wallets** | a user's chain address(es) | `chain='solana'`; unique `address` |
 | **transfers** | the money ledger | `amount_usdc numeric(20,6)`, `> 0`; `kind ∈ send/add/pay/escrow_fund/escrow_release`; `status ∈ pending/confirmed/failed`; unique `signature`; `chain` (confirmer polls `'solana'` only); `idempotency_key` (unique per sender — prepare replay/dedupe) |
 | **payment_requests** | "you owe me $X" | `amount_usdc numeric(20,6)`, `> 0`; `status ∈ open/paid/cancelled`; links the fulfilling `transfer_id` |
@@ -157,7 +161,7 @@ accounts yet. `users.referred_by` is the self-reference that carries the invite 
 | **risk_events** *(M5)* | per-action fraud/screening audit | `(kind, decision allow/review/block, score, reason)` |
 | **notifications** *(M6)* | in-app inbox | `(kind, title, body, read, meta)`; written by `notify()` at lifecycle events |
 | **admin_actions** | audit trail for the admin console | one row per admin **write**; `target_id` is text (uuid or `kind:value`) so one table covers every target kind |
-| **waitlist** | the f list — landing-page signups | `email` is the PK (a re-submit is idempotent, never a duplicate); `city` = the demo corridor selected; `ref_code` = this member's own share code (unique, **HMAC-derived not stored-random**); `referred_by` holds `'@handle'` *or* another member's code and is **last-touch** (each submit carrying a ref overwrites it — the landing page caches the ref so attribution survives a stripped URL); `verified_at` = the confirm click. No user FK — these people have no account yet |
+| **waitlist** | the f list — landing-page signups, **invite-only** | `email` is the PK, and that PK is also the concurrency control: the join claims it with `insert … on conflict do nothing` *before* spending anything, so two submits for one address can't burn two codes. A re-submit is idempotent and free. `city` = the demo corridor selected; `ref_code` = this member's own share code (unique, **HMAC-derived not stored-random**); `referred_by` holds `'@handle'` *or* another member's code and is **last-touch** (each submit carrying a ref overwrites it — the landing page caches the ref so attribution survives a stripped URL); `invite_code` FKs `invite_codes` and is **write-once** — lineage, not marketing; `verified_at` = the confirm click. No user FK — these people have no account yet |
 
 ## Why this way
 
@@ -186,10 +190,17 @@ accounts yet. `users.referred_by` is the self-reference that carries the invite 
   single code path for two referral sources with no join; it costs referential integrity, so renaming
   a handle would orphan old attribution. Fine for a marketing queue, wrong if referral credit ever
   pays out money (flagged with a `ponytail:` comment in `schema.sql`).
-- **The upsert's coalesce order differs by column, deliberately.** `city` and `ref_code` read
-  `waitlist.*` first — write-once, because a code is derived from the email and must never move.
-  `referred_by` reads `excluded` first — last-touch, so the newest invite link wins. See
-  [20 · Waitlist & referral loop](20-waitlist-referral-loop.md) for why, and for what that costs.
+- **The f-list update's coalesce order differs by column, deliberately.** `city`, `ref_code` and
+  `invite_code` keep the existing value — write-once, because a ref code is derived from the email
+  and must never move, and who vouched for you is lineage. `referred_by` takes the new one —
+  last-touch, so the newest invite link wins. See
+  [20 · The f list & referral loop](20-waitlist-referral-loop.md) for why, and for what that costs.
+- **One `redeemed_at`, two redeemer columns.** An invite code can be spent at signup or at the f-list
+  door, and the people on either side of that are different kinds of thing: a user id (`redeemed_by`,
+  UNIQUE) or a bare address (`redeemed_email`). Loosening `redeemed_by` to cover both would have cost
+  the UNIQUE constraint that structurally guarantees one account never burns two codes. Status stays
+  derived from the single `redeemed_at`, so "spent" means spent at *both* doors — there is no way for
+  the two to disagree.
 
 ## Legalities
 
@@ -212,6 +223,9 @@ accounts yet. `users.referred_by` is the self-reference that carries the invite 
   `invite_codes` + `users.referred_by`/`invites_revealed_at` (invite-only gate), and `waitlist` +
   its referral columns. `users.referral_limit` was dropped in `0007`: the count of `invite_codes`
   rows is the allowance, so a separate counter could only drift from it.
+- ✅ `0008_flist_invite_gate`: `invite_codes.{redeemed_email, owner_email}` +
+  `waitlist.invite_code`. The f list became invite-only — a code and an email are both required to
+  join, joining spends the code, and each member is minted three of their own.
 - 🟡 `waitlist.ref_code` is null on rows written before the referral loop; the `coalesce` in
   `addWaitlistEmail` backfills one the next time that address is submitted, so legacy rows stay
   code-less until they re-submit.

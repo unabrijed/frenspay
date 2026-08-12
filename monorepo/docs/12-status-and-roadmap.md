@@ -155,10 +155,17 @@ be an existing user's `@handle` plus a counter on their row (`users.referral_lim
 account-creation transaction**, where `select … for update` on the single code row replaced the
 lock-the-referrer-then-count-in-a-separate-statement dance — a net deletion, and stronger: two
 people racing one code, one wins, the other reads `redeemed_at` and gets a clean 403. Unknown, used
-and revoked collapse to one `invalid_invite` so the endpoint can't be used as an oracle. The
-**landing page is now the door** (`POST /invite/check`, public and check-only — it never burns and
-never reserves, because reserving would mean holding a lock across a redirect and a whole signup),
-with the f list demoted to the fallback. Each account gets **three codes shown exactly once**,
+and revoked collapse to one `invalid_invite` so the endpoint can't be used as an oracle.
+
+**The f list is the landing page's only door, and it is invite-only** — a code *and* an email, both
+required, in one form; joining spends the code and mints the joiner three of their own. Everyone on
+the list was vouched for and can vouch for three. This replaced a briefly-shipped model where a code
+sent you to the app and an email put you on the queue as a fallback, along with the public
+check-only `POST /invite/check` that served it: a check that answers "good" and a write that spends
+the code are two moments, and two people fit between them, so validation and burn now happen in one
+transaction under one lock. A code is spent at whichever door it reaches first — `redeemed_by` for
+an account, `redeemed_email` for an f-list member, one `redeemed_at` for both. Each account also gets
+**three codes shown exactly once**,
 server-enforced via `users.invites_revealed_at`: lose one, lose a fren. Admin gained an invites
 console (house codes, owned by nobody, are the standing answer to "we're out") and **team
 management** — promoting an operator was the other SQL-only hole, with `ADMIN_EMAILS` naming root

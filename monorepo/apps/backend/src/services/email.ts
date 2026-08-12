@@ -49,9 +49,17 @@ const CANVAS = '#fff8f4';
 const HAIR = '#e8e1dd';
 const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
 
-/** The one f-list email. Carries the share link as well as the confirm button, so the link survives
- *  the tab being closed — that inbox copy is why the landing page needn't persist it anywhere. */
-export function waitlistConfirmEmail(verifyUrl: string, shareUrl: string): { subject: string; html: string } {
+/** The one f-list email. Carries the share link AND the member's three invite codes as well as the
+ *  confirm button, so both survive the tab being closed — that inbox copy is why the landing page
+ *  needn't persist anything and why no "resend my codes" endpoint exists.
+ *
+ *  Codes come from a fixed alphabet ([0-9A-HJKMNP-TV-Z] plus dashes), so they need no escaping to be
+ *  interpolated into this HTML. Nothing else here is caller-controlled either. */
+export function waitlistConfirmEmail(
+  verifyUrl: string,
+  shareUrl: string,
+  invites: string[],
+): { subject: string; html: string } {
   return {
     subject: "Confirm you're a fren",
     html: `<div style="margin:0;padding:32px 16px;background:${CANVAS};font-family:${FONT}">
@@ -68,12 +76,20 @@ export function waitlistConfirmEmail(verifyUrl: string, shareUrl: string): { sub
     </a>
     <div style="margin:32px 0;border-top:1px solid ${HAIR}"></div>
     <p style="margin:0 0 8px;font-size:15px;line-height:1.55;color:${INK};font-weight:600">
-      Want to move up? Bring frens.
+      Three codes. Yours to give.
     </p>
-    <p style="margin:0 0 12px;font-size:15px;line-height:1.55;color:${MUTED}">
-      Every person who joins on your link moves you up the list.
+    <p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:${MUTED}">
+      Nobody gets on this list without one. Each works exactly once, and every fren who joins on
+      yours moves you up.
     </p>
-    <p style="margin:0 0 32px;font-size:15px;line-height:1.55">
+    ${invites
+      .map(
+        (c) =>
+          `<p style="margin:0 0 8px;font-size:19px;line-height:1.4;font-weight:700;letter-spacing:0.06em;color:${INK}">${c}</p>`,
+      )
+      .join('\n    ')}
+    <p style="margin:16px 0 32px;font-size:15px;line-height:1.55">
+      Send them here:
       <a href="${shareUrl}" style="color:${TERRA};text-decoration:none;font-weight:600">${shareUrl}</a>
     </p>
     <p style="margin:0;font-size:13px;line-height:1.5;color:${MUTED}">

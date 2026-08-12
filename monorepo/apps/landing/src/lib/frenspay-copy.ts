@@ -25,15 +25,20 @@ export const FRENSPAY_COPY = {
     relay: { phrase: 'frens cross oceans.', whisper: 'across any distance.' },
   },
 
-  fList: 'join the f-list',
-  success: 'fyi, you’re in.',
-
-  // The door. An invite code is the only way in, so it is the default state of the strip and the
-  // f-list is what you fall back to — the reverse of how this page used to read. "let me in" rather
-  // than "enter" or "submit": the whole product is somebody vouching for you, and the button should
-  // sound like a person asking, not a form being processed.
-  invite: 'let me in',
+  // The door — and the only one. A code and an email together, or nothing: the f-list is no longer
+  // the queue you fall back to without a code, it is what the code opens. So there is one form, one
+  // button, and no mode to switch between. "let me in" rather than "join" or "submit": the whole
+  // product is somebody vouching for you, and the button should sound like a person asking, not a
+  // form being processed.
+  fList: 'let me in',
   inviteLabel: 'invite code',
-  noCode: 'no code? join the f-list',
-  haveCode: 'got a code?',
+  emailLabel: 'email address',
+
+  // Success. They arrived on somebody's code and leave holding three of their own — which is the
+  // whole shape of the thing, so the screen says it plainly rather than thanking them for waiting.
+  success: 'fyi, you’re in.',
+  invitesLead: 'three codes. yours to give.',
+  invitesNote: 'nobody gets in without one. we’ve emailed these to you as well.',
+  copyAll: 'copy all three',
+  copied: 'copied',
 } as const;

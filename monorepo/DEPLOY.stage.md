@@ -216,11 +216,11 @@ Ship to prod by merging `stage` → `sacred` (PR).
    landing (stage):
    ```
    NEXT_PUBLIC_APP_ENV=stage
-   NEXT_PUBLIC_STAGE_API_URL=<same as web>                    # the waitlist + /invite/check post here
-   NEXT_PUBLIC_STAGE_APP_URL=https://stage.frenspay.xyz       # where a valid invite code hands off
+   NEXT_PUBLIC_STAGE_API_URL=<same as web>                    # POST /waitlist — code + email — posts here
    ```
-   Without `NEXT_PUBLIC_STAGE_APP_URL` the invite gate falls back to `http://localhost:3000`, so
-   every accepted code on a deployed landing page sends the visitor nowhere. Set it with the others.
+   `NEXT_PUBLIC_STAGE_APP_URL` is no longer read and can be removed if it is already set. The landing
+   page spends an invite code joining the f list rather than handing off to the app, so it links to
+   the app in neither direction and needs no URL for it.
 5. **Deploy**: push `stage` (or Deployments → Redeploy). Watch the log: install and build must run
    the `vercel.json` commands verbatim, and web must get past the post-build step (the historical
    crash below) to READY.

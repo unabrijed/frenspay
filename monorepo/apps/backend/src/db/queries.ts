@@ -117,32 +117,54 @@ export async function findUserByPrivyDid(did: string): Promise<UserRow | null> {
   return rows[0] ?? null;
 }
 
+/** Who a freshly minted code belongs to. An account (`id`), an f-list member who has no account
+ *  (`email`), or nobody at all — `null` is a house code minted from the admin console. */
+export type InviteOwner = { id: string } | { email: string } | null;
+
 /**
- * Insert `count` fresh codes for an owner (null = house code), returning what actually landed.
+ * Insert `count` fresh codes for an owner, returning what actually landed.
  *
- * `onlyIfNone` makes it idempotent for the per-account grant: a replayed sync, or two /me calls
- * racing, must not hand anyone a second set of three. It is safe only while the caller holds a lock
- * on the owner's user row — both callers do (the sync txn has just written it; ensureInviteCodes
- * takes `for update` first).
+ * `onlyIfNone` makes it idempotent for the per-owner grant: a replayed sync, two /me calls racing,
+ * or a re-submitted f-list join must not hand anyone a second set of three. It is safe only while
+ * the caller holds a lock on something that serialises them — the user row for an account (the sync
+ * txn has just written it; ensureInviteCodes takes `for update` first), and for an f-list member the
+ * invite_codes row being burned, which only one joiner can hold at a time.
  *
- * `on conflict (code) do nothing` covers the ~1e-8 collision. The caller gets the codes that landed
+ * One statement serves both owner kinds. The guard tests the ONE column that is set rather than
+ * comparing both null-safely: `is not distinct from` would be tidier to read but is not an indexable
+ * predicate, and this runs on the account-creation path where invite_codes only grows. Written this
+ * way each branch is a plain equality against idx_invite_codes_owner / _owner_email. A house code
+ * (both null) never reaches the guard — `onlyIfNone` is only ever passed on the per-owner grants.
+ *
+ * `on conflict (code) do nothing` covers the ~1e-8 collision — the caller gets the codes that landed
  * rather than the codes we hoped for, so a shortfall is visible instead of imaginary.
  */
 async function mintCodesFor(
   // Pool and PoolClient both satisfy this — the sync path needs its own client (it is mid-
   // transaction), the admin path does not.
   client: Pick<PoolClient, 'query'>,
-  ownerId: string | null,
+  owner: InviteOwner,
   count: number,
   opts: { onlyIfNone?: boolean; note?: string } = {},
 ): Promise<string[]> {
+  const ownerId = owner && 'id' in owner ? owner.id : null;
+  const ownerEmail = owner && 'email' in owner ? owner.email : null;
   const { rows } = await client.query<{ code: string }>(
-    `insert into invite_codes (code, owner_id, note)
-     select c, $2, $3 from unnest($1::text[]) as c
-      where $4::boolean is false or not exists (select 1 from invite_codes where owner_id = $2)
+    `insert into invite_codes (code, owner_id, owner_email, note)
+     select c, $2, $3, $4 from unnest($1::text[]) as c
+      where $5::boolean is false
+         or not exists (select 1 from invite_codes
+                         where ($2::uuid is not null and owner_id = $2)
+                            or ($3::text is not null and owner_email = $3))
      on conflict (code) do nothing
      returning code`,
-    [Array.from({ length: count }, mintCode), ownerId, opts.note ?? null, Boolean(opts.onlyIfNone)],
+    [
+      Array.from({ length: count }, mintCode),
+      ownerId,
+      ownerEmail,
+      opts.note ?? null,
+      Boolean(opts.onlyIfNone),
+    ],
   );
   return rows.map((r) => r.code);
 }
@@ -219,7 +241,7 @@ export async function upsertUserByPrivyDid(input: {
     }
     // Their own three, minted in the same breath. `where not exists` makes this idempotent, so a
     // replayed sync can't hand anyone a second set.
-    await mintCodesFor(client, user.id, INVITES_PER_USER, { onlyIfNone: true });
+    await mintCodesFor(client, { id: user.id }, INVITES_PER_USER, { onlyIfNone: true });
     await client.query(
       `insert into wallets (user_id, address) values ($1, $2)
        on conflict (user_id, chain) do update set address = excluded.address`,
@@ -1836,7 +1858,7 @@ export async function ensureInviteCodes(userId: string): Promise<void> {
   try {
     await client.query('begin');
     await client.query('select 1 from users where id = $1 for update', [userId]);
-    await mintCodesFor(client, userId, INVITES_PER_USER, { onlyIfNone: true });
+    await mintCodesFor(client, { id: userId }, INVITES_PER_USER, { onlyIfNone: true });
     await client.query('commit');
   } catch (e) {
     await client.query('rollback');
@@ -1895,35 +1917,128 @@ export async function inviteCodeStatus(code: string): Promise<'unused' | 'burned
   return r.redeemed_at ? 'burned' : 'unused';
 }
 
-/** F-list signup (public write). Email PK = dedupe. `do update` rather than `do nothing` so one
- *  round trip also returns verified_at (the route needs it to decide whether to re-send the confirm
- *  mail) and so coalesce can backfill columns a legacy row is missing.
+/**
+ * F-list signup (public write) — join the list by spending an invite code. The whole door, in one
+ * transaction.
  *
- *  Two different coalesce orders, deliberately:
- *   - `city` / `ref_code` read waitlist.* FIRST — write-once. A code is derived from the email and
- *     must never move; the coalesce exists only to backfill rows that predate it.
- *   - `referred_by` reads excluded FIRST — **last touch wins** (Bridge, 2026-08-01). A submit
- *     carrying a ref overwrites the previous referrer; a submit carrying none keeps what's there, so
- *     re-joining without a link can't erase attribution.
- *  Known and accepted cost of last-touch: an already-credited signup can be re-attributed by getting
- *  that person to click a different link and re-submit the same email, and a referrer's fren count
- *  can go down. Self-referral is blocked at the route (routes/waitlist.ts), not here. */
-export async function addWaitlistEmail(
-  email: string,
-  city?: string,
-  refCode?: string | null,
-  referredBy?: string,
-): Promise<{ verifiedAt: Date | null }> {
-  const { rows } = await getPool().query<{ verified_at: Date | null }>(
-    `insert into waitlist (email, city, ref_code, referred_by) values ($1, $2, $3, $4)
-       on conflict (email) do update
-          set city        = coalesce(waitlist.city, excluded.city),
-              ref_code    = coalesce(waitlist.ref_code, excluded.ref_code),
-              referred_by = coalesce(excluded.referred_by, waitlist.referred_by)
-     returning verified_at`,
-    [email, city ?? null, refCode ?? null, referredBy ?? null],
-  );
-  return { verifiedAt: rows[0]?.verified_at ?? null };
+ * Mirrors upsertUserByPrivyDid's gate, and for the same reason: a pre-flight that answers "this code
+ * is good" and a later write that spends it are two moments, and two people fit between them. Which
+ * is also why there is no longer a /invite/check to call first.
+ *
+ * TWO races to lose, and a different lock for each:
+ *   - Two people, one code. `for update` on the invite_codes row — both block, and whoever loses
+ *     re-reads a row with redeemed_at set and falls out. Same statement as the signup gate.
+ *   - One address, two submits. The waitlist primary key, claimed by `on conflict do nothing`
+ *     before anything is spent. A `select ... for update` cannot serve here: with no row yet there
+ *     is nothing to lock, so both callers would decide they were first and burn a code each.
+ *
+ * A code is spent AT MOST ONCE per f-list member, and re-joining costs nothing: if the address is
+ * already on the list we skip the burn entirely and hand back the three they already have. That
+ * makes the route idempotent (people re-submit when the confirm mail is slow) and closes the obvious
+ * grief — collect three codes, feed them all to one address, and watch them evaporate.
+ *
+ * Throws `invalid_invite` when the code is unknown, already burned, or revoked; the route re-reads
+ * inviteCodeStatus to decide which of 404/409 to say, so the happy path stays one round trip.
+ */
+export async function joinWaitlistWithCode(input: {
+  email: string;
+  /** CANONICAL code — the caller has already been through canonicalInviteCode. */
+  code: string;
+  city?: string;
+  refCode?: string | null;
+  referredBy?: string;
+}): Promise<{ verifiedAt: Date | null; invites: string[] }> {
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+
+    // Claim the address FIRST, and let the primary key be the serialization point. A plain
+    // `select ... for update` would be wrong here: there is no row yet to lock, so two concurrent
+    // joins on the same new address would both decide they were first and burn a code each.
+    // `on conflict do nothing` waits for the other inserter to commit and then returns nothing, so
+    // exactly one of them gets a row back and only that one spends anything.
+    const { rows: claimed } = await client.query<{ email: string }>(
+      'insert into waitlist (email) values ($1) on conflict (email) do nothing returning email',
+      [input.email],
+    );
+    const alreadyOnList = claimed.length === 0;
+
+    if (!alreadyOnList) {
+      const { rows: codeRows } = await client.query<{ code: string }>(
+        `select code from invite_codes
+          where code = $1 and redeemed_at is null and revoked_at is null
+          for update`,
+        [input.code],
+      );
+      // Unknown, burned and revoked are ONE error here for the same reason as at signup: telling
+      // them apart turns this into an oracle for which codes exist.
+      if (!codeRows[0]) throw Object.assign(new Error('invalid_invite'), { code: 'invalid_invite' });
+    }
+
+    // The row exists either way by now, so this is a plain UPDATE rather than the upsert it used to
+    // be. Same coalesce rules, in both directions and for the same reasons:
+    //   - `city` / `ref_code` / `invite_code` read waitlist.* FIRST — write-once. A ref code is
+    //     derived from the email and must never move; who vouched for you must never be rewritten by
+    //     a later submit, which is the same rule that keeps a second code from being spent above.
+    //   - `referred_by` reads the new value FIRST — **last touch wins** (Bridge, 2026-08-01). A
+    //     submit carrying a ref overwrites the previous referrer; one carrying none keeps what's
+    //     there, so re-joining cold can't erase attribution.
+    // Known and accepted cost of last-touch: an already-credited signup can be re-attributed by
+    // getting that person to click a different link and re-submit, and a referrer's fren count can
+    // go down. Self-referral is blocked at the route (routes/waitlist.ts), not here.
+    const { rows } = await client.query<{ verified_at: Date | null }>(
+      `update waitlist
+          set city        = coalesce(city, $2),
+              ref_code    = coalesce(ref_code, $3),
+              referred_by = coalesce($4, referred_by),
+              invite_code = coalesce(invite_code, $5)
+        where email = $1
+       returning verified_at`,
+      [
+        input.email,
+        input.city ?? null,
+        input.refCode ?? null,
+        input.referredBy ?? null,
+        alreadyOnList ? null : input.code,
+      ],
+    );
+
+    if (!alreadyOnList) {
+      // Burn it, in the same transaction as the row it let onto the list — no window where a code is
+      // spent but the member doesn't exist, or the reverse. redeemed_email rather than redeemed_by:
+      // this person has no account, and that column's UNIQUE is the "one account, one code" rule.
+      await client.query(
+        'update invite_codes set redeemed_email = $2, redeemed_at = now() where code = $1',
+        [input.code, input.email],
+      );
+    }
+
+    // Their own three, minted in the same breath as an account's are. `onlyIfNone` is what makes a
+    // returning member get the SAME three rather than a fourth set.
+    const minted = await mintCodesFor(client, { email: input.email }, INVITES_PER_USER, {
+      onlyIfNone: true,
+    });
+    // A returning member mints nothing, so read theirs back. Ordered like getInviteStats so the
+    // three appear in a stable order every time they ask.
+    const invites = minted.length
+      ? minted
+      : (
+          await client.query<{ code: string }>(
+            `select code from invite_codes
+              where owner_email = $1 and revoked_at is null
+              order by created_at asc, code asc`,
+            [input.email],
+          )
+        ).rows.map((r) => r.code);
+
+    await client.query('commit');
+    return { verifiedAt: rows[0]?.verified_at ?? null, invites };
+  } catch (e) {
+    await client.query('rollback');
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 /** 1-based place in the queue. `::int` — pg returns bare count(*) (bigint) as a string.
@@ -2725,9 +2840,14 @@ export async function setUserRole(
 
 /* ---- admin: invite codes ---- */
 
-/** Every code, newest first, with both ends resolved to handles. Keyset tiebreak is `code` (text,
- *  the PK) rather than a uuid, so the cursor casts to ::text — otherwise identical to the other
- *  admin lists. */
+/** Every code, newest first, with both ends resolved to a handle — or, when the party is an f-list
+ *  member rather than an account, to their email. Both columns are nullable strings the console
+ *  prints verbatim, so the coalesce costs nothing and stops a member's code from displaying as a
+ *  house code owned by nobody. ('Handle' is now a slight lie in the field name; renaming it would
+ *  ripple through the admin app to say what the value already says for itself.)
+ *
+ *  Keyset tiebreak is `code` (text, the PK) rather than a uuid, so the cursor casts to ::text —
+ *  otherwise identical to the other admin lists. */
 export async function listInviteCodesAdmin(limit = 50, cursor?: string): Promise<Page<AdminInviteCode>> {
   const n = clampLimit(limit, 50, 100);
   const c = parseCursor(cursor);
@@ -2740,7 +2860,9 @@ export async function listInviteCodesAdmin(limit = 50, cursor?: string): Promise
     note: string | null;
     created_at: Date;
   }>(
-    `select i.code, o.handle as owner_handle, r.handle as redeemed_by_handle,
+    `select i.code,
+            coalesce(o.handle, i.owner_email)    as owner_handle,
+            coalesce(r.handle, i.redeemed_email) as redeemed_by_handle,
             i.redeemed_at, i.revoked_at, i.note, i.created_at
        from invite_codes i
        left join users o on o.id = i.owner_id
@@ -2771,7 +2893,7 @@ export async function listInviteCodesAdmin(limit = 50, cursor?: string): Promise
 /** Mint from the console. `ownerId` null = a house code, constrained by nobody's allowance — the
  *  reason this endpoint exists at all. Returns what actually landed, not what was asked for. */
 export async function mintInviteCodes(ownerId: string | null, count: number, note?: string): Promise<string[]> {
-  return mintCodesFor(getPool(), ownerId, count, { note });
+  return mintCodesFor(getPool(), ownerId ? { id: ownerId } : null, count, { note });
 }
 
 /** Revoke an unused code. False = it wasn't revokable (gone, burned, or already revoked); the

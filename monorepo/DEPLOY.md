@@ -69,5 +69,5 @@ variables live per Vercel project (see the block above); web's `ACCESS_KEY` is d
     should reach), and accept that invites are inert until you unset it.
 - Set `ADMIN_EMAILS` (bare name in prod) before the console has a second operator — see the
   root-admins section in `DEPLOY.stage.md` for why it is the lockout recovery path.
-- Set landing's `NEXT_PUBLIC_APP_URL` to the prod web origin, or accepted invite codes redirect to
-  `localhost:3000`.
+- Landing needs only `NEXT_PUBLIC_API_URL`. `NEXT_PUBLIC_APP_URL` is no longer read — a code is spent
+  joining the f list, not handed off to the app — so remove it if it is already set.

@@ -17,6 +17,7 @@
     "devnet:setup": "tsx scripts/setup-devnet.ts",
     "check:waitlist": "tsx scripts/check-waitlist.ts",
     "check:invites": "tsx scripts/check-invites.ts",
+    "check:flist": "tsx scripts/check-flist-gate.ts",
     "check:fx": "tsx scripts/check-fx.ts"
   },
   "dependencies": {
