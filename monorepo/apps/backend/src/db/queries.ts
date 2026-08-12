@@ -1,8 +1,11 @@
 // queries.ts — typed data access over the lazy pg pool (db/pool.ts).
 // Maps rows to the @fpay/shared wire DTOs. Phase 1 is USDC-only, so no rupee column.
+import type { PoolClient } from 'pg';
+
 import type {
   AdminAction,
   AdminDenylistEntry,
+  AdminInviteCode,
   AdminMerchant,
   AdminOrder,
   AdminOrderDetailResponse,
@@ -24,6 +27,8 @@ import type {
   RouteQuality,
 } from '@fpay/shared';
 
+import { INVITES_PER_USER, mintCode } from '../services/invites';
+
 import { getLockPool, getPool } from './pool';
 
 export type TransferKind = 'send' | 'add' | 'pay' | 'escrow_fund' | 'escrow_release';
@@ -37,8 +42,9 @@ export interface UserRow {
   phone: string | null;
   country: string | null;
   role: 'user' | 'merchant' | 'admin';
-  referral_limit: number;
   referred_by: string | null;
+  /** Stamped once the user has seen their invite codes; after that /me stops returning them. */
+  invites_revealed_at: Date | null;
 }
 
 export interface WalletRow {
@@ -112,6 +118,34 @@ export async function findUserByPrivyDid(did: string): Promise<UserRow | null> {
 }
 
 /**
+ * Insert `count` fresh codes for an owner (null = house code), returning what actually landed.
+ *
+ * `onlyIfNone` makes it idempotent for the per-account grant: a replayed sync, or two /me calls
+ * racing, must not hand anyone a second set of three. It is safe only while the caller holds a lock
+ * on the owner's user row — both callers do (the sync txn has just written it; ensureInviteCodes
+ * takes `for update` first).
+ *
+ * `on conflict (code) do nothing` covers the ~1e-8 collision. The caller gets the codes that landed
+ * rather than the codes we hoped for, so a shortfall is visible instead of imaginary.
+ */
+async function mintCodesFor(
+  client: PoolClient,
+  ownerId: string | null,
+  count: number,
+  opts: { onlyIfNone?: boolean; note?: string } = {},
+): Promise<string[]> {
+  const { rows } = await client.query<{ code: string }>(
+    `insert into invite_codes (code, owner_id, note)
+     select c, $2, $3 from unnest($1::text[]) as c
+      where $4::boolean is false or not exists (select 1 from invite_codes where owner_id = $2)
+     on conflict (code) do nothing
+     returning code`,
+    [Array.from({ length: count }, mintCode), ownerId, opts.note ?? null, Boolean(opts.onlyIfNone)],
+  );
+  return rows.map((r) => r.code);
+}
+
+/**
  * Upsert the user (by Privy DID) + their wallet. Called by /auth/sync after login.
  * Atomic: user + wallet land together or not at all, so a wallet-insert failure can't
  * leave a walletless user. A handle collision raises PG 23505 (caller maps it to 409).
@@ -122,41 +156,68 @@ export async function upsertUserByPrivyDid(input: {
   displayName?: string;
   walletAddress: string;
   country?: string;
-  /** Referrer's user id — set only when this sync creates the account (invite gate). */
-  referredBy?: string;
+  /** Privy-verified login address, persisted so the console can show it and ADMIN_EMAILS can match. */
+  email?: string;
+  /** CANONICAL invite code to burn — set only when this sync creates the account. */
+  inviteCode?: string;
 }): Promise<UserRow> {
   const client = await getPool().connect();
   try {
     await client.query('begin');
-    if (input.referredBy) {
-      // Lock the referrer row FIRST, count in a SEPARATE statement — under read committed the
-      // second statement gets a fresh snapshot after the lock, so concurrent claims serialize.
-      // (A single `select ... for update` with the count in a subquery re-checks its qual against
-      // a stale snapshot after blocking.)
-      await client.query('select 1 from users where id = $1 for update', [input.referredBy]);
-      const { rows: refRows } = await client.query<{ referral_limit: number; used: number }>(
-        `select referral_limit, (select count(*)::int from users where referred_by = $1) as used
-           from users where id = $1`,
-        [input.referredBy],
+    let referredBy: string | null = null;
+    if (input.inviteCode) {
+      // The whole gate, in one statement. `for update` on the code row IS the concurrency control:
+      // two people racing the same code both block here, and whoever loses re-reads a row with
+      // redeemed_at set and falls out below. This replaced a lock-the-referrer-then-count-in-a-
+      // second-statement dance — one row, one lock, no counting.
+      const { rows: codeRows } = await client.query<{ owner_id: string | null }>(
+        `select owner_id from invite_codes
+          where code = $1 and redeemed_at is null and revoked_at is null
+          for update`,
+        [input.inviteCode],
       );
-      const r = refRows[0];
-      if (!r || r.used >= r.referral_limit) throw Object.assign(new Error('referral_limit'), { code: 'referral_limit' });
+      // Unknown, already burned, and revoked are ONE error on purpose: distinguishing them would
+      // turn this into an oracle telling a guesser which codes exist.
+      if (!codeRows[0]) throw Object.assign(new Error('invalid_invite'), { code: 'invalid_invite' });
+      // NULL for a house code — the account is created with no referrer, which is correct: nobody
+      // invited them.
+      referredBy = codeRows[0].owner_id;
     }
     // Handle is IMMUTABLE after first sync (the onboarding UI promises "can't be changed later",
     // and a freed handle could be re-claimed → payments misdirected). display_name coalesces so a
     // sync without one doesn't null it out. country is the browser-locale guess — the WEAKEST
     // source, so it fills only when NULL (verified-phone/manual picks overwrite via /me/country).
-    // referred_by is NOT in the conflict update: a re-sync must never rewrite invite lineage.
+    // email is the opposite: Privy is authoritative, so a fresh value wins and a missing one leaves
+    // what's there. referred_by is NOT in the conflict update: a re-sync must never rewrite lineage.
     const { rows } = await client.query<UserRow>(
-      `insert into users (privy_did, handle, display_name, country, referred_by)
-       values ($1, $2, $3, $4, $5)
+      `insert into users (privy_did, handle, display_name, country, email, referred_by)
+       values ($1, $2, $3, $4, $5, $6)
        on conflict (privy_did) do update
          set display_name = coalesce(excluded.display_name, users.display_name),
-             country = coalesce(users.country, excluded.country)
+             country = coalesce(users.country, excluded.country),
+             email = coalesce(excluded.email, users.email)
        returning *`,
-      [input.privyDid, input.handle, input.displayName ?? null, input.country ?? null, input.referredBy ?? null],
+      [
+        input.privyDid,
+        input.handle,
+        input.displayName ?? null,
+        input.country ?? null,
+        input.email ?? null,
+        referredBy,
+      ],
     );
     const user = rows[0];
+    if (input.inviteCode) {
+      // Burn it. Same transaction as the account it let in, so there is no window where a code is
+      // spent but the account doesn't exist (or the reverse).
+      await client.query(
+        `update invite_codes set redeemed_by = $2, redeemed_at = now() where code = $1`,
+        [input.inviteCode, user.id],
+      );
+    }
+    // Their own three, minted in the same breath. `where not exists` makes this idempotent, so a
+    // replayed sync can't hand anyone a second set.
+    await mintCodesFor(client, user.id, INVITES_PER_USER, { onlyIfNone: true });
     await client.query(
       `insert into wallets (user_id, address) values ($1, $2)
        on conflict (user_id, chain) do update set address = excluded.address`,
@@ -1756,14 +1817,80 @@ export async function hasAnyUsers(): Promise<boolean> {
   return rows[0].exists;
 }
 
-/** Invites used vs allowed, for /me. `::int` — pg returns bare count(*) (bigint) as a string. */
-export async function getReferralStats(userId: string): Promise<{ used: number; limit: number }> {
-  const { rows } = await getPool().query<{ referral_limit: number; used: number }>(
-    `select referral_limit, (select count(*)::int from users where referred_by = u.id) as used
-       from users u where u.id = $1`,
+/**
+ * Grandfathering, for accounts created before invite codes existed: mint their three on first /me.
+ * Cheap no-op afterwards — one indexed existence check.
+ *
+ * `for update` on the user row is what makes concurrent /me calls safe: mintCodesFor's `not exists`
+ * guard would otherwise let two of them both decide the user has none and insert three each.
+ */
+export async function ensureInviteCodes(userId: string): Promise<void> {
+  const { rows } = await getPool().query<{ exists: boolean }>(
+    'select exists(select 1 from invite_codes where owner_id = $1)',
     [userId],
   );
-  return rows[0] ? { used: rows[0].used, limit: rows[0].referral_limit } : { used: 0, limit: 0 };
+  if (rows[0].exists) return;
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+    await client.query('select 1 from users where id = $1 for update', [userId]);
+    await mintCodesFor(client, userId, INVITES_PER_USER, { onlyIfNone: true });
+    await client.query('commit');
+  } catch (e) {
+    await client.query('rollback');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Invite counts for /me, plus the code strings themselves when `includeCodes` — which the caller
+ * passes only while users.invites_revealed_at is null. Revoked codes are counted in neither total
+ * nor used: an admin taking one back should read as "you have two", not "you wasted one".
+ *
+ * `::int` — pg returns a bare count(*) (bigint) as a string.
+ */
+export async function getInviteStats(
+  userId: string,
+  includeCodes: boolean,
+): Promise<{ total: number; used: number; codes?: string[] }> {
+  const { rows } = await getPool().query<{ code: string; redeemed_at: Date | null }>(
+    `select code, redeemed_at from invite_codes
+      where owner_id = $1 and revoked_at is null
+      order by created_at asc, code asc`,
+    [userId],
+  );
+  return {
+    total: rows.length,
+    used: rows.filter((r) => r.redeemed_at !== null).length,
+    // All three, burned or not: the reveal screen shows the set they were given, once.
+    codes: includeCodes ? rows.map((r) => r.code) : undefined,
+  };
+}
+
+/** Stamp the one-look flag. `is null` guard makes a second ack a no-op rather than a re-stamp. */
+export async function markInvitesRevealed(userId: string): Promise<void> {
+  await getPool().query(
+    'update users set invites_revealed_at = now() where id = $1 and invites_revealed_at is null',
+    [userId],
+  );
+}
+
+/**
+ * The landing gate's read: is this code redeemable right now? Deliberately does NOT reserve it —
+ * reservation would need a lock held across a browser redirect and a whole signup. Two people can
+ * both get `unused` here and race at /auth/sync, where exactly one wins.
+ */
+export async function inviteCodeStatus(code: string): Promise<'unused' | 'burned' | 'revoked' | null> {
+  const { rows } = await getPool().query<{ redeemed_at: Date | null; revoked_at: Date | null }>(
+    'select redeemed_at, revoked_at from invite_codes where code = $1',
+    [code],
+  );
+  const r = rows[0];
+  if (!r) return null;
+  if (r.revoked_at) return 'revoked';
+  return r.redeemed_at ? 'burned' : 'unused';
 }
 
 /** F-list signup (public write). Email PK = dedupe. `do update` rather than `do nothing` so one
