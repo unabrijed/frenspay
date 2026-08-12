@@ -113,6 +113,11 @@ stage project's *Production Branch* is `stage`; the prod twin's is `sacred` (see
 Stage env vars live as that project's plain Production-env variables — no Preview-scoped juggling.
 Ship to prod by merging `stage` → `sacred` (PR).
 
+Web is behind a **deploy access gate** (`apps/web/src/middleware.ts`): set `STAGE_ACCESS_KEY` on the
+stage project to a fresh `openssl rand -hex 32`. Every route then serves a key form until the device
+presents the key once (year-long cookie). Unset = gate off. The prod twin sets bare `ACCESS_KEY`
+with a **different** key (`DEPLOY.md`). Rotate the var to evict every device on that environment.
+
 | project | Production Branch | Root Directory | config file |
 | ------- | ----------------- | -------------- | ----------- |
 | web (stage) | `stage` | **`monorepo`** | root `vercel.json` (builds `@fpay/web`, output `apps/web/.next`) |

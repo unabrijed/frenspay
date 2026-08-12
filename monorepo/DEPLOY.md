@@ -40,3 +40,5 @@ injected by Railway; `PUBLIC_BASE_URL=https://api.frenspay.xyz`).
 - `CORS_ORIGIN` must list EVERY prod browser origin (see the CORS section in `DEPLOY.stage.md` —
   same rule, bare variable name).
 - A **security review** before handling real funds (key custody, rate-limits, abuse).
+- Web prod project sets `ACCESS_KEY` (deploy access gate) to a fresh `openssl rand -hex 32` —
+  different from stage's `STAGE_ACCESS_KEY`. See the gate note in `DEPLOY.stage.md`.
