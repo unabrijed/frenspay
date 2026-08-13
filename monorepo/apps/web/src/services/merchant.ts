@@ -35,8 +35,35 @@ export async function markOrderPaid(orderId: string, reference: string): Promise
   });
 }
 
+/** Declare in-flight capacity. Routing takes min(this, stake × leverage), so asking for more than
+ *  the stake backs changes nothing — MerchantProfile.maxFloatUsdc is what it's actually worth. */
 export async function setMerchantFloat(floatUsd: number): Promise<void> {
   await req<{ ok: true }>('/merchants/float', { method: 'POST', body: JSON.stringify({ floatUsd }) });
+}
+
+/** Go online / offline. The honest version of what people were doing by setting capacity to zero. */
+export async function setMerchantOnline(online: boolean): Promise<void> {
+  await req<{ ok: true }>('/merchants/status', { method: 'POST', body: JSON.stringify({ online }) });
+}
+
+/** The LP's own take off the mid rate, in basis points. Their only price lever. */
+export async function setMerchantSpread(spreadBps: number): Promise<void> {
+  await req<{ ok: true }>('/merchants/spread', { method: 'POST', body: JSON.stringify({ spreadBps }) });
+}
+
+/**
+ * Ask for stake back. Debits the bond immediately and records a request — the USDC itself is sent by
+ * hand, because the stake vault has no signer by design. Refused while anything is still in flight.
+ */
+export async function requestStakeWithdrawal(amountUsd: number): Promise<{ id: string }> {
+  return req<{ id: string; amountUsdc: string }>('/merchants/stake/withdraw', {
+    method: 'POST',
+    body: JSON.stringify({ amountUsd }),
+  });
+}
+
+export async function cancelStakeWithdrawal(id: string): Promise<void> {
+  await req<{ ok: true }>(`/merchants/stake/withdraw/${id}/cancel`, { method: 'POST' });
 }
 
 /**

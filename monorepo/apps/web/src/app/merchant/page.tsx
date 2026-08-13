@@ -19,7 +19,14 @@ import { Txt } from '@/components/ui/Txt';
 import { friendlyError } from '@/lib/errors';
 import { fiatRaw, usd } from '@/lib/money';
 import { colors, fonts, GUTTER, radii, type } from '@/lib/theme';
-import { getMerchantOrders } from '@/services/merchant';
+import {
+  cancelStakeWithdrawal,
+  getMerchantOrders,
+  requestStakeWithdrawal,
+  setMerchantFloat,
+  setMerchantOnline,
+  setMerchantSpread,
+} from '@/services/merchant';
 import { usePayStore } from '@/store/usePayStore';
 
 const clamp1: CSSProperties = { display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
@@ -72,8 +79,10 @@ function statusColor(o: MerchantOrder): string {
 export default function MerchantHome() {
   const router = useRouter();
   const merchant = usePayStore((s) => s.merchant);
+  const load = usePayStore((s) => s.load);
   const [orders, setOrders] = useState<MerchantOrder[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -83,6 +92,58 @@ export default function MerchantHome() {
       setErr(friendlyError(e));
     }
   }, []);
+
+  /**
+   * Run a settings write, then re-read the profile. `load()` is the refresh, not a local setState:
+   * MerchantProfile rides on /me, and several of these fields are recomputed server-side (capacity
+   * is capped against the stake, a withdrawal moves the bond) — echoing the request back would show
+   * the LP what they asked for rather than what they got.
+   */
+  const act = useCallback(
+    async (fn: () => Promise<unknown>) => {
+      if (busy) return;
+      setBusy(true);
+      try {
+        await fn();
+        setErr(null);
+        await load();
+      } catch (e) {
+        setErr(friendlyError(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy, load],
+  );
+
+  const toggleOnline = () => act(() => setMerchantOnline(merchant?.status !== 'online'));
+
+  // window.prompt, deliberately: these are rare, numeric, single-field edits by the one person who
+  // runs this account. A bottom sheet each would be three new SheetIds and three new components for
+  // three number entries. Revisit if LPs edit these often enough to notice.
+  const editCapacity = () => {
+    const raw = window.prompt('Most you can have in flight at once, in dollars', String(Number(merchant?.floatUsdc ?? 0)));
+    if (raw == null) return;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) return setErr('Enter a number, like 5000.');
+    return act(() => setMerchantFloat(n));
+  };
+
+  const editSpread = () => {
+    const raw = window.prompt('Your margin, as a percent (0.10 to 3.00)', ((merchant?.spreadBps ?? 50) / 100).toFixed(2));
+    if (raw == null) return;
+    const pct = Number(raw);
+    if (!Number.isFinite(pct)) return setErr('Enter a percent, like 0.50.');
+    return act(() => setMerchantSpread(Math.round(pct * 100)));
+  };
+
+  const withdraw = () => {
+    const raw = window.prompt('How much of your stake to take back, in dollars');
+    if (raw == null) return;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return setErr('Enter an amount, like 500.');
+    return act(() => requestStakeWithdrawal(n));
+  };
 
   // Same polling shape as the payer's order tracker — new work arrives without a manual refresh.
   useEffect(() => {
@@ -138,17 +199,71 @@ export default function MerchantHome() {
           <Txt style={[type.inst, belowFloor ? { color: colors.danger } : null]}>
             {belowFloor
               ? `Below the ${usd(merchant.minBondUsdc)} minimum. No orders until you top up.`
-              : `Minimum ${usd(merchant.minBondUsdc)} · tap to add`}
+              : `Minimum ${usd(merchant.minBondUsdc)} · tap to add · backs ${usd(merchant.maxFloatUsdc)} of work`}
           </Txt>
         </Pressable>
+        {!merchant.pendingWithdrawal && Number(merchant.bondUsdc) > 0 ? (
+          <Pressable onPress={() => void withdraw()}>
+            <Txt style={[type.rowTime, { marginTop: 2, marginBottom: 8, color: colors.accent }]}>
+              Take some back
+            </Txt>
+          </Pressable>
+        ) : null}
+
+        {merchant.pendingWithdrawal ? (
+          <View style={styles.notice}>
+            <Txt style={[type.rowName, { color: colors.accent }]}>
+              {usd(merchant.pendingWithdrawal.amountUsdc)} on its way back
+            </Txt>
+            <Txt style={[type.rowTime, { marginTop: 2 }]}>
+              Already taken off your stake. We send it by hand — usually within a day.
+            </Txt>
+            <Pressable onPress={() => void act(() => cancelStakeWithdrawal(merchant.pendingWithdrawal!.id))}>
+              <Txt style={[type.rowTime, { marginTop: 8, color: colors.accent }]}>Cancel and put it back</Txt>
+            </Pressable>
+          </View>
+        ) : null}
 
         <List>
-          <Row>
+          {/* Availability. Until now `merchants.status` was admin-only and the documented workaround
+              was setting capacity to zero — which says "I have no money", not "I'm asleep", and
+              routing reads those very differently. */}
+          <Row onPress={merchant.kybStatus === 'approved' ? () => void toggleOnline() : undefined}>
+            <RowMeta>
+              <Txt style={type.rowName}>Taking orders</Txt>
+              <Txt style={[type.rowTime, { marginTop: 2 }]}>
+                {merchant.status === 'suspended'
+                  ? 'Suspended — contact support'
+                  : merchant.status === 'online'
+                    ? 'You’ll be offered new orders'
+                    : 'Nothing will reach you'}
+              </Txt>
+            </RowMeta>
+            <Txt style={{ ...fonts.body500, fontSize: 14, color: onlineColor(merchant.status) }}>
+              {merchant.status === 'online' ? 'On' : 'Off'}
+            </Txt>
+          </Row>
+          <Row onPress={() => void editCapacity()}>
             <RowMeta>
               <Txt style={type.rowName}>Capacity</Txt>
-              <Txt style={[type.rowTime, { marginTop: 2 }]}>Most you can have in flight at once</Txt>
+              <Txt style={[type.rowTime, { marginTop: 2 }]}>
+                {/* Number() on both sides — these are decimal strings, and a lexical compare would
+                    read "900.000000" as larger than "15000.000000". */}
+                {Number(merchant.floatUsdc) > Number(merchant.maxFloatUsdc)
+                  ? `Capped at ${usd(merchant.maxFloatUsdc)} by your stake`
+                  : 'Most you can have in flight at once'}
+              </Txt>
             </RowMeta>
-            <Txt style={type.rowAmount}>{usd(merchant.floatUsdc)}</Txt>
+            <Txt style={type.rowAmount}>
+              {usd(Math.min(Number(merchant.floatUsdc), Number(merchant.maxFloatUsdc)))}
+            </Txt>
+          </Row>
+          <Row onPress={() => void editSpread()}>
+            <RowMeta>
+              <Txt style={type.rowName}>Your margin</Txt>
+              <Txt style={[type.rowTime, { marginTop: 2 }]}>What you keep per payout. Lower wins more work.</Txt>
+            </RowMeta>
+            <Txt style={type.rowAmount}>{(merchant.spreadBps / 100).toFixed(2)}%</Txt>
           </Row>
           <Row>
             <RowMeta>
@@ -199,6 +314,8 @@ export default function MerchantHome() {
 
 const statusLabel = (s: string) =>
   s === 'online' ? 'Online, receiving orders' : s === 'suspended' ? 'Suspended' : 'Offline';
+const onlineColor = (s: string) =>
+  s === 'online' ? colors.secondary : s === 'suspended' ? colors.danger : colors.muted;
 const kybLabel = (s: string) =>
   s === 'pending' ? 'Application under review' : s === 'rejected' ? 'Application declined' : s;
 
@@ -215,6 +332,7 @@ const styles = {
     paddingBottom: 28,
   },
   stakeCard: { marginTop: 16, marginBottom: 6, padding: 18, borderRadius: radii.card, backgroundColor: colors.surface },
+  notice: { marginTop: 6, marginBottom: 10, padding: 14, borderRadius: radii.card, backgroundColor: colors.surfaceLow },
   value: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   section: { marginTop: 22, marginBottom: 8 },
 } satisfies Record<string, CSSProperties>;
