@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import { AddMoney } from '@/components/sheets/AddMoney';
 import { Country } from '@/components/sheets/Country';
 import { Currency } from '@/components/sheets/Currency';
+import { LocalCurrency } from '@/components/sheets/LocalCurrency';
 import { Help } from '@/components/sheets/Help';
 import { Request, RequestPick, RequestSent, Send, SendAmount, SendFailed, Sent } from '@/components/sheets/friends';
 import { Recovery, Verify } from '@/components/sheets/identity';
@@ -79,6 +80,8 @@ function renderSheet(id: SheetId) {
       return <Receive />;
     case 'currency':
       return <Currency />;
+    case 'localCurrency':
+      return <LocalCurrency />;
     case 'country':
       return <Country />;
     case 'quote':

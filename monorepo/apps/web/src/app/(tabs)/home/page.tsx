@@ -33,6 +33,7 @@ export default function Home() {
   const open = usePayStore((s) => s.open);
   const openDetail = usePayStore((s) => s.openDetail);
   const unread = usePayStore((s) => s.unread);
+  const toggleFlip = usePayStore((s) => s.toggleFlip);
   const { symbol, digits, secondary } = useBalanceDisplay();
   const initial = (handle.replace(/^@/, '')[0] ?? 'U').toUpperCase();
 
@@ -73,8 +74,13 @@ export default function Home() {
                 <Txt style={[type.heroBalance, styles.symbol]}>{symbol}</Txt>
                 <Txt style={type.heroBalance}>{digits}</Txt>
               </View>
-              {/* Absent entirely when their local currency IS the one above — see useBalanceDisplay. */}
-              {secondary ? <Txt style={styles.secondary}>{secondary}</Txt> : null}
+              {/* Absent entirely when their local currency IS the one above — see useBalanceDisplay.
+                  Tapping it flips which currency is written big (docs/05). */}
+              {secondary ? (
+                <Pressable onPress={toggleFlip}>
+                  <Txt style={styles.secondary}>{secondary}</Txt>
+                </Pressable>
+              ) : null}
             </>
           ) : (
             <Skeleton w={210} h={52} r={12} />

@@ -82,6 +82,7 @@ export default function Activity() {
   // Same two currencies as Home, from the same hook — this screen used to decide independently
   // (`displayCurrency === 'INR'`), which read as dollars for anyone whose currency wasn't rupees.
   const { primary, secondary } = useBalanceDisplay();
+  const toggleFlip = usePayStore((s) => s.toggleFlip);
 
   const shown = txns.filter((t) => (f === 'All' ? true : f === 'Payments' ? t.type === 'pay' : t.type !== 'pay'));
   const todayTx = shown.filter((t) => isToday(t.time));
@@ -122,13 +123,16 @@ export default function Activity() {
           {/* The whole row goes when there is no second currency: a "Live rate" badge with no
               conversion beside it is labelling something that isn't on screen. */}
           {secondary ? (
-            <View style={styles.realRate}>
-              {loaded ? <Txt style={type.sub}>≈ {secondary}</Txt> : <Skeleton w={90} h={13} />}
-              <View style={styles.ratePill}>
-                <Icons.LockCheck size={14} color={colors.accent} />
-                <Txt style={[type.tierTag, { color: colors.muted }]}>Live rate</Txt>
+            /* Same flip as Home's second line — one store flag, so the two screens always agree. */
+            <Pressable onPress={toggleFlip}>
+              <View style={styles.realRate}>
+                {loaded ? <Txt style={type.sub}>≈ {secondary}</Txt> : <Skeleton w={90} h={13} />}
+                <View style={styles.ratePill}>
+                  <Icons.LockCheck size={14} color={colors.accent} />
+                  <Txt style={[type.tierTag, { color: colors.muted }]}>Live rate</Txt>
+                </View>
               </View>
-            </View>
+            </Pressable>
           ) : null}
           <Pressable onPress={() => open('add')} style={({ pressed }) => [styles.addFunds, pressed ? { opacity: 0.9 } : null]}>
             <Icons.Plus size={16} color={colors.white} />

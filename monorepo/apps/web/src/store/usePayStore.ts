@@ -43,6 +43,7 @@ export type SheetId =
   | 'payByPhone'
   | 'receive'
   | 'currency'
+  | 'localCurrency'
   | 'country'
   | 'quote'
   | 'tracking'
@@ -91,6 +92,12 @@ interface PayState {
   /** Pinned local (second-line) currency — null = automatic, derived from `country`. Server truth
    *  via /me (users.local_currency); persisted here only as a cache. */
   localCurrency: string | null;
+  /** Which balance currency is written big: false = preferred on top. Ephemeral by design — a
+   *  glance-order choice, not a setting (docs/05). */
+  flipped: boolean;
+  /** The eye: masks every balance and transaction amount. Persisted CLIENT-side only — privacy of
+   *  this screen in this pocket; deliberately not synced, unlike the currency prefs (docs/05). */
+  hideAmounts: boolean;
   handle: string;
   /** Own pay-by-phone alias (E.164) — '' when not enrolled. Server truth via /me. */
   phone: string;
@@ -180,6 +187,8 @@ interface PayState {
   openDetail: (tx: Txn) => void;
   setDisplayCurrency: (c: DisplayCurrency) => Promise<void>;
   setLocalCurrency: (c: string | null) => Promise<void>;
+  toggleFlip: () => void;
+  toggleHideAmounts: () => void;
 
   // ---- backend sync (real mode only) ----
   load: () => Promise<void>;
@@ -295,6 +304,8 @@ export const usePayStore = create<PayState>()(
       // where the actual figure belongs — and showed the same number twice for Indian users.
       displayCurrency: 'USD',
       localCurrency: null,
+      flipped: false,
+      hideAmounts: false,
       handle: '',
       phone: '',
       country: '',
@@ -385,6 +396,8 @@ export const usePayStore = create<PayState>()(
           /* best-effort */
         }
       },
+      toggleFlip: () => set((s) => ({ flipped: !s.flipped })),
+      toggleHideAmounts: () => set((s) => ({ hideAmounts: !s.hideAmounts })),
 
       // Pull identity + balance + activity from the backend.
       load: async () => {
@@ -1331,6 +1344,8 @@ export const usePayStore = create<PayState>()(
         transactions: s.transactions,
         displayCurrency: s.displayCurrency,
         localCurrency: s.localCurrency,
+        // The eye persists (device-local privacy choice); the flip deliberately does not.
+        hideAmounts: s.hideAmounts,
         handle: s.handle,
       }),
     },

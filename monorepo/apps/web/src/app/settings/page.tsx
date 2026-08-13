@@ -23,6 +23,7 @@ export default function Settings() {
   const phone = usePayStore((s) => s.phone);
   const country = usePayStore((s) => s.country);
   const displayCurrency = usePayStore((s) => s.displayCurrency);
+  const localCurrency = usePayStore((s) => s.localCurrency);
   const recoveryPasskey = usePayStore((s) => s.recoveryPasskey);
   const kycTier = usePayStore((s) => s.kycTier);
   const merchant = usePayStore((s) => s.merchant);
@@ -60,6 +61,7 @@ export default function Settings() {
             onPress={kycTier >= 2 && country ? undefined : () => open('country')}
           />
           <SettingsRow k="Display currency" v={displayCurrency} accent onPress={() => open('currency')} />
+          <SettingsRow k="Local currency" v={localCurrency ?? 'Auto'} accent onPress={() => open('localCurrency')} />
           <SettingsRow k="Help and support" onPress={() => open('help')} />
           {/* Only surfaced once they run a merchant account — an ordinary payer never sees it. */}
           {merchant ? (
