@@ -13,19 +13,15 @@ const here = dirname(fileURLToPath(import.meta.url));
 const FILES = [
   'README.md',
   '01-architecture.md',
-  '02-auth-identity.md',
-  '03-custody-and-gas.md',
-  '04-money-in.md',
-  '05-p2p-send-request.md',
-  '06-payout-order-lifecycle.md',
-  '07-onchain-escrow.md',
-  '08-routing-and-failover.md',
-  '09-confirmation-pipeline.md',
-  '10-data-model.md',
-  '11-compliance-and-legalities.md',
-  '12-status-and-roadmap.md',
-  '13-future-milestones.md',
-  '14-notifications-and-infra.md',
+  '02-identity-and-onboarding.md',
+  '03-custody-money-in-and-confirmation.md',
+  '04-p2p-and-contacts.md',
+  '05-fees-fx-and-display.md',
+  '06-offramp-and-settlement.md',
+  '07-admin-and-moderation.md',
+  '08-compliance-and-legalities.md',
+  '09-data-model.md',
+  '10-ops-and-roadmap.md',
 ];
 
 const docs = FILES.map((f) => readFileSync(join(here, f), 'utf8'));
@@ -37,7 +33,7 @@ const html = `<!doctype html>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Pay — Architecture &amp; Flows</title>
+<title>FrensPay — Architecture &amp; Flows</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script type="module">
   import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';

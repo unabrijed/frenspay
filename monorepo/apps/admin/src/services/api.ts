@@ -14,7 +14,9 @@ import type {
   AdminPayoutProviderUpdateRequest,
   AdminPayoutProvidersResponse,
   AdminRiskEventsResponse,
+  AdminUserPatchRequest,
   AdminUserRoleRequest,
+  AdminUserStatusRequest,
   AdminUsersResponse,
   AdminWaitlistResponse,
   MeResponse,
@@ -121,6 +123,13 @@ export const api = {
   inviteRevoke: (code: string) => req<{ ok: true }>(`/admin/invites/${encodeURIComponent(code)}`, { method: 'DELETE' }),
   userRole: (id: string, body: AdminUserRoleRequest) =>
     req<{ ok: true; role: string }>(`/admin/users/${id}/role`, { method: 'POST', body: JSON.stringify(body) }),
+  userPatch: (id: string, body: AdminUserPatchRequest) =>
+    req<{ ok: true; handle: string; displayName: string | null }>(`/admin/users/${id}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  userStatus: (id: string, body: AdminUserStatusRequest) =>
+    req<{ ok: true; status: string }>(`/admin/users/${id}/status`, { method: 'POST', body: JSON.stringify(body) }),
   payoutProviderUpdate: (id: string, body: AdminPayoutProviderUpdateRequest) =>
     req<{ ok: true; enabled: boolean; priority: number }>(`/admin/payout-providers/${id}`, {
       method: 'POST',

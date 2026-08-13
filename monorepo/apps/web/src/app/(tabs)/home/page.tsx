@@ -33,6 +33,9 @@ export default function Home() {
   const open = usePayStore((s) => s.open);
   const openDetail = usePayStore((s) => s.openDetail);
   const unread = usePayStore((s) => s.unread);
+  const toggleFlip = usePayStore((s) => s.toggleFlip);
+  const hideAmounts = usePayStore((s) => s.hideAmounts);
+  const toggleHideAmounts = usePayStore((s) => s.toggleHideAmounts);
   const { symbol, digits, secondary } = useBalanceDisplay();
   const initial = (handle.replace(/^@/, '')[0] ?? 'U').toUpperCase();
 
@@ -72,21 +75,30 @@ export default function Home() {
               <View className="fp-arrive" style={styles.heroAmt}>
                 <Txt style={[type.heroBalance, styles.symbol]}>{symbol}</Txt>
                 <Txt style={type.heroBalance}>{digits}</Txt>
+                {/* The eye: hides every amount everywhere (docs/05) — the hook masks the balances,
+                    MaskedAmount/TxCard mask the rows. One global switch, per-row reveals under it. */}
+                <Pressable onPress={toggleHideAmounts} style={styles.eyeBtn}>
+                  {hideAmounts ? <Icons.EyeOff size={22} /> : <Icons.Eye size={22} />}
+                </Pressable>
               </View>
-              {/* Absent entirely when their local currency IS the one above — see useBalanceDisplay. */}
-              {secondary ? <Txt style={styles.secondary}>{secondary}</Txt> : null}
+              {/* Absent entirely when their local currency IS the one above — see useBalanceDisplay.
+                  Tapping it flips which currency is written big (docs/05). */}
+              {secondary ? (
+                <Pressable onPress={toggleFlip}>
+                  <Txt style={styles.secondary}>{secondary}</Txt>
+                </Pressable>
+              ) : null}
             </>
           ) : (
             <Skeleton w={210} h={52} r={12} />
           )}
         </View>
 
-        {/* four Google-Pay-style actions */}
+        {/* Two actions, no more (docs/04: "Rest UI doesn't need other unnecessary items").
+            Scan stays on the bottom nav's center button; Request lives in Activity's section. */}
         <View style={styles.actions}>
-          <ActionBtn label="Scan" onPress={() => open('scan')} icon={<Icons.QrBig size={24} color={colors.accent} />} />
-          <ActionBtn label="Send" onPress={() => open('send')} icon={<Icons.Send size={24} color={colors.accent} />} />
-          <ActionBtn label="Request" onPress={() => open('request')} icon={<Icons.Request size={24} color={colors.accent} />} />
           <ActionBtn label="Add" onPress={() => open('add')} icon={<Icons.Plus size={24} color={colors.accent} />} />
+          <ActionBtn label="Send" onPress={() => open('send')} icon={<Icons.Send size={24} color={colors.accent} />} />
         </View>
 
         {/* recent activity */}
@@ -132,6 +144,7 @@ const styles = {
   // padding, not a taller block, so the actions keep their position on a short viewport.
   hero: { alignItems: 'center', marginTop: 6, paddingTop: 34, paddingBottom: 34 },
   heroAmt: { flexDirection: 'row', alignItems: 'baseline' },
+  eyeBtn: { alignSelf: 'center', marginLeft: 10, padding: 4 },
   symbol: { fontSize: 28, color: colors.tertiary, marginRight: 2 },
   secondary: { ...type.sub, fontSize: 16, marginTop: 10 },
 

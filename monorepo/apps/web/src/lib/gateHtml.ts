@@ -95,7 +95,7 @@ export function gateHtml(err: boolean): string {
     <circle class="dot dot-r" cx="190" cy="74" r="31" fill="${colors.accent}"/>
   </svg>
   <h1>frenspay</h1>
-  <p class="sub">A private build. Enter your access key to continue — this device will remember it.</p>
+  <p class="sub"></p>
   <form method="post" action="/gate">
     <input type="password" name="key" placeholder="Access key" aria-label="Access key" autocomplete="off" required${err ? ' class="shake"' : ''}>
     <button type="submit">Continue</button>

@@ -14,6 +14,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { bootTrace } from '@/lib/boot';
 import { friendlyError } from '@/lib/errors';
 import type { DisplayCurrency } from '@/lib/money';
+import { isDisplayCurrency } from '@/lib/money';
 import { api, ApiError, setAuthToken } from '@/services/api';
 import { getActiveSigner } from '@/services/signer';
 import { USE_PRIVY } from '@/services/envConfig';
@@ -42,6 +43,7 @@ export type SheetId =
   | 'payByPhone'
   | 'receive'
   | 'currency'
+  | 'localCurrency'
   | 'country'
   | 'quote'
   | 'tracking'
@@ -87,6 +89,15 @@ interface PayState {
   notifications: Notification[];
   unread: number;
   displayCurrency: DisplayCurrency;
+  /** Pinned local (second-line) currency — null = automatic, derived from `country`. Server truth
+   *  via /me (users.local_currency); persisted here only as a cache. */
+  localCurrency: string | null;
+  /** Which balance currency is written big: false = preferred on top. Ephemeral by design — a
+   *  glance-order choice, not a setting (docs/05). */
+  flipped: boolean;
+  /** The eye: masks every balance and transaction amount. Persisted CLIENT-side only — privacy of
+   *  this screen in this pocket; deliberately not synced, unlike the currency prefs (docs/05). */
+  hideAmounts: boolean;
   handle: string;
   /** Own pay-by-phone alias (E.164) — '' when not enrolled. Server truth via /me. */
   phone: string;
@@ -139,6 +150,13 @@ interface PayState {
    *  persisted); combined with the persisted `onboarded` it gates data fetches so an onboarding user
    *  who is signed in with Privy but not yet synced doesn't fire (and 401) /balance etc. */
   provisioned: boolean;
+  /** Admin froze the account (backend 403 account_suspended on any call). Ephemeral: re-derived
+   *  every session — set by the api-layer hook, cleared by the next successful load()/refresh(),
+   *  so a reinstated account heals itself on its next poll. Renders SuspendedGate full-screen. */
+  suspended: boolean;
+  /** Admin soft-deleted the account (403 account_deleted). Ephemeral, same seam as `suspended` —
+   *  distinct because the screen is different: deleted ≠ paused, and funds stay reachable via Privy. */
+  deleted: boolean;
   error: string | null;
   /** Transient snackbar (money-app toast). Shown by ToastHost, set via notify(), auto-clears. */
   toast: { id: number; msg: string; tone: 'error' | 'success' } | null;
@@ -167,7 +185,10 @@ interface PayState {
   setPayRupees: (r: number) => void;
   setRequestDraft: (u: number) => void;
   openDetail: (tx: Txn) => void;
-  setDisplayCurrency: (c: DisplayCurrency) => void;
+  setDisplayCurrency: (c: DisplayCurrency) => Promise<void>;
+  setLocalCurrency: (c: string | null) => Promise<void>;
+  toggleFlip: () => void;
+  toggleHideAmounts: () => void;
 
   // ---- backend sync (real mode only) ----
   load: () => Promise<void>;
@@ -282,6 +303,9 @@ export const usePayStore = create<PayState>()(
       // on its own (useBalanceDisplay), so leading in a corridor currency would show a conversion
       // where the actual figure belongs — and showed the same number twice for Indian users.
       displayCurrency: 'USD',
+      localCurrency: null,
+      flipped: false,
+      hideAmounts: false,
       handle: '',
       phone: '',
       country: '',
@@ -308,6 +332,8 @@ export const usePayStore = create<PayState>()(
       busy: false,
       firstLoadDone: false,
       provisioned: false,
+      suspended: false,
+      deleted: false,
       error: null,
       toast: null,
       walletAddress: '',
@@ -352,7 +378,26 @@ export const usePayStore = create<PayState>()(
       setPayRupees: (r) => set({ payRupees: r }),
       setRequestDraft: (u) => set({ requestDraftUsd: u }),
       openDetail: (tx) => set({ detail: tx }),
-      setDisplayCurrency: (c) => set({ displayCurrency: c }),
+      // Optimistic like setCountry: set() paints immediately, the server write is best-effort —
+      // a failure leaves the local choice standing and the next load() reconciles to server truth.
+      setDisplayCurrency: async (c) => {
+        set({ displayCurrency: c });
+        try {
+          await api.setPreferredCurrency(c);
+        } catch {
+          /* best-effort */
+        }
+      },
+      setLocalCurrency: async (c) => {
+        set({ localCurrency: c });
+        try {
+          await api.setLocalCurrency(c);
+        } catch {
+          /* best-effort */
+        }
+      },
+      toggleFlip: () => set((s) => ({ flipped: !s.flipped })),
+      toggleHideAmounts: () => set((s) => ({ hideAmounts: !s.hideAmounts })),
 
       // Pull identity + balance + activity from the backend.
       load: async () => {
@@ -388,6 +433,11 @@ export const usePayStore = create<PayState>()(
             handle: me.handle,
             phone: me.phone ?? '',
             country: me.country ?? '',
+            // Server truth wins when set; a not-a-display-currency value (stale corridor) is ignored.
+            ...(me.preferredCurrency && isDisplayCurrency(me.preferredCurrency)
+              ? { displayCurrency: me.preferredCurrency }
+              : {}),
+            localCurrency: me.localCurrency ?? null,
             evmDepositAddress: me.evmDepositAddress ?? '',
             kycTier: me.kycTier,
             kycStatus: me.kycStatus ?? 'none',
@@ -404,6 +454,8 @@ export const usePayStore = create<PayState>()(
             unread: notifs.unread,
             busy: false,
             firstLoadDone: true,
+            suspended: false,
+            deleted: false,
           });
           // AFTER the set above, because which rates we want depends on `country`, which arrives
           // with `me` and is not persisted. Not awaited: the balance paints at the seeded/persisted
@@ -423,8 +475,12 @@ export const usePayStore = create<PayState>()(
         try {
           // Rates ride along on every poll, not just load(): a session left open all day kept its
           // boot-time rate and every converted line drifted from the quote the backend would
-          // actually return.
-          const [bal, txns, reqs, notifs] = await Promise.all([
+          // actually return. /me rides along too — identity is admin-mutable now (docs/24), and
+          // without it an open tab served a renamed user's OLD handle in the Receive QR forever
+          // (load() only runs on cold sign-in). Also how suspension/reinstatement reaches an open
+          // tab within one poll.
+          const [me, bal, txns, reqs, notifs] = await Promise.all([
+            api.me(),
             wallet.getBalanceUsd(),
             wallet.getTransactions(),
             wallet.getRequests(),
@@ -435,6 +491,16 @@ export const usePayStore = create<PayState>()(
           // unread badge (the optimistic read-all may not be committed server-side yet).
           const keepInbox = get().sheet === 'notifications' || !notifs;
           set({
+            handle: me.handle,
+            role: me.role ?? 'user',
+            kycTier: me.kycTier,
+            kycStatus: me.kycStatus ?? 'none',
+            ...(me.preferredCurrency && isDisplayCurrency(me.preferredCurrency)
+              ? { displayCurrency: me.preferredCurrency }
+              : {}),
+            localCurrency: me.localCurrency ?? null,
+            suspended: false,
+            deleted: false,
             balanceUSD: bal,
             transactions: txns,
             requests: reqs,
@@ -1277,6 +1343,9 @@ export const usePayStore = create<PayState>()(
         fxRates: s.fxRates,
         transactions: s.transactions,
         displayCurrency: s.displayCurrency,
+        localCurrency: s.localCurrency,
+        // The eye persists (device-local privacy choice); the flip deliberately does not.
+        hideAmounts: s.hideAmounts,
         handle: s.handle,
       }),
     },

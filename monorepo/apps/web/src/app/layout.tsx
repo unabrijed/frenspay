@@ -6,6 +6,7 @@ import type { Metadata, Viewport } from 'next';
 
 import { AppProviders } from '@/components/AppProviders';
 import { SheetHost } from '@/components/SheetHost';
+import { SuspendedGate } from '@/components/SuspendedGate';
 import { ToastHost } from '@/components/ToastHost';
 import { SwKiller } from '@/components/SwKiller';
 import { fontVars } from '@/lib/fonts';
@@ -55,6 +56,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <AppProviders>{children}</AppProviders>
           <SheetHost />
           <ToastHost />
+          <SuspendedGate />
         </div>
         <Analytics />
         <SpeedInsights />

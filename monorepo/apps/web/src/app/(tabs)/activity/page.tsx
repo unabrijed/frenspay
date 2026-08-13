@@ -8,6 +8,7 @@ import { useState } from 'react';
 
 import { Icons } from '@/components/icons';
 import { TxCard } from '@/components/TxCard';
+import { MaskedAmount } from '@/components/ui/MaskedAmount';
 import { Btn, TextLink } from '@/components/ui/Button';
 import { Empty, Fav, List, Row, RowAmount, RowMeta } from '@/components/ui/primitives';
 import { Skeleton, TxListSkeleton } from '@/components/ui/Skeleton';
@@ -32,14 +33,23 @@ function Requests() {
   const payRequest = usePayStore((s) => s.payRequest);
   const cancelRequest = usePayStore((s) => s.cancelRequest);
   const busy = usePayStore((s) => s.busy);
-  const open = requests.filter((r) => r.status === 'open');
-  if (open.length === 0) return null;
+  const hideAmounts = usePayStore((s) => s.hideAmounts);
+  const openSheet = usePayStore((s) => s.open);
+  const openReqs = requests.filter((r) => r.status === 'open');
 
+  // The header always renders: since the home grid slimmed to Add·Send (docs/04), this section IS
+  // where requesting money lives — the entry can't only exist while a request is already open.
   return (
     <>
-      <Txt style={[type.dayLabel, styles.dayLabel]}>Requests</Txt>
+      <View style={styles.reqHeader}>
+        <Txt style={[type.dayLabel, styles.dayLabel]}>Requests</Txt>
+        <Pressable onPress={() => openSheet('request')}>
+          <Txt style={[type.sub, { color: colors.accent }]}>+ New request</Txt>
+        </Pressable>
+      </View>
+      {openReqs.length === 0 ? null : (
       <List style={{ marginBottom: 18 }}>
-        {open.map((r) => {
+        {openReqs.map((r) => {
           const handle = r.counterpartyHandle ?? '';
           const ini = (handle.replace(/^@/, '').charAt(0) || '?').toUpperCase();
           const incoming = r.direction === 'incoming';
@@ -54,12 +64,18 @@ function Requests() {
                   <Txt style={[type.rowTime, { marginTop: 3 }]}>{relTime(r.createdAt)}</Txt>
                 </RowMeta>
                 <RowAmount>
-                  <Txt style={type.rowAmount}>{usd(r.amountUsd)}</Txt>
+                  <MaskedAmount value={usd(r.amountUsd)} style={type.rowAmount} />
                 </RowAmount>
               </Row>
               <View style={styles.reqAction}>
                 {incoming ? (
-                  <Btn label={`Pay ${usd(r.amountUsd)}`} height={42} disabled={busy} onPress={() => void payRequest(r.id)} />
+                  /* No reveal-eye on a button — the row above carries it (docs/05). */
+                  <Btn
+                    label={hideAmounts ? 'Pay ••••' : `Pay ${usd(r.amountUsd)}`}
+                    height={42}
+                    disabled={busy}
+                    onPress={() => void payRequest(r.id)}
+                  />
                 ) : (
                   <TextLink label="Cancel request" onPress={() => void cancelRequest(r.id)} />
                 )}
@@ -68,6 +84,7 @@ function Requests() {
           );
         })}
       </List>
+      )}
     </>
   );
 }
@@ -82,6 +99,7 @@ export default function Activity() {
   // Same two currencies as Home, from the same hook — this screen used to decide independently
   // (`displayCurrency === 'INR'`), which read as dollars for anyone whose currency wasn't rupees.
   const { primary, secondary } = useBalanceDisplay();
+  const toggleFlip = usePayStore((s) => s.toggleFlip);
 
   const shown = txns.filter((t) => (f === 'All' ? true : f === 'Payments' ? t.type === 'pay' : t.type !== 'pay'));
   const todayTx = shown.filter((t) => isToday(t.time));
@@ -122,13 +140,16 @@ export default function Activity() {
           {/* The whole row goes when there is no second currency: a "Live rate" badge with no
               conversion beside it is labelling something that isn't on screen. */}
           {secondary ? (
-            <View style={styles.realRate}>
-              {loaded ? <Txt style={type.sub}>≈ {secondary}</Txt> : <Skeleton w={90} h={13} />}
-              <View style={styles.ratePill}>
-                <Icons.LockCheck size={14} color={colors.accent} />
-                <Txt style={[type.tierTag, { color: colors.muted }]}>Live rate</Txt>
+            /* Same flip as Home's second line — one store flag, so the two screens always agree. */
+            <Pressable onPress={toggleFlip}>
+              <View style={styles.realRate}>
+                {loaded ? <Txt style={type.sub}>≈ {secondary}</Txt> : <Skeleton w={90} h={13} />}
+                <View style={styles.ratePill}>
+                  <Icons.LockCheck size={14} color={colors.accent} />
+                  <Txt style={[type.tierTag, { color: colors.muted }]}>Live rate</Txt>
+                </View>
               </View>
-            </View>
+            </Pressable>
           ) : null}
           <Pressable onPress={() => open('add')} style={({ pressed }) => [styles.addFunds, pressed ? { opacity: 0.9 } : null]}>
             <Icons.Plus size={16} color={colors.white} />
@@ -182,6 +203,7 @@ const styles = {
   },
   fOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   dayLabel: { marginTop: 4, marginBottom: 9, marginLeft: 2, marginRight: 2 },
+  reqHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginRight: 2 },
   txList: { gap: 10, marginBottom: 6 },
   reqAction: { paddingLeft: 16, paddingRight: 16, paddingBottom: 13, paddingTop: 2 },
   summary: { backgroundColor: colors.surfaceContainer, borderRadius: radii.rlc, padding: 18, marginBottom: 16, boxShadow: shadows.card },

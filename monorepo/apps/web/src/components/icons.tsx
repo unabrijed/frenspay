@@ -36,6 +36,8 @@ function symbol(name: string, defaultColor: string = colors.ink, defaultFill = f
 
 export const Icons = {
   Plus: symbol('add', colors.ink),
+  Eye: symbol('visibility', colors.muted),
+  EyeOff: symbol('visibility_off', colors.muted),
   Send: symbol('arrow_outward', colors.ink),
   Request: symbol('arrow_downward', colors.ink),
   Chevron: symbol('chevron_right', colors.muted),

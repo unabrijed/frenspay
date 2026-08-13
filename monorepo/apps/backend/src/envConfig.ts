@@ -101,10 +101,8 @@ export const config = {
   usdcMint: usdcMintValue,
   // TRUE ⇒ this backend moves real USDC, whatever NODE_ENV says. The gates above key off this.
   isMainnet: usdcMintValue === MAINNET_USDC_MINT,
-  // The platform's cut on merchant-pay orders, folded into the quoted rate ON TOP of the LP's
-  // spread_bps (quoteEngine) — the user only ever sees the all-in conversion rate, never a fee
-  // line. Collected at deposit into the fee-payer's ATA; returned in full on refund.
-  platformFeeBps: num('PLATFORM_FEE_BPS', 50, { min: 0, max: 500 }),
+  // (The platform's cut is no longer configured here: it's a flat $0.001 per conversion, a
+  // constant in quoteEngine.ts — decided 2026-08-13, docs/05. PLATFORM_FEE_BPS is retired.)
   // Where merchant/LP stake (their bond — skin in the game) is held. PUBLIC KEY ONLY: nothing in
   // this design ever signs FROM the vault — deposits are user-signed and slashing is a bond
   // decrement, so the platform keeps the USDC. Deliberately NOT the fee-payer's ATA, which doubles

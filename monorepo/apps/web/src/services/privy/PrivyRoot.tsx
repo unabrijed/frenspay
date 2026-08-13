@@ -51,7 +51,19 @@ export default function PrivyRoot({ children }: { children: ReactNode }) {
       config={{
         // Inbound cross-chain (docs/19): the user's own EVM smart wallet is the deposit address.
         // Requires smart wallets enabled in the Privy dashboard + per-chain paymaster URLs.
-        embeddedWallets: { ethereum: { createOnLogin: 'users-without-wallets' } },
+        //
+        // Solana is the wallet the app actually spends from, and login is email-only — so whether
+        // someone is signed in at all hangs on this existing. It used to be left to the manual
+        // createWallet() in PrivyBridge, which is guarded by a ref that only resets on THROW: a
+        // call that resolved without `wallets` ever populating latched the guard on and parked the
+        // session at 'signedOut' forever, silently. Asking Privy to provision it at login makes
+        // that path a fallback instead of the only route in.
+        // Needs Solana embedded wallets enabled on the Privy app; if they are not, this is inert
+        // and behaviour is exactly as before.
+        embeddedWallets: {
+          ethereum: { createOnLogin: 'users-without-wallets' },
+          solana: { createOnLogin: 'users-without-wallets' },
+        },
       }}
     >
       <SmartWalletsProvider>

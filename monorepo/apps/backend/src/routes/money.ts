@@ -145,6 +145,9 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
       const to = await findUserByHandle(toHandle);
       const toWallet = to ? await getWalletForUser(to.id) : null;
       if (!to || !toWallet?.address) return reply.code(404).send({ error: 'recipient_not_found' });
+      // Suspended accounts can't receive; same answer as not-found so account state isn't probeable.
+      // Belt-and-suspenders with resolveHandleToFriend's filter — this is the last stop before money.
+      if (to.status !== 'active') return reply.code(404).send({ error: 'recipient_not_found' });
       if (to.id === userId) return reply.code(400).send({ error: 'self_send_not_allowed' });
       toUserId = to.id;
       toOwnerAddress = toWallet.address;

@@ -13,6 +13,7 @@ import { Splash } from '@/components/ui/Splash';
 import { View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { Screen } from '@/components/ui/Screen';
+import { friendlyError } from '@/lib/errors';
 import { colors, type } from '@/lib/theme';
 import { ApiError } from '@/services/api';
 import { LANDING_URL } from '@/services/envConfig';
@@ -110,9 +111,10 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
             // so neither can this. "isn't valid" covers all three honestly.
             apiCode === 'invalid_invite'
             ? "That invite code isn't valid"
-            : e instanceof Error
-              ? e.message
-              : String(e),
+            : // Everything else through the shared catalog. It used to fall through to e.message,
+              // which for an ApiError is the raw server code — signup's last screen showed people
+              // the string "handle_taken".
+              friendlyError(e),
       );
     } finally {
       setBusy(false);

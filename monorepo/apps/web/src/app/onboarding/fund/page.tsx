@@ -1,12 +1,18 @@
 'use client';
 
 // Add first dollars — funds the wallet via the devnet faucet, then completes onboarding → Home.
+//
+// Funding is OPTIONAL. It reads as the last step of signup, but the account is already real by the
+// time anyone gets here — /auth/sync ran back on the handle step. Making it the only way out meant
+// the faucet could hold a signup hostage: a drained devnet treasury answers `faucet_empty`, which
+// is expected rather than a bug, and there was no way past it. An empty balance is a fine place to
+// start; Add money is one tap from Home.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { BackButton } from '@/components/ui/BackButton';
-import { Btn } from '@/components/ui/Button';
+import { Btn, TextLink } from '@/components/ui/Button';
 import { Chip, Chips, Field, Spacer } from '@/components/ui/primitives';
 import { Splash } from '@/components/ui/Splash';
 import { sx, View } from '@/components/ui/rn';
@@ -35,16 +41,20 @@ export default function Fund() {
     if (hydrated && authStatus !== 'signedIn') router.replace('/');
   }, [hydrated, authStatus, router]);
 
+  /** Onboarding is over: land on Home. The mainnet auto-skip, the funded path and the manual skip
+   *  all finish identically — the only thing funding changes is the balance you arrive with. */
+  const done = useCallback(() => {
+    completeOnboarding();
+    void load(); // best-effort prefetch; Home skeletons until it or the 12s LiveSync lands
+    router.replace('/home');
+  }, [completeOnboarding, load, router]);
+
   // This step IS the devnet faucet, so on mainnet it doesn't exist: whoever routes here (the handle
   // step, the entry router resuming a half-onboarded user) skips straight to Home with $0 — Add
   // money shows their deposit address instead. One guard at the sink covers every path in.
   useEffect(() => {
-    if (IS_MAINNET && hydrated && authStatus === 'signedIn') {
-      completeOnboarding();
-      void load();
-      router.replace('/home');
-    }
-  }, [hydrated, authStatus, completeOnboarding, load, router]);
+    if (IS_MAINNET && hydrated && authStatus === 'signedIn') done();
+  }, [hydrated, authStatus, done]);
 
   const finish = async () => {
     setErr(null);
@@ -52,16 +62,14 @@ export default function Fund() {
     try {
       await wallet.addMoney?.(amt); // devnet faucet → mints test USDC. The only step that can hard-fail.
     } catch (e) {
-      // Funding failed → do NOT complete onboarding; let the user retry.
+      // Funding failed → stay here so they can retry or skip. `faucet_empty` (a drained devnet
+      // treasury) is the common one and no amount of retrying fixes it, which is why the skip
+      // below has to remain reachable from this state.
       setErr(e instanceof Error ? e.message : String(e));
       setBusy(false);
       return;
     }
-    // Funded: finish onboarding and land on Home. load() is a best-effort prefetch — Home shows a
-    // skeleton until it (or the 12s LiveSync) lands, so a slow/failed load never traps onboarding.
-    completeOnboarding();
-    void load();
-    router.replace('/home');
+    done();
   };
 
   if (!hydrated || authStatus !== 'signedIn' || IS_MAINNET) return <Splash />;
@@ -98,6 +106,8 @@ export default function Fund() {
       <Spacer />
       <View style={styles.cta}>
         <Btn label={busy ? 'Adding…' : `Add $${amt}`} disabled={amt <= 0 || busy} pending={busy} onPress={finish} />
+        {/* Not disabled while funding is in flight: if the faucet hangs, this is the way out. */}
+        <TextLink label="Skip for now" onPress={done} />
       </View>
     </Screen>
   );

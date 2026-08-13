@@ -1,7 +1,7 @@
 # Deploy — production (mainnet): backend → Railway, frontends → Vercel
 
-Stage/devnet is `DEPLOY.stage.md` — read that first; prod is the same shapes with different
-variables. Going to real money is a deliberate, separate step. Ship = merge `stage` → `sacred`.
+Stage (mainnet-lite) is `DEPLOY.stage.md` — read that first; prod is the same shapes with
+different variables. There is no devnet deployment anywhere; devnet exists only in local dev. Going to real money is a deliberate, separate step. Ship = merge `stage` → `sacred`.
 
 **Vercel prod projects** — twins of the stage projects; run the same "Project setup — every step,
 per project" list in `DEPLOY.stage.md` with these substitutions:
@@ -21,6 +21,8 @@ per project" list in `DEPLOY.stage.md` with these substitutions:
   never become a static export).
 - **Variables** use the **bare** names (no `STAGE_` segment): `NEXT_PUBLIC_APP_ENV` is NOT set
   (production is the build default), plus `NEXT_PUBLIC_API_URL=https://api.frenspay.xyz`,
+  `NEXT_PUBLIC_SOLANA_RPC_URL=<mainnet RPC>` (drives web's `IS_MAINNET`; a deployed build fails
+  CLOSED to mainnet if unset — envConfig.ts — so this var only picks WHICH mainnet RPC),
   `NEXT_PUBLIC_PRIVY_APP_ID`, `NEXT_PUBLIC_PRIVY_CLIENT_ID`, `NEXT_PUBLIC_LANDING_URL` (web +
   admin as applicable, landing gets `NEXT_PUBLIC_API_URL`), and web's **`ACCESS_KEY`** — the
   deploy access gate, a fresh `openssl rand -hex 32`, **different from stage's key**. The prod
@@ -53,8 +55,9 @@ variables live per Vercel project (see the block above); web's `ACCESS_KEY` is d
 
 - Use **Circle's mainnet USDC mint** (`EPjFWdd5...`) and a **mainnet RPC** (Helius mainnet).
 - **Disable the faucet** — `/devnet/faucet` is gated to `config.isDevelopment`; ensure prod isn't
-  flagged development. Funding becomes **deposit-only** (the existing USDC deposit address in Add
-  money).
+  flagged development. The web UI also fails closed: `IS_MAINNET` defaults true in prod/stage
+  builds, hiding the faucet block. Funding becomes **deposit-only** (the existing USDC deposit
+  address in Add money).
 - Fund the **fee-payer with real SOL** (and monitor/alert on its balance — it sponsors every
   transfer + ATA rent).
 - `CORS_ORIGIN` must list EVERY prod browser origin (see the CORS section in `DEPLOY.stage.md` —
