@@ -3,5 +3,6 @@
   "version": 2,
   "framework": "nextjs",
   "installCommand": "yarn install --frozen-lockfile",
-  "buildCommand": "yarn workspace @fpay/admin build"
+  "buildCommand": "yarn workspace @fpay/admin build",
+  "ignoreCommand": "node \"$(git rev-parse --show-toplevel)/monorepo/scripts/vercel-ignore.mjs\" admin"
 }

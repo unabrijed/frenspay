@@ -115,19 +115,25 @@ effectively inert and the poller did the work — on mainnet it genuinely functi
 devnet-era webhook exists at the same URL, delete it in the Helius dashboard first (registration
 is idempotent by URL and would report "already registered").
 
-## Required once the console has more than one operator: root admins
+## Required before the console has its FIRST operator: root admins
 
 ```
 STAGE_ADMIN_EMAILS=unabrijed@gmail.com
 ```
 
+**Two steps, and the order is load-bearing.** Set this variable, wait for the redeploy, and only
+then sign into **web** once with that address. The console never calls `/auth/sync` — only web does
+— so that signin is the only thing that creates the operator's row and writes the Privy-verified
+`users.email` this matches against. Backwards, the signup is treated as ordinary and refused with
+`invite_required`, because the invite gate checks `ADMIN_EMAILS` *during* the sync in order to
+exempt root admins. Skip both and the console answers 401 (no row at all) rather than 403.
+
 Comma-separated Privy login addresses that are admin regardless of `users.role`, and that the
 console refuses to demote. Everyone else is promoted from Admin → Users. This exists as the lockout
 recovery path: the demote guards mean a bad click can't strip the last admin, and if one somehow
-does, the env var still lets someone in without a psql session.
-
-Matched against `users.email`, which `/auth/sync` now fills from Privy — so an operator has to have
-signed into the app at least once before the match can work.
+does, the env var still lets someone in without a psql session — which is also why a root admin
+skips the invite gate. Codes are minted from the console, so needing one to reach the console you
+are locked out of would be a circle.
 
 ## Optional: waitlist / referral emails (Resend)
 
@@ -178,21 +184,30 @@ Ship to prod by merging `stage` → `sacred` (PR).
      the Root Directory"** (same screen) — the crash note below is why.
    - **Node.js Version: 24** (`@solana-program/token` engine floor; `.yarnrc` ignore-engines masks
      it at install, set it anyway for runtime parity).
-   - **Skip deployment for unaffected projects: Enabled**. Path scoping is Vercel's built-in
-     workspace-graph detection — deliberately NO `ignoreCommand`s in the repo (web/admin also
-     rebuild on `packages/shared`; landing only on its own dir). Known fail-open: root-level
-     changes (docs, lockfile) may build all frontends of the matching branch.
-3. **Settings → Git — branch pin**, so each project builds ONLY its own branch. Both env projects
-   share one `vercel.json`, so the pin can only live in the dashboard. Two ways, either works:
-   - **A (preferred, if the toggle exists)**: Settings → Git (or Settings → Environments →
-     Preview) → disable **Preview Deployments**. Only the Production Branch ever builds.
-   - **B (works everywhere)**: Settings → Git → **Ignored Build Step** → the custom/Bash-script
-     option, ONE line. Exit codes are inverted from intuition: **exit 1 = BUILD, exit 0 = SKIP.**
-     ```bash
-     [ "$VERCEL_GIT_COMMIT_REF" = "stage" ] && exit 1 || exit 0
-     ```
-     (Prod projects pin `sacred` the same way — `DEPLOY.md`.)
-4. **Settings → Environment Variables** (plain Production env). Any change here is inert until the
+   - **Skip deployment for unaffected projects: Enabled**. Leave it on as a second net, but it is
+     no longer what does the scoping — see the gate below. Its limit: it keys off the Root
+     Directory and is extension-blind, so with admin's Root Directory set to the app dir, editing
+     `apps/admin/README.md` deployed admin. Twice, before anyone noticed.
+3. **Path gate — `ignoreCommand`, in the repo**. Each `vercel.json` runs
+   `scripts/vercel-ignore.mjs <app>`, which decides from the commit diff: documentation
+   (`*.md`, `.env.example`, `.gitignore`) never builds, each app wakes only for its own directory
+   plus what it consumes (web/admin also on `packages/shared`; landing only its own dir), and the
+   backend belongs to Railway so it wakes nothing here. Anything undecidable **builds** — a wasted
+   deploy costs money once, a wrongly skipped one leaves a stale build on a live domain. Rules and
+   their asserts are in one file; `yarn check:deploy` runs them.
+
+   > This reverses an earlier decision that there would be no `ignoreCommand`s in the repo. That
+   > reasoning was about the *branch* pin, which genuinely cannot live in a file both environment
+   > projects share. A *path* gate is branch-independent, so it can.
+4. **Branch pin.** The gate skips unless `VERCEL_ENV=production`, and a project only ever sees that
+   on its **own** Production Branch — so one shared `vercel.json` pins the stage project to `stage`
+   and the prod one to `sacred` without naming either. Nothing to set in the dashboard.
+
+   If a project still has a hand-written **Ignored Build Step** from before this
+   (`[ "$VERCEL_GIT_COMMIT_REF" = "stage" ] && exit 1 || exit 0`), **clear it** — `vercel.json`'s
+   `ignoreCommand` overrides that field, so it is now dead config that reads as if it were live.
+   Disabling **Preview Deployments** (Settings → Git) remains a fine belt-and-braces.
+5. **Settings → Environment Variables** (plain Production env). Any change here is inert until the
    next deploy — `NEXT_PUBLIC_*` is inlined at build, and even runtime vars are baked into a
    deployment — so set variables, THEN deploy.
 
@@ -221,14 +236,14 @@ Ship to prod by merging `stage` → `sacred` (PR).
    `NEXT_PUBLIC_STAGE_APP_URL` is no longer read and can be removed if it is already set. The landing
    page spends an invite code joining the f list rather than handing off to the app, so it links to
    the app in neither direction and needs no URL for it.
-5. **Deploy**: push `stage` (or Deployments → Redeploy). Watch the log: install and build must run
+6. **Deploy**: push `stage` (or Deployments → Redeploy). Watch the log: install and build must run
    the `vercel.json` commands verbatim, and web must get past the post-build step (the historical
    crash below) to READY.
-6. **Domain**: Settings → Domains → add the app's domain, publish the CNAME Vercel shows at the
+7. **Domain**: Settings → Domains → add the app's domain, publish the CNAME Vercel shows at the
    DNS provider. THEN add the new origin to the backend's `STAGE_CORS_ORIGIN` list (§CORS) — a
    missing origin breaks that frontend silently. If the landing domain ever changes, update
    `NEXT_PUBLIC_STAGE_LANDING_URL` (web) and `STAGE_LANDING_URL` (backend) to match.
-7. **Test**, per app:
+8. **Test**, per app:
    - **web**: the domain serves the access-key form (HTTP 401) on every route; a wrong key shows
      the inline error; the right key lands in the app and a reload skips the form (device cookie).
      Then the real smoke test (real money, keep it small): Privy email login → onboarding skips

@@ -4,5 +4,6 @@
   "framework": "nextjs",
   "installCommand": "yarn install --frozen-lockfile",
   "buildCommand": "yarn workspace @fpay/web build",
-  "outputDirectory": "apps/web/.next"
+  "outputDirectory": "apps/web/.next",
+  "ignoreCommand": "node \"$(git rev-parse --show-toplevel)/monorepo/scripts/vercel-ignore.mjs\" web"
 }

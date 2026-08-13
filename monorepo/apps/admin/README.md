@@ -62,8 +62,11 @@ our production. Both admin projects have one; they just point at different branc
 | admin (stage) | `stage` | `monorepo/apps/admin` | `NEXT_PUBLIC_STAGE_*` | the stage admin domain |
 | admin (prod) | `sacred` | `monorepo/apps/admin` | bare names, no `APP_ENV` | admin.frenspay.xyz |
 
-Pushing `stage` builds the first, pushing `sacred` builds the second — that separation is the
-dashboard branch pin, because both projects share one `apps/admin/vercel.json`.
+Pushing `stage` builds the first, pushing `sacred` builds the second. Both share one
+`apps/admin/vercel.json`, and its `ignoreCommand` keeps them apart without naming a branch: the
+gate builds only when `VERCEL_ENV=production`, which a project sees only on its own Production
+Branch. The same gate skips documentation — editing this README deploys nothing
+(`scripts/vercel-ignore.mjs`, asserted by `yarn check:deploy`).
 
 ### Settings
 
