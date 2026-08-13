@@ -22,7 +22,9 @@ import {
   normalizePhone,
   resolveHandleToFriend,
   setUserCountry,
+  setUserLocalCurrency,
   setUserPhone,
+  setUserPreferredCurrency,
   upsertUserByPrivyDid,
   upsertWalletForChain,
 } from '../db/queries';
@@ -102,6 +104,9 @@ export async function registerAuthRoutes(app: FastifyInstance) {
         // rather than inventing a code the client has no copy for.
         const constraint = (e as { constraint?: string }).constraint;
         if (constraint === 'wallets_address_key') return reply.code(409).send({ error: 'wallet_in_use' });
+        // uq_users_email (0010): the linked email already belongs to another account. Not the
+        // caller's handle to fix either — admin resolves which account keeps the address.
+        if (constraint === 'uq_users_email') return reply.code(409).send({ error: 'email_in_use' });
         return reply.code(409).send({ error: 'handle_taken' });
       }
       throw e;
@@ -115,6 +120,8 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       kycTier: await getUserKycTier(user.id),
       phone: user.phone ?? undefined,
       country: user.country ?? undefined,
+      preferredCurrency: user.preferred_currency,
+      localCurrency: user.local_currency,
     } satisfies MeResponse;
   });
 
@@ -139,6 +146,8 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       kycStatus: toKycStatus(await getUserKycStatus(userId)),
       phone: user.phone ?? undefined,
       country: user.country ?? undefined,
+      preferredCurrency: user.preferred_currency,
+      localCurrency: user.local_currency,
       evmDepositAddress: evmWallet?.address ?? undefined,
       // Rides on /me (already fetched on boot and on the KYC poll) rather than its own endpoint —
       // one extra query here beats a second round trip + loading state for the 99% who aren't LPs.
@@ -235,5 +244,30 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     if (!/^[A-Z]{2}$/.test(c)) return reply.code(400).send({ error: 'invalid_country' });
     await setUserCountry(userId, c);
     return { country: c };
+  });
+
+  // Currency prefs (0011). Display-only choices — money paths never read them, so client-asserted
+  // is fine (same posture as /me/country). Inlined list, NOT imported from @fpay/shared: the
+  // backend imports only types from shared. Keep in sync with DISPLAY_CURRENCIES in
+  // packages/shared/src/money.ts.
+  const DISPLAYABLE = ['USD', 'INR', 'IDR'];
+
+  app.post<{ Body: { currency?: string } }>('/me/preferred-currency', async (req, reply) => {
+    const userId = requireUserId(req);
+    const c = (req.body?.currency ?? '').trim().toUpperCase();
+    if (!DISPLAYABLE.includes(c)) return reply.code(400).send({ error: 'invalid_currency' });
+    await setUserPreferredCurrency(userId, c);
+    return { currency: c };
+  });
+
+  // null = automatic (derive from country) — an explicit un-pin, so the body distinguishes
+  // "clear it" from "absent/garbage".
+  app.post<{ Body: { currency?: string | null } }>('/me/local-currency', async (req, reply) => {
+    const userId = requireUserId(req);
+    const raw = req.body?.currency;
+    const c = raw == null ? null : String(raw).trim().toUpperCase();
+    if (c !== null && !DISPLAYABLE.includes(c)) return reply.code(400).send({ error: 'invalid_currency' });
+    await setUserLocalCurrency(userId, c);
+    return { currency: c };
   });
 }

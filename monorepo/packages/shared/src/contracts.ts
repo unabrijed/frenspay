@@ -95,6 +95,10 @@ export interface MeResponse {
   phone?: string;
   /** Dialing-default country (ISO alpha-2) — drives local-format phone normalization client-side. */
   country?: string;
+  /** Server-stored display-currency choice (0011). Null = not chosen — client defaults to USD. */
+  preferredCurrency: string | null;
+  /** Pinned local (second-line) currency. Null = automatic — derived from `country`. */
+  localCurrency: string | null;
   /** The user's EVM deposit address (smart wallet; same on every supported network), once synced. */
   evmDepositAddress?: string;
   /** Present iff this user also runs a merchant/LP account — the whole merchant-role signal. Rides

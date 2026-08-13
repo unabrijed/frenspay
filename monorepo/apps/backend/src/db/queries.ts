@@ -44,6 +44,10 @@ export interface UserRow {
   role: 'user' | 'merchant' | 'admin';
   /** Account lifecycle. 'suspended' 403s every authed request (admins exempt) — see authPreHandler. */
   status: 'active' | 'suspended';
+  /** Currency choices (0011). Null = not chosen: preferred falls back to USD client-side, local
+   *  falls back to currencyForCountry(country). */
+  preferred_currency: string | null;
+  local_currency: string | null;
   referred_by: string | null;
   /** Stamped once the user has seen their invite codes; after that /me stops returning them. */
   invites_revealed_at: Date | null;
@@ -305,6 +309,17 @@ export async function setUserPhone(userId: string, phone: string | null): Promis
 /** Set the dialing-default country (validated ISO alpha-2). Strong sources last-write-wins. */
 export async function setUserCountry(userId: string, country: string): Promise<void> {
   await getPool().query('update users set country = $2 where id = $1', [userId, country]);
+}
+
+/** The balance's display currency (validated upstream). Server-stored so it follows the user
+ *  across devices (0011). */
+export async function setUserPreferredCurrency(userId: string, currency: string): Promise<void> {
+  await getPool().query('update users set preferred_currency = $2 where id = $1', [userId, currency]);
+}
+
+/** Pin (or null = un-pin, back to country-derived) the local second-line currency (0011). */
+export async function setUserLocalCurrency(userId: string, currency: string | null): Promise<void> {
+  await getPool().query('update users set local_currency = $2 where id = $1', [userId, currency]);
 }
 
 interface TransferJoinRow {
