@@ -14,6 +14,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { bootTrace } from '@/lib/boot';
 import { friendlyError } from '@/lib/errors';
 import type { DisplayCurrency } from '@/lib/money';
+import { isDisplayCurrency } from '@/lib/money';
 import { api, ApiError, setAuthToken } from '@/services/api';
 import { getActiveSigner } from '@/services/signer';
 import { USE_PRIVY } from '@/services/envConfig';
@@ -87,6 +88,9 @@ interface PayState {
   notifications: Notification[];
   unread: number;
   displayCurrency: DisplayCurrency;
+  /** Pinned local (second-line) currency — null = automatic, derived from `country`. Server truth
+   *  via /me (users.local_currency); persisted here only as a cache. */
+  localCurrency: string | null;
   handle: string;
   /** Own pay-by-phone alias (E.164) — '' when not enrolled. Server truth via /me. */
   phone: string;
@@ -171,7 +175,8 @@ interface PayState {
   setPayRupees: (r: number) => void;
   setRequestDraft: (u: number) => void;
   openDetail: (tx: Txn) => void;
-  setDisplayCurrency: (c: DisplayCurrency) => void;
+  setDisplayCurrency: (c: DisplayCurrency) => Promise<void>;
+  setLocalCurrency: (c: string | null) => Promise<void>;
 
   // ---- backend sync (real mode only) ----
   load: () => Promise<void>;
@@ -286,6 +291,7 @@ export const usePayStore = create<PayState>()(
       // on its own (useBalanceDisplay), so leading in a corridor currency would show a conversion
       // where the actual figure belongs — and showed the same number twice for Indian users.
       displayCurrency: 'USD',
+      localCurrency: null,
       handle: '',
       phone: '',
       country: '',
@@ -357,7 +363,24 @@ export const usePayStore = create<PayState>()(
       setPayRupees: (r) => set({ payRupees: r }),
       setRequestDraft: (u) => set({ requestDraftUsd: u }),
       openDetail: (tx) => set({ detail: tx }),
-      setDisplayCurrency: (c) => set({ displayCurrency: c }),
+      // Optimistic like setCountry: set() paints immediately, the server write is best-effort —
+      // a failure leaves the local choice standing and the next load() reconciles to server truth.
+      setDisplayCurrency: async (c) => {
+        set({ displayCurrency: c });
+        try {
+          await api.setPreferredCurrency(c);
+        } catch {
+          /* best-effort */
+        }
+      },
+      setLocalCurrency: async (c) => {
+        set({ localCurrency: c });
+        try {
+          await api.setLocalCurrency(c);
+        } catch {
+          /* best-effort */
+        }
+      },
 
       // Pull identity + balance + activity from the backend.
       load: async () => {
@@ -393,6 +416,11 @@ export const usePayStore = create<PayState>()(
             handle: me.handle,
             phone: me.phone ?? '',
             country: me.country ?? '',
+            // Server truth wins when set; a not-a-display-currency value (stale corridor) is ignored.
+            ...(me.preferredCurrency && isDisplayCurrency(me.preferredCurrency)
+              ? { displayCurrency: me.preferredCurrency }
+              : {}),
+            localCurrency: me.localCurrency ?? null,
             evmDepositAddress: me.evmDepositAddress ?? '',
             kycTier: me.kycTier,
             kycStatus: me.kycStatus ?? 'none',
@@ -449,6 +477,10 @@ export const usePayStore = create<PayState>()(
             role: me.role ?? 'user',
             kycTier: me.kycTier,
             kycStatus: me.kycStatus ?? 'none',
+            ...(me.preferredCurrency && isDisplayCurrency(me.preferredCurrency)
+              ? { displayCurrency: me.preferredCurrency }
+              : {}),
+            localCurrency: me.localCurrency ?? null,
             suspended: false,
             balanceUSD: bal,
             transactions: txns,
@@ -1292,6 +1324,7 @@ export const usePayStore = create<PayState>()(
         fxRates: s.fxRates,
         transactions: s.transactions,
         displayCurrency: s.displayCurrency,
+        localCurrency: s.localCurrency,
         handle: s.handle,
       }),
     },

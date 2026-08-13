@@ -149,6 +149,11 @@ export const api = {
   // Dialing-default country (ISO alpha-2) — tunes local-format phone lookups only.
   setCountry: (country: string) =>
     req<{ country: string }>('/me/country', { method: 'POST', body: JSON.stringify({ country }) }),
+  // Currency prefs (server-stored, follow the user across devices). null local = automatic.
+  setPreferredCurrency: (currency: string) =>
+    req<{ currency: string }>('/me/preferred-currency', { method: 'POST', body: JSON.stringify({ currency }) }),
+  setLocalCurrency: (currency: string | null) =>
+    req<{ currency: string | null }>('/me/local-currency', { method: 'POST', body: JSON.stringify({ currency }) }),
   requests: () => req<RequestsResponse>('/requests'),
   createRequest: (body: CreateRequestRequest) =>
     req<ApiPaymentRequest>('/requests', { method: 'POST', body: JSON.stringify(body) }),
