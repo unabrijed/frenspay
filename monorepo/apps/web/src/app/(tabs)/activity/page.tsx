@@ -14,7 +14,8 @@ import { Skeleton, TxListSkeleton } from '@/components/ui/Skeleton';
 import { Pressable, View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
 import { Txt } from '@/components/ui/Txt';
-import { inr, usd } from '@/lib/money';
+import { useBalanceDisplay } from '@/hooks/useBalanceDisplay';
+import { usd } from '@/lib/money';
 import { colors, GUTTER, radii, shadows, type } from '@/lib/theme';
 import { relTime } from '@/services/mappers';
 import type { Txn } from '@/services/wallet';
@@ -75,13 +76,12 @@ export default function Activity() {
   const router = useRouter();
   const txns = usePayStore((s) => s.transactions);
   const loaded = usePayStore((s) => s.firstLoadDone);
-  const bal = usePayStore((s) => s.balanceUSD);
-  const fxRate = usePayStore((s) => s.fxRate);
-  const displayCurrency = usePayStore((s) => s.displayCurrency);
   const open = usePayStore((s) => s.open);
   const openDetail = usePayStore((s) => s.openDetail);
   const [f, setF] = useState<Filter>('All');
-  const leadINR = displayCurrency === 'INR';
+  // Same two currencies as Home, from the same hook — this screen used to decide independently
+  // (`displayCurrency === 'INR'`), which read as dollars for anyone whose currency wasn't rupees.
+  const { primary, secondary } = useBalanceDisplay();
 
   const shown = txns.filter((t) => (f === 'All' ? true : f === 'Payments' ? t.type === 'pay' : t.type !== 'pay'));
   const todayTx = shown.filter((t) => isToday(t.time));
@@ -113,23 +113,23 @@ export default function Activity() {
 
         {/* trip summary */}
         <View style={styles.summary}>
-          <Txt style={type.eyebrow}>Trip balance · India</Txt>
+          <Txt style={type.eyebrow}>Trip balance</Txt>
           {loaded ? (
-            <Txt style={[type.heroBalance, { fontSize: 38, lineHeight: '44px', marginTop: 6 }]}>{leadINR ? inr(bal, fxRate) : usd(bal)}</Txt>
+            <Txt style={[type.heroBalance, { fontSize: 38, lineHeight: '44px', marginTop: 6 }]}>{primary}</Txt>
           ) : (
             <Skeleton w={180} h={40} r={12} style={{ marginTop: 8, marginBottom: 4 }} />
           )}
-          <View style={styles.realRate}>
-            {loaded ? (
-              <Txt style={type.sub}>{leadINR ? `≈ ${usd(bal)}` : `≈ ${inr(bal, fxRate)}`}</Txt>
-            ) : (
-              <Skeleton w={90} h={13} />
-            )}
-            <View style={styles.ratePill}>
-              <Icons.LockCheck size={14} color={colors.accent} />
-              <Txt style={[type.tierTag, { color: colors.muted }]}>Live rate</Txt>
+          {/* The whole row goes when there is no second currency: a "Live rate" badge with no
+              conversion beside it is labelling something that isn't on screen. */}
+          {secondary ? (
+            <View style={styles.realRate}>
+              {loaded ? <Txt style={type.sub}>≈ {secondary}</Txt> : <Skeleton w={90} h={13} />}
+              <View style={styles.ratePill}>
+                <Icons.LockCheck size={14} color={colors.accent} />
+                <Txt style={[type.tierTag, { color: colors.muted }]}>Live rate</Txt>
+              </View>
             </View>
-          </View>
+          ) : null}
           <Pressable onPress={() => open('add')} style={({ pressed }) => [styles.addFunds, pressed ? { opacity: 0.9 } : null]}>
             <Icons.Plus size={16} color={colors.white} />
             <Txt style={[type.tileLabel, { color: colors.white }]}>Add Funds</Txt>
