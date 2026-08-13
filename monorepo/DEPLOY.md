@@ -12,8 +12,10 @@ per project" list in `DEPLOY.stage.md` with these substitutions:
 | admin (prod) | `sacred` | `monorepo/apps/admin` | admin.frenspay.xyz |
 | landing (prod) | `sacred` | `monorepo/apps/landing` | frenspay.xyz |
 
-- **Branch pin** `sacred`: option A (Preview Deployments off), or option B
-  `[ "$VERCEL_GIT_COMMIT_REF" = "sacred" ] && exit 1 || exit 0`.
+- **Branch pin**: nothing to set. The repo's `ignoreCommand` gate builds only when
+  `VERCEL_ENV=production`, which a project sees only on its own Production Branch — so setting that
+  to `sacred` here IS the pin, from the same `vercel.json` the stage twin uses (`DEPLOY.stage.md`
+  §Path gate). Clear any hand-written Ignored Build Step: `vercel.json` overrides it.
 - Same invariants: Skip-unaffected Enabled, Node 24, and web's **Include source files outside of
   the Root Directory: OFF** (root-cause note in `DEPLOY.stage.md` — web ships middleware, it can
   never become a static export).
