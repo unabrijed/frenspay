@@ -228,6 +228,16 @@ if (isLocal && dbSource.startsWith('STAGE_')) {
       'Set LOCAL_DATABASE_URL to point local runs at their own Postgres.',
   );
 }
+// No root admin named = nobody can reach the console except an already-granted users.role, and the
+// documented lockout recovery does not exist. Silent until now, and the tier prefix is the easy way
+// to get it wrong: a bare ADMIN_EMAILS on a stage host is invisible, and STAGE_ADMIN_EMAILS on prod
+// is too. Name the variable actually being read so a mis-prefixed one is obvious.
+if (config.adminEmails.length === 0) {
+  console.warn(
+    `[config] WARNING: ${envSource('ADMIN_EMAILS')} is unset — no root admins. The admin console is ` +
+      "reachable only by a user whose users.role is already 'admin'.",
+  );
+}
 // The f-list loop needs both halves: the key to send and the secret to mint a token the confirm
 // endpoint can verify. One without the other is a half-configured deploy, so say so at boot rather
 // than silently dropping every confirm mail.
