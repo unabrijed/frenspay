@@ -616,10 +616,16 @@ export const usePayStore = create<PayState>()(
         await get().logout();
       },
       acknowledgeInvites: async () => {
-        await api.acknowledgeInvites();
-        // Drop them here too. /me would stop returning them on the next load anyway, but leaving
-        // them in memory means a back-navigation re-renders the reveal screen with live codes.
-        set({ invites: [] });
+        try {
+          await api.acknowledgeInvites();
+        } finally {
+          // Drop them here too, and do it even when the POST failed. /me would stop returning them
+          // on the next load anyway, but leaving them in memory means a back-navigation re-renders
+          // the reveal screen with live codes — and worse, the tabs guard reads the same array, so
+          // a failed ack put the user in an unescapable /invites ↔ /home ping-pong. A truly failed
+          // ack just re-reveals on the next cold boot, which is annoying, not a trap.
+          set({ invites: [] });
+        }
       },
       authSync: async (handle, inviteCode) => {
         // Browser-locale country guess — weakest source, server fills only when unset.

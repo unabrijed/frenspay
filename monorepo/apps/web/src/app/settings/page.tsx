@@ -12,6 +12,7 @@ import { Flag, List, ProfileAvatar, Row, RowMeta, Spacer } from '@/components/ui
 import { Pressable, View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
 import { Txt } from '@/components/ui/Txt';
+import { VerifyCard } from '@/components/VerifyCard';
 import { colors, fonts, GUTTER, radii, type } from '@/lib/theme';
 import { IS_DEV } from '@/services/envConfig';
 import { usePayStore } from '@/store/usePayStore';
@@ -145,49 +146,10 @@ function InviteCard({ used, total }: { used: number; total: number }) {
   );
 }
 
-// Prominent verification/activation surface (promoted from a plain settings row). Tier < 2 shows a
-// "Verify identity" CTA → open('verify') (the existing Didit/sim flow); Tier ≥ 2 shows the verified state.
-function VerifyCard({ tier, onPress }: { tier: number; onPress: () => void }) {
-  const verified = tier >= 2;
-  const head = (
-    <View style={styles.kycHead}>
-      {verified ? (
-        <View style={styles.badgeOk}>
-          <Icons.LockCheck size={16} color={colors.white} strokeWidth={2.2} />
-        </View>
-      ) : (
-        <View style={styles.badgeOff} />
-      )}
-      <View style={{ flex: 1 }}>
-        <Txt style={type.rowName}>{verified ? 'Identity verified' : 'Verify your identity'}</Txt>
-        <Txt style={[type.rowTime, { marginTop: 2 }]}>
-          {verified ? `Tier ${tier} · merchant payments unlocked` : 'Unlock merchant payments and higher limits'}
-        </Txt>
-      </View>
-      {verified ? <Icons.Chevron size={16} color={colors.muted} /> : null}
-    </View>
-  );
-  if (verified) {
-    return (
-      <Pressable onPress={onPress} style={({ pressed }) => [styles.kyc, styles.kycOn, pressed ? { opacity: 0.9 } : null]}>
-        {head}
-      </Pressable>
-    );
-  }
-  return (
-    <View style={styles.kyc}>
-      {head}
-      <Btn label="Verify identity" onPress={onPress} style={{ marginTop: 14 }} />
-    </View>
-  );
-}
-
 const styles = {
+  // Shared shape with VerifyCard (which owns its own copy) — InviteCard is the only user left here.
   kyc: { borderWidth: 1, borderStyle: 'solid', borderColor: colors.hair, borderRadius: radii.card, padding: 16, backgroundColor: colors.surface, marginBottom: 14 },
-  kycOn: { backgroundColor: colors.accentSoft, borderColor: colors.accentLine },
   kycHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  badgeOk: { width: 40, height: 40, borderRadius: 999, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
-  badgeOff: { width: 40, height: 40, borderRadius: 999, borderWidth: 2, borderStyle: 'dashed', borderColor: colors.muted },
   safe: { flex: 1, backgroundColor: colors.canvas },
   scroll: { flex: 1, overflowY: 'auto', paddingLeft: GUTTER, paddingRight: GUTTER, paddingTop: 4, paddingBottom: 24 },
   fhead: { paddingTop: 8, paddingBottom: 6, paddingLeft: 2, paddingRight: 2 },

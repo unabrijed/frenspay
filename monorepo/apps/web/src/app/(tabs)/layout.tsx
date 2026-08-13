@@ -29,8 +29,11 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
   // tabs first — a new user finishing funding, the mainnet fund-skip, or an account that predates
   // invite codes entirely and just got minted three on its next /me. One guard at the sink covers
   // every path in, same as the faucet guard in onboarding/fund.
+  //
+  // It lives at /invites, NOT under /onboarding/*: it isn't a step in the chain, and sitting in
+  // that namespace read as one to anyone who saw the URL.
   useEffect(() => {
-    if (hydrated && onboarded && hasUnseenInvites) router.replace('/onboarding/invites');
+    if (hydrated && onboarded && hasUnseenInvites) router.replace('/invites');
   }, [hydrated, onboarded, hasUnseenInvites, router]);
 
   // Hold the splash until we know the user is onboarded, so tab content never flashes before a

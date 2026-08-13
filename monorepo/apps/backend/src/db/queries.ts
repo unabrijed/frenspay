@@ -43,7 +43,8 @@ export interface UserRow {
   country: string | null;
   role: 'user' | 'merchant' | 'admin';
   /** Account lifecycle. Anything non-active 403s every authed request (admins exempt) — see
-   *  authPreHandler. 'deleted' is a soft delete: ledger retained, handle released (deleteUser). */
+   *  authPreHandler. 'deleted' is a soft delete: ledger retained, handle AND email released
+   *  (deleteUser) so neither unique keeps blocking a return. */
   status: 'active' | 'suspended' | 'deleted';
   /** Currency choices (0011). Null = not chosen: preferred falls back to USD client-side, local
    *  falls back to currencyForCountry(country). */
@@ -1541,18 +1542,28 @@ export async function setUserStatus(id: string, status: 'active' | 'suspended'):
 }
 
 /**
- * Soft-delete (docs/07, decided 2026-08-13): status→'deleted' AND the handle released in the SAME
- * statement — `handle` is `unique not null`, so without the scramble the retained row keeps the
- * string claimed and "freed handle" silently doesn't happen. Instant release, no tombstone — the
- * same rule as admin renames (Bridge's accepted risk). Ledger rows are untouched; funds were never
- * ours to touch (user-custodied via Privy). Deterministic placeholder derived from the row's own
- * id, so a retried call is idempotent.
+ * Soft-delete (docs/07, decided 2026-08-13): status→'deleted' AND every unique identifier released
+ * in the SAME statement — `handle` is `unique not null` and `email` is covered by uq_users_email
+ * (0010), so without this the retained row keeps both strings claimed and "freed" silently doesn't
+ * happen. Instant release, no tombstone — the same rule as admin renames (Bridge's accepted risk).
+ * Ledger rows are untouched; funds were never ours to touch (user-custodied via Privy).
+ * Deterministic placeholder derived from the row's own id, so a retried call is idempotent.
+ *
+ * The email half was missed when 0010 landed, and it was the worse half: the handle at least has a
+ * user-visible "that name is taken", while a retained address made the SAME person returning under
+ * a new Privy DID hit 409 email_in_use at /auth/sync — permanently, with "contact support" and no
+ * self-service way out. NULL rather than scrambled because uq_users_email is partial
+ * (`where email is not null`), so NULL is genuinely absent rather than a second claimed value.
+ * Nothing reads users by email except isRootAdminEmail (auth.ts), which a deleted row must fail.
+ *
  * ponytail: 12-hex prefix of the id (48 bits), not the full uuid — a collision needs two ids
  * sharing the prefix, astronomically unlikely at this userbase; widen to the full id if it matters.
  */
 export async function deleteUser(id: string): Promise<void> {
   await getPool().query(
-    `update users set status = 'deleted', handle = '@deleted_' || left(replace(id::text, '-', ''), 12)
+    `update users set status = 'deleted',
+                      handle = '@deleted_' || left(replace(id::text, '-', ''), 12),
+                      email  = null
       where id = $1`,
     [id],
   );

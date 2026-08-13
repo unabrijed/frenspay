@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import { config } from './envConfig';
 import { pendingMigrations } from './db/migrations';
 import { hasDatabase } from './db/pool';
+import { assertDatabaseTier } from './db/tier';
 import { registerRoutes } from './routes/index';
 import { startBridgePoller } from './services/bridge/poller';
 import { startConfirmer } from './services/confirmer';
@@ -20,6 +21,10 @@ async function start() {
   assertKycConfig();
   // Same for payouts: a typo'd platform treasury must not wait for the first escrow release.
   assertPayoutConfig();
+
+  // Serving another tier's data is worse than not serving at all, so this one IS fatal (0013).
+  // Verify only — claiming an unstamped database belongs to db:deploy, never to a booting server.
+  if (hasDatabase()) await assertDatabaseTier();
 
   // Warn (don't apply) on schema drift: a dev laptop must not mutate the shared stage DB at boot,
   // and a fatal boot migration on Railway would crash-loop. Hosts apply via db:deploy in startCommand.

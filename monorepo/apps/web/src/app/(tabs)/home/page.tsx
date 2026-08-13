@@ -19,6 +19,7 @@ import { Skeleton, TxListSkeleton } from '@/components/ui/Skeleton';
 import { Pressable, View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
 import { Txt } from '@/components/ui/Txt';
+import { VerifyCard } from '@/components/VerifyCard';
 import { useBalanceDisplay } from '@/hooks/useBalanceDisplay';
 import { colors, GUTTER, shadows, type } from '@/lib/theme';
 import type { Txn } from '@/services/wallet';
@@ -27,6 +28,7 @@ import { usePayStore } from '@/store/usePayStore';
 export default function Home() {
   const router = useRouter();
   const pollKyc = usePayStore((s) => s.pollKyc);
+  const kycTier = usePayStore((s) => s.kycTier);
   const txns = usePayStore((s) => s.transactions);
   const loaded = usePayStore((s) => s.firstLoadDone);
   const handle = usePayStore((s) => s.handle);
@@ -101,6 +103,17 @@ export default function Home() {
           <ActionBtn label="Send" onPress={() => open('send')} icon={<Icons.Send size={24} color={colors.accent} />} />
         </View>
 
+        {/* Verification stays LAZY — this is a prompt, not a gate. It's here because Settings is
+            where you go to change something you already know about, and nobody knows they need to
+            verify until a payment refuses them. Gone entirely once verified: a card that says
+            "done" is clutter on the screen you look at every day (Settings keeps that state).
+            Waits for `loaded` so the persisted tier can't flash a stale prompt at a verified user. */}
+        {loaded && kycTier < 2 ? (
+          <View style={styles.verify}>
+            <VerifyCard tier={kycTier} onPress={() => open('verify')} />
+          </View>
+        ) : null}
+
         {/* recent activity */}
         <View style={styles.recent}>
           <View style={styles.rh}>
@@ -160,6 +173,9 @@ const styles = {
     boxShadow: shadows.card,
   },
 
+  // The card carries its own marginBottom (14), so `recent` below tightens from 30 to 16 when it's
+  // present — same optical gap either way.
+  verify: { marginTop: 28, marginBottom: -14 },
   recent: { marginTop: 30 },
   rh: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingLeft: 2, paddingRight: 2, paddingBottom: 12 },
   txList: { gap: 10 },

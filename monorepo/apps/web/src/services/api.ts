@@ -81,8 +81,12 @@ export function setAccountDeletedHandler(fn: (() => void) | null): void {
 }
 
 export async function req<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
+  // Only when there IS a body. Fastify's default parser answers a bodyless POST that claims
+  // application/json with 400 FST_ERR_CTP_EMPTY_JSON_BODY — before the auth preHandler, so the
+  // route never runs. That silently killed every no-body POST we have (invite ack, cancel
+  // request/order, mark-all-read, the dev KYC reset).
   const headers: Record<string, string> = {
-    'content-type': 'application/json',
+    ...(init?.body ? { 'content-type': 'application/json' } : {}),
     ...((init?.headers as Record<string, string>) ?? {}),
   };
   if (authToken) headers.authorization = `Bearer ${authToken}`;

@@ -49,6 +49,12 @@ export default function PrivyRoot({ children }: { children: ReactNode }) {
       appId={PRIVY_APP_ID}
       clientId={PRIVY_CLIENT_ID || undefined}
       config={{
+        // Email, and nothing else. The app's own UI already can't do anything else — PrivyBridge
+        // calls useLoginWithEmail and there is no login() modal, connectWallet or linkWallet
+        // anywhere in the app — but that left "can someone bring their own wallet?" answered by a
+        // dashboard toggle rather than by the code. Answer it here: an external wallet would be an
+        // account we can't fee-pay for or recover, which is the whole premise of the product.
+        loginMethods: ['email'],
         // Inbound cross-chain (docs/19): the user's own EVM smart wallet is the deposit address.
         // Requires smart wallets enabled in the Privy dashboard + per-chain paymaster URLs.
         //

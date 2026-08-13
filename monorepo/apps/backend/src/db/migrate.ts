@@ -12,6 +12,7 @@ import { config } from '../envConfig';
 
 import { applyPending, listMigrationFiles, migrationStatus } from './migrations';
 import { getPool } from './pool';
+import { assertDatabaseTier } from './tier';
 
 const cmd = process.argv[2] ?? 'migrate';
 
@@ -19,7 +20,13 @@ async function main() {
   switch (cmd) {
     case 'migrate':
     case 'deploy': {
+      // Before anything is written: this must be OUR database (0013). Prod once ran a full deploy
+      // against the stage database and the only sign was a user with no rows.
+      await assertDatabaseTier();
       const applied = await applyPending();
+      // After: a database that had no stamp is a fresh one, and this is the only path allowed to
+      // claim it — the server verifies but never adopts.
+      await assertDatabaseTier({ claim: true });
       console.log(applied.length ? `Applied ${applied.length} migration(s).` : 'Migrations up to date.');
       break;
     }
@@ -47,6 +54,8 @@ async function main() {
       await getPool().query('drop schema public cascade; create schema public;');
       console.log('Dropped schema public.');
       const applied = await applyPending();
+      // The drop took the stamp with it, so re-claim for whichever tier just reset.
+      await assertDatabaseTier({ claim: true });
       console.log(`Applied ${applied.length} migration(s).`);
       break;
     }
