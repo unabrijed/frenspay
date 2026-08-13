@@ -6,7 +6,7 @@
 // signing. The app is always real; balance/activity load from the backend once signed in.
 import type { ApiPaymentRequest, KycStatus, MerchantProfile, Notification, Order, Quote } from '@fpay/shared';
 import type { NetworkId } from '@fpay/shared';
-import { classifyPayTarget, currencyForCountry, fiatDecimals, isoFromE164, phoneCandidates, RAILS, truncateAddress } from '@fpay/shared';
+import { classifyPayTarget, countryFromTimeZone, currencyForCountry, fiatDecimals, isoFromE164, phoneCandidates, truncateAddress } from '@fpay/shared';
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -195,7 +195,7 @@ interface PayState {
   refresh: () => Promise<void>;
   /** Pull the mid rates this client needs — derived from the live rails and this user's country,
    *  never a hardcoded list. Never throws; an unpriceable currency is simply left absent. */
-  syncRates: () => Promise<void>;
+  syncRates: (extra?: string) => Promise<void>;
   readNotifications: () => Promise<void>;
 
   // ---- payment requests ----
@@ -511,19 +511,20 @@ export const usePayStore = create<PayState>()(
           // or spam a toast every interval. User-initiated actions surface their own errors.
         }
       },
-      syncRates: async () => {
-        // Two different needs, one fetch. The LIVE rails' currencies are needed wherever the user
-        // is, because any of them can be scanned and the pay keypad prices off fxRates[currency]
-        // (sheets/pay.tsx) — an Indian user scanning a QRIS code still needs IDR. Their own
-        // country's currency is needed to write the balance's second line. Both derived: a rail
-        // going live, or a band being added on the backend, is picked up with no edit here.
-        const wanted = [
-          ...new Set([
-            ...RAILS.filter((r) => r.live).map((r) => r.currency),
-            currencyForCountry(get().country),
-            get().displayCurrency,
-          ]),
-        ].filter((c) => c && c !== 'USD');
+      syncRates: async (extra) => {
+        // Only what this client will actually write: the currency they read in, and the one their
+        // balance's second line is in (pinned, else derived from their country). `extra` is the
+        // scanned rail's currency — fetched at scan time (payPayee) rather than kept warm for a
+        // corridor they may never touch. This used to prefetch every LIVE rail's currency, which
+        // meant an Indian user pulling IDR on every poll for a QRIS code they'd never scan.
+        //
+        // isDisplayCurrency is the gate for "can we price this at all": anything else has no FX
+        // band on the backend, so asking 400s. That is how someone whose country is Britain used
+        // to fire a doomed GBP call on every single refresh tick.
+        const s = get();
+        const wanted = [...new Set([s.displayCurrency, s.localCurrency || currencyForCountry(s.country), extra])].filter(
+          (c): c is string => !!c && c !== 'USD' && isDisplayCurrency(c),
+        );
 
         const got = await Promise.all(
           // A currency with no FX band 4xx's — that is not an error, it is the answer. Leaving it
@@ -628,11 +629,15 @@ export const usePayStore = create<PayState>()(
         }
       },
       authSync: async (handle, inviteCode) => {
-        // Browser-locale country guess — weakest source, server fills only when unset.
-        // Deliberately no .maximize(): a bare "en" locale must send nothing, not US.
-        let country: string | undefined;
+        // Country guess — weakest source, server fills only when unset. Timezone FIRST: it says
+        // where the device is, while navigator.language only says how they like things formatted
+        // (an en-GB browser in Mumbai used to enrol the user in the United Kingdom, and the
+        // balance's local line and the rate calls followed it there). The locale stays as the
+        // fallback for engines with no Intl Locale Info. Deliberately no .maximize() on it: a bare
+        // "en" must send nothing, not US.
+        let country: string | undefined = countryFromTimeZone() || undefined;
         try {
-          country = new Intl.Locale(navigator.language).region;
+          country ??= new Intl.Locale(navigator.language).region;
         } catch {
           /* no guess */
         }
@@ -834,6 +839,11 @@ export const usePayStore = create<PayState>()(
         // reject at quote time. IDR clamps to whole rupiah.
         const minor = 10 ** fiatDecimals(m.currency ?? 'INR');
         set({ payee: m, scannedRupees: Math.round(rupees * minor) / minor });
+        // The scanned rail's rate, fetched now rather than kept warm for every rail on every poll.
+        // Not awaited: fxRates is seeded and persisted, so the keypad prices off the last known
+        // rate immediately and repaints when the fresh one lands — the binding number is the
+        // backend's quote either way.
+        void get().syncRates(m.currency);
         if (get().kycTier >= 2) {
           get().open('amount');
         } else {
@@ -870,7 +880,7 @@ export const usePayStore = create<PayState>()(
           }
           set({ kycTier: r.kycTier, kycStatus: 'approved' });
         } catch (e) {
-          set({ error: e instanceof Error ? e.message : String(e) });
+          set({ error: friendlyError(e) });
           return;
         }
         if (get().pendingPay) {
@@ -914,6 +924,9 @@ export const usePayStore = create<PayState>()(
           sessionStorage.removeItem('fpay:resumePay');
           const { payee, rupees } = JSON.parse(raw) as { payee: Payee; rupees: number };
           set({ payee, scannedRupees: rupees ?? 0 });
+          // The hosted-KYC redirect reloaded the app, so this payee never passed through payPayee
+          // in this process — ask for its rate again rather than trusting the persisted one.
+          void get().syncRates(payee.currency);
           get().open('amount');
         } catch {
           /* best-effort resume */

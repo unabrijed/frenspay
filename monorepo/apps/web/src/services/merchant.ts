@@ -2,6 +2,7 @@
 // different person doing a different job (settling other people's payouts), and none of it belongs
 // in the payer's screen state.
 import type {
+  MerchantLedgerResponse,
   MerchantOrder,
   MerchantOrdersResponse,
   PayoutMethod,
@@ -27,6 +28,47 @@ export async function getMerchantOrders(): Promise<MerchantOrder[]> {
   return res.orders;
 }
 
+/**
+ * Take an order, and learn who to pay in the same call.
+ *
+ * Exactly one caller wins — the server's lock is a single guarded UPDATE — and the payee comes back
+ * only on the winning response. There is deliberately no separate "fetch the payee" call: if the
+ * reveal were its own request, a lock could succeed while the reveal failed, leaving an LP holding
+ * an order they can't see how to pay.
+ */
+export async function lockOrder(orderId: string): Promise<{ payoutDestination?: string; expiresInSecs: number }> {
+  return req<{ ok: true; payoutDestination?: string; payoutName?: string; expiresInSecs: number }>(
+    `/merchants/orders/${orderId}/lock`,
+    { method: 'POST' },
+  );
+}
+
+/** Hand it back before the timer runs out. Free, on purpose. */
+export async function unlockOrder(orderId: string): Promise<void> {
+  await req<{ ok: true }>(`/merchants/orders/${orderId}/unlock`, { method: 'POST' });
+}
+
+/**
+ * Submit (or resubmit) the business details. Validated client-side first purely to save a round
+ * trip on a typo — the server runs the same rules and is the only one that decides.
+ */
+export async function submitMerchantKyb(fields: Record<string, string>): Promise<void> {
+  await req<{ ok: true; kybStatus: string }>('/merchants/kyb', {
+    method: 'POST',
+    body: JSON.stringify({ fields }),
+  });
+}
+
+/** What settled to this LP, and every dispute raised against them. */
+export async function getMerchantLedger(days = 30): Promise<MerchantLedgerResponse> {
+  return req<MerchantLedgerResponse>(`/merchants/ledger?days=${days}`);
+}
+
+/** Where to reach this LP when work lands — the in-app inbox always fires, this is the pocket. */
+export async function setMerchantAlerts(channel: string, address: string): Promise<void> {
+  await req<{ ok: true }>('/merchants/alerts', { method: 'POST', body: JSON.stringify({ channel, address }) });
+}
+
 /** Report that the fiat leg was paid out-of-band. Starts the payer's dispute window. */
 export async function markOrderPaid(orderId: string, reference: string): Promise<{ releasesInSecs: number }> {
   return req<{ ok: true; releasesInSecs: number }>(`/merchants/orders/${orderId}/paid`, {
@@ -35,8 +77,35 @@ export async function markOrderPaid(orderId: string, reference: string): Promise
   });
 }
 
+/** Declare in-flight capacity. Routing takes min(this, stake × leverage), so asking for more than
+ *  the stake backs changes nothing — MerchantProfile.maxFloatUsdc is what it's actually worth. */
 export async function setMerchantFloat(floatUsd: number): Promise<void> {
   await req<{ ok: true }>('/merchants/float', { method: 'POST', body: JSON.stringify({ floatUsd }) });
+}
+
+/** Go online / offline. The honest version of what people were doing by setting capacity to zero. */
+export async function setMerchantOnline(online: boolean): Promise<void> {
+  await req<{ ok: true }>('/merchants/status', { method: 'POST', body: JSON.stringify({ online }) });
+}
+
+/** The LP's own take off the mid rate, in basis points. Their only price lever. */
+export async function setMerchantSpread(spreadBps: number): Promise<void> {
+  await req<{ ok: true }>('/merchants/spread', { method: 'POST', body: JSON.stringify({ spreadBps }) });
+}
+
+/**
+ * Ask for stake back. Debits the bond immediately and records a request — the USDC itself is sent by
+ * hand, because the stake vault has no signer by design. Refused while anything is still in flight.
+ */
+export async function requestStakeWithdrawal(amountUsd: number): Promise<{ id: string }> {
+  return req<{ id: string; amountUsdc: string }>('/merchants/stake/withdraw', {
+    method: 'POST',
+    body: JSON.stringify({ amountUsd }),
+  });
+}
+
+export async function cancelStakeWithdrawal(id: string): Promise<void> {
+  await req<{ ok: true }>(`/merchants/stake/withdraw/${id}/cancel`, { method: 'POST' });
 }
 
 /**

@@ -731,7 +731,14 @@ export interface MerchantRow {
   float_usdc: string;
   dispute_rate: string;
   positive_rate: string;
-  kyb_status: 'pending' | 'approved' | 'rejected';
+  /** Widened by 0016 — 'submitted'/'under_review'/'more_info' are the states a review passes
+   *  through. Only 'approved' is routable (listRoutableMerchants). */
+  kyb_status: 'pending' | 'submitted' | 'under_review' | 'more_info' | 'approved' | 'rejected';
+  /** The business details the merchant submitted (0016). Per-country shape — lib/kyb.ts. */
+  kyb_fields: Record<string, string> | null;
+  /** Reviewer's reason for a rejection or a more-info request. Shown to the MERCHANT. */
+  kyb_note: string | null;
+  kyb_submitted_at: Date | null;
   bond_usdc: string;
   base_success_rate: string;
   base_avg_completion_secs: number;
@@ -740,12 +747,51 @@ export interface MerchantRow {
    *  'psp' = a platform settlement row (docs/23): the payout provider executes the fiat leg. */
   sim_behavior: 'happy' | 'slow' | 'no_receipt' | 'timeout' | 'psp' | null;
   user_id: string | null;
+  /** ISO 3166-1 alpha-2 (0014). Mirrors the corridor's country; a hard routing filter. */
+  country: string;
+  /** Performance tier (0014), computed by recomputeMerchantStats. Never set by hand. */
+  tier: number;
+  /** Last authenticated merchant request — "is this LP at their desk right now" (0014). */
+  last_seen_at: Date | null;
+  /** How to reach this LP out-of-band (0015): the services/alert adapter id, and the address it
+   *  addresses by — a Telegram chat id today, a device token when mobile push lands. */
+  alert_channel: string | null;
+  alert_address: string | null;
+  /** Timed out of LOCKING after repeated abandonment (0015). Not a routing or bond penalty. */
+  lock_bans_until: Date | null;
+  /** 168 slots (day-of-week × hour, UTC) of historical activity (0017). NULL = never computed,
+   *  which scores neutral so a new LP is not punished for having no history. */
+  active_hours: number[] | null;
 }
 
-/** Merchants eligible for routing: online AND KYB-approved (M4). */
-export async function listRoutableMerchants(): Promise<MerchantRow[]> {
+/**
+ * Merchants eligible for routing. Every filter here is HARD — an LP that fails any of them must
+ * never be offered an order, so all of them live in the SELECT rather than in caller-side code.
+ *
+ * - status/kyb_status: the original M4 gate.
+ * - payout_rail: invariant 15 — routing never crosses rails, no fallback. Was a JS filter in
+ *   routing.ts; it belongs here with the others.
+ * - country: an LP who cannot serve the corridor should never see the order (0014).
+ * - bond_usdc >= minBond: THE FIX. This check previously existed only inside recomputeMerchantStats,
+ *   which runs every 10th confirmer tick — so a freshly-approved LP with a zero bond was routable
+ *   for up to ~80 seconds. A periodic job is not a gate on money movement.
+ *
+ * Platform settlement rows (sim_behavior='psp') are exempt from the bond floor, for the same reason
+ * settleDispute exempts them from bond draws (invariant 14): the platform posting a bond to itself
+ * is fiction, and there is no user_id-gated top-up path that could ever raise it. Gating the
+ * corridor on a fictional number just means a seed edit silently switches Indonesia off.
+ */
+export async function listRoutableMerchants(filter: {
+  payoutRail: PayoutMethod;
+  country: string;
+  minBondUsdc: number;
+}): Promise<MerchantRow[]> {
   const { rows } = await getPool().query<MerchantRow>(
-    `select * from merchants where status = 'online' and kyb_status = 'approved'`,
+    `select * from merchants
+      where status = 'online' and kyb_status = 'approved'
+        and payout_rail = $1 and country = $2
+        and (sim_behavior = 'psp' or bond_usdc >= $3)`,
+    [filter.payoutRail, filter.country, filter.minBondUsdc],
   );
   return rows;
 }
@@ -852,7 +898,11 @@ function toQuote(r: QuoteRow): Quote {
     etaMaxSecs: r.eta_max_secs,
     payoutMethod: r.payout_method,
     routeQuality: r.route_quality,
-    merchantName: r.merchant_name ?? 'Best route',
+    // Never the LP's real name on a payer-facing DTO. The payer must not perceive that a person
+    // settles their payment at all — and under the lock the name would be wrong anyway, since
+    // merchant_id is only the provisional holder until someone takes it. The real name stays on
+    // the admin DTOs, which is where it belongs.
+    merchantName: 'Best route',
     payoutDestination: r.payout_destination ?? undefined,
     payoutName: r.payout_name ?? undefined,
     quotedAt: r.created_at.getTime(),
@@ -872,6 +922,10 @@ export async function insertQuote(input: {
   rate: string;
   /** The platform's in-rate cut in USDC — backend-internal, never in the Quote DTO. */
   platformFeeUsdc: string;
+  /** The LP spread this quote was actually struck at. Stored because the offer pool is filtered to
+   *  LPs at or below it, and `rate` is display-only and post-fee — the spread cannot be recovered
+   *  from it without the mid rate at that instant, which is gone. */
+  spreadBps: number;
   etaMinSecs: number;
   etaMaxSecs: number;
   payoutMethod: PayoutMethod;
@@ -883,9 +937,9 @@ export async function insertQuote(input: {
   const { rows } = await getPool().query<QuoteRow>(
     `with ins as (
        insert into quotes (user_id, merchant_id, direction, currency, amount_inr, amount_usdc, rate,
-                           platform_fee_usdc, eta_min_secs, eta_max_secs,
+                           platform_fee_usdc, spread_bps, eta_min_secs, eta_max_secs,
                            payout_method, route_quality, payout_destination, payout_name, expires_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        returning *
      )
      select ins.*, m.name as merchant_name
@@ -899,6 +953,7 @@ export async function insertQuote(input: {
       input.amountUsdc,
       input.rate,
       input.platformFeeUsdc,
+      input.spreadBps,
       input.etaMinSecs,
       input.etaMaxSecs,
       input.payoutMethod,
@@ -963,6 +1018,7 @@ interface OrderJoinRow {
   amount_usdc: string;
   reference_code: string;
   payout_claimed_at: Date | null;
+  payout_utr: string | null;
   feedback_up: boolean | null;
   created_at: Date;
   updated_at: Date;
@@ -986,7 +1042,7 @@ interface OrderJoinRow {
 
 const ORDER_SELECT = `
   select o.id, o.user_id, o.state, o.resolution, o.amount_usdc, o.reference_code,
-         o.payout_claimed_at, o.feedback_up, o.created_at, o.updated_at, o.quote_id,
+         o.payout_claimed_at, o.payout_utr, o.feedback_up, o.created_at, o.updated_at, o.quote_id,
          q.direction as q_direction, q.currency as q_currency, q.amount_inr as q_amount_inr, q.amount_usdc as q_amount_usdc,
          q.rate as q_rate,
          q.eta_min_secs as q_eta_min_secs, q.eta_max_secs as q_eta_max_secs,
@@ -1010,7 +1066,11 @@ function toOrder(r: OrderJoinRow, events?: OrderEvent[]): Order {
     etaMaxSecs: r.q_eta_max_secs,
     payoutMethod: r.q_payout_method,
     routeQuality: r.q_route_quality,
-    merchantName: r.merchant_name ?? 'Best route',
+    // Never the LP's real name on a payer-facing DTO. The payer must not perceive that a person
+    // settles their payment at all — and under the lock the name would be wrong anyway, since
+    // merchant_id is only the provisional holder until someone takes it. The real name stays on
+    // the admin DTOs, which is where it belongs.
+    merchantName: 'Best route',
     payoutDestination: r.q_payout_destination ?? undefined,
     payoutName: r.q_payout_name ?? undefined,
     quotedAt: r.q_created_at.getTime(),
@@ -1027,6 +1087,10 @@ function toOrder(r: OrderJoinRow, events?: OrderEvent[]): Order {
     merchantName: quote.merchantName,
     payoutMethod: r.q_payout_method,
     payoutClaimedAt: r.payout_claimed_at?.toISOString(),
+    // The reference the payee's own bank will show against the credit. Standing at a counter this
+    // is the single most useful thing on the screen — it's what the shopkeeper can match. An NPCI
+    // UTR identifies the payment, not the payer, so it reveals nothing about the LP.
+    payoutUtr: r.payout_utr ?? undefined,
     feedbackUp: r.feedback_up ?? undefined,
     createdAt: r.created_at.toISOString(),
     updatedAt: r.updated_at.toISOString(),
@@ -1137,6 +1201,9 @@ export async function updateOrder(
     resolution?: OrderResolution | null;
     expiresAt?: Date | null;
     escrowReleaseTransferId?: string;
+    lockedAt?: Date | null;
+    lockExpiresAt?: Date | null;
+    offerWidensAt?: Date | null;
   },
 ): Promise<void> {
   const sets: string[] = ['updated_at = now()'];
@@ -1158,6 +1225,18 @@ export async function updateOrder(
     sets.push(`escrow_release_transfer_id = $${++i}`);
     vals.push(patch.escrowReleaseTransferId);
   }
+  if (patch.lockedAt !== undefined) {
+    sets.push(`locked_at = $${++i}`);
+    vals.push(patch.lockedAt);
+  }
+  if (patch.lockExpiresAt !== undefined) {
+    sets.push(`lock_expires_at = $${++i}`);
+    vals.push(patch.lockExpiresAt);
+  }
+  if (patch.offerWidensAt !== undefined) {
+    sets.push(`offer_widens_at = $${++i}`);
+    vals.push(patch.offerWidensAt);
+  }
   await getPool().query(`update orders set ${sets.join(', ')} where id = $1`, [orderId, ...vals]);
 }
 
@@ -1168,6 +1247,9 @@ export interface WorkerOrderRow {
   reference_code: string;
   state: OrderState;
   resolution: OrderResolution | null;
+  /** Lock state (0015) — the worker must never escalate an order someone is actively paying. */
+  locked_at: Date | null;
+  lock_expires_at: Date | null;
   amount_usdc: string;
   updated_at: Date;
   expires_at: Date | null;
@@ -1201,6 +1283,7 @@ export async function listWorkerOrders(): Promise<WorkerOrderRow[]> {
     `select o.id, o.user_id, o.reference_code, o.state, o.resolution, o.amount_usdc, o.updated_at,
             o.expires_at, o.escrow_release_transfer_id, o.merchant_id, o.payout_claimed_at,
             o.payout_provider_id, o.payout_providers_tried, o.payout_provider_ref,
+            o.locked_at, o.lock_expires_at,
             m.treasury_address, m.sim_behavior, q.payout_method,
             q.currency, q.amount_inr, q.payout_destination, q.payout_name,
             exists (select 1 from disputes d where d.order_id = o.id and d.status = 'open') as dispute_open
@@ -1385,10 +1468,18 @@ export async function markLatestAttemptOutcome(
   orderId: string,
   outcome: 'released' | 'failed' | 'rerouted',
 ): Promise<void> {
+  // The attempt is credited to the order's CURRENT merchant, not to whoever the attempt row happened
+  // to name. Routing writes an attempt when it ASSIGNS, but a pool LP becomes the merchant by
+  // LOCKING, which writes no attempt — so an order taken from the pool and settled would credit the
+  // release to the LP who was merely assigned and never touched it, and every signal computed from
+  // this table (success_rate, avg_completion_secs, tier, and so the leverage they get) would be
+  // wrong for both of them.
   await getPool().query(
-    `update order_routing_attempts set outcome = $2
-      where order_id = $1
-        and sequence = (select max(sequence) from order_routing_attempts where order_id = $1)`,
+    `update order_routing_attempts a
+        set outcome = $2,
+            merchant_id = coalesce((select o.merchant_id from orders o where o.id = $1), a.merchant_id)
+      where a.order_id = $1
+        and a.sequence = (select max(sequence) from order_routing_attempts where order_id = $1)`,
     [orderId, outcome],
   );
 }
@@ -1415,14 +1506,39 @@ export async function reassignOrderMerchant(
   merchantId: string,
   expiresAt: Date,
   expectedMerchantId: string,
+  /** When the incoming LP's exclusive window ends. Passed in rather than computed here: HEAD_START_MS
+   *  belongs to orderMachine, and a second copy of it in the data layer is a drift waiting to happen. */
+  offerWidensAt: Date,
 ): Promise<boolean> {
   // Exclusive claim: only the reroute that still sees the *stalled* merchant wins, so two concurrent
   // worker ticks can't both reassign (and desync orders.merchant_id from the attempt log).
+  //
+  // NEVER STEAL A LIVE LOCK OR A REPORTED PAYOUT. Without these two predicates the escalation ladder
+  // could yank an order away from an LP who is at that moment standing in their banking app paying
+  // it — the payer gets refunded, the LP sends the rupees anyway, and their /paid call 409s. The
+  // worker skips locked orders for the same reason; this is the half that can't be raced.
+  //
+  // The lock state follows the INCOMING merchant's kind, exactly as onTransferConfirmed and 0015's
+  // backfill do. Clearing it unconditionally was a strand: a reroute onto a platform 'psp' row left
+  // it un-born-locked, so its disbursement could never satisfy claimOrderPayout's `locked_at is not
+  // null` — the fiat went out, the claim silently returned false, the 'paid' branch meant no
+  // escalation ever ran, and the order sat in the open pool for a second LP to pay the same payee
+  // again. A human LP still gets a null lock and a fresh head start.
   const { rowCount } = await getPool().query(
-    `update orders
-        set merchant_id = $2, resolution = null, expires_at = $3, updated_at = now()
-      where id = $1 and state = 'payment_detected' and merchant_id = $4`,
-    [orderId, merchantId, expiresAt, expectedMerchantId],
+    `update orders o
+        set merchant_id = $2, resolution = null, expires_at = $3, updated_at = now(),
+            locked_at = case when m.sim_behavior is null then null else now() end,
+            lock_expires_at = null,
+            -- Explicit cast: inside a CASE, Postgres has no column to infer the parameter's type
+            -- from and treats it as text, which fails against a timestamptz column.
+            offer_widens_at = case when m.sim_behavior is null then $5::timestamptz else null end
+       from merchants m
+      where o.id = $1 and m.id = $2
+        and o.state = 'payment_detected'
+        and o.merchant_id = $4
+        and o.locked_at is null
+        and o.payout_claimed_at is null`,
+    [orderId, merchantId, expiresAt, expectedMerchantId, offerWidensAt],
   );
   return (rowCount ?? 0) > 0;
 }
@@ -1447,6 +1563,42 @@ export async function committedFloatByMerchant(): Promise<Record<string, number>
   const out: Record<string, number> = {};
   for (const r of rows) out[r.merchant_id] = Number(r.committed);
   return out;
+}
+
+/**
+ * When each LP actually delivers, as counts per day-of-week × hour (UTC), from the routing audit
+ * log that already records every assignment and its outcome. No new instrumentation, so nothing new
+ * can be wrong.
+ *
+ * Only `released` attempts count. An assignment records that routing HOPED an LP was around; a
+ * release records that they were — and "hours at which we have tried them" would just be a picture
+ * of our own past routing decisions, which is exactly the feedback loop that would keep sending
+ * midnight orders to whoever got them last time.
+ *
+ * Bounded to a 90-day window: an LP who used to work nights and now works mornings should stop
+ * being called at 3am within a season, not carry it forever.
+ */
+export async function merchantActivityHours(slots: number): Promise<Record<string, number[]>> {
+  const { rows } = await getPool().query<{ merchant_id: string; slot: string; n: string }>(
+    `select merchant_id,
+            (extract(dow from created_at) * 24 + extract(hour from created_at))::int as slot,
+            count(*) as n
+       from order_routing_attempts
+      where outcome = 'released'
+        and created_at > now() - interval '90 days'
+      group by merchant_id, slot`,
+  );
+  const out: Record<string, number[]> = {};
+  for (const r of rows) {
+    const slot = Number(r.slot);
+    if (!Number.isInteger(slot) || slot < 0 || slot >= slots) continue; // never index outside the array
+    (out[r.merchant_id] ??= new Array(slots).fill(0))[slot] = Number(r.n);
+  }
+  return out;
+}
+
+export async function updateMerchantActivity(id: string, hours: number[]): Promise<void> {
+  await getPool().query(`update merchants set active_hours = $2::smallint[] where id = $1`, [id, hours]);
 }
 
 /** Released/failed attempt counts per merchant from the routing audit log (drives success_rate). */
@@ -1524,17 +1676,46 @@ export async function merchantFeedbackStats(): Promise<Record<string, { up: numb
 /** Write recomputed live signals back to a merchant. */
 export async function updateMerchantStats(
   id: string,
-  s: { successRate: number; avgCompletionSecs: number; disputeRate: number; positiveRate: number },
+  s: { successRate: number; avgCompletionSecs: number; disputeRate: number; positiveRate: number; tier: number },
 ): Promise<void> {
   await getPool().query(
-    `update merchants set success_rate = $2, avg_completion_secs = $3, dispute_rate = $4, positive_rate = $5
+    `update merchants set success_rate = $2, avg_completion_secs = $3, dispute_rate = $4, positive_rate = $5,
+                          tier = $6
       where id = $1`,
-    [id, s.successRate, Math.round(s.avgCompletionSecs), s.disputeRate, s.positiveRate],
+    [id, s.successRate, Math.round(s.avgCompletionSecs), s.disputeRate, s.positiveRate, s.tier],
   );
 }
 
-export async function setMerchantStatus(id: string, status: 'online' | 'offline' | 'suspended'): Promise<void> {
-  await getPool().query(`update merchants set status = $2 where id = $1`, [id, status]);
+/**
+ * Set an LP's routing status. `reason` records WHO — 'bond' means the auto-suspend did it and the
+ * auto-reinstate may undo it; the default NULL means a human did (admin moderation, or the
+ * user-suspend cascade) and only a human reverses it. Callers that omit it are asserting "a person
+ * decided this", which is true of every existing call site.
+ */
+export async function setMerchantStatus(
+  id: string,
+  status: 'online' | 'offline' | 'suspended',
+  reason: string | null = null,
+): Promise<void> {
+  await getPool().query(`update merchants set status = $2, suspend_reason = $3 where id = $1`, [id, status, reason]);
+}
+
+/**
+ * The mirror of the bond auto-suspend: an LP who topped back up comes out of it. Guarded so it can
+ * only ever reverse the machine's own decision — `suspend_reason = 'bond'` is the whole safety
+ * predicate, and without it this would silently un-ban a moderated merchant.
+ *
+ * Lands on 'offline', not 'online': being solvent again means eligible to work, not back at the
+ * desk. They say when.
+ */
+export async function reinstateBondSuspendedMerchant(id: string, minBondUsdc: number): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update merchants set status = 'offline', suspend_reason = null
+      where id = $1 and status = 'suspended' and suspend_reason = 'bond'
+        and kyb_status = 'approved' and bond_usdc >= $2`,
+    [id, minBondUsdc],
+  );
+  return (rowCount ?? 0) > 0;
 }
 
 export async function setUserStatus(id: string, status: 'active' | 'suspended'): Promise<void> {
@@ -1581,13 +1762,14 @@ export async function insertMerchantApplication(input: {
   name: string;
   payoutRail: PayoutMethod;
   treasuryAddress: string;
+  country: string;
 }): Promise<string> {
   const { rows } = await getPool().query<{ id: string }>(
     `insert into merchants (user_id, name, payout_rail, status, treasury_address, kyb_status,
-                            sim_behavior, bond_usdc, float_usdc)
-     values ($1, $2, $3, 'offline', $4, 'pending', null, 0, 0)
+                            sim_behavior, bond_usdc, float_usdc, country)
+     values ($1, $2, $3, 'offline', $4, 'pending', null, 0, 0, $5)
      returning id`,
-    [input.userId, input.name, input.payoutRail, input.treasuryAddress],
+    [input.userId, input.name, input.payoutRail, input.treasuryAddress, input.country],
   );
   // Informational role mirror (capability stays merchants.user_id); never demotes an admin.
   await getPool().query(`update users set role = 'merchant' where id = $1 and role = 'user'`, [input.userId]);
@@ -1603,6 +1785,51 @@ export async function getMerchantForUser(userId: string): Promise<MerchantRow | 
 /** Set how much the LP can have in flight at once (its own honest capacity). */
 export async function setMerchantFloat(merchantId: string, floatUsdc: number): Promise<void> {
   await getPool().query('update merchants set float_usdc = $2 where id = $1', [merchantId, floatUsdc]);
+}
+
+/**
+ * The LP's own take, in basis points off the mid rate. Had NO writer outside seed.ts — every real
+ * LP was permanently stuck on the column default of 50 bps, unable to compete on price at all,
+ * while `cost` carries 0.20 of the routing score.
+ */
+export async function setMerchantSpread(merchantId: string, spreadBps: number): Promise<void> {
+  await getPool().query('update merchants set spread_bps = $2 where id = $1', [merchantId, spreadBps]);
+}
+
+/**
+ * The LP taking themselves in and out of routing. Guarded, not a bare write:
+ *   - 'suspended' is never reachable or escapable from here — that is an admin/auto-suspend state,
+ *     and letting an LP flip themselves back online would undo the bond floor in one request.
+ *   - coming ONLINE re-checks KYB and the bond floor, so this can't be used as a side door around
+ *     listRoutableMerchants' gate.
+ *   - going OFFLINE is always allowed. It has to be: it is the honest way to say "I'm asleep",
+ *     and the alternative people were left with was setting float to 0 (merchant.ts:163).
+ * Returns false when the transition was refused, so the route can say which.
+ */
+export async function setMerchantOnlineSelf(
+  merchantId: string,
+  status: 'online' | 'offline',
+  minBondUsdc: number,
+): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update merchants set status = $2
+      where id = $1 and status <> 'suspended'
+        and ($2 = 'offline' or (kyb_status = 'approved' and bond_usdc >= $3))`,
+    [merchantId, status, minBondUsdc],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/**
+ * Liveness ping. Throttled in SQL to one write a minute per LP so it can hang off every
+ * authenticated merchant request without turning reads into writes.
+ */
+export async function touchMerchantSeen(merchantId: string): Promise<void> {
+  await getPool().query(
+    `update merchants set last_seen_at = now()
+      where id = $1 and (last_seen_at is null or last_seen_at < now() - interval '60 seconds')`,
+    [merchantId],
+  );
 }
 
 /**
@@ -1627,6 +1854,329 @@ export async function creditStakeOnConfirm(transferId: string, stakeTreasuryAddr
     [transferId, stakeTreasuryAddress],
   );
   return rows[0] ? Number(rows[0].amount_usdc) : 0;
+}
+
+/** Order states that mean an LP still owes someone a fiat payout — same set committedFloatByMerchant
+ *  treats as in-flight. Money backing these is not the LP's to withdraw. */
+const LIVE_ORDER_STATES = `('pay_instructions','waiting_payment','payment_detected','merchant_confirms','funds_released')`;
+
+/**
+ * Ask for stake back. ONE statement on purpose: the bond debit and the request row must land
+ * together or not at all, and every precondition is a predicate rather than a read-then-write, so
+ * two concurrent requests cannot both pass the checks.
+ *
+ * Refused (returns null) when the LP has less bond than they're asking for, already has an open
+ * request, still has an order in flight, or has an open dispute — an unresolved dispute can still
+ * draw this bond down, and letting it leave first is how you get an uncollectable fine.
+ *
+ * The debit lands NOW, not at release. Money you have asked to withdraw must stop backing new
+ * orders immediately; if that drops the LP under MIN_BOND the existing auto-suspend takes them out
+ * of routing, which is the correct outcome for someone on their way out.
+ */
+export async function requestStakeWithdrawal(merchantId: string, amountUsdc: number): Promise<string | null> {
+  const { rows } = await getPool().query<{ id: string }>(
+    `with debited as (
+       update merchants set bond_usdc = bond_usdc - $2
+        where id = $1 and bond_usdc >= $2
+          and not exists (select 1 from merchant_stake_withdrawals w
+                           where w.merchant_id = $1 and w.status = 'requested')
+          and not exists (select 1 from orders o
+                           where o.merchant_id = $1 and o.state in ${LIVE_ORDER_STATES})
+          and not exists (select 1 from disputes d
+                           where d.merchant_id = $1 and d.status = 'open')
+       returning id
+     )
+     insert into merchant_stake_withdrawals (merchant_id, amount_usdc)
+     select id, $2 from debited
+     returning id`,
+    [merchantId, amountUsdc],
+  );
+  return rows[0]?.id ?? null;
+}
+
+/** Changed their mind before a human released it — restore the bond and close the request. The CAS
+ *  on status='requested' is what stops a cancel racing a release into a double credit. */
+export async function cancelStakeWithdrawal(merchantId: string, withdrawalId: string): Promise<boolean> {
+  const { rows } = await getPool().query<{ id: string }>(
+    `with cancelled as (
+       update merchant_stake_withdrawals
+          set status = 'cancelled', settled_at = now()
+        where id = $2 and merchant_id = $1 and status = 'requested'
+       returning merchant_id, amount_usdc
+     )
+     update merchants m set bond_usdc = m.bond_usdc + c.amount_usdc
+       from cancelled c where m.id = c.merchant_id
+     returning m.id`,
+    [merchantId, withdrawalId],
+  );
+  return rows.length > 0;
+}
+
+export interface StakeWithdrawalRow {
+  id: string;
+  merchant_id: string;
+  amount_usdc: string;
+  status: 'requested' | 'released' | 'cancelled';
+  requested_at: Date;
+  settled_at: Date | null;
+  note: string | null;
+}
+
+export async function listStakeWithdrawals(merchantId: string): Promise<StakeWithdrawalRow[]> {
+  const { rows } = await getPool().query<StakeWithdrawalRow>(
+    `select * from merchant_stake_withdrawals where merchant_id = $1 order by requested_at desc limit 20`,
+    [merchantId],
+  );
+  return rows;
+}
+
+/** Admin: mark a request paid out after sending the USDC by hand. The bond was already debited at
+ *  request time, so this moves no balance — it records that the off-chain half happened. */
+export async function releaseStakeWithdrawal(withdrawalId: string, note: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update merchant_stake_withdrawals set status = 'released', settled_at = now(), note = $2
+      where id = $1 and status = 'requested'`,
+    [withdrawalId, note],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/**
+ * Take an order. THE mutual-exclusion point of the whole marketplace, and one guarded UPDATE:
+ * `locked_at is null` means exactly one of N concurrent lock attempts affects a row, and the other
+ * N−1 see rowCount 0. No advisory lock, no queue, no reservation service.
+ *
+ * The `(merchant_id = $2 or offer_widens_at <= now())` disjunction is the head start: until the
+ * window passes, only the LP routing actually picked can take it; after, anyone eligible can. That
+ * is the entire reward for ranking first, and it costs nothing to give.
+ *
+ * Eligibility (rail, country, price, capacity) is NOT re-checked here — the caller resolves it from
+ * the same pool query that offered the order, and re-deriving it inside the CAS would double the
+ * statement's size to re-answer a question asked moments ago. The predicates that MUST be atomic
+ * are the ones about this row's own state, and they all are.
+ *
+ * Returns the payee on success, because a lock that doesn't reveal is a lock with no purpose — and
+ * returning it here means the reveal and the claim are the same atomic act.
+ */
+export async function lockOrder(input: {
+  orderId: string;
+  merchantId: string;
+  ttlMs: number;
+  /** The corridor's country — from the rail registry, same source routing filters on. */
+  country: string;
+  /** Effective float per USDC of bond for this LP's tier. Passed rather than re-derived in SQL so
+   *  the LEVERAGE table stays one code table (merchantStats.ts) instead of being copied into a CASE
+   *  here. Tier only moves on the ~80s stats tick; bond and float are the volatile halves and are
+   *  read fresh inside the statement. */
+  leverage: number;
+}): Promise<{ payoutDestination: string | null; payoutName: string | null } | null> {
+  const { rows } = await getPool().query<{ payout_destination: string | null; payout_name: string | null }>(
+    // EVERY eligibility rule is re-checked HERE, inside the CAS. It previously checked only the
+    // order's own state plus the LP's online/kyb/ban flags, which meant the pool query in the route
+    // was the only thing enforcing rail, country, price and capacity — a check-then-act split
+    // across two HTTP requests. An LP could lock any order past its head start on the wrong rail, in
+    // the wrong country, at a price that underpays them, or far beyond what their stake backs; and
+    // two concurrent locks could each pass the route's headroom check and together blow through it.
+    `with taken as (
+       update orders o
+          set merchant_id = $2, locked_at = now(),
+              lock_expires_at = now() + make_interval(secs => $3),
+              -- Hold the escalation ladder off while someone is genuinely paying. Without this the
+              -- SLA can refund the payer mid-payment and the LP is out of pocket with no recourse.
+              -- greatest() so a lock never SHORTENS the payer's existing deadline.
+              expires_at = greatest(o.expires_at, now() + make_interval(secs => $3) + interval '30 seconds'),
+              updated_at = now()
+        where o.id = $1
+          and o.state = 'payment_detected'
+          and o.locked_at is null
+          and o.payout_claimed_at is null
+          and o.resolution is null
+          and (o.merchant_id = $2 or (o.offer_widens_at is not null and o.offer_widens_at <= now()))
+          and exists (
+            select 1
+              from merchants m
+              join quotes q on q.id = o.quote_id
+             where m.id = $2
+               and m.status = 'online'
+               and m.kyb_status = 'approved'
+               and (m.lock_bans_until is null or m.lock_bans_until <= now())
+               -- Same corridor. Rail is invariant 15; country is the belt that matters the day a
+               -- rail runs in two of them.
+               and m.payout_rail = q.payout_method
+               and m.country = $4
+               -- Their ask must be at or below what this quote pays, or taking it underpays them.
+               and m.spread_bps <= q.spread_bps
+               -- Capacity, counted atomically against what they ALREADY hold rather than against a
+               -- number computed in an earlier request.
+               and o.amount_usdc + coalesce((
+                     select sum(o2.amount_usdc) from orders o2
+                      where o2.merchant_id = $2
+                        and o2.id <> o.id
+                        and o2.state in ('payment_detected','merchant_confirms','funds_released')
+                   ), 0)
+                   <= least(m.float_usdc, m.bond_usdc * $5)
+          )
+       returning o.quote_id
+     )
+     select q.payout_destination, q.payout_name from quotes q join taken t on t.quote_id = q.id`,
+    [
+      input.orderId,
+      input.merchantId,
+      Math.round(input.ttlMs / 1000),
+      input.country,
+      input.leverage,
+    ],
+  );
+  if (!rows[0]) return null;
+  return { payoutDestination: rows[0].payout_destination, payoutName: rows[0].payout_name };
+}
+
+/** Hand an order back before the TTL runs out. No penalty: the honest exit has to be cheaper than
+ *  going quiet, or every abandonment looks the same and the ban below punishes forgetfulness. */
+export async function unlockOrder(orderId: string, merchantId: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update orders set locked_at = null, lock_expires_at = null, offer_widens_at = now(), updated_at = now()
+      where id = $1 and merchant_id = $2 and state = 'payment_detected'
+        and locked_at is not null and payout_claimed_at is null`,
+    [orderId, merchantId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/**
+ * Reclaim locks that ran out unpaid and put the orders back in the pool. `offer_widens_at = now()`
+ * so a re-opened order is immediately open to everyone — the LP who sat on it already had their
+ * exclusive window, and giving them a second one is how an order starves.
+ *
+ * `expires_at` is deliberately untouched: that is the payer's overall SLA, and it must keep running
+ * through any number of failed locks or the escalation ladder never fires.
+ */
+export async function expireOrderLocks(): Promise<Array<{ id: string; merchant_id: string; reference_code: string }>> {
+  const { rows } = await getPool().query<{ id: string; merchant_id: string; reference_code: string }>(
+    `update orders
+        set locked_at = null, lock_expires_at = null, offer_widens_at = now(), updated_at = now()
+      where state = 'payment_detected' and locked_at is not null
+        and payout_claimed_at is null
+        and lock_expires_at is not null and lock_expires_at <= now()
+      returning id, merchant_id, reference_code`,
+  );
+  return rows;
+}
+
+/** Abandonments in the window, counted off the append-only event log rather than a counter column —
+ *  the events already exist, and a counter would need its own decay. */
+export async function countRecentLockAbandons(merchantId: string, sinceHours: number): Promise<number> {
+  const { rows } = await getPool().query<{ n: string }>(
+    `select count(*) as n from order_events
+      where event = 'lock_expired'
+        and detail->>'merchantId' = $1
+        and created_at > now() - make_interval(hours => $2)`,
+    [merchantId, sinceHours],
+  );
+  return Number(rows[0].n);
+}
+
+/** Time out an LP from LOCKING (not from routing, and not from their bond): forgetting to pay is
+ *  not defaulting, and nothing they staked is at risk here. */
+export async function setLockBan(merchantId: string, minutes: number): Promise<void> {
+  await getPool().query(
+    `update merchants set lock_bans_until = now() + make_interval(mins => $2) where id = $1`,
+    [merchantId, minutes],
+  );
+}
+
+/** Everything an alert needs about an order: who to tell, and what to tell them. One read rather
+ *  than an order fetch plus a merchant fetch on a path that runs inside the worker tick. */
+export async function getOrderAlertInfo(
+  orderId: string,
+): Promise<{ merchant: MerchantRow | null; amountFiat: string; currency: string } | null> {
+  const { rows } = await getPool().query<MerchantRow & { amount_inr: string; currency: string }>(
+    `select m.*, q.amount_inr, q.currency
+       from orders o
+       join quotes q on q.id = o.quote_id
+       left join merchants m on m.id = o.merchant_id
+      where o.id = $1`,
+    [orderId],
+  );
+  const r = rows[0];
+  if (!r) return null;
+  return { merchant: r.id ? (r as MerchantRow) : null, amountFiat: r.amount_inr, currency: r.currency };
+}
+
+export interface MerchantEarningsRow {
+  settled: number;
+  usdc_in: string;
+  fiat_out: string;
+  currency: string | null;
+}
+
+/**
+ * What has actually settled to this LP. Nothing tracked what an LP earned — the dashboard showed
+ * stake, capacity and reputation, and no revenue at all.
+ *
+ * NOT called profit, and deliberately doesn't compute one. Their margin is the gap between the USDC
+ * they received and what the fiat leg cost THEM, and we do not know the second number: they pay from
+ * their own account, at their own bank's rate, possibly with their own charges. Inventing a profit
+ * figure from our mid rate would be a number that disagrees with their bank statement, which is
+ * worse than no number. So: what came in, what went out, how many — and they do the subtraction
+ * against a cost basis only they can see.
+ *
+ * `usdc_in` is the RELEASED amount (escrow minus the platform's cut), not the order's total debit,
+ * so it matches what actually landed in their treasury.
+ */
+export async function merchantEarnings(merchantId: string, sinceDays: number): Promise<MerchantEarningsRow> {
+  const { rows } = await getPool().query<MerchantEarningsRow>(
+    `select count(*)::int as settled,
+            coalesce(sum(t.amount_usd), 0)::text as usdc_in,
+            coalesce(sum(q.amount_inr), 0)::text as fiat_out,
+            min(q.currency) as currency
+       from orders o
+       join quotes q on q.id = o.quote_id
+       left join transfers t on t.id = o.escrow_release_transfer_id
+      where o.merchant_id = $1
+        and o.state = 'completed'
+        and o.created_at > now() - make_interval(days => $2)`,
+    [merchantId, sinceDays],
+  );
+  return rows[0];
+}
+
+export interface MerchantDisputeRow {
+  id: string;
+  order_id: string;
+  reference_code: string;
+  reason: string | null;
+  status: string;
+  resolution: string | null;
+  amount_usdc: string;
+  created_at: Date;
+  resolved_at: Date | null;
+}
+
+/**
+ * Disputes raised against this LP. Until now an LP could lose 1,500 USDC of bond and the entire
+ * experience of it was the words "we're reviewing it" on one order screen — no reason, no history,
+ * no idea it had even been decided.
+ */
+export async function listMerchantDisputes(merchantId: string, limit = 20): Promise<MerchantDisputeRow[]> {
+  const { rows } = await getPool().query<MerchantDisputeRow>(
+    `select d.id, d.order_id, o.reference_code, d.reason, d.status, d.resolution,
+            o.amount_usdc, d.created_at, d.resolved_at
+       from disputes d join orders o on o.id = d.order_id
+      where d.merchant_id = $1
+      order by d.created_at desc limit $2`,
+    [merchantId, limit],
+  );
+  return rows;
+}
+
+/** Where to reach this LP when work lands. */
+export async function setMerchantAlertChannel(merchantId: string, channel: string, address: string): Promise<void> {
+  await getPool().query(`update merchants set alert_channel = $2, alert_address = $3 where id = $1`, [
+    merchantId,
+    channel,
+    address,
+  ]);
 }
 
 /**
@@ -1691,11 +2241,17 @@ export async function claimOrderPayout(input: {
   windowMs: number;
 }): Promise<boolean> {
   const { rowCount } = await getPool().query(
+    // `locked_at is not null` (0015): you cannot report paying an order you never took. Every
+    // settled order holds a lock by the time it gets here — a human LP locks explicitly, and a
+    // provider- or sim-settled order is born locked at payment_detected because its merchant row
+    // IS the settler and no pool was ever offered it. That uniformity is what lets this stay one
+    // predicate instead of a special case for the psp caller in simMerchant.ts.
     `update orders
         set payout_utr = $3, payout_claimed_at = now(), updated_at = now(),
             expires_at = now() + make_interval(secs => $4)
       where id = $1 and merchant_id = $2
-        and state = 'payment_detected' and payout_claimed_at is null`,
+        and state = 'payment_detected' and payout_claimed_at is null
+        and locked_at is not null`,
     [input.orderId, input.merchantId, input.reference, Math.round(input.windowMs / 1000)],
   );
   if ((rowCount ?? 0) > 0) {
@@ -1766,19 +2322,42 @@ export interface MerchantOrderRow {
   payout_claimed_at: Date | null;
   expires_at: Date | null;
   created_at: Date;
+  locked_at: Date | null;
+  lock_expires_at: Date | null;
+  offer_widens_at: Date | null;
+  /** True for orders routed to this LP, false for open-pool offers they could take. */
+  mine: boolean;
   currency: string;
   amount_inr: string;
   payout_method: PayoutMethod;
+  /** NULL whenever this LP does not hold the lock — redacted in SQL, never in a mapper. */
   payout_destination: string | null;
   payout_name: string | null;
 }
 
-/** The merchant's work queue: orders assigned to them that are still live. */
+/**
+ * The merchant's work queue: orders assigned to them that are still live.
+ *
+ * THE REVEAL GATE LIVES HERE TOO, and it did not before. This query selected the payee for every
+ * order whose merchant_id matched, with no `locked_at` predicate — so the LP routing picked was
+ * handed the payee's UPI ID during their head start without ever locking, and kept seeing it after
+ * an expired lock returned the order to the pool. listOpenOffers redacting was necessary but not
+ * sufficient: the routed LP reaches their orders through THIS query, and they are precisely the
+ * person the head start makes most likely to look.
+ *
+ * `locked_at is not null` is the whole rule. Once claimed the payee stays visible, because they
+ * have already paid it and the screen is now their record of what they did.
+ */
 export async function listMerchantOrders(merchantId: string, limit = 50): Promise<MerchantOrderRow[]> {
   const { rows } = await getPool().query<MerchantOrderRow>(
     `select o.id, o.reference_code, o.state, o.resolution, o.amount_usdc, o.payout_utr,
             o.payout_claimed_at, o.expires_at, o.created_at,
-            q.currency, q.amount_inr, q.payout_method, q.payout_destination, q.payout_name
+            o.locked_at, o.lock_expires_at, o.offer_widens_at, true as mine,
+            q.currency, q.amount_inr, q.payout_method,
+            case when o.locked_at is not null or o.payout_claimed_at is not null
+                 then q.payout_destination end as payout_destination,
+            case when o.locked_at is not null or o.payout_claimed_at is not null
+                 then q.payout_name end as payout_name
        from orders o join quotes q on q.id = o.quote_id
       where o.merchant_id = $1
         and o.state in ('payment_detected','merchant_confirms','funds_released','completed')
@@ -1789,12 +2368,164 @@ export async function listMerchantOrders(merchantId: string, limit = 50): Promis
   return rows;
 }
 
-/** Approve/reject a pending application; approval flips it online. */
+/**
+ * The open pool: funded orders past their head start that this LP could take, but hasn't.
+ *
+ * Every predicate is the same question routing asks, evaluated fresh against live rows — which is
+ * why there is no offers table. A stored offer list would be a snapshot of capacity, price and
+ * eligibility taken at the wrong moment, and would need invalidating on every float change, every
+ * lock, and every reroute.
+ *
+ * `q.spread_bps <= $2` is the one that makes broadcasting safe at all: the payer's rate was struck
+ * against ONE LP's spread, so an order is only shown to LPs who are content at that price. Whoever
+ * locks earns at least their own ask, and the quote never needs repricing.
+ *
+ * The payee is NOT selected here. Redaction is enforced by the query, not by remembering to strip a
+ * field in a mapper — see the `null::text` columns.
+ */
+export async function listOpenOffers(
+  filter: { merchantId: string; payoutRail: PayoutMethod; country: string; spreadBps: number; maxAmountUsdc: number },
+  limit = 25,
+): Promise<MerchantOrderRow[]> {
+  const { rows } = await getPool().query<MerchantOrderRow>(
+    `select o.id, o.reference_code, o.state, o.resolution, o.amount_usdc, o.payout_utr,
+            o.payout_claimed_at, o.expires_at, o.created_at,
+            o.locked_at, o.lock_expires_at, o.offer_widens_at, false as mine,
+            q.currency, q.amount_inr, q.payout_method,
+            -- The whole point of the lock: nobody sees who to pay until they've committed to
+            -- paying them. Redacted in SQL so no caller can forget.
+            null::text as payout_destination, null::text as payout_name
+       from orders o join quotes q on q.id = o.quote_id
+      where o.state = 'payment_detected'
+        and o.locked_at is null
+        and o.payout_claimed_at is null
+        and o.merchant_id <> $1
+        and o.offer_widens_at is not null and o.offer_widens_at <= now()
+        and q.payout_method = $3
+        -- The LP's ask must be at or below the price the quote was struck at, so whoever takes it
+        -- earns at least their own spread. This comparison was INVERTED: it read the LP's spread as
+        -- the ceiling, which offered orders only to LPs asking MORE than the quote pays (who would
+        -- be underpaid) and hid them from the cheaper LPs the whole mechanism exists to reward.
+        and $2 <= q.spread_bps
+        and o.amount_usdc <= $4
+        -- Don't offer work that is already escalating: an order in delayed/under_review is about to
+        -- be rerouted or refunded, and handing someone a five-minute lock on it invites them to pay
+        -- a payee whose escrow is about to go back to the payer.
+        and o.resolution is null
+        and (o.expires_at is null or o.expires_at > now() + interval '60 seconds')
+        and exists (select 1 from merchants m where m.id = $1 and m.country = $5)
+      order by o.created_at asc
+      limit $6`,
+    [filter.merchantId, filter.spreadBps, filter.payoutRail, filter.maxAmountUsdc, filter.country, limit],
+  );
+  return rows;
+}
+
+/**
+ * Record one step of the business check. Append-only, same shape and same reason as order_events:
+ * the status column says where it is, this says what happened and when.
+ */
+export async function appendKybEvent(
+  merchantId: string,
+  fromStatus: string | null,
+  toStatus: string,
+  event: string,
+  detail?: Record<string, unknown>,
+): Promise<void> {
+  await getPool().query(
+    `insert into merchant_kyb_events (merchant_id, from_status, to_status, event, detail)
+     values ($1,$2,$3,$4,$5)`,
+    [merchantId, fromStatus, toStatus, event, detail ? JSON.stringify(detail) : null],
+  );
+}
+
+export interface KybEventRow {
+  from_status: string | null;
+  to_status: string;
+  event: string;
+  detail: Record<string, unknown> | null;
+  created_at: Date;
+}
+
+export async function listKybEvents(merchantId: string, limit = 20): Promise<KybEventRow[]> {
+  const { rows } = await getPool().query<KybEventRow>(
+    `select from_status, to_status, event, detail, created_at
+       from merchant_kyb_events where merchant_id = $1
+      order by created_at desc limit $2`,
+    [merchantId, limit],
+  );
+  return rows;
+}
+
+/**
+ * The merchant sends their business details. Guarded on the statuses where THEY are the one who
+ * owes us something — a resubmission after 'more_info' is the same call, which is what makes the
+ * flow a conversation rather than one shot.
+ *
+ * Clears `kyb_note`: the note is the reviewer's outstanding question, and leaving a stale "we need
+ * your GSTIN" on screen after they've sent it reads as though nobody looked.
+ */
+export async function submitMerchantKyb(
+  id: string,
+  fields: Record<string, string>,
+  submittableFrom: readonly string[],
+): Promise<string | null> {
+  // The prior status comes from a CTE, not a subquery in RETURNING: re-reading the same row inside
+  // RETURNING depends on snapshot semantics that are easy to get subtly wrong, and this value is
+  // what the timeline records as "from".
+  const { rows } = await getPool().query<{ from_status: string }>(
+    `with prev as (select kyb_status as from_status from merchants where id = $1)
+     update merchants m
+        set kyb_fields = $2, kyb_status = 'submitted', kyb_submitted_at = now(), kyb_note = null
+       from prev
+      where m.id = $1 and m.kyb_status = any($3::text[])
+      returning prev.from_status`,
+    [id, JSON.stringify(fields), submittableFrom],
+  );
+  return rows[0]?.from_status ?? null;
+}
+
+/**
+ * A reviewer decides. One call for all four outcomes because they are one transition with different
+ * targets, and splitting them would mean four places that must agree about which prior states are
+ * decidable.
+ *
+ * Only 'approve' touches routing status, and only ever to 'offline': being approved means eligible
+ * to work, not at the desk. The LP says when they're on — anything else silently puts a stranger
+ * into live routing the instant a human clicks approve.
+ */
+export async function decideMerchantKyb(
+  id: string,
+  decision: 'approve' | 'reject' | 'review' | 'more_info',
+  note: string | null,
+  decidableFrom: readonly string[],
+): Promise<{ from: string } | null> {
+  const kyb =
+    decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : decision === 'review' ? 'under_review' : 'more_info';
+  const { rows } = await getPool().query<{ from_status: string }>(
+    `with prev as (select kyb_status as from_status from merchants where id = $1)
+     update merchants m
+        set kyb_status = $2,
+            kyb_note = $3,
+            status = case when $2 = 'approved' and m.status = 'offline' then 'offline'
+                          when $2 = 'approved' then m.status
+                          when $2 = 'rejected' then 'offline'
+                          else m.status end
+       from prev
+      where m.id = $1 and m.kyb_status = any($4::text[])
+      returning prev.from_status`,
+    [id, kyb, note, decidableFrom],
+  );
+  return rows[0] ? { from: rows[0].from_status } : null;
+}
+
+/** @deprecated Superseded by decideMerchantKyb (0016). Kept only for the dev /sim route, which
+ *  still speaks the old two-outcome shape. */
 export async function setMerchantKyb(id: string, decision: 'approve' | 'reject'): Promise<boolean> {
   const kyb = decision === 'approve' ? 'approved' : 'rejected';
   const status = decision === 'approve' ? 'online' : 'offline';
   const { rowCount } = await getPool().query(
-    `update merchants set kyb_status = $2, status = $3 where id = $1 and kyb_status = 'pending'`,
+    `update merchants set kyb_status = $2, status = $3 where id = $1 and kyb_status not in ('approved','rejected')`,
     [id, kyb, status],
   );
   return (rowCount ?? 0) > 0;

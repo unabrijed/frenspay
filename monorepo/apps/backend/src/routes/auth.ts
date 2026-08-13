@@ -14,6 +14,8 @@ import {
   findUserByPhone,
   getInviteStats,
   getMerchantForUser,
+  listKybEvents,
+  listStakeWithdrawals,
   hasAnyUsers,
   markInvitesRevealed,
   getUserKycStatus,
@@ -151,7 +153,15 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       evmDepositAddress: evmWallet?.address ?? undefined,
       // Rides on /me (already fetched on boot and on the KYC poll) rather than its own endpoint —
       // one extra query here beats a second round trip + loading state for the 99% who aren't LPs.
-      merchant: merchant ? toMerchantProfile(merchant) : undefined,
+      merchant: merchant
+        ? toMerchantProfile(
+            merchant,
+            (await listStakeWithdrawals(merchant.id)).find((w) => w.status === 'requested'),
+            // The KYB timeline rides along rather than getting its own endpoint: it is only ever
+            // read on the one screen that already has this payload, and it is a handful of rows.
+            await listKybEvents(merchant.id),
+          )
+        : undefined,
       // The governing role, not the column — a root admin's row still says 'user'. The console
       // gates its whole UI on this, so it has to agree with requireAdmin.
       role: effectiveRole(user) as MeResponse['role'],

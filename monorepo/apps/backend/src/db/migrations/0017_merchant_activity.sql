@@ -1,0 +1,25 @@
+-- 0017_merchant_activity — when is this LP actually around?
+--
+-- Routing scores LPs on how well they have performed, and says nothing about WHEN. An LP who
+-- reliably clears orders in ninety seconds every weekday morning and is asleep at midnight scores
+-- identically at both hours, so the midnight payer is routed to someone who will not answer and
+-- finds out only when the escalation ladder fires.
+--
+-- 168 slots: day-of-week × hour, index = dow*24 + hour, UTC. A plain smallint array on the row
+-- rather than an events table, because it is only ever read whole, only ever written whole, and is
+-- recomputed from scratch each pass — there is nothing to query inside it and nothing to keep
+-- consistent. Recomputation reads order_routing_attempts, which already records every assignment
+-- and its outcome with a timestamp, so no new instrumentation exists to be wrong.
+--
+-- UTC, not local time. The array is only ever used to compare LPs to each other AT THE SAME
+-- INSTANT, so the zone just has to be consistent; converting to each LP's local time would add a
+-- column nobody reads for an answer that would not change the ordering.
+--
+-- BE HONEST ABOUT WHAT THIS IS WORTH. With a handful of LPs per corridor these counts are noise,
+-- which is why the routing weight on it is deliberately the smallest of the eight and why
+-- `last_seen_at` — "is this LP at their desk RIGHT NOW" — carries three times as much. This earns
+-- its weight from data or it doesn't; it is not a substitute for knowing someone is awake.
+--
+-- NULL means "never computed" and scores neutral, so a brand-new LP is not punished for having no
+-- history and the first stats pass after this migration is not a cliff.
+alter table merchants add column if not exists active_hours smallint[];

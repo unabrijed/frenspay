@@ -29,6 +29,7 @@ import type {
 } from '@fpay/shared';
 
 import { effectiveRole, isRootAdminEmail, requireAdmin } from '../auth';
+import { KYB_DECIDABLE } from '../lib/kyb';
 import {
   addDenylistEntry,
   adminOverview,
@@ -55,6 +56,8 @@ import {
   removeDenylistEntry,
   revokeInviteCode,
   sanitizeDisplayName,
+  appendKybEvent,
+  decideMerchantKyb,
   setMerchantKyb,
   setMerchantStatus,
   setUserRole,
@@ -67,6 +70,10 @@ import { screenHandle } from '../services/compliance';
 import { canonicalInviteCode } from '../services/invites';
 import { settleDispute } from '../services/orderMachine';
 import { providerHasCredentials } from '../services/payout/provider';
+
+/** The four things a reviewer can say. 'review' is a claim, not a verdict — it tells the next
+ *  reviewer someone is already on it. */
+const KYB_DECISIONS: readonly string[] = ['approve', 'reject', 'review', 'more_info'];
 
 export async function registerAdminRoutes(app: FastifyInstance) {
   /* ---- reads ---- */
@@ -198,19 +205,38 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     },
   );
 
+  /**
+   * Decide a business check. Four outcomes, not two (0016): 'review' claims it so a second reviewer
+   * can see someone is on it, and 'more_info' is the one that turns a rejection into a conversation
+   * — without it the only replies available are yes and no, and "no, and I won't say why" is how you
+   * lose an LP who simply mistyped their PAN.
+   *
+   * The note is MERCHANT-VISIBLE and required on anything that isn't an approval. That is the whole
+   * improvement: a status word with no reason behind it was never a decision anyone could act on.
+   */
   app.post<{ Params: { id: string }; Body: AdminKybRequest }>('/admin/merchants/:id/kyb', async (req, reply) => {
     const adminId = await requireAdmin(req);
     const decision = req.body?.decision;
-    if (decision !== 'approve' && decision !== 'reject') return reply.code(400).send({ error: 'invalid_decision' });
-    const ok = await setMerchantKyb(req.params.id, decision);
-    if (!ok) return reply.code(409).send({ error: 'not_pending' });
+    if (!KYB_DECISIONS.includes(decision as string)) return reply.code(400).send({ error: 'invalid_decision' });
+    const note = req.body?.note?.trim() || null;
+    if (decision !== 'approve' && !note) return reply.code(400).send({ error: 'note_required' });
+
+    const moved = await decideMerchantKyb(req.params.id, decision!, note, KYB_DECIDABLE);
+    // 409 rather than 404: the row exists, it just isn't in a state a reviewer can decide from
+    // (nothing submitted yet, or already terminal).
+    if (!moved) return reply.code(409).send({ error: 'kyb_not_decidable' });
+
+    const to =
+      decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : decision === 'review' ? 'under_review' : 'more_info';
+    await appendKybEvent(req.params.id, moved.from, to, `kyb_${decision}`, { note, by: adminId });
     await insertAdminAction({
       adminUserId: adminId,
-      action: decision === 'approve' ? 'kyb_approve' : 'kyb_reject',
+      action: `kyb_${decision}`,
       targetKind: 'merchant',
       targetId: req.params.id,
+      note: note ?? undefined,
     });
-    return { ok: true, kybStatus: decision === 'approve' ? 'approved' : 'rejected' };
+    return { ok: true, kybStatus: to };
   });
 
   app.post<{ Params: { id: string }; Body: AdminMerchantStatusRequest }>(

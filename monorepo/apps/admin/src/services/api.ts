@@ -99,10 +99,12 @@ export const api = {
   payoutProviders: () => req<AdminPayoutProvidersResponse>('/admin/payout-providers'),
 
   // writes (every one lands in the admin_actions audit trail server-side)
-  merchantKyb: (id: string, decision: 'approve' | 'reject') =>
+  // `note` is shown to the MERCHANT verbatim and is required for anything but an approval — a
+  // status word with no reason behind it is not a decision they can act on.
+  merchantKyb: (id: string, decision: 'approve' | 'reject' | 'review' | 'more_info', note?: string) =>
     req<{ ok: true; kybStatus: string }>(`/admin/merchants/${id}/kyb`, {
       method: 'POST',
-      body: JSON.stringify({ decision }),
+      body: JSON.stringify({ decision, note }),
     }),
   merchantStatus: (id: string, status: 'online' | 'offline' | 'suspended') =>
     req<{ ok: true; status: string }>(`/admin/merchants/${id}/status`, {

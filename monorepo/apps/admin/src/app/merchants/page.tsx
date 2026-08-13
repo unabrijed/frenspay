@@ -6,7 +6,7 @@
 import { useCallback, useState } from 'react';
 
 import type { AdminMerchant } from '@fpay/shared';
-
+import { KYB_DECIDABLE } from '@fpay/shared';
 import { api } from '@/services/api';
 import {
   Badge,
@@ -35,11 +35,18 @@ export default function Merchants() {
 
   const act = (m: AdminMerchant): Confirm[] => {
     const list: Confirm[] = [];
-    if (m.kybStatus === 'pending') {
+    // A review can be decided once the merchant has actually submitted something. 'pending' means
+    // they haven't yet, so there is nothing to judge — offering Approve there is how you approve a
+    // business you have been told nothing about.
+    if (KYB_DECIDABLE.includes(m.kybStatus)) {
+      // Reasons are typed at the moment of deciding rather than picked from a list: the useful ones
+      // are specific ("the PAN doesn't match the registered name"), and a dropdown of generic ones
+      // is how "rejected: other" happens.
+      const ask = (what: string) => window.prompt(`${what} — this is shown to the merchant:`)?.trim();
       list.push(
         {
           title: `Approve KYB: ${m.name}`,
-          body: 'The merchant goes online and becomes routable for real orders.',
+          body: 'The business is verified. They can go online themselves whenever they like — approval does NOT put them into routing.',
           confirmLabel: 'Approve',
           onConfirm: async () => {
             await api.merchantKyb(m.id, 'approve');
@@ -47,16 +54,41 @@ export default function Merchants() {
           },
         },
         {
+          title: `Ask for more: ${m.name}`,
+          body: 'The merchant can edit and resubmit. Use this instead of rejecting when something is merely missing or mistyped.',
+          confirmLabel: 'Ask',
+          onConfirm: async () => {
+            const note = ask('What do you need from them?');
+            if (!note) return;
+            await api.merchantKyb(m.id, 'more_info', note);
+            await reload();
+          },
+        },
+        {
           title: `Reject KYB: ${m.name}`,
-          body: 'The application is rejected; the merchant stays offline.',
+          body: 'Terminal. The merchant cannot resubmit — prefer "Ask for more" unless the business itself is the problem.',
           confirmLabel: 'Reject',
           danger: true,
           onConfirm: async () => {
-            await api.merchantKyb(m.id, 'reject');
+            const note = ask('Why is this rejected?');
+            if (!note) return;
+            await api.merchantKyb(m.id, 'reject', note);
             await reload();
           },
         },
       );
+      if (m.kybStatus === 'submitted') {
+        list.push({
+          title: `Claim for review: ${m.name}`,
+          body: 'Marks it as being looked at, so a second reviewer knows someone is already on it.',
+          confirmLabel: 'Claim',
+          onConfirm: async () => {
+            const note = ask('Anything to tell them while they wait?') || 'A reviewer is looking at this now.';
+            await api.merchantKyb(m.id, 'review', note);
+            await reload();
+          },
+        });
+      }
     }
     if (m.status !== 'suspended') {
       list.push({
@@ -106,7 +138,7 @@ export default function Merchants() {
                 </Badge>
               </Td>
               <Td>
-                <Badge tone={m.kybStatus === 'approved' ? 'ok' : m.kybStatus === 'pending' ? 'warn' : 'danger'}>
+                <Badge tone={m.kybStatus === 'approved' ? 'ok' : m.kybStatus === 'rejected' ? 'danger' : 'warn'}>
                   {m.kybStatus}
                 </Badge>
               </Td>

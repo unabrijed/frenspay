@@ -27,8 +27,16 @@ function check(name: string, cond: boolean, detail?: string) {
 type Pool = ReturnType<typeof getPool>;
 
 async function clean(pool: Pool) {
-  await pool.query(`delete from users where privy_did in ('zzr:merchant','zzr:payer')`); // cascades orders/quotes
+  // Order matters in both directions and neither cascade covers it:
+  //   quotes.merchant_id -> merchants   (no ON DELETE, so quotes must go before merchants)
+  //   merchants.user_id  -> users       (no ON DELETE, so merchants must go before users)
+  // Deleting users first — which is what this did — fails on the merchant row, so the fixtures
+  // survived and every later run collided with them.
+  const users = `select id from users where privy_did in ('zzr:merchant','zzr:payer')`;
+  await pool.query(`delete from orders where user_id in (${users})`);
+  await pool.query(`delete from quotes where user_id in (${users})`);
   await pool.query(`delete from merchants where name like 'ZZ-REAL%'`);
+  await pool.query(`delete from users where privy_did in ('zzr:merchant','zzr:payer')`);
 }
 
 async function stateOf(pool: Pool, orderId: string): Promise<string> {
@@ -54,8 +62,8 @@ async function main() {
   // The subject: a REAL merchant — user_id set, sim_behavior NULL.
   const merchant = (
     await pool.query<{ id: string; sim_behavior: string | null }>(
-      `insert into merchants (user_id, name, payout_rail, status, treasury_address, kyb_status, sim_behavior, bond_usdc, float_usdc)
-       values ($1,'ZZ-REAL-LP','UPI','online','ZZRealTreasury0000000000000000000000000','approved',null,5000,10000)
+      `insert into merchants (user_id, name, payout_rail, country, status, treasury_address, kyb_status, sim_behavior, bond_usdc, float_usdc)
+       values ($1,'ZZ-REAL-LP','UPI','IN','online','ZZRealTreasury0000000000000000000000000','approved',null,5000,10000)
        returning id, sim_behavior`,
       [merchantUser.id],
     )
@@ -99,6 +107,12 @@ async function main() {
   );
 
   // 2. Claimed, window still open → still no release.
+  // 0015: a payout cannot be reported on an order nobody took. A human LP reaches this through
+  // POST /merchants/orders/:id/lock; the harness sets the state that route produces.
+  await pool.query(
+    `update orders set locked_at = now(), lock_expires_at = now() + interval '5 minutes' where id = $1`,
+    [order.id],
+  );
   const claimed = await claimOrderPayout({
     orderId: order.id,
     merchantId: merchant.id,

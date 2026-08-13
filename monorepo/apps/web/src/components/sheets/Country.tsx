@@ -8,7 +8,7 @@ import { useMemo, useState } from 'react';
 import { ISO_TO_DIAL } from '@fpay/shared';
 
 import { Icons } from '@/components/icons';
-import { Flag, Grab, List, Row, RowMeta, SearchBar, SheetBody, SheetHeader } from '@/components/ui/primitives';
+import { Empty, Flag, Grab, List, Row, RowMeta, SearchBar, SheetBody, SheetHeader } from '@/components/ui/primitives';
 import { View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { colors, type } from '@/lib/theme';
@@ -33,7 +33,9 @@ export function Country() {
   }, []);
 
   const q = query.trim().toLowerCase();
-  const rows = q ? all.filter((c) => c.name.toLowerCase().includes(q) || c.dial.includes(q) || c.iso.toLowerCase() === q) : all;
+  const rows = q
+    ? all.filter((c) => c.name.toLowerCase().includes(q) || c.dial.includes(q) || c.iso.toLowerCase().startsWith(q))
+    : all;
 
   return (
     <>
@@ -46,24 +48,28 @@ export function Country() {
           Numbers without a +code are treated as local to this country.
         </Txt>
         <SearchBar placeholder="Search countries" value={query} onChangeText={setQuery} />
-        <View style={{ flex: 1, minHeight: 0, overflowY: 'auto', marginTop: 8 }}>
-          <List>
-            {rows.map((c) => (
-              <Row
-                key={c.iso}
-                onPress={() => {
-                  void setCountry(c.iso);
-                  close();
-                }}>
-                <Flag iso={c.iso} />
-                <RowMeta>
-                  <Txt style={type.rowName}>{c.name}</Txt>
-                  <Txt style={[type.rowTime, { marginTop: 3 }]}>{c.dial}</Txt>
-                </RowMeta>
-                {country === c.iso ? <Icons.Check size={18} color={colors.accent} /> : null}
-              </Row>
-            ))}
-          </List>
+        <View style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', marginTop: 8 }}>
+          {rows.length === 0 ? (
+            <Empty label="No countries match" />
+          ) : (
+            <List>
+              {rows.map((c) => (
+                <Row
+                  key={c.iso}
+                  onPress={() => {
+                    void setCountry(c.iso);
+                    close();
+                  }}>
+                  <Flag iso={c.iso} />
+                  <RowMeta>
+                    <Txt style={type.rowName}>{c.name}</Txt>
+                    <Txt style={[type.rowTime, { marginTop: 3 }]}>{c.dial}</Txt>
+                  </RowMeta>
+                  {country === c.iso ? <Icons.Check size={18} color={colors.accent} /> : null}
+                </Row>
+              ))}
+            </List>
+          )}
         </View>
       </SheetBody>
     </>

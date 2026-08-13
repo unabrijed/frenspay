@@ -7,5 +7,6 @@ export * from './phones';
 export * from './dialCodes';
 export * from './currencyCodes';
 export * from './rails';
+export * from './kyb';
 export * from './emvqr';
 export * from './payTarget';

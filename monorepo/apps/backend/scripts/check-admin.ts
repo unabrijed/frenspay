@@ -71,9 +71,9 @@ async function main() {
   // 1) Roles.
   check("new user defaults to role 'user'", (await findUserById(payer))?.role === 'user');
   check("manual grant reads back as 'admin'", (await findUserById(admin))?.role === 'admin');
-  await insertMerchantApplication({ userId: applicant, name: 'ZZ-ADMIN-LP', payoutRail: 'UPI', treasuryAddress: 'ZZAtreasury000000000000000000000000000000' });
+  await insertMerchantApplication({ userId: applicant, name: 'ZZ-ADMIN-LP', payoutRail: 'UPI', treasuryAddress: 'ZZAtreasury000000000000000000000000000000', country: 'IN' });
   check("merchant apply mirrors role='merchant'", (await findUserById(applicant))?.role === 'merchant');
-  await insertMerchantApplication({ userId: admin, name: 'ZZ-ADMIN-LP2', payoutRail: 'UPI', treasuryAddress: 'ZZAtreasury200000000000000000000000000000' });
+  await insertMerchantApplication({ userId: admin, name: 'ZZ-ADMIN-LP2', payoutRail: 'UPI', treasuryAddress: 'ZZAtreasury200000000000000000000000000000', country: 'IN' });
   check('merchant apply never demotes an admin', (await findUserById(admin))?.role === 'admin');
 
   const lp = (
@@ -105,6 +105,9 @@ async function main() {
   check('expireStaleOrders writes expired_unfunded', (await events(pool, stale)).includes('expired_unfunded'));
 
   const claimed = await mkOrder('ZZA-CLAIM', 'payment_detected');
+  // 0015: a payout can only be reported on an order somebody TOOK. A human LP gets here via
+  // POST /merchants/orders/:id/lock; the harness sets the state that route produces.
+  await pool.query(`update orders set locked_at = now(), lock_expires_at = now() + interval '5 minutes' where id = $1`, [claimed]);
   check('claimOrderPayout claims', await claimOrderPayout({ orderId: claimed, merchantId: lp.id, reference: 'UTR-ZZA-1', windowMs: 60_000 }));
   check('…and writes payout_claimed', (await events(pool, claimed)).includes('payout_claimed'));
 

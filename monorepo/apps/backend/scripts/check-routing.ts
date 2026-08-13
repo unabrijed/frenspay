@@ -19,12 +19,19 @@ async function clean(pool: Pool) {
 }
 
 const COLS =
-  'name,payout_rail,status,treasury_address,success_rate,avg_completion_secs,spread_bps,float_usdc,dispute_rate,kyb_status,bond_usdc,base_success_rate,base_avg_completion_secs,base_dispute_rate,sim_behavior';
+  'name,payout_rail,country,status,treasury_address,success_rate,avg_completion_secs,spread_bps,float_usdc,dispute_rate,kyb_status,bond_usdc,base_success_rate,base_avg_completion_secs,base_dispute_rate,sim_behavior';
 
+/**
+ * Bond is deliberately large (0014 caps effective float at bond × tier leverage, 3× at tier 1).
+ * These fixtures exist to prove the FLOAT filter, so the bond must not be the binding constraint —
+ * at the old 9,000 the cap would be 27,000 and the "funded LP kept at 50k" assert would fail for a
+ * reason that has nothing to do with what it is testing. 60,000 × 3 clears every float below.
+ * The capacity math itself is asserted directly in check-routing-math.ts.
+ */
 async function mkLP(pool: Pool, name: string, treasury: string, sr: number, secs: number, spread: number, float: number) {
   const { rows } = await pool.query<{ id: string }>(
     `insert into merchants (${COLS})
-     values ($1,'UPI','online',$2,$3,$4,$5,$6,0.005,'approved',9000,$3,$4,0.005,'happy') returning id`,
+     values ($1,'UPI','IN','online',$2,$3,$4,$5,$6,0.005,'approved',60000,$3,$4,0.005,'happy') returning id`,
     [name, treasury, sr, secs, spread, float],
   );
   return rows[0].id;

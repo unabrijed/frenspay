@@ -37,7 +37,14 @@ import {
   type WorkerOrderRow,
 } from '../db/queries';
 
-import { DISPUTE_WINDOW_MS, flagResolution, refundToUser, releaseToMerchant, rerouteOrder } from './orderMachine';
+import {
+  DISPUTE_WINDOW_MS,
+  flagResolution,
+  refundToUser,
+  releaseToMerchant,
+  rerouteOrder,
+  sweepExpiredLocks,
+} from './orderMachine';
 import { payoutProviderById, payoutProviderFor } from './payout/provider';
 
 /**
@@ -71,11 +78,20 @@ export async function runOrderWorkerOnce(log?: (m: string) => void): Promise<voi
   const stale = await expireStaleOrders();
   if (stale > 0) log?.(`expired ${stale} stale unfunded order(s)`);
 
+  // Reclaim locks that lapsed unpaid (0015) BEFORE the pass below, so an order whose LP went quiet
+  // is back in the pool for someone else in this same tick rather than the next one. Rides this
+  // loop rather than adding a sixth timer to server.ts.
+  await sweepExpiredLocks(log);
+
   const orders = await listWorkerOrders();
   const now = Date.now();
   for (const o of orders) {
     const elapsed = now - o.updated_at.getTime();
     const slaReached = o.expires_at ? now >= o.expires_at.getTime() : false;
+    // Someone is holding this order RIGHT NOW and has been shown who to pay. Neither reroute nor
+    // refund may touch it until the lock lapses (the sweep above reclaims it), or the payer gets
+    // refunded while an LP is mid-payment and the LP eats the loss with no recourse.
+    const heldLive = o.locked_at != null && o.lock_expires_at != null && o.lock_expires_at.getTime() > now;
     const amountUsdc = Number(o.amount_usdc);
     const behavior = o.sim_behavior; // null = a real (human) merchant, not a simulated one
     const release = () =>
@@ -142,10 +158,14 @@ export async function runOrderWorkerOnce(log?: (m: string) => void): Promise<voi
           if (chk.providerRef && !o.payout_provider_ref) await setOrderPayoutProviderRef(o.id, chk.providerRef);
 
           if (chk.status === 'paid') {
+            // payout_utr is now RENDERED TO THE PAYER as the reference their payee's bank will
+            // show. '<provider>:<orderRef>' is an internal join key that means nothing at a bank
+            // counter and leaks which vendor settled. Prefer the vendor's own payout reference,
+            // falling back to the order reference, which at least identifies the payment.
             await claimOrderPayout({
               orderId: o.id,
               merchantId: o.merchant_id!,
-              reference: `${provider.id}:${o.reference_code}`,
+              reference: chk.providerRef ?? o.reference_code,
               windowMs: DISPUTE_WINDOW_MS,
             });
             log?.(`order ${o.id} fiat leg disbursed via ${provider.id}`);
@@ -279,7 +299,7 @@ export async function runOrderWorkerOnce(log?: (m: string) => void): Promise<voi
 
       // Delayed: slow SIM LPs recover and release; everyone else — including a silent real merchant
       // (behavior null) — escalates to review at the SLA, then reroutes or refunds below.
-      if (o.resolution === 'delayed') {
+      if (o.resolution === 'delayed' && !heldLive) {
         if (behavior === 'slow' && elapsed >= SIM_DELAY_MS) {
           await release();
           log?.(`order ${o.id} → funds_released (slow LP recovered)`);
@@ -292,8 +312,13 @@ export async function runOrderWorkerOnce(log?: (m: string) => void): Promise<voi
 
       // Under review past SLA: M3 silent auto-failover — re-route to the next-best LP first; only make
       // the user whole (refund) once no candidate is left or the attempt cap is reached.
-      if (o.resolution === 'under_review' && slaReached) {
-        const rerouted = await rerouteOrder({ orderId: o.id, payoutMethod: o.payout_method ?? 'UPI', amountUsdc });
+      if (o.resolution === 'under_review' && slaReached && !heldLive) {
+        const rerouted = await rerouteOrder({
+          orderId: o.id,
+          payoutMethod: o.payout_method ?? 'UPI',
+          amountUsdc,
+          currentMerchantId: o.merchant_id,
+        });
         if (rerouted) {
           log?.(`order ${o.id} → rerouted (failover)`);
         } else {

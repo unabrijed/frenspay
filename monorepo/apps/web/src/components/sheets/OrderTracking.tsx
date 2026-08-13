@@ -15,7 +15,7 @@ import { Grab, SheetBody, SheetHeader, Spacer } from '@/components/ui/primitives
 import { Pressable, View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { fiatRaw } from '@/lib/money';
-import { colors, type } from '@/lib/theme';
+import { colors, fonts, radii, type } from '@/lib/theme';
 import { usePayStore } from '@/store/usePayStore';
 
 const STEPS: { state: OrderState; label: string; sub: string }[] = [
@@ -117,6 +117,18 @@ export function OrderTracking() {
   if (order.state === 'completed') {
     return (
       <Outcome title="Paid" headline={`${fiatRaw(order.quote.amountInr, order.quote.currency)} paid`} inst="Paid from your balance" onClose={close}>
+        {/* The reference the payee's own bank shows against the credit. Standing at a counter, this
+            is the thing that ends the conversation — the shopkeeper matches it and you leave. A UTR
+            identifies the payment, not who sent it, so showing it keeps the LP invisible. */}
+        {order.payoutUtr ? (
+          <Pressable
+            onPress={() => void navigator.clipboard?.writeText(order.payoutUtr!)}
+            style={({ pressed }) => [styles.utr, pressed ? { opacity: 0.7 } : null]}
+          >
+            <Txt style={type.inst}>Reference for {order.quote.payoutName ?? 'them'}, tap to copy</Txt>
+            <Txt style={{ ...fonts.mono400, fontSize: 17, color: colors.ink, marginTop: 2 }}>{order.payoutUtr}</Txt>
+          </Pressable>
+        ) : null}
         {/* One-tap feedback — never names the merchant (the LP stays invisible per "just pay"). */}
         {order.feedbackUp === undefined ? (
           <View style={styles.feedback}>
@@ -201,6 +213,7 @@ const styles = {
   banner: { backgroundColor: colors.inkSoft, borderRadius: 16, padding: 16, marginBottom: 6 },
   steps: { marginTop: 8 },
   cta: { gap: 13, alignItems: 'center' },
+  utr: { alignItems: 'center', marginTop: 14, padding: 12, borderRadius: radii.card, backgroundColor: colors.surfaceLow },
   feedback: { alignItems: 'center', gap: 10, marginTop: 14 },
   thumbs: { flexDirection: 'row', gap: 28 },
   thumb: { padding: 8 },

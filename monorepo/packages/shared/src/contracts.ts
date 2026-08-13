@@ -1,3 +1,5 @@
+import type { KybStatus } from './kyb';
+
 // contracts.ts — the client/server contract shared by mobile and backend.
 // Mirrors the "thin interface" seam from backend-architecture.md so the same
 // types describe the mock providers (today) and the real Railway API (Phase 1).
@@ -120,23 +122,89 @@ export interface MeResponse {
 
 /* ---- merchant (LP) DTOs ---- */
 
+/** One step in the business check, for the merchant's own timeline. */
+export interface KybEvent {
+  fromStatus: string | null;
+  toStatus: string;
+  event: string;
+  /** Reviewer note when there is one — the same text as MerchantProfile.kybNote at that moment. */
+  note?: string;
+  createdAt: string; // ISO 8601
+}
+
 export interface MerchantProfile {
   id: string;
   name: string;
-  kybStatus: 'pending' | 'approved' | 'rejected';
+  kybStatus: KybStatus;
+  /** Reviewer's reason for a rejection or a more-info request — written to be READ BY THE MERCHANT.
+   *  "rejected" with no reason is not a decision anyone can act on. */
+  kybNote?: string;
+  /** What they submitted, so the form can be re-shown filled in when we ask for more. */
+  kybFields?: Record<string, string>;
+  kybSubmittedAt?: string; // ISO 8601
+  /** Append-only timeline of the business check, newest first. */
+  kybEvents?: KybEvent[];
   status: 'online' | 'offline' | 'suspended';
   payoutRail: PayoutMethod;
   treasuryAddress: string;
+  /** ISO 3166-1 alpha-2 of the corridor this LP serves. Routing filters on it, so an LP is never
+   *  offered an order they could not pay. Fixed at application time. */
+  country: string;
   /** Staked USDC — skin in the game. Slashed on an upheld dispute; below the floor the LP is
    *  auto-suspended out of routing. */
   bondUsdc: string;
   minBondUsdc: string;
-  /** How much the LP can have in flight at once. */
+  /** How much the LP says they can have in flight at once. Their own claim — see maxFloatUsdc. */
   floatUsdc: string;
+  /** What that claim is actually worth: bond × the tier's leverage. Routing uses
+   *  min(floatUsdc, maxFloatUsdc), so a float declared above this buys nothing — surfaced so the
+   *  LP can see WHY their capacity is capped and that staking more is the lever. */
+  maxFloatUsdc: string;
+  /** Performance tier (1–3), computed from live signals. Sets leverage and the head start. */
+  tier: number;
+  /** An open stake-withdrawal request. The bond is already debited; a human releases the USDC. */
+  pendingWithdrawal?: { id: string; amountUsdc: string; requestedAt: string };
+  /** The LP's take off the mid rate, in basis points. Also the routing `cost` signal. */
+  spreadBps: number;
   /** Live smoothed reputation signals (fractions 0–1) — shown only to the merchant themselves. */
   successRate: number;
   disputeRate: number;
   positiveRate: number;
+}
+
+/**
+ * What has settled to this LP over a window. Deliberately NOT a profit figure: their margin depends
+ * on what the fiat leg cost them at their own bank, which we cannot see. These are the two sides we
+ * do know, and the LP does the subtraction against a cost basis only they have.
+ */
+export interface MerchantEarnings {
+  windowDays: number;
+  /** Completed orders in the window. */
+  settled: number;
+  /** USDC actually released to their treasury (escrow minus the platform's cut). */
+  usdcIn: string;
+  /** Fiat they paid out, in `currency`. */
+  fiatOut: string;
+  currency: string;
+}
+
+/** A dispute raised against this LP — what it was, and how it went. */
+export interface MerchantDispute {
+  id: string;
+  orderId: string;
+  referenceCode: string;
+  reason?: string;
+  status: 'open' | 'resolved';
+  /** 'upheld' means the payer was refunded and this LP's bond was fined. */
+  resolution?: 'upheld' | 'rejected';
+  amountUsdc: string;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+export interface MerchantLedgerResponse {
+  earnings: MerchantEarnings;
+  disputes: MerchantDispute[];
 }
 
 /** One order assigned to this merchant, flattened for the queue screen (fiat leg + payee). */
@@ -158,6 +226,15 @@ export interface MerchantOrder {
   /** When the escrow auto-releases (dispute window) or when the claim SLA runs out. */
   expiresAt?: string; // ISO 8601
   createdAt: string; // ISO 8601
+  /** True for orders routed to this LP; false for open-pool offers they could still take. */
+  mine: boolean;
+  /** Set once someone has committed to paying this order. While null it is up for grabs, and
+   *  `payoutDestination` is absent — nobody learns who to pay before they've taken it. */
+  lockedAt?: string; // ISO 8601
+  /** When an unpaid lock lapses and the order returns to the pool. */
+  lockExpiresAt?: string; // ISO 8601
+  /** When the routed LP's exclusive window ends and the rest of the pool can take it. */
+  offerWidensAt?: string; // ISO 8601
 }
 
 export interface MerchantOrdersResponse {
@@ -524,6 +601,10 @@ export interface Order {
   /** Set once a real (human) merchant reports paying the fiat leg. The order stays
    *  `payment_detected` while the dispute window runs; this is what says "the LP claims it paid". */
   payoutClaimedAt?: string; // ISO 8601
+  /** The payee's bank reference for the fiat leg, once paid. Shown to the payer on completion: at a
+   *  counter it is what the shopkeeper can match against their own credit. A UTR identifies the
+   *  payment, not who sent it, so it reveals nothing about who settled. */
+  payoutUtr?: string;
   /** The payer's one-tap 👍/👎 after completion; absent = not yet answered. */
   feedbackUp?: boolean;
   createdAt: string; // ISO 8601
@@ -683,7 +764,7 @@ export interface AdminMerchant {
   id: string;
   name: string;
   status: 'online' | 'offline' | 'suspended';
-  kybStatus: 'pending' | 'approved' | 'rejected';
+  kybStatus: KybStatus;
   payoutRail: string;
   bondUsdc: string;
   floatUsdc: string;
@@ -785,7 +866,11 @@ export interface AdminActionsResponse {
 
 /* admin write requests */
 export interface AdminKybRequest {
-  decision: 'approve' | 'reject';
+  /** 'review' claims it (so a second reviewer sees someone is on it); 'more_info' asks the merchant
+   *  for something and lets them resubmit. */
+  decision: 'approve' | 'reject' | 'review' | 'more_info';
+  /** Shown to the MERCHANT verbatim. Required for anything that isn't an approval. */
+  note?: string;
 }
 
 export interface AdminMerchantStatusRequest {
