@@ -24,7 +24,8 @@ import {
   toBaseUnits,
   USDC_DECIMALS,
 } from '../src/units';
-import { fiatRaw, fiatSymbol, inrRaw, rateLabel } from '../src/money';
+import { currencyForCountry } from '../src/currencyCodes';
+import { fiatRaw, fiatSymbol, inrRaw, isDisplayCurrency, rateLabel, secondaryCurrency } from '../src/money';
 // The backend's wire-number seam. Imported across the workspace boundary on purpose: the rounding
 // law is one law, and it must hold on both sides of it.
 import { amt, roundDown, roundUp } from '../../../apps/backend/src/lib/amount';
@@ -260,6 +261,51 @@ const backendSrc = join(ROOT, 'apps/backend/src');
 const hits = grepTs(backendSrc, 'setTypeParser');
 assert.equal(hits.length, 0, `setTypeParser found in ${hits.join(', ')} — pg numeric must stay a string`);
 ok('nobody has taught pg to parse numeric as a float');
+
+/* ---- how many currencies the balance is written in (Home hero + Activity summary) ---- */
+// The bug this replaced: display currency defaulted to INR, so an Indian user's home screen showed
+// the identical rupee figure twice — once as the balance, once as a "local" conversion of it.
+{
+  const rates = { INR: 87.55, IDR: 16_500 };
+  assert.equal(secondaryCurrency('USD', 'INR', rates), 'INR', 'dollars + rupees: two lines');
+  assert.equal(secondaryCurrency('INR', 'INR', rates), null, 'already reading in rupees: one line');
+
+  // The fallback. Thailand has a rail, so currencyForCountry answers 'THB' — but nothing prices it
+  // yet. Rather than lose the second line, it becomes dollars, which are always available because
+  // the balance IS dollars. Whether that shows depends entirely on what the FIRST line already says.
+  assert.equal(secondaryCurrency('INR', 'THB', rates), 'USD', 'unpriceable local: fall back to dollars');
+  assert.equal(secondaryCurrency('IDR', '', rates), 'USD', 'no rail at all: same fallback');
+  assert.equal(secondaryCurrency('USD', 'THB', rates), null, 'fallback IS the preferred currency: one line');
+  assert.equal(secondaryCurrency('USD', '', rates), null, 'no local, already in dollars: one line');
+  ok('an unpriceable local currency falls back to dollars, and collapses only when that repeats the first line');
+
+  // Where `local` comes from. This used to read the rails registry, so a country with no fpay
+  // payment rail reported NO currency — which is the wrong reason to withhold a conversion. The
+  // gate is whether we can price it, and nothing else.
+  assert.equal(currencyForCountry('IN'), 'INR');
+  assert.equal(currencyForCountry('ID'), 'IDR');
+  assert.equal(currencyForCountry('JP'), 'JPY', 'no rail in Japan, but yen is still what they spend');
+  assert.equal(currencyForCountry('US'), 'USD');
+  assert.equal(currencyForCountry(''), '', 'country is empty until /me lands');
+  assert.equal(currencyForCountry('in'), '', 'ISO codes are upper-case; a lower-case one is not a match');
+  ok('the local currency comes from where you are, not from where fpay has a rail');
+
+  // End to end, and the reason this change is invisible today: Japan resolves to a real currency
+  // now, but nothing prices JPY, so it still falls back to the dollars already on screen.
+  assert.equal(secondaryCurrency('USD', currencyForCountry('JP'), rates), null, 'JPY unpriceable → USD → same as primary');
+  assert.equal(secondaryCurrency('USD', currencyForCountry('IN'), rates), 'INR', 'India unchanged');
+  assert.equal(secondaryCurrency('USD', currencyForCountry('US'), rates), null, 'dollars beneath dollars');
+  ok('resolving more countries changes nothing until their currency is priceable');
+
+  // Anything offerable as a display currency must be priceable, or picking it strands the user on
+  // a screen full of NaN. This is the assert that fires if someone widens the union alone.
+  for (const c of ['INR', 'IDR']) {
+    assert.ok(isDisplayCurrency(c), `${c} must be a display currency`);
+    assert.ok(rates[c as keyof typeof rates] != null, `display currency ${c} has no client fallback rate`);
+  }
+  assert.equal(isDisplayCurrency('THB'), false, 'THB is a rail currency, not yet a display one');
+  ok('every display currency has a rate to be displayed at');
+}
 
 function grepTs(dir: string, needle: string): string[] {
   const out: string[] = [];
