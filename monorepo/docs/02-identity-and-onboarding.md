@@ -85,6 +85,8 @@ objects, not derived strings):
 - **Three codes, shown once.** Minted at signup, returned by `/me` only until
   `POST /me/invites/ack` stamps `users.invites_revealed_at` — then never again. Settings shows
   counts only. The admin console is the only place a code stays readable (why they're plain text).
+  The reveal lives at `/invites`, reached from the tabs guard — deliberately outside `/onboarding/*`,
+  since it is not a step in the chain.
 - **Admin mints, lists, revokes** (`/admin/invites`); owner-less codes are *house* codes,
   constrained by nobody's allowance. Revoke = `revoked_at` timestamp, never a delete.
 - ✅ **FREN remint (code shipped 2026-08-13; cutover = Bridge runs `scripts/remint-invites.ts`):**
@@ -142,8 +144,9 @@ not code. Testing runbook: [10-ops-and-roadmap](10-ops-and-roadmap.md).
   `/me/invites/ack`, `/users/resolve`, `/me/phone`, `/me/country`), `routes/waitlist.ts` (the
   f-list door), `db/queries.ts` (`upsertUserByPrivyDid`, `joinWaitlistWithCode`, `mintCodesFor`,
   `canonicalHandle`, `normalizePhone`), `services/kyc/*`.
-- Web: `src/services/privy/PrivyBridge.tsx`, `app/onboarding/{faceid,handle,invites}/page.tsx`,
-  `app/(tabs)/layout.tsx` (one-look reveal guard), `components/sheets/identity.tsx`.
+- Web: `src/services/privy/PrivyBridge.tsx`, `app/onboarding/{faceid,handle}/page.tsx`,
+  `app/invites/page.tsx` (the one look), `app/(tabs)/layout.tsx` (the reveal guard),
+  `components/sheets/identity.tsx`.
 - Admin: `src/app/invites/page.tsx`, `src/app/users/page.tsx`.
 - Self-checks: `apps/backend/scripts/check-invites.ts` (pure) · `check-flist-gate.ts` (needs DB).
 - Schema: `users`, `wallets`, `invite_codes` — [09-data-model](09-data-model.md).

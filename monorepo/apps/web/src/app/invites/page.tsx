@@ -7,6 +7,8 @@
 // Reached from the tabs layout guard rather than from a step in the onboarding chain, because the
 // codes can appear on several paths — a new signup finishing funding, the mainnet fund-skip, or an
 // account that predates invite codes getting minted three on its next /me. One entrance, one guard.
+// Hence /invites and not /onboarding/invites: the route used to sit in the onboarding namespace,
+// which made a screen that is explicitly NOT a step look like one.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
