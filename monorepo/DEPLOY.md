@@ -69,7 +69,19 @@ variables live per Vercel project (see the block above); web's `ACCESS_KEY` is d
     what it is for, and it is the same launch switch described in the Vercel block above.
   - Keep both only while the deploy itself is meant to be private (a build nobody outside the team
     should reach), and accept that invites are inert until you unset it.
-- Set `ADMIN_EMAILS` (bare name in prod) before the console has a second operator — see the
-  root-admins section in `DEPLOY.stage.md` for why it is the lockout recovery path.
+- **Bootstrap the first admin, in this order.** Not hardening for later — the console is unreachable
+  until both steps are done, and doing them backwards fails in a way that reads like a bug (a 401
+  with no explanation, or your own signup asking you for an invite code).
+  1. Set the **bare** `ADMIN_EMAILS` on the Railway production service (prod takes no prefix, so
+     `STAGE_ADMIN_EMAILS` here does nothing). Wait for the redeploy.
+  2. Sign into **web** once with that address and pick a handle. The console never calls
+     `/auth/sync` — only web does — so this is the only way its operator's row gets created, and it
+     is what writes the Privy-verified email that `ADMIN_EMAILS` matches against.
+
+  The order is load-bearing: the invite gate exempts root admins by checking `ADMIN_EMAILS` **during
+  that sync**, so if the variable isn't live yet, your own signup is treated as an ordinary one and
+  is refused with `invite_required` on any non-empty directory. Note web sits behind `ACCESS_KEY`
+  until you unset it, so you need that key to do step 2 at all. Why this exists at all:
+  the root-admins section in `DEPLOY.stage.md`.
 - Landing needs only `NEXT_PUBLIC_API_URL`. `NEXT_PUBLIC_APP_URL` is no longer read — a code is spent
   joining the f list, not handed off to the app — so remove it if it is already set.

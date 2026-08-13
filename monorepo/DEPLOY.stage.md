@@ -115,19 +115,25 @@ effectively inert and the poller did the work — on mainnet it genuinely functi
 devnet-era webhook exists at the same URL, delete it in the Helius dashboard first (registration
 is idempotent by URL and would report "already registered").
 
-## Required once the console has more than one operator: root admins
+## Required before the console has its FIRST operator: root admins
 
 ```
 STAGE_ADMIN_EMAILS=unabrijed@gmail.com
 ```
 
+**Two steps, and the order is load-bearing.** Set this variable, wait for the redeploy, and only
+then sign into **web** once with that address. The console never calls `/auth/sync` — only web does
+— so that signin is the only thing that creates the operator's row and writes the Privy-verified
+`users.email` this matches against. Backwards, the signup is treated as ordinary and refused with
+`invite_required`, because the invite gate checks `ADMIN_EMAILS` *during* the sync in order to
+exempt root admins. Skip both and the console answers 401 (no row at all) rather than 403.
+
 Comma-separated Privy login addresses that are admin regardless of `users.role`, and that the
 console refuses to demote. Everyone else is promoted from Admin → Users. This exists as the lockout
 recovery path: the demote guards mean a bad click can't strip the last admin, and if one somehow
-does, the env var still lets someone in without a psql session.
-
-Matched against `users.email`, which `/auth/sync` now fills from Privy — so an operator has to have
-signed into the app at least once before the match can work.
+does, the env var still lets someone in without a psql session — which is also why a root admin
+skips the invite gate. Codes are minted from the console, so needing one to reach the console you
+are locked out of would be a circle.
 
 ## Optional: waitlist / referral emails (Resend)
 
