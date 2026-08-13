@@ -39,15 +39,19 @@ export async function authPreHandler(req: FastifyRequest, _reply: FastifyReply):
   }
 }
 
-function unauthorized(): Error & { statusCode?: number } {
-  const err = new Error('unauthorized') as Error & { statusCode?: number };
+function unauthorized(message = 'unauthorized'): Error & { statusCode?: number } {
+  const err = new Error(message) as Error & { statusCode?: number };
   err.statusCode = 401;
   return err;
 }
 
-/** Throw 401 unless the request maps to a DB user. */
+/** Throw 401 unless the request maps to a DB user.
+ *  A verified privyDid with no userId is the one 401 worth naming: the token is FINE and the account
+ *  simply doesn't exist on this environment (nothing has run /auth/sync for it — and the console
+ *  never does, only web). Identical to a rejected token otherwise, which is a bare 401 with nothing
+ *  to go on; that ambiguity has now cost an evening on prod and an investigation on local. */
 export function requireUserId(req: FastifyRequest): string {
-  if (!req.userId) throw unauthorized();
+  if (!req.userId) throw unauthorized(req.privyDid ? 'no_account' : 'unauthorized');
   return req.userId;
 }
 
