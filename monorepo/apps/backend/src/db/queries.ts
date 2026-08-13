@@ -888,7 +888,11 @@ function toQuote(r: QuoteRow): Quote {
     etaMaxSecs: r.eta_max_secs,
     payoutMethod: r.payout_method,
     routeQuality: r.route_quality,
-    merchantName: r.merchant_name ?? 'Best route',
+    // Never the LP's real name on a payer-facing DTO. The payer must not perceive that a person
+    // settles their payment at all — and under the lock the name would be wrong anyway, since
+    // merchant_id is only the provisional holder until someone takes it. The real name stays on
+    // the admin DTOs, which is where it belongs.
+    merchantName: 'Best route',
     payoutDestination: r.payout_destination ?? undefined,
     payoutName: r.payout_name ?? undefined,
     quotedAt: r.created_at.getTime(),
@@ -1004,6 +1008,7 @@ interface OrderJoinRow {
   amount_usdc: string;
   reference_code: string;
   payout_claimed_at: Date | null;
+  payout_utr: string | null;
   feedback_up: boolean | null;
   created_at: Date;
   updated_at: Date;
@@ -1027,7 +1032,7 @@ interface OrderJoinRow {
 
 const ORDER_SELECT = `
   select o.id, o.user_id, o.state, o.resolution, o.amount_usdc, o.reference_code,
-         o.payout_claimed_at, o.feedback_up, o.created_at, o.updated_at, o.quote_id,
+         o.payout_claimed_at, o.payout_utr, o.feedback_up, o.created_at, o.updated_at, o.quote_id,
          q.direction as q_direction, q.currency as q_currency, q.amount_inr as q_amount_inr, q.amount_usdc as q_amount_usdc,
          q.rate as q_rate,
          q.eta_min_secs as q_eta_min_secs, q.eta_max_secs as q_eta_max_secs,
@@ -1051,7 +1056,11 @@ function toOrder(r: OrderJoinRow, events?: OrderEvent[]): Order {
     etaMaxSecs: r.q_eta_max_secs,
     payoutMethod: r.q_payout_method,
     routeQuality: r.q_route_quality,
-    merchantName: r.merchant_name ?? 'Best route',
+    // Never the LP's real name on a payer-facing DTO. The payer must not perceive that a person
+    // settles their payment at all — and under the lock the name would be wrong anyway, since
+    // merchant_id is only the provisional holder until someone takes it. The real name stays on
+    // the admin DTOs, which is where it belongs.
+    merchantName: 'Best route',
     payoutDestination: r.q_payout_destination ?? undefined,
     payoutName: r.q_payout_name ?? undefined,
     quotedAt: r.q_created_at.getTime(),
@@ -1068,6 +1077,10 @@ function toOrder(r: OrderJoinRow, events?: OrderEvent[]): Order {
     merchantName: quote.merchantName,
     payoutMethod: r.q_payout_method,
     payoutClaimedAt: r.payout_claimed_at?.toISOString(),
+    // The reference the payee's own bank will show against the credit. Standing at a counter this
+    // is the single most useful thing on the screen — it's what the shopkeeper can match. An NPCI
+    // UTR identifies the payment, not the payer, so it reveals nothing about the LP.
+    payoutUtr: r.payout_utr ?? undefined,
     feedbackUp: r.feedback_up ?? undefined,
     createdAt: r.created_at.toISOString(),
     updatedAt: r.updated_at.toISOString(),

@@ -16,6 +16,19 @@ export interface RankedMerchant {
   availableFloat: number; // float − in-flight commitments
 }
 
+/**
+ * How recently an LP must have been seen for us to believe they'll act on an order now.
+ *
+ * `avg_completion_secs` is a historical average over orders this LP eventually completed. It is a
+ * fine ranking signal and a bad promise: an LP who averages 90 seconds while awake averages nothing
+ * at all while asleep, and quoting their history as an ETA tells the payer a number that was never
+ * true of the order in front of them.
+ */
+export const WARM_WINDOW_MS = 120_000;
+
+export const isWarm = (m: MerchantRow): boolean =>
+  m.last_seen_at != null && Date.now() - m.last_seen_at.getTime() < WARM_WINDOW_MS;
+
 // Reliability-weighted, matching the architecture's "expose certainty". Weights sum to 1. (M4 folded the
 // M3 queue-depth signal into liquidity, since available float already reflects an LP's live load;
 // `rating` is the payer-👍 positive_rate — human-reported, so it gets its own modest term.)

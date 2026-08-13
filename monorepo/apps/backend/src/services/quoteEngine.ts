@@ -11,7 +11,8 @@ import { amt, fiatDecimals, USDC_DECIMALS } from '../lib/amount';
 import { BN, divUp, formatAmount, RATE_DECIMALS } from '../lib/units';
 
 import { getMidRate } from './fxRate';
-import { rankMerchants } from './routing';
+import { MERCHANT_CLAIM_MS } from './orderMachine';
+import { isWarm, rankMerchants } from './routing';
 
 const QUOTE_TTL_MS = 45_000; // the architecture's 45-second lock
 
@@ -82,8 +83,17 @@ export async function createQuote(
     // the spread this quote was struck at are eligible, which is what makes broadcasting safe
     // without ever repricing what the payer was promised.
     spreadBps: merchant.spread_bps,
+    // ETA is a PROMISE, not a ranking signal, so it is told the truth about who is actually
+    // available. `avg_completion_secs` is a historical average over orders this LP finished; an LP
+    // who averages 90 seconds while at their desk averages nothing at all while asleep. If nobody
+    // in the eligible pool is warm right now, the upper bound widens to the human claim SLA — the
+    // real worst case before the escalation ladder takes over — rather than quoting a number that
+    // was never true of this order. The payer sees this BEFORE they commit, which is the only
+    // moment the honesty is worth anything.
     etaMinSecs: merchant.avg_completion_secs,
-    etaMaxSecs: merchant.avg_completion_secs * 2,
+    etaMaxSecs: ranked.some((r) => isWarm(r.merchant))
+      ? merchant.avg_completion_secs * 2
+      : Math.max(merchant.avg_completion_secs * 2, Math.round(MERCHANT_CLAIM_MS / 1000)),
     payoutMethod: input.payoutMethod,
     routeQuality: routeQuality(top.score),
     payoutDestination: input.payoutDestination,

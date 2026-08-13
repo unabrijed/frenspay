@@ -546,6 +546,10 @@ export interface Order {
   /** Set once a real (human) merchant reports paying the fiat leg. The order stays
    *  `payment_detected` while the dispute window runs; this is what says "the LP claims it paid". */
   payoutClaimedAt?: string; // ISO 8601
+  /** The payee's bank reference for the fiat leg, once paid. Shown to the payer on completion: at a
+   *  counter it is what the shopkeeper can match against their own credit. A UTR identifies the
+   *  payment, not who sent it, so it reveals nothing about who settled. */
+  payoutUtr?: string;
   /** The payer's one-tap 👍/👎 after completion; absent = not yet answered. */
   feedbackUp?: boolean;
   createdAt: string; // ISO 8601
