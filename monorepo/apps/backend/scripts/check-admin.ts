@@ -3,7 +3,10 @@
 //   1. users.role: default 'user'; merchant apply mirrors role='merchant' but never demotes an admin;
 //   2. the event-gap fixes: cancel / expiry / payout claim / dispute freeze+unfreeze all write order_events;
 //   3. the admin reads: listOrdersAdmin is cross-user with userHandle, getOrderAdmin is unscoped with
-//      events, adminOverview surfaces the open dispute + the stuck (frozen) order.
+//      events, adminOverview surfaces the open dispute + the stuck (frozen) order;
+//   4. user moderation (docs/24): status default + suspend hides the handle from resolution (but not
+//      from findUserByHandle), rename frees the old handle instantly, the unique index still guards
+//      collisions, and the display-name sanitizer holds the trust-surface line.
 // Run: yarn workspace @fpay/backend tsx scripts/check-admin.ts   (needs DATABASE_URL + `db:init`)
 import { getPool } from '../src/db/pool';
 import {
@@ -11,12 +14,17 @@ import {
   cancelOrder,
   claimOrderPayout,
   expireStaleOrders,
+  findUserByHandle,
   findUserById,
   freezeOrderForDispute,
   getOrderAdmin,
   insertMerchantApplication,
   listOrdersAdmin,
+  resolveHandleToFriend,
+  sanitizeDisplayName,
+  setUserStatus,
   unfreezeOrderAfterDispute,
+  updateUserProfileAdmin,
 } from '../src/db/queries';
 
 let failures = 0;
@@ -122,6 +130,27 @@ async function main() {
 
   await unfreezeOrderAfterDispute(claimed);
   check('unfreeze writes dispute_unfrozen', (await events(pool, claimed)).includes('dispute_unfrozen'));
+
+  // 4) User moderation (docs/24).
+  check("new user defaults to status 'active'", (await findUserById(payer))?.status === 'active');
+  await setUserStatus(payer, 'suspended');
+  check('suspended handle stops resolving (receive-block)', (await resolveHandleToFriend('@zza_payer')) === null);
+  check('…but findUserByHandle still finds it (admin/internal path)', (await findUserByHandle('@zza_payer'))?.id === payer);
+  await setUserStatus(payer, 'active');
+  check('reinstated handle resolves again', (await resolveHandleToFriend('@zza_payer'))?.handle === '@zza_payer');
+
+  const renamed = await updateUserProfileAdmin(payer, { handle: '@zza_renamed', displayName: 'ZZA Payer' });
+  check('admin rename lands with display name', renamed?.handle === '@zza_renamed' && renamed?.display_name === 'ZZA Payer');
+  const claimer = await mkUser('zza:claimer', '@zza_payer');
+  check('freed handle is claimable instantly (accepted risk)', (await findUserById(claimer))?.handle === '@zza_payer');
+  const collision = await updateUserProfileAdmin(claimer, { handle: '@zza_renamed' }).then(
+    () => 'landed',
+    (e: unknown) => ((e as { code?: string }).code === '23505' ? '23505' : 'other'),
+  );
+  check('rename onto a taken handle raises 23505 (route maps to 409)', collision === '23505');
+
+  check('sanitizer: trims/collapses and strips control chars', sanitizeDisplayName(' ZZA\u{0000}  Payer\n') === 'ZZA Payer');
+  check('sanitizer: rejects empty and oversized', sanitizeDisplayName('  ') === null && sanitizeDisplayName('x'.repeat(51)) === null);
 
   await clean(pool);
   await pool.end();
