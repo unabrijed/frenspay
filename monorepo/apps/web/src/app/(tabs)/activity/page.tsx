@@ -8,6 +8,7 @@ import { useState } from 'react';
 
 import { Icons } from '@/components/icons';
 import { TxCard } from '@/components/TxCard';
+import { MaskedAmount } from '@/components/ui/MaskedAmount';
 import { Btn, TextLink } from '@/components/ui/Button';
 import { Empty, Fav, List, Row, RowAmount, RowMeta } from '@/components/ui/primitives';
 import { Skeleton, TxListSkeleton } from '@/components/ui/Skeleton';
@@ -32,6 +33,7 @@ function Requests() {
   const payRequest = usePayStore((s) => s.payRequest);
   const cancelRequest = usePayStore((s) => s.cancelRequest);
   const busy = usePayStore((s) => s.busy);
+  const hideAmounts = usePayStore((s) => s.hideAmounts);
   const open = requests.filter((r) => r.status === 'open');
   if (open.length === 0) return null;
 
@@ -54,12 +56,18 @@ function Requests() {
                   <Txt style={[type.rowTime, { marginTop: 3 }]}>{relTime(r.createdAt)}</Txt>
                 </RowMeta>
                 <RowAmount>
-                  <Txt style={type.rowAmount}>{usd(r.amountUsd)}</Txt>
+                  <MaskedAmount value={usd(r.amountUsd)} style={type.rowAmount} />
                 </RowAmount>
               </Row>
               <View style={styles.reqAction}>
                 {incoming ? (
-                  <Btn label={`Pay ${usd(r.amountUsd)}`} height={42} disabled={busy} onPress={() => void payRequest(r.id)} />
+                  /* No reveal-eye on a button — the row above carries it (docs/05). */
+                  <Btn
+                    label={hideAmounts ? 'Pay ••••' : `Pay ${usd(r.amountUsd)}`}
+                    height={42}
+                    disabled={busy}
+                    onPress={() => void payRequest(r.id)}
+                  />
                 ) : (
                   <TextLink label="Cancel request" onPress={() => void cancelRequest(r.id)} />
                 )}

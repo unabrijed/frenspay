@@ -9,6 +9,7 @@ import { Icons } from '@/components/icons';
 import { RateLock } from '@/components/RateLock';
 import { BackButton } from '@/components/ui/BackButton';
 import { Btn } from '@/components/ui/Button';
+import { MaskedAmount } from '@/components/ui/MaskedAmount';
 import { List, ResultBadge, Row, RowAmount, RowMeta, Spacer } from '@/components/ui/primitives';
 import { View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
@@ -20,6 +21,7 @@ import { usePayStore } from '@/store/usePayStore';
 export default function Detail() {
   const router = useRouter();
   const tx = usePayStore((s) => s.detail) ?? usePayStore((s) => s.transactions[0]);
+  const hideAmounts = usePayStore((s) => s.hideAmounts);
   // No tx to show (e.g. opened directly / no state) → go back. In an effect so it never runs
   // during server prerender, where touching the router would hit `window is not defined`.
   useEffect(() => {
@@ -46,7 +48,8 @@ export default function Detail() {
               <Icons.Send size={24} color={colors.muted} />
             )}
           </ResultBadge>
-          <Txt style={type.result}>{merchant ? inrRaw(tx.rupees ?? 0) : usd(Math.abs(tx.usd))}</Txt>
+          {/* This page bypasses useBalanceDisplay/TxCard, so the eye is honored here explicitly. */}
+          <MaskedAmount value={merchant ? inrRaw(tx.rupees ?? 0) : usd(Math.abs(tx.usd))} style={type.result} />
           <Txt style={[type.reassure, { color: colors.muted }]}>{tx.title}</Txt>
         </View>
 
@@ -59,7 +62,7 @@ export default function Detail() {
         <View style={{ marginTop: 16 }}>
           <List>
             <DetailRow k="Status" v={isAdd ? 'Added' : 'Paid'} accent />
-            <DetailRow k={isAdd ? 'Method' : 'Paid from'} v={isAdd ? 'Apple Pay' : usd(Math.abs(tx.usd))} />
+            <DetailRow k={isAdd ? 'Method' : 'Paid from'} v={isAdd ? 'Apple Pay' : hideAmounts ? '••••' : usd(Math.abs(tx.usd))} />
             <DetailRow k="Date" v="14 Jun, 09:24" />
             <DetailRow k="Reference" v="#577665" />
           </List>

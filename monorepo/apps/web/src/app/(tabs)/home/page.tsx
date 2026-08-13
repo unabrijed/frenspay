@@ -34,6 +34,8 @@ export default function Home() {
   const openDetail = usePayStore((s) => s.openDetail);
   const unread = usePayStore((s) => s.unread);
   const toggleFlip = usePayStore((s) => s.toggleFlip);
+  const hideAmounts = usePayStore((s) => s.hideAmounts);
+  const toggleHideAmounts = usePayStore((s) => s.toggleHideAmounts);
   const { symbol, digits, secondary } = useBalanceDisplay();
   const initial = (handle.replace(/^@/, '')[0] ?? 'U').toUpperCase();
 
@@ -73,6 +75,11 @@ export default function Home() {
               <View className="fp-arrive" style={styles.heroAmt}>
                 <Txt style={[type.heroBalance, styles.symbol]}>{symbol}</Txt>
                 <Txt style={type.heroBalance}>{digits}</Txt>
+                {/* The eye: hides every amount everywhere (docs/05) — the hook masks the balances,
+                    MaskedAmount/TxCard mask the rows. One global switch, per-row reveals under it. */}
+                <Pressable onPress={toggleHideAmounts} style={styles.eyeBtn}>
+                  {hideAmounts ? <Icons.EyeOff size={22} /> : <Icons.Eye size={22} />}
+                </Pressable>
               </View>
               {/* Absent entirely when their local currency IS the one above — see useBalanceDisplay.
                   Tapping it flips which currency is written big (docs/05). */}
@@ -138,6 +145,7 @@ const styles = {
   // padding, not a taller block, so the actions keep their position on a short viewport.
   hero: { alignItems: 'center', marginTop: 6, paddingTop: 34, paddingBottom: 34 },
   heroAmt: { flexDirection: 'row', alignItems: 'baseline' },
+  eyeBtn: { alignSelf: 'center', marginLeft: 10, padding: 4 },
   symbol: { fontSize: 28, color: colors.tertiary, marginRight: 2 },
   secondary: { ...type.sub, fontSize: 16, marginTop: 10 },
 

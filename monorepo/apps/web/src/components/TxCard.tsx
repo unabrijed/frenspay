@@ -3,8 +3,10 @@
 // TxCard — fpay transaction row as an individual tactile card (Home recent + Activity history).
 // Circular type icon · title · time/Settling-Settled status on the left; signed USD (+ optional ≈₹) right.
 import type { CSSProperties } from 'react';
+import { useState } from 'react';
 
 import { Icons } from '@/components/icons';
+import { MaskedAmount } from '@/components/ui/MaskedAmount';
 import { Pressable, View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { inr, usd } from '@/lib/money';
@@ -17,6 +19,10 @@ const clamp1: CSSProperties = { display: 'block', overflow: 'hidden', textOverfl
 export function TxCard({ tx, onPress, showInr = false }: { tx: Txn; onPress?: () => void; showInr?: boolean }) {
   // The live mid rate, not the 87.55 fallback — this row sits next to the real balance.
   const fxRate = usePayStore((s) => s.fxRate);
+  const hideAmounts = usePayStore((s) => s.hideAmounts);
+  // One tap reveals BOTH amount lines of this row (they're the same money) — controlled reveal,
+  // local so it clears when the row unmounts on navigation.
+  const [revealed, setRevealed] = useState(false);
   const merchant = tx.type === 'pay';
   const positive = tx.type === 'add';
   return (
@@ -42,11 +48,15 @@ export function TxCard({ tx, onPress, showInr = false }: { tx: Txn; onPress?: ()
         </View>
       </View>
       <View style={{ alignItems: 'flex-end' }}>
-        <Txt style={[type.rowAmount, positive ? { color: colors.secondary } : null]}>
-          {positive ? '+' : '−'}
-          {usd(Math.abs(tx.usd))}
-        </Txt>
-        {showInr ? <Txt style={[type.rowTime, { marginTop: 2 }]}>{inr(Math.abs(tx.usd), fxRate)}</Txt> : null}
+        <MaskedAmount
+          value={`${positive ? '+' : '−'}${usd(Math.abs(tx.usd))}`}
+          style={[type.rowAmount, positive ? { color: colors.secondary } : null]}
+          revealed={revealed}
+          onToggle={() => setRevealed((v) => !v)}
+        />
+        {showInr && (!hideAmounts || revealed) ? (
+          <Txt style={[type.rowTime, { marginTop: 2 }]}>{inr(Math.abs(tx.usd), fxRate)}</Txt>
+        ) : null}
       </View>
     </Pressable>
   );
