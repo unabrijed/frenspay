@@ -337,12 +337,14 @@ function PeopleSearch({
 
   return (
     <>
+      {/* Contacts lead when the device has them (docs/04: "Send to Contacts" is THE send entry);
+          elsewhere the search box stays the sole — and therefore still leading — element. */}
+      {contactsSupported() ? <ContactsPrompt onAllow={allowContacts} /> : null}
       <SearchBar
         placeholder={onPickAddress ? '@handle, phone, or wallet address' : '@handle or phone'}
         value={query}
         onChangeText={setQuery}
       />
-      {contactsSupported() ? <ContactsPrompt onAllow={allowContacts} /> : null}
       {address.kind !== 'invalid' ? (
         <List>
           <Row onPress={() => onPickAddress?.(address.address, address.kind)}>
