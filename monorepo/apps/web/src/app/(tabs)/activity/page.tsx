@@ -34,14 +34,22 @@ function Requests() {
   const cancelRequest = usePayStore((s) => s.cancelRequest);
   const busy = usePayStore((s) => s.busy);
   const hideAmounts = usePayStore((s) => s.hideAmounts);
-  const open = requests.filter((r) => r.status === 'open');
-  if (open.length === 0) return null;
+  const openSheet = usePayStore((s) => s.open);
+  const openReqs = requests.filter((r) => r.status === 'open');
 
+  // The header always renders: since the home grid slimmed to Add·Send (docs/04), this section IS
+  // where requesting money lives — the entry can't only exist while a request is already open.
   return (
     <>
-      <Txt style={[type.dayLabel, styles.dayLabel]}>Requests</Txt>
+      <View style={styles.reqHeader}>
+        <Txt style={[type.dayLabel, styles.dayLabel]}>Requests</Txt>
+        <Pressable onPress={() => openSheet('request')}>
+          <Txt style={[type.sub, { color: colors.accent }]}>+ New request</Txt>
+        </Pressable>
+      </View>
+      {openReqs.length === 0 ? null : (
       <List style={{ marginBottom: 18 }}>
-        {open.map((r) => {
+        {openReqs.map((r) => {
           const handle = r.counterpartyHandle ?? '';
           const ini = (handle.replace(/^@/, '').charAt(0) || '?').toUpperCase();
           const incoming = r.direction === 'incoming';
@@ -76,6 +84,7 @@ function Requests() {
           );
         })}
       </List>
+      )}
     </>
   );
 }
@@ -194,6 +203,7 @@ const styles = {
   },
   fOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   dayLabel: { marginTop: 4, marginBottom: 9, marginLeft: 2, marginRight: 2 },
+  reqHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginRight: 2 },
   txList: { gap: 10, marginBottom: 6 },
   reqAction: { paddingLeft: 16, paddingRight: 16, paddingBottom: 13, paddingTop: 2 },
   summary: { backgroundColor: colors.surfaceContainer, borderRadius: radii.rlc, padding: 18, marginBottom: 16, boxShadow: shadows.card },

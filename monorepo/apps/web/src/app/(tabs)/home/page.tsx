@@ -94,12 +94,11 @@ export default function Home() {
           )}
         </View>
 
-        {/* four Google-Pay-style actions */}
+        {/* Two actions, no more (docs/04: "Rest UI doesn't need other unnecessary items").
+            Scan stays on the bottom nav's center button; Request lives in Activity's section. */}
         <View style={styles.actions}>
-          <ActionBtn label="Scan" onPress={() => open('scan')} icon={<Icons.QrBig size={24} color={colors.accent} />} />
-          <ActionBtn label="Send" onPress={() => open('send')} icon={<Icons.Send size={24} color={colors.accent} />} />
-          <ActionBtn label="Request" onPress={() => open('request')} icon={<Icons.Request size={24} color={colors.accent} />} />
           <ActionBtn label="Add" onPress={() => open('add')} icon={<Icons.Plus size={24} color={colors.accent} />} />
+          <ActionBtn label="Send" onPress={() => open('send')} icon={<Icons.Send size={24} color={colors.accent} />} />
         </View>
 
         {/* recent activity */}
