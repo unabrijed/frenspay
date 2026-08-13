@@ -58,6 +58,7 @@ import {
   setMerchantKyb,
   setMerchantStatus,
   setUserRole,
+  deleteUser,
   setUserStatus,
   updatePayoutProvider,
   updateUserProfileAdmin,
@@ -389,26 +390,36 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const adminId = await requireAdmin(req);
     const status = req.body?.status;
     const reason = req.body?.reason?.trim();
-    if (status !== 'active' && status !== 'suspended') return reply.code(400).send({ error: 'invalid_status' });
+    if (status !== 'active' && status !== 'suspended' && status !== 'deleted') {
+      return reply.code(400).send({ error: 'invalid_status' });
+    }
+    const blocking = status === 'suspended' || status === 'deleted';
     // Identity edits and bans on a money account need a WHY on the record, not just a who/when.
     if (!reason) return reply.code(400).send({ error: 'reason_required' });
-    if (req.params.id === adminId && status === 'suspended') {
-      return reply.code(409).send({ error: 'cannot_suspend_self' });
+    if (req.params.id === adminId && blocking) {
+      return reply.code(409).send({ error: status === 'deleted' ? 'cannot_delete_self' : 'cannot_suspend_self' });
     }
     const target = await findUserById(req.params.id);
     if (!target) return reply.code(404).send({ error: 'user_not_found' });
-    // Suspending an admin would fight the preHandler's admin exemption and the console's own
-    // recovery story — demote first, then suspend. (Also subsumes self: the caller is an admin.)
-    if (status === 'suspended' && effectiveRole(target) === 'admin') {
-      return reply.code(409).send({ error: 'cannot_suspend_admin' });
+    // Blocking an admin would fight the preHandler's admin exemption and the console's own
+    // recovery story — demote first, then suspend/delete. (Also subsumes self: caller is an admin.)
+    if (blocking && effectiveRole(target) === 'admin') {
+      return reply.code(409).send({ error: status === 'deleted' ? 'cannot_delete_admin' : 'cannot_suspend_admin' });
     }
-    await setUserStatus(req.params.id, status);
-    // A suspended LP must stop earning too: routing reads merchants.status only (never users), and
+    if (status === 'deleted') {
+      // Soft-delete: status flip + instant handle release in one statement (queries.ts deleteUser).
+      // Ledger retained; funds stay the user's own via Privy. No undelete affordance — restoring
+      // would need a rename anyway, so manual SQL remains the rare-recovery escape hatch.
+      await deleteUser(req.params.id);
+    } else {
+      await setUserStatus(req.params.id, status);
+    }
+    // A blocked LP must stop earning too: routing reads merchants.status only (never users), and
     // payouts advance via pollers/webhooks that bypass auth entirely — this cascade is the only
     // gate on NEW orders. One-way on purpose: reinstating the account does not resurrect the
     // merchant; that's a deliberate second decision via /admin/merchants/:id/status.
     let merchantCascade = false;
-    if (status === 'suspended') {
+    if (blocking) {
       const merchant = await getMerchantForUser(req.params.id);
       if (merchant && merchant.status !== 'suspended') {
         await setMerchantStatus(merchant.id, 'suspended');
@@ -417,10 +428,19 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     }
     await insertAdminAction({
       adminUserId: adminId,
-      action: status === 'suspended' ? 'user_suspend' : 'user_reinstate',
+      action: status === 'deleted' ? 'user_delete' : status === 'suspended' ? 'user_suspend' : 'user_reinstate',
       targetKind: 'user',
       targetId: req.params.id,
-      note: [target.handle, reason, merchantCascade ? 'merchant cascade-suspended' : null].filter(Boolean).join('; '),
+      // The pre-delete handle is recorded here ON PURPOSE: after the instant release someone else
+      // can claim it, and this note becomes the only record disambiguating history (same rule as
+      // renames).
+      note: [
+        status === 'deleted' ? `deleted ${target.handle}` : target.handle,
+        reason,
+        merchantCascade ? 'merchant cascade-suspended' : null,
+      ]
+        .filter(Boolean)
+        .join('; '),
     });
     return { ok: true, status };
   });

@@ -36,7 +36,8 @@ export async function authPreHandler(req: FastifyRequest, reply: FastifyReply): 
       // verified you, we asked the DB, and you have no row.
       req.privyDid = privyDid;
       if (user && user.status !== 'active' && effectiveRole(user) !== 'admin') {
-        return reply.code(403).send({ error: 'account_suspended' });
+        // Same gate, two answers: web paints a different full-screen for each (paused vs deleted).
+        return reply.code(403).send({ error: user.status === 'deleted' ? 'account_deleted' : 'account_suspended' });
       }
       if (user) req.userId = user.id;
     } catch (e) {
@@ -54,7 +55,7 @@ export async function authPreHandler(req: FastifyRequest, reply: FastifyReply): 
       // path. An id with no row still sets userId (matches old behavior; routes 404 as before).
       const user = await findUserById(hdr);
       if (user && user.status !== 'active' && effectiveRole(user) !== 'admin') {
-        return reply.code(403).send({ error: 'account_suspended' });
+        return reply.code(403).send({ error: user.status === 'deleted' ? 'account_deleted' : 'account_suspended' });
       }
       req.userId = hdr;
     }

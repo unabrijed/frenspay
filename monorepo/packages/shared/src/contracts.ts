@@ -670,7 +670,7 @@ export interface AdminUser {
   kycStatus: string;
   role: 'user' | 'merchant' | 'admin';
   /** 'suspended' 403s every authed request and hides the handle from resolution. */
-  status: 'active' | 'suspended';
+  status: 'active' | 'suspended' | 'deleted';
   createdAt: string; // ISO 8601
 }
 
@@ -829,7 +829,7 @@ export interface AdminUserPatchRequest {
 /** Suspend/reinstate an account. Reason is mandatory both ways — identity actions on a money
  *  account carry a WHY on the audit record, not just a who/when. */
 export interface AdminUserStatusRequest {
-  status: 'active' | 'suspended';
+  status: 'active' | 'suspended' | 'deleted';
   reason: string;
 }
 
