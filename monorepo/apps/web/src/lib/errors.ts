@@ -26,6 +26,8 @@ const BY_CODE: Record<string, string> = {
   // Not a handle problem, and no amount of renaming fixes it — wallets.address is unique across
   // every account, so this means the wallet is already linked to a different one.
   wallet_in_use: 'That wallet is already linked to another fpay account.',
+  // uq_users_email (0010): one email, one account — admin untangles which keeps the address.
+  email_in_use: 'That email is already linked to another fpay account. Contact support.',
 };
 
 /** Human copy for any thrown error. ApiError → its code; a plain Error whose message is a known code
