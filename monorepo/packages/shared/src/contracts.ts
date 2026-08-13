@@ -665,6 +665,8 @@ export interface AdminUser {
   kycTier: number;
   kycStatus: string;
   role: 'user' | 'merchant' | 'admin';
+  /** 'suspended' 403s every authed request and hides the handle from resolution. */
+  status: 'active' | 'suspended';
   createdAt: string; // ISO 8601
 }
 
@@ -810,6 +812,21 @@ export interface AdminInviteMintRequest {
  *  not granted, and this endpoint must never be able to strip it. */
 export interface AdminUserRoleRequest {
   role: 'user' | 'admin';
+}
+
+/** Support-desk profile edit (docs/24). Renaming frees the old handle INSTANTLY — anyone can claim
+ *  it and saved QR codes follow the claimant. At least one of handle/displayName required. */
+export interface AdminUserPatchRequest {
+  handle?: string;
+  displayName?: string;
+  reason?: string;
+}
+
+/** Suspend/reinstate an account. Reason is mandatory both ways — identity actions on a money
+ *  account carry a WHY on the audit record, not just a who/when. */
+export interface AdminUserStatusRequest {
+  status: 'active' | 'suspended';
+  reason: string;
 }
 
 /** The SUBTRACT-only surface (docs/23 invariant 11): enable/disable + reorder. Rows are created by

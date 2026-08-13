@@ -42,6 +42,8 @@ export interface UserRow {
   phone: string | null;
   country: string | null;
   role: 'user' | 'merchant' | 'admin';
+  /** Account lifecycle. 'suspended' 403s every authed request (admins exempt) — see authPreHandler. */
+  status: 'active' | 'suspended';
   referred_by: string | null;
   /** Stamped once the user has seen their invite codes; after that /me stops returning them. */
   invites_revealed_at: Date | null;
@@ -73,6 +75,13 @@ const HANDLE_BODY_RE = /^[a-z0-9_.]{3,30}$/;
 export function canonicalHandle(raw: string): string | null {
   const body = raw.trim().replace(/^@/, '').toLowerCase();
   return HANDLE_BODY_RE.test(body) ? '@' + body : null;
+}
+
+/** display_name feeds the payee-confirm screen (the anti-wrong-send gate), so writes are cleaned:
+ *  strip control/format chars, collapse whitespace, trim. Null = unusable (empty or >50 chars). */
+export function sanitizeDisplayName(raw: string): string | null {
+  const s = raw.replace(/[\p{Cc}\p{Cf}]/gu, '').replace(/\s+/g, ' ').trim();
+  return s.length >= 1 && s.length <= 50 ? s : null;
 }
 
 const E164_RE = /^\+[1-9]\d{6,14}$/;
@@ -207,18 +216,19 @@ export async function upsertUserByPrivyDid(input: {
       // invited them.
       referredBy = codeRows[0].owner_id;
     }
-    // Handle is IMMUTABLE after first sync (the onboarding UI promises "can't be changed later",
-    // and a freed handle could be re-claimed → payments misdirected). display_name coalesces so a
-    // sync without one doesn't null it out. country is the browser-locale guess — the WEAKEST
-    // source, so it fills only when NULL (verified-phone/manual picks overwrite via /me/country).
-    // email is the opposite: Privy is authoritative, so a fresh value wins and a missing one leaves
-    // what's there. referred_by is NOT in the conflict update: a re-sync must never rewrite lineage.
+    // Handle is user-IMMUTABLE after first sync (the onboarding UI promises "can't be changed
+    // later"; only the admin console renames, and the freed handle is instantly re-claimable — an
+    // accepted risk, docs/24). display_name is deliberately NOT in the conflict update either: the
+    // admin console is its only writer, and a future sync caller must not be able to clobber a
+    // support edit. country is the browser-locale guess — the WEAKEST source, so it fills only when
+    // NULL (verified-phone/manual picks overwrite via /me/country). email is the opposite: Privy is
+    // authoritative, so a fresh value wins and a missing one leaves what's there. referred_by is
+    // NOT in the conflict update: a re-sync must never rewrite lineage.
     const { rows } = await client.query<UserRow>(
       `insert into users (privy_did, handle, display_name, country, email, referred_by)
        values ($1, $2, $3, $4, $5, $6)
        on conflict (privy_did) do update
-         set display_name = coalesce(excluded.display_name, users.display_name),
-             country = coalesce(users.country, excluded.country),
+         set country = coalesce(users.country, excluded.country),
              email = coalesce(excluded.email, users.email)
        returning *`,
       [
@@ -268,8 +278,10 @@ export async function getWalletForUser(userId: string, chain = 'solana'): Promis
 export async function resolveHandleToFriend(handle: string): Promise<Friend | null> {
   const h = canonicalHandle(handle);
   if (!h) return null;
+  // status filter: a suspended account is unresolvable — sends/requests to it fail at resolve,
+  // before money moves. Deliberately NOT in findUserByHandle, which admin/internal lookups share.
   const { rows } = await getPool().query<{ handle: string; display_name: string | null }>(
-    'select handle, display_name from users where handle = $1',
+    `select handle, display_name from users where handle = $1 and status = 'active'`,
     [h],
   );
   return rows[0] ? toFriend(rows[0]) : null;
@@ -1508,6 +1520,10 @@ export async function setMerchantStatus(id: string, status: 'online' | 'offline'
   await getPool().query(`update merchants set status = $2 where id = $1`, [id, status]);
 }
 
+export async function setUserStatus(id: string, status: 'active' | 'suspended'): Promise<void> {
+  await getPool().query(`update users set status = $2 where id = $1`, [id, status]);
+}
+
 /**
  * Onboarding: create a pending-KYB merchant application (offline until approved), owned by a real
  * user. `sim_behavior` is left NULL on purpose — that NULL is what tells the worker this is a human
@@ -2697,9 +2713,10 @@ export async function listUsersAdmin(limit = 50, cursor?: string): Promise<Page<
     kyc_tier: number;
     kyc_status: string;
     role: 'user' | 'merchant' | 'admin';
+    status: 'active' | 'suspended';
     created_at: Date;
   }>(
-    `select id, handle, display_name, email, kyc_tier, kyc_status, role, created_at from users
+    `select id, handle, display_name, email, kyc_tier, kyc_status, role, status, created_at from users
       where ($2::timestamptz is null or (created_at, id) < ($2::timestamptz, $3::uuid))
       order by created_at desc, id desc limit $1`,
     [n + 1, c?.at ?? null, c?.id ?? null],
@@ -2715,6 +2732,7 @@ export async function listUsersAdmin(limit = 50, cursor?: string): Promise<Page<
       kycTier: r.kyc_tier,
       kycStatus: r.kyc_status,
       role: r.role,
+      status: r.status,
       createdAt: r.created_at.toISOString(),
     })),
     nextCursor: rows.length > n && last ? `${last.created_at.toISOString()}|${last.id}` : undefined,
@@ -2823,6 +2841,27 @@ export async function removeDenylistEntry(id: string): Promise<boolean> {
  * column is informational — but informational and wrong is worse than absent, so a demote puts a
  * merchant back to 'merchant'.
  */
+/**
+ * Support-desk edits (admin console only). Handle arrives already canonical + screened — the route
+ * owns validation; this is a plain UPDATE. The freed old handle needs no cleanup: `users_handle_key`
+ * releases on commit and a 23505 from a concurrent claim bubbles to the route's 409. coalesce keeps
+ * untouched fields untouched.
+ */
+export async function updateUserProfileAdmin(
+  id: string,
+  patch: { handle?: string; displayName?: string },
+): Promise<UserRow | null> {
+  const { rows } = await getPool().query<UserRow>(
+    `update users set
+       handle = coalesce($2, handle),
+       display_name = coalesce($3, display_name)
+      where id = $1
+      returning *`,
+    [id, patch.handle ?? null, patch.displayName ?? null],
+  );
+  return rows[0] ?? null;
+}
+
 export async function setUserRole(
   userId: string,
   role: 'user' | 'admin',
