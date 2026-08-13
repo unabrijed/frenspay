@@ -35,6 +35,27 @@ export function mintCode(): string {
  * the alphabet, so mapping them in is unambiguous and saves a support round trip. U is excluded and
  * NOT folded — there is nothing to fold it to.
  */
+/**
+ * Does this /auth/sync have to spend a code? Three ways out, and each is a deliberate carve-out:
+ *
+ *  - an EXISTING user re-syncing has already paid, whenever they joined — grandfathered for free;
+ *  - an EMPTY directory founds itself, or nobody could ever be first;
+ *  - a ROOT ADMIN (named in ADMIN_EMAILS) walks in, because that list IS the lockout recovery path.
+ *    Codes are minted from the console. Requiring one to reach the console you are locked out of is
+ *    a circle, and it left the documented recovery unusable on any non-empty directory.
+ *
+ * Lives here, pure, rather than as a boolean in the route: nothing can reach that branch without
+ * Privy and a database, and a gate bypass that cannot be asserted on is one refactor from silently
+ * opening the door. See scripts/check-invites.ts.
+ */
+export function inviteRequired(o: {
+  isExistingUser: boolean;
+  directoryHasUsers: boolean;
+  isRootAdmin: boolean;
+}): boolean {
+  return !o.isExistingUser && o.directoryHasUsers && !o.isRootAdmin;
+}
+
 export function canonicalInviteCode(raw: string): string | null {
   if (typeof raw !== 'string') return null;
   let body = raw.toUpperCase().replace(/[^0-9A-Z]/g, '');

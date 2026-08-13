@@ -6,7 +6,9 @@
 // different codes onto one, which would let one person's invite redeem another's.
 import assert from 'node:assert/strict';
 
-const { mintCode, canonicalInviteCode, INVITES_PER_USER } = await import('../src/services/invites');
+const { mintCode, canonicalInviteCode, inviteRequired, INVITES_PER_USER } = await import(
+  '../src/services/invites'
+);
 
 // --- shape ---
 const SHAPE = /^FP-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/;
@@ -83,5 +85,34 @@ for (let i = 0; i < 1000; i++) {
   const code = mintCode();
   assert.equal(canonicalInviteCode(code), code, 'a minted code must be its own canonical form');
 }
+
+// --- who has to spend a code ---
+// The door itself. Every carve-out here is one the gate would otherwise close on someone who must
+// get through; the last assert is the one that matters, because a bypass that widens is a directory
+// that is no longer invite-only.
+const OPEN = { isExistingUser: false, directoryHasUsers: true, isRootAdmin: false };
+assert.equal(inviteRequired(OPEN), true, 'an ordinary new signup on a populated directory needs a code');
+assert.equal(
+  inviteRequired({ ...OPEN, isExistingUser: true }),
+  false,
+  'an existing user re-syncing already paid, whenever they joined',
+);
+assert.equal(
+  inviteRequired({ ...OPEN, directoryHasUsers: false }),
+  false,
+  'an empty directory founds itself, or nobody can ever be first',
+);
+assert.equal(
+  inviteRequired({ ...OPEN, isRootAdmin: true }),
+  false,
+  'a root admin walks in — ADMIN_EMAILS is the recovery path, and codes are minted from the console it recovers',
+);
+// Root admin is the ONLY thing that opens the door for a stranger. If a fourth field ever does too,
+// it should have to be written here first.
+assert.equal(
+  inviteRequired({ isExistingUser: false, directoryHasUsers: true, isRootAdmin: false }),
+  true,
+  'nothing else may skip the gate',
+);
 
 console.log('check-invites: ok');

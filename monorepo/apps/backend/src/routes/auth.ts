@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 
 import type { AuthSyncRequest, MeResponse, ResolveHandleResponse } from '@fpay/shared';
 
-import { requirePrivyDid, requireUserId } from '../auth';
+import { isRootAdminEmail, requirePrivyDid, requireUserId } from '../auth';
 import { config } from '../envConfig';
 import {
   canonicalHandle,
@@ -27,7 +27,7 @@ import {
   upsertWalletForChain,
 } from '../db/queries';
 import { screenHandle } from '../services/compliance';
-import { canonicalInviteCode } from '../services/invites';
+import { canonicalInviteCode, inviteRequired } from '../services/invites';
 import { getLinkedEmail, getLinkedPhone, privyConfigured } from '../services/privy';
 
 import { toMerchantProfile } from './merchant';
@@ -56,13 +56,23 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     // Browser-locale country guess (weakest source — the upsert only fills it when NULL).
     const rawCountry = req.body?.country ?? '';
     const country = /^[A-Za-z]{2}$/.test(rawCountry) ? rawCountry.toUpperCase() : undefined;
+    // Privy is the only source of a verified address, and it is what ADMIN_EMAILS matches against.
+    // Best-effort: a Privy hiccup must not block a signup, so a failure here just leaves it null.
+    // Read BEFORE the invite gate because the gate now asks whether this address is a root admin —
+    // and a null here simply means "not one", i.e. the hiccup fails toward the gate, never past it.
+    const email = privyConfigured() ? await getLinkedEmail(privyDid).catch(() => null) : null;
     // Invite gate: fires only when this sync CREATES the account (no row for this DID → authPreHandler
-    // left req.userId unset), so existing users re-sync untouched — grandfathered for free. An empty
-    // directory founds itself (first user on a fresh DB). The code is validated and BURNED inside
-    // the upsert transaction, not here: checking it here and spending it there would leave a window
-    // where two people both pass this line.
+    // left req.userId unset). Who skips it and why is inviteRequired() in services/invites.ts. The
+    // code is validated and BURNED inside the upsert transaction, not here: checking it here and
+    // spending it there would leave a window where two people both pass this line.
     let inviteCode: string | undefined;
-    if (!req.userId && (await hasAnyUsers())) {
+    if (
+      inviteRequired({
+        isExistingUser: Boolean(req.userId),
+        directoryHasUsers: await hasAnyUsers(),
+        isRootAdmin: isRootAdminEmail(email),
+      })
+    ) {
       const canonicalCode = canonicalInviteCode(req.body?.inviteCode ?? '');
       // No code at all reads differently to a bad one — the first is "you need an invite", the
       // second is "that isn't one". Beyond that the server never says WHY a code failed.
@@ -71,9 +81,6 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       }
       inviteCode = canonicalCode;
     }
-    // Privy is the only source of a verified address, and it is what ADMIN_EMAILS matches against.
-    // Best-effort: a Privy hiccup must not block a signup, so a failure here just leaves it null.
-    const email = privyConfigured() ? await getLinkedEmail(privyDid).catch(() => null) : null;
     let user;
     try {
       user = await upsertUserByPrivyDid({
