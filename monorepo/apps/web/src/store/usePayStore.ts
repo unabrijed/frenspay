@@ -147,6 +147,9 @@ interface PayState {
    *  every session — set by the api-layer hook, cleared by the next successful load()/refresh(),
    *  so a reinstated account heals itself on its next poll. Renders SuspendedGate full-screen. */
   suspended: boolean;
+  /** Admin soft-deleted the account (403 account_deleted). Ephemeral, same seam as `suspended` —
+   *  distinct because the screen is different: deleted ≠ paused, and funds stay reachable via Privy. */
+  deleted: boolean;
   error: string | null;
   /** Transient snackbar (money-app toast). Shown by ToastHost, set via notify(), auto-clears. */
   toast: { id: number; msg: string; tone: 'error' | 'success' } | null;
@@ -319,6 +322,7 @@ export const usePayStore = create<PayState>()(
       firstLoadDone: false,
       provisioned: false,
       suspended: false,
+      deleted: false,
       error: null,
       toast: null,
       walletAddress: '',
@@ -438,6 +442,7 @@ export const usePayStore = create<PayState>()(
             busy: false,
             firstLoadDone: true,
             suspended: false,
+            deleted: false,
           });
           // AFTER the set above, because which rates we want depends on `country`, which arrives
           // with `me` and is not persisted. Not awaited: the balance paints at the seeded/persisted
@@ -482,6 +487,7 @@ export const usePayStore = create<PayState>()(
               : {}),
             localCurrency: me.localCurrency ?? null,
             suspended: false,
+            deleted: false,
             balanceUSD: bal,
             transactions: txns,
             requests: reqs,

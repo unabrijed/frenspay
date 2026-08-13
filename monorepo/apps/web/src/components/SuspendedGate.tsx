@@ -1,10 +1,12 @@
 'use client';
 
-// SuspendedGate — full-screen "account paused" state, mounted once in the root layout (mirrors
-// ToastHost). Covers EVERY route: once the backend answers 403 account_suspended the api-layer
-// hook flips store.suspended and this paints over whatever screen the user was on — never a
-// silent $0 balance. No balance, no activity, no sign-out (the session is fine; the account
-// isn't). Clears itself when a later load()/refresh() succeeds after reinstatement.
+// SuspendedGate — full-screen account-blocked state, mounted once in the root layout (mirrors
+// ToastHost). Covers EVERY route: once the backend answers 403 account_suspended (or
+// account_deleted) the api-layer hook flips the store flag and this paints over whatever screen
+// the user was on — never a silent $0 balance. No balance, no activity, no sign-out (the session
+// is fine; the account isn't). Clears itself when a later load()/refresh() succeeds after
+// reinstatement. One gate, two states — deleted gets its own copy because the story differs:
+// paused is temporary, deleted is final but the money was never ours to hold.
 import type { CSSProperties } from 'react';
 
 import { Txt } from '@/components/ui/Txt';
@@ -13,13 +15,17 @@ import { usePayStore } from '@/store/usePayStore';
 
 export function SuspendedGate() {
   const suspended = usePayStore((s) => s.suspended);
-  if (!suspended) return null;
+  const deleted = usePayStore((s) => s.deleted);
+  if (!suspended && !deleted) return null;
   return (
     <div style={styles.wrap} role="alert">
-      <Txt style={styles.title}>Your account is paused</Txt>
+      <Txt style={styles.title}>{deleted ? 'This account has been deleted' : 'Your account is paused'}</Txt>
       <Txt style={styles.body}>
-        You can’t send or receive money right now. Contact support to sort it out — your money is
-        safe and stays yours.
+        {deleted
+          ? 'You no longer have access to the app. Your money was always your own — it lives in ' +
+            'your embedded wallet, never with fpay. Contact support if you need help reaching it.'
+          : 'You can’t send or receive money right now. Contact support to sort it out — your money is ' +
+            'safe and stays yours.'}
       </Txt>
     </div>
   );

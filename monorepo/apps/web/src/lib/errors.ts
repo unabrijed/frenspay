@@ -21,6 +21,7 @@ const BY_CODE: Record<string, string> = {
   wallet_not_found: 'Your wallet is still being set up. Try again in a moment.',
   // account lifecycle
   account_suspended: 'Your account is paused. Contact support to sort it out.',
+  account_deleted: 'This account has been deleted. Your money is still yours via your embedded wallet.',
   // signup
   handle_taken: 'That name is already taken. Try another.',
   // Not a handle problem, and no amount of renaming fixes it — wallets.address is unique across
