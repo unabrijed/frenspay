@@ -139,6 +139,10 @@ interface PayState {
    *  persisted); combined with the persisted `onboarded` it gates data fetches so an onboarding user
    *  who is signed in with Privy but not yet synced doesn't fire (and 401) /balance etc. */
   provisioned: boolean;
+  /** Admin froze the account (backend 403 account_suspended on any call). Ephemeral: re-derived
+   *  every session — set by the api-layer hook, cleared by the next successful load()/refresh(),
+   *  so a reinstated account heals itself on its next poll. Renders SuspendedGate full-screen. */
+  suspended: boolean;
   error: string | null;
   /** Transient snackbar (money-app toast). Shown by ToastHost, set via notify(), auto-clears. */
   toast: { id: number; msg: string; tone: 'error' | 'success' } | null;
@@ -308,6 +312,7 @@ export const usePayStore = create<PayState>()(
       busy: false,
       firstLoadDone: false,
       provisioned: false,
+      suspended: false,
       error: null,
       toast: null,
       walletAddress: '',
@@ -404,6 +409,7 @@ export const usePayStore = create<PayState>()(
             unread: notifs.unread,
             busy: false,
             firstLoadDone: true,
+            suspended: false,
           });
           // AFTER the set above, because which rates we want depends on `country`, which arrives
           // with `me` and is not persisted. Not awaited: the balance paints at the seeded/persisted
@@ -423,8 +429,12 @@ export const usePayStore = create<PayState>()(
         try {
           // Rates ride along on every poll, not just load(): a session left open all day kept its
           // boot-time rate and every converted line drifted from the quote the backend would
-          // actually return.
-          const [bal, txns, reqs, notifs] = await Promise.all([
+          // actually return. /me rides along too — identity is admin-mutable now (docs/24), and
+          // without it an open tab served a renamed user's OLD handle in the Receive QR forever
+          // (load() only runs on cold sign-in). Also how suspension/reinstatement reaches an open
+          // tab within one poll.
+          const [me, bal, txns, reqs, notifs] = await Promise.all([
+            api.me(),
             wallet.getBalanceUsd(),
             wallet.getTransactions(),
             wallet.getRequests(),
@@ -435,6 +445,11 @@ export const usePayStore = create<PayState>()(
           // unread badge (the optimistic read-all may not be committed server-side yet).
           const keepInbox = get().sheet === 'notifications' || !notifs;
           set({
+            handle: me.handle,
+            role: me.role ?? 'user',
+            kycTier: me.kycTier,
+            kycStatus: me.kycStatus ?? 'none',
+            suspended: false,
             balanceUSD: bal,
             transactions: txns,
             requests: reqs,

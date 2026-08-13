@@ -63,6 +63,17 @@ export function setSessionRevokedHandler(fn: (() => void) | null): void {
   onSessionRevoked = fn;
 }
 
+let onAccountSuspended: (() => void) | null = null;
+/**
+ * Fired when the backend answers 403 `account_suspended` (admin froze the account — the preHandler
+ * refuses every request, so this can surface from ANY call: load, refresh, sync, a send). One hook
+ * at the API layer beats a catch in each caller; the registered handler flips the store flag that
+ * renders the full-screen "account paused" state instead of a silent $0 dashboard.
+ */
+export function setAccountSuspendedHandler(fn: (() => void) | null): void {
+  onAccountSuspended = fn;
+}
+
 export async function req<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
   const headers: Record<string, string> = {
     'content-type': 'application/json',
@@ -93,6 +104,8 @@ export async function req<T>(path: string, init?: RequestInit, retried = false):
     // `user_not_found` from GET /me. Read off `message` because the backend has no setErrorHandler,
     // so Fastify's default serializer puts our string there and a generic "Unauthorized" in `error`.
     if (payload.message === 'no_account' || payload.error === 'user_not_found') onSessionRevoked?.();
+    // Sent via reply.send() in authPreHandler, so the code is in `error` (not Fastify's `message`).
+    if (payload.error === 'account_suspended') onAccountSuspended?.();
     throw new ApiError(res.status, typeof payload.error === 'string' ? payload.error : `http_${res.status}`, payload);
   }
   return (await res.json()) as T;

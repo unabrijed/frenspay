@@ -9,7 +9,7 @@ import { useCreateWallet, useSignAndSendTransaction, useWallets } from '@privy-i
 import { useEffect, useRef } from 'react';
 
 import { base58encode } from '@/lib/base58';
-import { setAuthToken, setSessionRevokedHandler, setTokenRefresher } from '@/services/api';
+import { setAccountSuspendedHandler, setAuthToken, setSessionRevokedHandler, setTokenRefresher } from '@/services/api';
 import { IS_MAINNET } from '@/services/envConfig';
 import { setActiveSigner } from '@/services/signer';
 import { usePayStore } from '@/store/usePayStore';
@@ -122,6 +122,9 @@ export function PrivyBridge(): null {
         const s = usePayStore.getState();
         if (s.onboarded || s.provisioned) void s.logout();
       });
+      // 403 account_suspended from any call → the full-screen paused state, not a silent $0
+      // dashboard. Cleared by the next successful load()/refresh(), so reinstatement self-heals.
+      setAccountSuspendedHandler(() => usePayStore.setState({ suspended: true }));
       setActiveSigner(
         new PrivySigner(wallet.address, async (bytes) => {
           const { signature } = await signAndSendTransaction({ transaction: bytes, wallet, chain: SOLANA_CHAIN });

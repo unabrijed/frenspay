@@ -19,6 +19,8 @@ const BY_CODE: Record<string, string> = {
   faucet_empty: 'Test funds are temporarily out. Try again shortly.',
   faucet_disabled: 'Adding test money isn’t available here.',
   wallet_not_found: 'Your wallet is still being set up. Try again in a moment.',
+  // account lifecycle
+  account_suspended: 'Your account is paused. Contact support to sort it out.',
   // signup
   handle_taken: 'That name is already taken. Try another.',
   // Not a handle problem, and no amount of renaming fixes it — wallets.address is unique across
