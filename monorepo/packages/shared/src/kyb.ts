@@ -1,0 +1,120 @@
+// kyb.ts — what a business has to tell us before it can settle other people's money, per country.
+//
+// ONE definition, used twice: the web client renders the form from it, and the backend validates
+// against a mirror of it (apps/backend/src/lib/kyb.ts — the backend may only `import type` from this
+// package, so runtime values are copied at the trust boundary; check-rails.ts asserts they agree).
+//
+// Keyed by country because the fields are not translatable. A PAN and a GSTIN mean nothing in
+// Indonesia, and asking an Indonesian LP for one — or worse, accepting a blank — would make the
+// check theatre. A corridor with no entry here cannot submit at all, which is the correct failure:
+// we should not be onboarding businesses in a country whose identifiers we haven't thought about.
+//
+// The identity of the PERSON is already established elsewhere: /merchants/apply requires the same
+// tier-2 vendor KYC that gates cash-out. Everything here is about the BUSINESS and, most
+// importantly, the account the fiat will actually leave from.
+
+export interface KybField {
+  key: string;
+  /** Shown above the input. */
+  label: string;
+  /** Shown under it — what the reviewer needs to see, in the LP's words. */
+  hint?: string;
+  optional?: boolean;
+  /** Validated on BOTH sides. Anchored, case-insensitive, and deliberately loose: a format check
+   *  catches a typo, it does not prove the identifier is real or belongs to this person. Only a
+   *  registry lookup does that, and we don't have one — which is why a human still reads these. */
+  pattern?: string;
+  maxLen?: number;
+}
+
+/**
+ * India. `payoutAccount` is the load-bearing one and the reason this exists at all: the fiat leg is
+ * settled from the LP's OWN bank account, and the documented failure mode for this whole business
+ * shape is exactly that — personal accounts moving third-party money and getting frozen (docs/06,
+ * docs/08). Knowing which account before they start is what makes that reviewable rather than
+ * discoverable afterwards.
+ */
+const INDIA: KybField[] = [
+  { key: 'legalName', label: 'Registered business name', hint: 'Exactly as it appears on your registration', maxLen: 120 },
+  { key: 'entityType', label: 'Business type', hint: 'Sole proprietor, partnership, LLP, private limited', maxLen: 60 },
+  // Ten characters, five letters, four digits, one letter. Every Indian taxpayer has one.
+  { key: 'pan', label: 'PAN', hint: 'Of the business, or yours if you trade as an individual', pattern: '^[A-Za-z]{5}[0-9]{4}[A-Za-z]$' },
+  {
+    key: 'gstin',
+    label: 'GSTIN',
+    hint: 'Only if you’re registered — leave blank if not',
+    optional: true,
+    pattern: '^[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][0-9A-Za-z]{3}$',
+  },
+  { key: 'address', label: 'Registered address', maxLen: 300 },
+  { key: 'contactPhone', label: 'Contact number', hint: 'Where we reach you about a payout that went wrong', maxLen: 20 },
+  {
+    key: 'payoutAccount',
+    label: 'Which account you’ll pay from',
+    hint: 'The UPI ID or bank account the rupees will actually leave. This has to be yours.',
+    maxLen: 120,
+  },
+];
+
+const INDONESIA: KybField[] = [
+  { key: 'legalName', label: 'Registered business name', hint: 'As it appears on your registration', maxLen: 120 },
+  { key: 'entityType', label: 'Business type', hint: 'Perorangan, CV, PT', maxLen: 60 },
+  // Nomor Induk Berusaha — 13 digits, the single business identifier since OSS replaced SIUP/TDP.
+  { key: 'nib', label: 'NIB', hint: 'Your 13-digit business identification number', pattern: '^[0-9]{13}$' },
+  { key: 'npwp', label: 'NPWP', hint: 'Tax number — leave blank if you don’t have one', optional: true, maxLen: 30 },
+  { key: 'address', label: 'Registered address', maxLen: 300 },
+  { key: 'contactPhone', label: 'Contact number', maxLen: 20 },
+  {
+    key: 'payoutAccount',
+    label: 'Which account you’ll pay from',
+    hint: 'The e-wallet or bank account the rupiah will actually leave. This has to be yours.',
+    maxLen: 120,
+  },
+];
+
+/** ISO 3166-1 alpha-2 → the fields that country's LPs must supply. Countries come from rails.ts,
+ *  which is the only country list (invariant 1); this says nothing about which countries exist,
+ *  only what we ask the ones that do. */
+export const KYB_FIELDS: Record<string, KybField[]> = {
+  IN: INDIA,
+  ID: INDONESIA,
+};
+
+/** Lifecycle of a business check. `more_info` is the one that matters: without it the only replies
+ *  available to a reviewer are yes and no, and "no, and I won't say why" is how you lose an LP who
+ *  simply mistyped their PAN. */
+export type KybStatus = 'pending' | 'submitted' | 'under_review' | 'more_info' | 'approved' | 'rejected';
+
+/** True while the merchant is the one who has to act. Drives whether the form is editable. */
+export const kybAwaitingMerchant = (s: KybStatus): boolean => s === 'pending' || s === 'more_info';
+
+/**
+ * States a reviewer can decide FROM. Excludes 'pending' — nothing has been submitted, so there is
+ * nothing to judge, and offering Approve there is how a business nobody has been told anything
+ * about gets approved. Also excludes the two terminals: reopening one is a separate, deliberate act.
+ * Mirrored in apps/backend/src/lib/kyb.ts, which enforces it; this copy is what stops the console
+ * offering a button the server will refuse.
+ */
+export const KYB_DECIDABLE: readonly string[] = ['submitted', 'under_review', 'more_info'];
+
+/**
+ * Validate a submission against a country's spec. Returns the offending field keys, empty if clean.
+ * Shared so the client can red-line a field before a round trip and the server can refuse the same
+ * thing for real — the client copy is a courtesy, this call on the server is the trust boundary.
+ */
+export function validateKyb(country: string, fields: Record<string, unknown>): string[] {
+  const spec = KYB_FIELDS[country];
+  if (!spec) return ['country'];
+  const bad: string[] = [];
+  for (const f of spec) {
+    const raw = fields[f.key];
+    const v = typeof raw === 'string' ? raw.trim() : '';
+    if (!v) {
+      if (!f.optional) bad.push(f.key);
+      continue; // an omitted optional field is not checked against its pattern
+    }
+    if (f.maxLen && v.length > f.maxLen) bad.push(f.key);
+    else if (f.pattern && !new RegExp(f.pattern).test(v)) bad.push(f.key);
+  }
+  return bad;
+}

@@ -2,6 +2,7 @@
 // different person doing a different job (settling other people's payouts), and none of it belongs
 // in the payer's screen state.
 import type {
+  MerchantLedgerResponse,
   MerchantOrder,
   MerchantOrdersResponse,
   PayoutMethod,
@@ -45,6 +46,22 @@ export async function lockOrder(orderId: string): Promise<{ payoutDestination?: 
 /** Hand it back before the timer runs out. Free, on purpose. */
 export async function unlockOrder(orderId: string): Promise<void> {
   await req<{ ok: true }>(`/merchants/orders/${orderId}/unlock`, { method: 'POST' });
+}
+
+/**
+ * Submit (or resubmit) the business details. Validated client-side first purely to save a round
+ * trip on a typo — the server runs the same rules and is the only one that decides.
+ */
+export async function submitMerchantKyb(fields: Record<string, string>): Promise<void> {
+  await req<{ ok: true; kybStatus: string }>('/merchants/kyb', {
+    method: 'POST',
+    body: JSON.stringify({ fields }),
+  });
+}
+
+/** What settled to this LP, and every dispute raised against them. */
+export async function getMerchantLedger(days = 30): Promise<MerchantLedgerResponse> {
+  return req<MerchantLedgerResponse>(`/merchants/ledger?days=${days}`);
 }
 
 /** Where to reach this LP when work lands — the in-app inbox always fires, this is the pocket. */

@@ -6,7 +6,15 @@
 // simultaneous callers, and only Postgres can prove that. The pure half (redaction, predicates
 // present at all) is asserted without a DB in check-routing-math.ts.
 import { getPool } from '../src/db/pool';
-import { claimOrderPayout, expireOrderLocks, listOpenOffers, lockOrder, unlockOrder } from '../src/db/queries';
+import {
+  claimOrderPayout,
+  expireOrderLocks,
+  listMerchantOrders,
+  listOpenOffers,
+  lockOrder,
+  reassignOrderMerchant,
+  unlockOrder,
+} from '../src/db/queries';
 
 let failures = 0;
 function check(name: string, cond: boolean, detail?: string) {
@@ -40,7 +48,7 @@ async function mkOrder(pool: Pool, userId: string, merchantId: string, ref: stri
     `insert into quotes (user_id, merchant_id, direction, currency, amount_inr, amount_usdc, rate,
                          platform_fee_usdc, spread_bps, eta_min_secs, eta_max_secs, payout_method,
                          route_quality, payout_destination, payout_name, expires_at)
-     values ($1,$2,'off_ramp','INR',1000,12,83.3,0.001,$3,60,120,'UPI','high','shop@okaxis',$4, now() + interval '1 hour')
+     values ($1,$2,'spend','INR',1000,12,83.3,0.001,$3,60,120,'UPI','high','shop@okaxis',$4, now() + interval '1 hour')
      returning id`,
     [userId, merchantId, spreadBps, `ZZ-LOCK-${ref}`],
   );
@@ -73,10 +81,10 @@ async function main() {
     const id = await mkOrder(pool, payer, a, 'RACE', 50);
     // Fired together, resolved together — no awaiting in between, so they genuinely contend.
     const results = await Promise.all([
-      lockOrder({ orderId: id, merchantId: a, ttlMs: 300_000 }),
-      lockOrder({ orderId: id, merchantId: b, ttlMs: 300_000 }),
-      lockOrder({ orderId: id, merchantId: b, ttlMs: 300_000 }),
-      lockOrder({ orderId: id, merchantId: a, ttlMs: 300_000 }),
+      lockOrder({ orderId: id, merchantId: a, ttlMs: 300_000, country: 'IN', leverage: 3 }),
+      lockOrder({ orderId: id, merchantId: b, ttlMs: 300_000, country: 'IN', leverage: 3 }),
+      lockOrder({ orderId: id, merchantId: b, ttlMs: 300_000, country: 'IN', leverage: 3 }),
+      lockOrder({ orderId: id, merchantId: a, ttlMs: 300_000, country: 'IN', leverage: 3 }),
     ]);
     const won = results.filter((r) => r !== null);
     check('exactly one of 4 concurrent locks wins', won.length === 1, `${won.length} winners`);
@@ -97,7 +105,7 @@ async function main() {
     check('an unlocked order is visible in the open pool', mine != null);
     check('…but carries no payee', mine?.payout_destination == null && mine?.payout_name == null);
 
-    await lockOrder({ orderId: id, merchantId: b, ttlMs: 300_000 });
+    await lockOrder({ orderId: id, merchantId: b, ttlMs: 300_000, country: 'IN', leverage: 3 });
     const after = await listOpenOffers({
       merchantId: a,
       payoutRail: 'UPI',
@@ -126,7 +134,7 @@ async function main() {
     const id = await mkOrder(pool, payer, a, 'CLAIM', 50);
     const unlockedClaim = await claimOrderPayout({ orderId: id, merchantId: a, reference: 'UTR1', windowMs: 120_000 });
     check('claim refused without a lock', unlockedClaim === false);
-    await lockOrder({ orderId: id, merchantId: a, ttlMs: 300_000 });
+    await lockOrder({ orderId: id, merchantId: a, ttlMs: 300_000, country: 'IN', leverage: 3 });
     const lockedClaim = await claimOrderPayout({ orderId: id, merchantId: a, reference: 'UTR1', windowMs: 120_000 });
     check('claim accepted once locked', lockedClaim === true);
     const twice = await claimOrderPayout({ orderId: id, merchantId: a, reference: 'UTR2', windowMs: 120_000 });
@@ -146,12 +154,12 @@ async function main() {
   // --- 6. Locks come back: voluntarily, and on expiry ---
   {
     const id = await mkOrder(pool, payer, a, 'GIVEBACK', 50);
-    await lockOrder({ orderId: id, merchantId: a, ttlMs: 300_000 });
+    await lockOrder({ orderId: id, merchantId: a, ttlMs: 300_000, country: 'IN', leverage: 3 });
     check('unlock returns it', (await unlockOrder(id, a)) === true);
     check('unlocking twice is a no-op', (await unlockOrder(id, a)) === false);
 
     const id2 = await mkOrder(pool, payer, a, 'LAPSE', 50);
-    await lockOrder({ orderId: id2, merchantId: a, ttlMs: 300_000 });
+    await lockOrder({ orderId: id2, merchantId: a, ttlMs: 300_000, country: 'IN', leverage: 3 });
     await pool.query(`update orders set lock_expires_at = now() - interval '1 second' where id = $1`, [id2]);
     const expired = await expireOrderLocks();
     check('an expired lock is reclaimed', expired.some((e) => e.id === id2));
@@ -167,10 +175,85 @@ async function main() {
     // A CLAIMED order must never be reclaimed by the sweep — that would re-offer a payee who has
     // already been paid, which is the double-pay this whole mechanism exists to prevent.
     const id3 = await mkOrder(pool, payer, a, 'PAID', 50);
-    await lockOrder({ orderId: id3, merchantId: a, ttlMs: 300_000 });
+    await lockOrder({ orderId: id3, merchantId: a, ttlMs: 300_000, country: 'IN', leverage: 3 });
     await claimOrderPayout({ orderId: id3, merchantId: a, reference: 'UTR9', windowMs: 120_000 });
     await pool.query(`update orders set lock_expires_at = now() - interval '1 second' where id = $1`, [id3]);
     check('a claimed order is never reclaimed by the sweep', !(await expireOrderLocks()).some((e) => e.id === id3));
+  }
+
+  // --- 7. The routed LP does NOT see the payee during their head start ---
+  //
+  // The regression that matters most. listOpenOffers redacting was necessary but not sufficient:
+  // the routed LP reaches their own orders through listMerchantOrders, which returned the payee for
+  // anything with their merchant_id and no lock check — so the one LP the head start makes most
+  // likely to look was handed the UPI ID without ever committing to pay it.
+  {
+    const id = await mkOrder(pool, payer, a, 'HEADSTART', 50);
+    const before = (await listMerchantOrders(a)).find((o) => o.id === id);
+    check('the routed LP sees their own unlocked order', before != null);
+    check('…but NOT the payee', before?.payout_destination == null && before?.payout_name == null);
+
+    await lockOrder({ orderId: id, merchantId: a, ttlMs: 300_000, country: 'IN', leverage: 3 });
+    const after = (await listMerchantOrders(a)).find((o) => o.id === id);
+    check('…and sees it once they take it', after?.payout_destination === 'shop@okaxis');
+  }
+
+  // --- 8. A reroute onto a provider row keeps it born-locked ---
+  //
+  // Clearing locked_at unconditionally stranded the order: the vendor disbursed the fiat, the claim
+  // silently failed the new `locked_at is not null` predicate, the 'paid' branch meant no escalation
+  // ever ran, and the order sat in the open pool for a second LP to pay the same payee again.
+  {
+    const psp2 = await mkMerchant(pool, 'ZZ-LOCK-PSP2', 'psp');
+    const id = await mkOrder(pool, payer, a, 'REROUTEPSP', 50);
+    const ok = await reassignOrderMerchant(id, psp2, new Date(Date.now() + 30_000), a, new Date(Date.now() + 20_000));
+    check('reroute onto a provider row succeeds', ok);
+    const { rows } = await pool.query<{ locked_at: Date | null }>(`select locked_at from orders where id = $1`, [id]);
+    check('…and leaves it BORN LOCKED', rows[0].locked_at != null);
+    check(
+      '…so its disbursement can still be claimed',
+      (await claimOrderPayout({ orderId: id, merchantId: psp2, reference: 'PROVIDERREF1', windowMs: 120_000 })) === true,
+    );
+  }
+
+  // A reroute onto a HUMAN LP still clears the lock and grants a fresh head start.
+  {
+    const id = await mkOrder(pool, payer, a, 'REROUTEHUMAN', 50);
+    await reassignOrderMerchant(id, b, new Date(Date.now() + 30_000), a, new Date(Date.now() + 20_000));
+    const { rows } = await pool.query<{ locked_at: Date | null }>(`select locked_at from orders where id = $1`, [id]);
+    check('reroute onto a human LP leaves it unlocked', rows[0].locked_at == null);
+  }
+
+  // --- 9. A reroute never steals an order somebody is paying ---
+  //
+  // Without this the ladder yanks the order away mid-payment: the payer is refunded, the LP sends
+  // the rupees anyway, and their /paid call 409s with the money already gone.
+  {
+    const id = await mkOrder(pool, payer, a, 'NOSTEAL', 50);
+    await lockOrder({ orderId: id, merchantId: a, ttlMs: 300_000, country: 'IN', leverage: 3 });
+    const stolen = await reassignOrderMerchant(id, b, new Date(Date.now() + 30_000), a, new Date(Date.now() + 20_000));
+    check('a live lock cannot be rerouted away', stolen === false);
+  }
+
+  // --- 10. The lock re-checks eligibility itself ---
+  //
+  // The pool query is only a view; trusting it made lock a check-then-act across two HTTP requests.
+  {
+    const id = await mkOrder(pool, payer, a, 'ELIGIBLE', 50);
+    check(
+      'an LP dearer than the quote cannot lock it',
+      (await lockOrder({ orderId: id, merchantId: dear, ttlMs: 300_000, country: 'IN', leverage: 3 })) === null,
+    );
+    const broke = await mkMerchant(pool, 'ZZ-LOCK-BROKE', null, 50);
+    await pool.query(`update merchants set float_usdc = 1, bond_usdc = 1 where id = $1`, [broke]);
+    check(
+      'an LP without the capacity cannot lock it',
+      (await lockOrder({ orderId: id, merchantId: broke, ttlMs: 300_000, country: 'IN', leverage: 3 })) === null,
+    );
+    check(
+      'an eligible LP still can',
+      (await lockOrder({ orderId: id, merchantId: b, ttlMs: 300_000, country: 'IN', leverage: 3 })) !== null,
+    );
   }
 
   await clean(pool);

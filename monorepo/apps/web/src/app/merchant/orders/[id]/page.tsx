@@ -214,6 +214,15 @@ export default function MerchantOrder() {
                 ? 'We’re reviewing it. Your stake covers the payer if the money never arrived.'
                 : `You reported reference ${order.payoutUtr ?? '—'}.`}
             </Txt>
+            {/* What an LP under dispute can actually DO. Before this the entire experience of
+                losing 1,500 USDC of bond was the sentence above — no way to say "here is the
+                proof", which is the one thing they have and we don't. */}
+            {order.resolution === 'under_review' ? (
+              <Txt style={[type.inst, { marginTop: 8 }]}>
+                If you have proof this was paid — a bank reference or screenshot — send it to support
+                with {order.referenceCode}. That’s what decides it.
+              </Txt>
+            ) : null}
           </View>
         ) : held ? (
           <>

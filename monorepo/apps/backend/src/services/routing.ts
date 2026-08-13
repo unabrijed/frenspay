@@ -8,7 +8,7 @@ import type { PayoutMethod } from '@fpay/shared';
 import { committedFloatByMerchant, listRoutableMerchants, type MerchantRow } from '../db/queries';
 import { CORRIDORS } from '../lib/corridors';
 
-import { leverageFor, MIN_BOND } from './merchantStats';
+import { ACTIVITY_SLOTS, activitySlot, leverageFor, MIN_BOND } from './merchantStats';
 
 export interface RankedMerchant {
   merchant: MerchantRow;
@@ -26,13 +26,37 @@ export interface RankedMerchant {
  */
 export const WARM_WINDOW_MS = 120_000;
 
+export { ACTIVITY_SLOTS, activitySlot };
+
 export const isWarm = (m: MerchantRow): boolean =>
-  m.last_seen_at != null && Date.now() - m.last_seen_at.getTime() < WARM_WINDOW_MS;
+  // Non-human rows are always warm. `last_seen_at` is written by authenticated merchant-portal
+  // requests, and a platform ('psp') or sim row has no user_id and therefore never makes one — so
+  // treating them as cold made EVERY quote on a provider corridor widen its ETA to the human claim
+  // SLA, an SLA that does not even apply to them. A vendor API does not go to sleep.
+  m.sim_behavior != null ||
+  (m.last_seen_at != null && Date.now() - m.last_seen_at.getTime() < WARM_WINDOW_MS);
 
 // Reliability-weighted, matching the architecture's "expose certainty". Weights sum to 1. (M4 folded the
 // M3 queue-depth signal into liquidity, since available float already reflects an LP's live load;
 // `rating` is the payer-👍 positive_rate — human-reported, so it gets its own modest term.)
-const WEIGHTS = { reliability: 0.3, cost: 0.2, speed: 0.15, dispute: 0.1, rating: 0.1, liquidity: 0.15 };
+// Two signals about AVAILABILITY joined the six about quality (0014/0017), and every existing
+// weight shrank proportionally to pay for them rather than one being singled out.
+//
+// The reasoning: the best LP in the pool is worth nothing to a payer standing in a shop if they are
+// asleep. `warm` (seen in the last two minutes) is the strong one — it is a fact about right now.
+// `activity` (this hour, historically) is the weak one, a prediction, and it is the smallest weight
+// of the eight on purpose: with a handful of LPs per corridor those counts are noise, and it should
+// have to earn any more than that from real data.
+const WEIGHTS = {
+  reliability: 0.26,
+  cost: 0.18,
+  speed: 0.12,
+  dispute: 0.08,
+  rating: 0.08,
+  liquidity: 0.12,
+  warm: 0.12,
+  activity: 0.04,
+};
 
 /** Min-max normalize to [0,1] across the pool; `invert` for lower-is-better signals. Flat pool → 1. */
 function normalize(values: number[], invert: boolean): number[] {
@@ -124,6 +148,11 @@ export function rankPool(
   const speed = normalize(pool.map((m) => m.avg_completion_secs), true);
   const dispute = normalize(pool.map((m) => Number(m.dispute_rate)), true);
   const rating = normalize(pool.map((m) => Number(m.positive_rate)), false);
+  // Availability. Both are 1 across a uniform pool (normalize's flat-pool rule), so a corridor
+  // where nobody is warm ranks on quality alone rather than collapsing to a tie at zero.
+  const warm = normalize(pool.map((m) => (isWarm(m) ? 1 : 0)), false);
+  const slot = activitySlot();
+  const activity = normalize(pool.map((m) => m.active_hours?.[slot] ?? 0), false);
   // Liquidity headroom: available float relative to the order, capped at 5× (beyond is no real edge).
   const liq = normalize(
     avail.map((a) => Math.min(a / Math.max(input.amountUsdc, 1), 5)),
@@ -140,6 +169,8 @@ export function rankPool(
         WEIGHTS.speed * speed[i] +
         WEIGHTS.dispute * dispute[i] +
         WEIGHTS.rating * rating[i] +
+        WEIGHTS.warm * warm[i] +
+        WEIGHTS.activity * activity[i] +
         WEIGHTS.liquidity * liq[i],
     }))
     .sort(

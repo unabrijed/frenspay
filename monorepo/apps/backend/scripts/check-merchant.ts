@@ -23,7 +23,9 @@ async function clean(pool: Pool) {
 }
 
 const MERCHANT_COLS =
-  'name,payout_rail,status,treasury_address,success_rate,avg_completion_secs,spread_bps,float_usdc,dispute_rate,kyb_status,bond_usdc,base_success_rate,base_avg_completion_secs,base_dispute_rate,sim_behavior';
+  // `country` is NOT NULL with no default from 0014 — routing hard-filters on it, so a fixture
+  // without one is invisible to every quote as well as being unfixable at insert time.
+  'name,payout_rail,country,status,treasury_address,success_rate,avg_completion_secs,spread_bps,float_usdc,dispute_rate,kyb_status,bond_usdc,base_success_rate,base_avg_completion_secs,base_dispute_rate,sim_behavior';
 
 async function main() {
   const pool = getPool();
@@ -33,13 +35,13 @@ async function main() {
   const fail = (
     await pool.query<{ id: string }>(
       `insert into merchants (${MERCHANT_COLS}) values
-       ('ZZ-HARNESS-FAIL','UPI','online','ZZHfailTreasury00000000000000000000000000',0.99,100,50,1000,0.005,'approved',${DISPUTE_PENALTY_USDC + 1000},0.99,100,0.005,'happy') returning id`,
+       ('ZZ-HARNESS-FAIL','UPI','IN','online','ZZHfailTreasury00000000000000000000000000',0.99,100,50,1000,0.005,'approved',${DISPUTE_PENALTY_USDC + 1000},0.99,100,0.005,'happy') returning id`,
     )
   ).rows[0];
   const big = (
     await pool.query<{ id: string }>(
       `insert into merchants (${MERCHANT_COLS}) values
-       ('ZZ-HARNESS-BIG','UPI','online','ZZHbigTreasury000000000000000000000000000',0.99,100,50,100000,0.005,'approved',9000,0.99,100,0.005,'happy') returning id`,
+       ('ZZ-HARNESS-BIG','UPI','IN','online','ZZHbigTreasury000000000000000000000000000',0.99,100,50,100000,0.005,'approved',9000,0.99,100,0.005,'happy') returning id`,
     )
   ).rows[0];
 

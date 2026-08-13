@@ -12,6 +12,7 @@ import type { FastifyInstance } from 'fastify';
 
 import type {
   MerchantOrder,
+  MerchantLedgerResponse,
   MerchantOrdersResponse,
   MerchantProfile,
   PayoutMethod,
@@ -30,8 +31,13 @@ import {
   getMerchantForUser,
   getUserKycTier,
   getWalletForUser,
+  appendKybEvent,
   insertMerchantApplication,
+  listKybEvents,
+  listMerchantDisputes,
   listMerchantOrders,
+  merchantEarnings,
+  submitMerchantKyb,
   listOpenOffers,
   lockOrder,
   setMerchantAlertChannel,
@@ -41,12 +47,14 @@ import {
   setMerchantFloat,
   setMerchantOnlineSelf,
   setMerchantSpread,
+  type KybEventRow,
   type MerchantOrderRow,
   type MerchantRow,
   type StakeWithdrawalRow,
 } from '../db/queries';
 import { amt, nonNegativeAmount, positiveAmount, USDC_DECIMALS } from '../lib/amount';
 import { acceptsLps, CORRIDORS, PAYOUT_METHODS } from '../lib/corridors';
+import { KYB_SUBMITTABLE, validateKybFields } from '../lib/kyb';
 import { formatAmount } from '../lib/units';
 import { KYC_APPROVED_TIER } from '../services/kyc';
 import { DISPUTE_WINDOW_MS, LOCK_TTL_MS } from '../services/orderMachine';
@@ -73,11 +81,34 @@ const LIVE_FOR_CAPACITY = new Set(['payment_detected', 'merchant_confirms', 'fun
  *  channel that will never fire and then wonder why they hear nothing. */
 const ALERT_CHANNELS: readonly string[] = ['telegram'];
 
-export function toMerchantProfile(m: MerchantRow, pending?: StakeWithdrawalRow): MerchantProfile {
+/** A bank payment reference: NPCI UTRs are 12 digits, RRNs 12, and other rails vary — so this is
+ *  deliberately loose on length and strict on character set. Anything a human would want to *say*
+ *  is excluded, which is the point. */
+const UTR_RE = /^[A-Za-z0-9][A-Za-z0-9-]{5,63}$/;
+
+export function toMerchantProfile(
+  m: MerchantRow,
+  pending?: StakeWithdrawalRow,
+  kybEvents?: KybEventRow[],
+): MerchantProfile {
   return {
     id: m.id,
     name: m.name,
     kybStatus: m.kyb_status,
+    // The reviewer's outstanding question or reason, shown to the merchant verbatim. "Rejected"
+    // with nothing after it is not a decision anyone can act on.
+    kybNote: m.kyb_note ?? undefined,
+    // Echoed back so a more-info request re-opens the form already filled in, rather than asking
+    // someone to retype seven fields to fix one.
+    kybFields: m.kyb_fields ?? undefined,
+    kybSubmittedAt: m.kyb_submitted_at?.toISOString(),
+    kybEvents: kybEvents?.map((e) => ({
+      fromStatus: e.from_status,
+      toStatus: e.to_status,
+      event: e.event,
+      note: typeof e.detail?.note === 'string' ? e.detail.note : undefined,
+      createdAt: e.created_at.toISOString(),
+    })),
     status: m.status,
     payoutRail: m.payout_rail,
     treasuryAddress: m.treasury_address,
@@ -220,7 +251,14 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
     if (merchant.lock_bans_until && merchant.lock_bans_until > new Date()) {
       return reply.code(429).send({ error: 'lock_temporarily_blocked' });
     }
-    const taken = await lockOrder({ orderId: req.params.id, merchantId: merchant.id, ttlMs: LOCK_TTL_MS });
+    // Eligibility is re-derived INSIDE lockOrder's CAS from these; the pool query is only a view.
+    const taken = await lockOrder({
+      orderId: req.params.id,
+      merchantId: merchant.id,
+      ttlMs: LOCK_TTL_MS,
+      country: merchant.country,
+      leverage: leverageFor(merchant.tier),
+    });
     // 409, not 404: the order exists — someone else got there first, or it moved on.
     if (!taken) return reply.code(409).send({ error: 'order_already_taken' });
     return {
@@ -239,6 +277,75 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
       return reply.code(409).send({ error: 'order_not_unlockable' });
     }
     return { ok: true };
+  });
+
+  /**
+   * Submit (or resubmit) the business details behind this LP.
+   *
+   * The person is already verified — /merchants/apply requires the same tier-2 vendor KYC that gates
+   * cash-out. This is the BUSINESS: who they trade as, and above all which account the fiat will
+   * actually leave from. That last field is the one that matters: the documented failure mode for
+   * this entire business shape is third-party money moving through a personal account and the
+   * account being frozen (docs/06, docs/08), and knowing which account BEFORE they start is what
+   * makes that reviewable instead of discoverable afterwards.
+   *
+   * Accepted from 'pending' and 'more_info' — the resubmission path is the same call, which is what
+   * turns a rejection into a conversation.
+   */
+  app.post<{ Body: { fields?: Record<string, unknown> } }>('/merchants/kyb', async (req, reply) => {
+    const merchant = await requireMerchant(req);
+    if (!KYB_SUBMITTABLE.includes(merchant.kyb_status)) {
+      return reply.code(409).send({ error: 'kyb_not_submittable', kybStatus: merchant.kyb_status });
+    }
+    // Trust boundary. The client checks the same rules first, purely so a typo doesn't cost a round
+    // trip; nothing it says is believed here.
+    const checked = validateKybFields(merchant.country, req.body?.fields);
+    if (!checked.ok) return reply.code(400).send({ error: 'invalid_kyb_fields', invalid: checked.invalid });
+
+    const from = await submitMerchantKyb(merchant.id, checked.fields, KYB_SUBMITTABLE);
+    // Lost a race with a reviewer who moved it mid-request.
+    if (from == null) return reply.code(409).send({ error: 'kyb_not_submittable' });
+    // The field VALUES deliberately don't go in the event log: they live in merchants.kyb_fields,
+    // and copying business identifiers into an append-only table means they can never be corrected
+    // or erased. The log records that a submission happened, not what was in it.
+    await appendKybEvent(merchant.id, from, 'submitted', 'kyb_submitted', { country: merchant.country });
+    return { ok: true, kybStatus: 'submitted' };
+  });
+
+  /**
+   * The LP's own numbers: what settled to them, and every dispute raised against them.
+   *
+   * One route for both because they are one screen and one question — "how is this going" — and
+   * because a dispute is exactly the thing that makes the earnings figure not the whole story.
+   */
+  app.get<{ Querystring: { days?: string } }>('/merchants/ledger', async (req): Promise<MerchantLedgerResponse> => {
+    const merchant = await requireMerchant(req);
+    // Clamped, not trusted: this interpolates into an interval, and an unbounded window is a table
+    // scan an LP could ask for on a 15-second poll.
+    const days = Math.min(Math.max(Number(req.query.days ?? 30) || 30, 1), 365);
+    const [e, disputes] = await Promise.all([merchantEarnings(merchant.id, days), listMerchantDisputes(merchant.id)]);
+    return {
+      earnings: {
+        windowDays: days,
+        settled: e.settled,
+        usdcIn: e.usdc_in,
+        fiatOut: e.fiat_out,
+        // No completed orders yet → no currency to report. Fall back to the corridor's, so the
+        // empty state still reads "₹0" rather than "0".
+        currency: e.currency ?? CORRIDORS[merchant.payout_rail]?.currency ?? 'INR',
+      },
+      disputes: disputes.map((d) => ({
+        id: d.id,
+        orderId: d.order_id,
+        referenceCode: d.reference_code,
+        reason: d.reason ?? undefined,
+        status: d.status as 'open' | 'resolved',
+        resolution: (d.resolution as 'upheld' | 'rejected' | null) ?? undefined,
+        amountUsdc: d.amount_usdc,
+        createdAt: d.created_at.toISOString(),
+        resolvedAt: d.resolved_at?.toISOString(),
+      })),
+    };
   });
 
   /**
@@ -270,7 +377,11 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
       if (merchant.kyb_status !== 'approved') return reply.code(403).send({ error: 'kyb_not_approved' });
       const reference = req.body?.reference?.trim();
       if (!reference) return reply.code(400).send({ error: 'missing_reference' });
-      if (reference.length > 64) return reply.code(400).send({ error: 'reference_too_long' });
+      // Shape-checked, not just length-capped. This string is now shown to the PAYER as the bank
+      // reference for their payment, so unconstrained free text is a channel from the LP straight
+      // onto the payer's receipt — a phone number, a name, "call me" — which breaks the rule that
+      // the payer never perceives an LP at all. A real UTR/RRN is alphanumeric.
+      if (!UTR_RE.test(reference)) return reply.code(400).send({ error: 'invalid_reference' });
       const claimed = await claimOrderPayout({
         orderId: req.params.id,
         merchantId: merchant.id,

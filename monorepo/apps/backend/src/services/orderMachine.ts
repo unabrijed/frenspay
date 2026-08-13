@@ -461,10 +461,18 @@ export async function rerouteOrder(input: {
   orderId: string;
   payoutMethod: PayoutMethod;
   amountUsdc: number;
+  /** The order's CURRENT merchant_id, read from the row itself.
+   *
+   *  It used to come from `attempts.at(-1)`, on the assumption that the last routing attempt always
+   *  names the order's merchant. The lock broke that: lockOrder rewrites merchant_id when a pool LP
+   *  takes an order and writes no attempt row, so after any pool lock the two disagree — the CAS
+   *  below matched zero rows, rerouteOrder returned false, and the worker REFUNDED the payer while
+   *  the locking LP was still holding a live lock and paying the fiat leg. */
+  currentMerchantId: string | null;
 }): Promise<boolean> {
   const attempts = await listRoutingAttempts(input.orderId);
   const sequence = attempts.length ? Math.max(...attempts.map((a) => a.sequence)) : 0;
-  const currentMerchantId = attempts.at(-1)?.merchantId; // the stalled LP (== orders.merchant_id)
+  const currentMerchantId = input.currentMerchantId;
   if (sequence >= MAX_ROUTING_ATTEMPTS || !currentMerchantId) return false; // give up → refund
 
   const tried = attempts.map((a) => a.merchantId);

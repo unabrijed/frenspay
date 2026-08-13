@@ -19,8 +19,11 @@ import { Txt } from '@/components/ui/Txt';
 import { friendlyError } from '@/lib/errors';
 import { fiatRaw, usd } from '@/lib/money';
 import { colors, fonts, GUTTER, radii, type } from '@/lib/theme';
+import type { MerchantLedgerResponse } from '@fpay/shared';
+
 import {
   cancelStakeWithdrawal,
+  getMerchantLedger,
   getMerchantOrders,
   requestStakeWithdrawal,
   setMerchantFloat,
@@ -90,6 +93,7 @@ export default function MerchantHome() {
   const merchant = usePayStore((s) => s.merchant);
   const load = usePayStore((s) => s.load);
   const [orders, setOrders] = useState<MerchantOrder[] | null>(null);
+  const [ledger, setLedger] = useState<MerchantLedgerResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -99,6 +103,13 @@ export default function MerchantHome() {
       setErr(null);
     } catch (e) {
       setErr(friendlyError(e));
+    }
+    // Separate and swallowed: the ledger is context, and a failure to load it must never blank the
+    // queue, which is the part with money waiting on it.
+    try {
+      setLedger(await getMerchantLedger());
+    } catch {
+      /* ignore */
     }
   }, []);
 
@@ -195,10 +206,32 @@ export default function MerchantHome() {
         <BackButton onPress={() => router.push('/home')} />
       </View>
       <View style={styles.scroll}>
-        <Txt style={type.handle}>{merchant.name}</Txt>
-        <Txt style={[type.profileSub, { marginTop: 2 }]}>
-          {merchant.kybStatus === 'approved' ? statusLabel(merchant.status) : kybLabel(merchant.kybStatus)}
-        </Txt>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Txt style={type.handle}>{merchant.name}</Txt>
+          {/* The tier is earned, not granted — recomputed from live signals. Shown because what it
+              buys (more capacity per dollar staked, first refusal on every order) is invisible
+              otherwise, and an incentive nobody can see is not an incentive. */}
+          {merchant.tier > 1 ? (
+            <Txt style={{ ...fonts.body500, fontSize: 13, color: colors.secondary }}>
+              {merchant.tier >= 3 ? 'Top tier' : 'Tier 2'}
+            </Txt>
+          ) : null}
+        </View>
+        <Pressable onPress={() => router.push('/merchant/verify')}>
+          <Txt
+            style={[
+              type.profileSub,
+              { marginTop: 2 },
+              // Anything awaiting the merchant is an ACTION, not a status line — colour it like one
+              // or it reads as "nothing to do here" and sits untouched.
+              merchant.kybStatus === 'pending' || merchant.kybStatus === 'more_info'
+                ? { color: colors.accent }
+                : null,
+            ]}
+          >
+            {merchant.kybStatus === 'approved' ? statusLabel(merchant.status) : kybLabel(merchant.kybStatus)}
+          </Txt>
+        </Pressable>
 
         {/* The stake is the whole trust model — the most prominent number on the screen. */}
         <Pressable
@@ -284,6 +317,49 @@ export default function MerchantHome() {
           </Row>
         </List>
 
+        {ledger ? (
+          <>
+            <Txt style={[type.kvKey, styles.section]}>Last {ledger.earnings.windowDays} days</Txt>
+            <List>
+              <StatRow k="Settled to you" v={usd(ledger.earnings.usdcIn)} sub={`${ledger.earnings.settled} orders`} />
+              {/* Both sides, no "profit": what it cost you to send that fiat is between you and
+                  your bank, and a margin computed from our rate would disagree with your statement. */}
+              <StatRow k="You paid out" v={fiatRaw(ledger.earnings.fiatOut, ledger.earnings.currency)} />
+            </List>
+          </>
+        ) : null}
+
+        {ledger?.disputes.length ? (
+          <>
+            <Txt style={[type.kvKey, styles.section]}>Disputes ({ledger.disputes.length})</Txt>
+            <List>
+              {ledger.disputes.map((d) => (
+                <Row key={d.id} onPress={() => router.push(`/merchant/orders/${d.orderId}`)}>
+                  <RowMeta>
+                    <Txt style={type.rowName}>{d.referenceCode}</Txt>
+                    <Txt style={[type.rowTime, { marginTop: 2 }]}>
+                      {d.status === 'open'
+                        ? 'The payer says this never arrived. We’re looking at it.'
+                        : d.resolution === 'upheld'
+                          ? 'Decided against you — your stake covered the payer.'
+                          : 'Decided in your favour.'}
+                    </Txt>
+                  </RowMeta>
+                  <Txt
+                    style={{
+                      ...fonts.body500,
+                      fontSize: 14,
+                      color: d.status === 'open' ? colors.accent : d.resolution === 'upheld' ? colors.danger : colors.secondary,
+                    }}
+                  >
+                    {d.status === 'open' ? 'Open' : d.resolution === 'upheld' ? 'Lost' : 'Won'}
+                  </Txt>
+                </Row>
+              ))}
+            </List>
+          </>
+        ) : null}
+
         {/* Reputation — the real smoothed numbers routing scores them on, no invented composite. */}
         <Txt style={[type.kvKey, styles.section]}>Reputation</Txt>
         <List>
@@ -345,7 +421,17 @@ const statusLabel = (s: string) =>
 const onlineColor = (s: string) =>
   s === 'online' ? colors.secondary : s === 'suspended' ? colors.danger : colors.muted;
 const kybLabel = (s: string) =>
-  s === 'pending' ? 'Application under review' : s === 'rejected' ? 'Application declined' : s;
+  s === 'pending'
+    ? 'Tell us about your business'
+    : s === 'submitted'
+      ? 'Business details with us'
+      : s === 'under_review'
+        ? 'Business details being reviewed'
+        : s === 'more_info'
+          ? 'We need one more thing'
+          : s === 'rejected'
+            ? 'Not approved'
+            : s;
 
 const styles = {
   safe: { backgroundColor: colors.canvas },

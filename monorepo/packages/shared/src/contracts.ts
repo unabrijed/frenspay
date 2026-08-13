@@ -1,3 +1,5 @@
+import type { KybStatus } from './kyb';
+
 // contracts.ts — the client/server contract shared by mobile and backend.
 // Mirrors the "thin interface" seam from backend-architecture.md so the same
 // types describe the mock providers (today) and the real Railway API (Phase 1).
@@ -120,10 +122,28 @@ export interface MeResponse {
 
 /* ---- merchant (LP) DTOs ---- */
 
+/** One step in the business check, for the merchant's own timeline. */
+export interface KybEvent {
+  fromStatus: string | null;
+  toStatus: string;
+  event: string;
+  /** Reviewer note when there is one — the same text as MerchantProfile.kybNote at that moment. */
+  note?: string;
+  createdAt: string; // ISO 8601
+}
+
 export interface MerchantProfile {
   id: string;
   name: string;
-  kybStatus: 'pending' | 'approved' | 'rejected';
+  kybStatus: KybStatus;
+  /** Reviewer's reason for a rejection or a more-info request — written to be READ BY THE MERCHANT.
+   *  "rejected" with no reason is not a decision anyone can act on. */
+  kybNote?: string;
+  /** What they submitted, so the form can be re-shown filled in when we ask for more. */
+  kybFields?: Record<string, string>;
+  kybSubmittedAt?: string; // ISO 8601
+  /** Append-only timeline of the business check, newest first. */
+  kybEvents?: KybEvent[];
   status: 'online' | 'offline' | 'suspended';
   payoutRail: PayoutMethod;
   treasuryAddress: string;
@@ -150,6 +170,41 @@ export interface MerchantProfile {
   successRate: number;
   disputeRate: number;
   positiveRate: number;
+}
+
+/**
+ * What has settled to this LP over a window. Deliberately NOT a profit figure: their margin depends
+ * on what the fiat leg cost them at their own bank, which we cannot see. These are the two sides we
+ * do know, and the LP does the subtraction against a cost basis only they have.
+ */
+export interface MerchantEarnings {
+  windowDays: number;
+  /** Completed orders in the window. */
+  settled: number;
+  /** USDC actually released to their treasury (escrow minus the platform's cut). */
+  usdcIn: string;
+  /** Fiat they paid out, in `currency`. */
+  fiatOut: string;
+  currency: string;
+}
+
+/** A dispute raised against this LP — what it was, and how it went. */
+export interface MerchantDispute {
+  id: string;
+  orderId: string;
+  referenceCode: string;
+  reason?: string;
+  status: 'open' | 'resolved';
+  /** 'upheld' means the payer was refunded and this LP's bond was fined. */
+  resolution?: 'upheld' | 'rejected';
+  amountUsdc: string;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+export interface MerchantLedgerResponse {
+  earnings: MerchantEarnings;
+  disputes: MerchantDispute[];
 }
 
 /** One order assigned to this merchant, flattened for the queue screen (fiat leg + payee). */
@@ -709,7 +764,7 @@ export interface AdminMerchant {
   id: string;
   name: string;
   status: 'online' | 'offline' | 'suspended';
-  kybStatus: 'pending' | 'approved' | 'rejected';
+  kybStatus: KybStatus;
   payoutRail: string;
   bondUsdc: string;
   floatUsdc: string;
@@ -811,7 +866,11 @@ export interface AdminActionsResponse {
 
 /* admin write requests */
 export interface AdminKybRequest {
-  decision: 'approve' | 'reject';
+  /** 'review' claims it (so a second reviewer sees someone is on it); 'more_info' asks the merchant
+   *  for something and lets them resubmit. */
+  decision: 'approve' | 'reject' | 'review' | 'more_info';
+  /** Shown to the MERCHANT verbatim. Required for anything that isn't an approval. */
+  note?: string;
 }
 
 export interface AdminMerchantStatusRequest {

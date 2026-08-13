@@ -21,8 +21,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { MerchantRow } from '../src/db/queries';
-import { leverageFor, MIN_BOND } from '../src/services/merchantStats';
-import { rankPool } from '../src/services/routing';
+import { ACTIVITY_SLOTS, activitySlot, leverageFor, MIN_BOND } from '../src/services/merchantStats';
+import { rankPool, WARM_WINDOW_MS } from '../src/services/routing';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -50,6 +50,10 @@ const lp = (over: Partial<MerchantRow> & { id: string }): MerchantRow =>
     country: 'IN',
     tier: 1,
     last_seen_at: null,
+    alert_channel: null,
+    alert_address: null,
+    lock_bans_until: null,
+    active_hours: null,
     ...over,
   }) as MerchantRow;
 
@@ -115,6 +119,67 @@ const ids = (r: ReturnType<typeof rankPool>) => r.map((x) => x.merchant.id);
   assert.equal(rankPool([busy], { busy: 99_999 }, { amountUsdc: 1 }).length, 0, 'over-committed never goes negative into eligible');
 }
 
+// --- availability: warm beats good-but-asleep ----------------------------------------------------
+
+// Warmth is a TIEBREAKER, not a trump, and this pins which. Between two LPs who are otherwise
+// identical, the one at their desk right now wins — that is the whole job at 0.12.
+{
+  const asleep = lp({ id: 'asleep', last_seen_at: new Date(Date.now() - 3_600_000) });
+  const awake = lp({ id: 'awake', last_seen_at: new Date() });
+  assert.deepEqual(ids(rankPool([asleep, awake], {}, { amountUsdc: 100 })), ['awake', 'asleep']);
+  // Just outside the window counts as cold, or the window means nothing.
+  const stale = lp({ id: 'stale', last_seen_at: new Date(Date.now() - WARM_WINDOW_MS - 1000) });
+  assert.deepEqual(ids(rankPool([stale, awake], {}, { amountUsdc: 100 })), ['awake', 'stale']);
+}
+
+// And it does NOT outrank a real quality gap: a cold LP who is better AND cheaper still wins,
+// because reliability + cost is 0.44 against warmth's 0.12.
+//
+// That asymmetry is deliberate and it is safe because of the head start's shape: ranking first only
+// buys HEAD_START_MS (20s) of exclusivity, after which the order opens to every eligible LP anyway.
+// So the worst case from preferring a better-but-sleeping LP is twenty seconds, while the worst
+// case from letting "was seen recently" outrank reliability is routing real money to whoever
+// happened to refresh a page.
+{
+  const asleepBetter = lp({ id: 'asleepbetter', success_rate: '0.999', spread_bps: 10, last_seen_at: new Date(Date.now() - 3_600_000) });
+  const awakeWorse = lp({ id: 'awakeworse', success_rate: '0.96', spread_bps: 60, last_seen_at: new Date() });
+  assert.deepEqual(ids(rankPool([asleepBetter, awakeWorse], {}, { amountUsdc: 100 })), ['asleepbetter', 'awakeworse']);
+}
+
+// A pool where NOBODY is warm must still rank on quality rather than collapsing to a tie — this is
+// the normalize() flat-pool rule, and getting it wrong would make every off-hours order random.
+{
+  const a = lp({ id: 'good', success_rate: '0.999', spread_bps: 10 });
+  const b = lp({ id: 'poor', success_rate: '0.90', spread_bps: 250 });
+  assert.deepEqual(ids(rankPool([a, b], {}, { amountUsdc: 100 })), ['good', 'poor'], 'all-cold pool still ranks');
+}
+
+// Warmth must not be strong enough to override everything: a warm LP who fails half their orders
+// should still lose to a cold, reliable one. Warmth is 0.12; reliability + cost + dispute is 0.52.
+{
+  const warmFlake = lp({ id: 'warmflake', success_rate: '0.5', dispute_rate: '0.2', spread_bps: 300, last_seen_at: new Date() });
+  const coldSolid = lp({ id: 'coldsolid', success_rate: '0.999', dispute_rate: '0.0001', spread_bps: 20 });
+  assert.deepEqual(ids(rankPool([warmFlake, coldSolid], {}, { amountUsdc: 100 })), ['coldsolid', 'warmflake']);
+}
+
+// The activity histogram, at the slot that is actually now.
+{
+  const now = activitySlot();
+  const active = new Array(ACTIVITY_SLOTS).fill(0);
+  active[now] = 50;
+  const never = new Array(ACTIVITY_SLOTS).fill(0);
+  never[(now + 12) % ACTIVITY_SLOTS] = 50; // busy, but at a completely different hour
+  const a = lp({ id: 'nowactive', active_hours: active });
+  const b = lp({ id: 'otherhour', active_hours: never });
+  assert.deepEqual(ids(rankPool([a, b], {}, { amountUsdc: 100 })), ['nowactive', 'otherhour'], 'history at THIS hour wins');
+  // A null histogram must score neutral, not last — a new LP has no history and is not thereby bad.
+  const fresh = lp({ id: 'fresh' });
+  assert.equal(rankPool([fresh], {}, { amountUsdc: 100 }).length, 1, 'a merchant with no history is still routable');
+}
+
+assert.ok(activitySlot(new Date('2026-08-13T00:00:00Z')) >= 0);
+assert.ok(activitySlot(new Date('2026-08-13T23:00:00Z')) < ACTIVITY_SLOTS, 'slot index stays inside the array');
+
 // --- hard filters --------------------------------------------------------------------------------
 
 // Already tried this order → never offered it again. This is what stops rerouteOrder handing an
@@ -165,6 +230,19 @@ const ids = (r: ReturnType<typeof rankPool>) => r.map((x) => x.merchant.id);
   }
 }
 
+// --- the weights themselves ----------------------------------------------------------------------
+{
+  const routing = readFileSync(join(ROOT, 'src/services/routing.ts'), 'utf8');
+  const block = routing.slice(routing.indexOf('const WEIGHTS'), routing.indexOf('};', routing.indexOf('const WEIGHTS')));
+  const nums = [...block.matchAll(/:\s*([0-9.]+)/g)].map((m) => Number(m[1]));
+  assert.ok(nums.length >= 6, 'could not parse the WEIGHTS block');
+  const sum = nums.reduce((a, b) => a + b, 0);
+  // routeQuality() buckets the composite on ABSOLUTE thresholds (>=0.7 high, >=0.4 medium), so a
+  // weight set that no longer sums to 1 silently relabels the route quality on every quote.
+  assert.ok(Math.abs(sum - 1) < 1e-9, `WEIGHTS must sum to 1, got ${sum}`);
+  assert.ok(nums.every((n) => n > 0), 'a zero weight is a signal that should have been deleted, not zeroed');
+}
+
 // --- source drift: the filters that only a database can execute ----------------------------------
 {
   const queries = readFileSync(join(ROOT, 'src/db/queries.ts'), 'utf8');
@@ -195,10 +273,38 @@ const ids = (r: ReturnType<typeof rankPool>) => r.map((x) => x.merchant.id);
     'listOpenOffers must redact the payee in SQL — an unlocked order must never carry who to pay',
   );
   assert.ok(offersBody.includes('o.locked_at is null'), 'listOpenOffers must never surface an order someone already took');
+  // NB: this assert used to read `q.spread_bps <= $2`, which is the inverted form — it was pinning
+  // the bug in place. The direction is asserted properly below.
+  assert.ok(offersBody.includes('q.spread_bps'), 'listOpenOffers lost its price filter entirely');
+
+  // The reveal gate is TWO queries, not one. listOpenOffers redacting was necessary but not
+  // sufficient — the routed LP reaches their own orders through listMerchantOrders, and that query
+  // handed over the payee with no lock check at all.
+  const mine = queries.slice(queries.indexOf('export async function listMerchantOrders'));
+  const mineBody = mine.slice(0, mine.indexOf('\nexport ', 1));
+  assert.ok(mineBody.includes('from orders o'), 'could not locate the listMerchantOrders query body');
   assert.ok(
-    offersBody.includes('q.spread_bps <= $2'),
-    'listOpenOffers must filter to LPs at or below the quoted spread — the payer’s rate was struck against one LP',
+    mineBody.includes('case when o.locked_at is not null'),
+    'listMerchantOrders must gate the payee on the lock — the head-start LP is the MOST likely to look',
   );
+
+  // Direction matters more than presence here: the filter was inverted, which silently offered every
+  // order to the LPs who would be underpaid and hid it from the cheap ones the design rewards.
+  assert.ok(
+    offersBody.includes('and $2 <= q.spread_bps'),
+    'the offer price filter must read LP-ask <= quoted-spread, not the reverse',
+  );
+
+  // Reroute must not clear the lock for a non-human incoming merchant, or its disbursement can
+  // never be claimed — and must never steal an order somebody is already paying.
+  const reassign = queries.slice(queries.indexOf('export async function reassignOrderMerchant'));
+  const reassignBody = reassign.slice(0, reassign.indexOf('\nexport ', 1));
+  assert.ok(
+    reassignBody.includes('case when m.sim_behavior is null then null else now() end'),
+    'reassignOrderMerchant must keep provider/sim rows born-locked',
+  );
+  assert.ok(reassignBody.includes('o.locked_at is null'), 'reassignOrderMerchant must not steal a live lock');
+  assert.ok(reassignBody.includes('o.payout_claimed_at is null'), 'reassignOrderMerchant must not steal a reported payout');
 
   const claim = queries.slice(queries.indexOf('export async function claimOrderPayout'));
   const claimBody = claim.slice(0, claim.indexOf('\nexport ', 1));
@@ -216,6 +322,15 @@ const ids = (r: ReturnType<typeof rankPool>) => r.map((x) => x.merchant.id);
     lockBody.includes('o.offer_widens_at <= now()'),
     'lockOrder lost the head start — the routed LP’s exclusive window is the whole reputation reward',
   );
+
+  // The lock re-derives eligibility itself; the pool query is only a view, and trusting it is a
+  // check-then-act split across two HTTP requests.
+  assert.ok(lockBody.includes('m.payout_rail = q.payout_method'), 'lockOrder must re-check the rail');
+  assert.ok(lockBody.includes('m.country = $4'), 'lockOrder must re-check the country');
+  assert.ok(lockBody.includes('m.spread_bps <= q.spread_bps'), 'lockOrder must re-check the price');
+  assert.ok(lockBody.includes('least(m.float_usdc, m.bond_usdc * $5)'), 'lockOrder must re-check capacity atomically');
+  assert.ok(lockBody.includes('expires_at = greatest'), 'a lock must hold the escalation ladder off while the LP pays');
+
 
   // An order that is born locked (provider/sim settled) is what lets claimOrderPayout require a
   // lock with one predicate instead of a psp special case. If this split goes, the provider path

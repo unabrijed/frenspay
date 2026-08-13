@@ -4,12 +4,14 @@
 // MIN_BOND. M3 ranking reads the same columns, so routing self-corrects with no ranking-code change.
 import {
   listAllMerchants,
+  merchantActivityHours,
   merchantCompletionStats,
   merchantDisputeStats,
   merchantFeedbackStats,
   merchantOutcomeCounts,
   reinstateBondSuspendedMerchant,
   setMerchantStatus,
+  updateMerchantActivity,
   updateMerchantStats,
 } from '../db/queries';
 
@@ -31,6 +33,25 @@ export const DISPUTE_PENALTY_USDC = 1500; // flat bond fine drawn per upheld dis
  */
 export const LEVERAGE: Record<number, number> = { 1: 3, 2: 5, 3: 8 };
 export const leverageFor = (tier: number): number => LEVERAGE[tier] ?? LEVERAGE[1];
+
+/**
+ * Slots in the activity histogram: day-of-week × hour.
+ *
+ * Lives here, not in routing.ts, purely to keep the dependency one-way: routing already imports
+ * MIN_BOND and leverageFor from this module, so putting these there and importing them back would
+ * have made the two files circular — which happens to work under ESM for values read inside
+ * function bodies, and silently breaks the day one is read at module scope.
+ */
+export const ACTIVITY_SLOTS = 168;
+
+/**
+ * Which slot "now" falls in. UTC, because the array is only ever used to compare LPs to each other
+ * at the same instant — the zone just has to be the same on both sides of the comparison, and
+ * converting to each LP's local time would not change the ordering.
+ */
+export function activitySlot(at: Date = new Date()): number {
+  return at.getUTCDay() * 24 + at.getUTCHours();
+}
 
 /** Smooth an observed mean toward a prior with k pseudo-observations: (obs·n + prior·k)/(n + k). */
 function smooth(obsMean: number, n: number, prior: number): number {
@@ -54,12 +75,13 @@ function tierFor(m: { settled: number; successRate: number; disputeRate: number;
 
 /** Recompute every merchant's live signals from history, and suspend any below the bond floor. */
 export async function recomputeMerchantStats(log?: (m: string) => void): Promise<void> {
-  const [merchants, outcomes, completion, disputes, feedback] = await Promise.all([
+  const [merchants, outcomes, completion, disputes, feedback, activity] = await Promise.all([
     listAllMerchants(),
     merchantOutcomeCounts(),
     merchantCompletionStats(),
     merchantDisputeStats(),
     merchantFeedbackStats(),
+    merchantActivityHours(ACTIVITY_SLOTS),
   ]);
 
   for (const m of merchants) {
@@ -75,6 +97,12 @@ export async function recomputeMerchantStats(log?: (m: string) => void): Promise
 
     const fs = feedback[m.id] ?? { up: 0, n: 0 };
     const positiveRate = smooth(fs.n > 0 ? fs.up / fs.n : 0, fs.n, POSITIVE_PRIOR);
+
+    // When they actually deliver, by hour. Only written when there IS history: leaving the column
+    // NULL scores neutral, whereas writing 168 zeros would say "never around", which is a very
+    // different and much worse claim about a merchant who simply hasn't traded yet.
+    const hours = activity[m.id];
+    if (hours) await updateMerchantActivity(m.id, hours);
 
     const tier = tierFor({ settled, successRate, disputeRate, avgCompletionSecs });
     await updateMerchantStats(m.id, { successRate, avgCompletionSecs, disputeRate, positiveRate, tier });
