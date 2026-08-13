@@ -1,11 +1,11 @@
 // quoteEngine.ts — computes a locked quote (rate + ETA + route quality), valid 45s.
-// M7: the mid-market FX rate is LIVE (getMidRate, cached + range-validated per currency); the
-// merchant spread AND the platform's cut are applied on top. There are NO fee line items — the
-// user only ever sees the all-in conversion rate (`amountUsdc = amountFiat / rate`); the platform's
-// share is the difference between that and the LP's spread-only rate, collected at deposit.
+// The mid-market FX rate is LIVE (getMidRate, cached + range-validated per currency); the LP's
+// spread shaves the rate, then the platform's cut is a FLAT $0.001 added to the USDC owed
+// (decided 2026-08-13, docs/05 — replaces the old PLATFORM_FEE_BPS percentage fold). There are NO
+// fee line items — the user only ever sees the all-in conversion rate, which is DERIVED from the
+// amounts (fee first, rate after) and is display-only; the stored amounts are what move money.
 import type { OrderDirection, PayoutMethod, Quote, RouteQuality } from '@fpay/shared';
 
-import { config } from '../envConfig';
 import { insertQuote } from '../db/queries';
 import { amt, fiatDecimals, USDC_DECIMALS } from '../lib/amount';
 import { BN, divUp, formatAmount, RATE_DECIMALS } from '../lib/units';
@@ -14,6 +14,11 @@ import { getMidRate } from './fxRate';
 import { rankMerchants } from './routing';
 
 const QUOTE_TTL_MS = 45_000; // the architecture's 45-second lock
+
+// The platform's whole cut per conversion. Flat and hardcoded on purpose: the decided value is
+// exact ($0.001, superlow by design), not environment-tunable — a value that never changes gets
+// no knob. check-fees.ts asserts the column carries exactly this.
+const PLATFORM_FEE_USDC = 0.001;
 
 // M3: route quality derives from the composite ranking score, not raw success_rate (internal field;
 // no longer shown to users per the "just pay" UX).
@@ -49,24 +54,20 @@ export async function createQuote(
   if (!top) return { error: 'no_merchant' };
   const merchant = top.merchant;
 
-  // Worse-than-mid rate for the user: the LP spread plus the platform's cut both shave
-  // fiat-per-USDC, so they spend a little more USDC for the same fiat amount. The user sees only
-  // the all-in `rate` (amountUsdc = amountFiat / rate) — never a fee line.
+  // Fee FIRST, rate DERIVED — the inversion that makes a flat fee expressible at all (a bps fold
+  // can't say "$0.001": it rounds away at 4dp on a big order and balloons at the minimum).
   //
-  // Both directions are deliberate and they agree: rates round DOWN (less fiat per USDC) and the
-  // USDC owed rounds UP, so a sub-cent remainder always lands on the user's side of the trade
-  // rather than leaving the LP short. Exact arithmetic throughout — the old
-  // `.toFixed(4)`/`.toFixed(6)` pair rounded half-up, which could hand back a cent nobody funded.
+  // Rounding directions still agree with the old discipline: the LP rate rounds DOWN (less fiat
+  // per USDC), the USDC owed rounds UP, so sub-cent dust always lands on the user-pays side and
+  // the LP is never short. Exact arithmetic throughout.
   const lpRate = amt(mid).times(10_000 - merchant.spread_bps).div(10_000).dp(RATE_DECIMALS, BN.ROUND_DOWN);
-  const rate = amt(mid)
-    .times(10_000 - merchant.spread_bps - config.platformFeeBps)
-    .div(10_000)
-    .dp(RATE_DECIMALS, BN.ROUND_DOWN);
-  const amountUsdc = divUp(amountFiat, rate, USDC_DECIMALS);
-  // The platform's cut in USDC: what the user owes at the all-in rate minus what the LP is owed at
-  // their spread-only rate. Both legs round UP (user-owes direction), so the difference can only
-  // land in the platform's favor by sub-cent dust; clamped ≥0 in case both rates collapse to equal.
-  const platformFeeUsdc = BN.max(amountUsdc.minus(divUp(amountFiat, lpRate, USDC_DECIMALS)), 0);
+  const lpUsdc = divUp(amountFiat, lpRate, USDC_DECIMALS); // what the LP is owed
+  const platformFeeUsdc = amt(PLATFORM_FEE_USDC); // flat, exact — never derived from the rates
+  const amountUsdc = lpUsdc.plus(platformFeeUsdc); // what the user pays
+  // Display-only: the all-in rate the user sees, derived FROM the amounts and rounded DOWN so the
+  // shown rate never flatters. Nothing downstream reads it for money math — the stored amounts
+  // and platform_fee_usdc are authoritative (deposit split / refund / release all read the column).
+  const rate = amountFiat.div(amountUsdc).dp(RATE_DECIMALS, BN.ROUND_DOWN);
 
   return insertQuote({
     userId,
