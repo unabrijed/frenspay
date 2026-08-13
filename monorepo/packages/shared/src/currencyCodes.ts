@@ -42,3 +42,46 @@ export const ISO_TO_CURRENCY: Record<string, string> = {
  *  /me lands) or have no entry. '' is meaningful to callers: it means "no local currency", which is
  *  how the balance decides to fall back to dollars. */
 export const currencyForCountry = (iso: string): string => ISO_TO_CURRENCY[iso] ?? '';
+
+// --- where the device is ---------------------------------------------------------------------
+// The IANA timezone, not navigator.language. A language tag is a FORMATTING preference: Chrome on
+// macOS hands out en-GB to people who have never been to Britain, and reading a country out of it
+// put an Indian user in the United Kingdom. The timezone is the only free signal that answers
+// "where is this device standing", which is the question the country is actually asked.
+
+/** Canonical spelling of a timezone id. The tz database carries aliases (Asia/Kolkata is the same
+ *  zone as Asia/Calcutta) and engines disagree on which one they hand back — `getTimeZones()`
+ *  returned Calcutta where `resolvedOptions()` returns Kolkata. Both sides of the lookup go through
+ *  this so they agree on whichever spelling the running engine prefers. */
+const canonicalZone = (tz: string): string => {
+  try {
+    return new Intl.DateTimeFormat('en', { timeZone: tz }).resolvedOptions().timeZone;
+  } catch {
+    return tz;
+  }
+};
+
+/** Built once, from Intl's own country → timezones data, so there is no second table to keep. */
+let ZONE_TO_ISO: Record<string, string> | null = null;
+const zoneIndex = (): Record<string, string> => {
+  if (ZONE_TO_ISO) return ZONE_TO_ISO;
+  const index: Record<string, string> = {};
+  for (const iso of Object.keys(ISO_TO_CURRENCY)) {
+    // Not in lib ES2022 (Intl Locale Info is newer than the target), and absent entirely on older
+    // engines — hence the cast and the `?.`. No method → empty index → callers fall back.
+    const zones = (new Intl.Locale(`und-${iso}`) as unknown as { getTimeZones?: () => string[] }).getTimeZones?.();
+    for (const tz of zones ?? []) index[canonicalZone(tz)] = iso;
+  }
+  ZONE_TO_ISO = index;
+  return index;
+};
+
+/** ISO 3166-1 alpha-2 for a timezone (the device's own by default), or '' when we can't tell.
+ *  '' is the same "we don't know" every other country source uses — never a guessed country. */
+export function countryFromTimeZone(tz?: string): string {
+  try {
+    return zoneIndex()[canonicalZone(tz ?? Intl.DateTimeFormat().resolvedOptions().timeZone)] ?? '';
+  } catch {
+    return '';
+  }
+}

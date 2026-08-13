@@ -341,6 +341,10 @@ const styles = {
     borderRadius: radii.card,
     overflow: 'hidden',
     boxShadow: shadows.card,
+    // A list is content: never shrink it. The RN shim puts minHeight:0 on every View, which removes
+    // flexbox's min-content floor — so inside a definite-height column (a sheet, /settings) a long
+    // list would shrink to fit, squashing its rows into each other instead of overflowing and scrolling.
+    flexShrink: 0,
   },
   row: {
     flexDirection: 'row',
@@ -411,6 +415,7 @@ const styles = {
     paddingRight: 15,
     backgroundColor: colors.surface,
     marginBottom: 14,
+    flexShrink: 0, // same reason as `list` — a crushed search box on a short viewport helps nobody
   },
   logoXl: { width: 56, height: 56, borderRadius: radii.logoXl, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   empty: { alignItems: 'center', gap: 10, paddingTop: 14, paddingBottom: 6 },

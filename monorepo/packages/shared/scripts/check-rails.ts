@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { PAYOUT_METHODS } from '../src/contracts';
 import { parseEmvQr } from '../src/emvqr';
 import { classifyPayTarget } from '../src/payTarget';
-import { currencyForCountry } from '../src/currencyCodes';
+import { countryFromTimeZone, currencyForCountry } from '../src/currencyCodes';
 import { RAILS, railById, vpaOperator } from '../src/rails';
 import { FIAT_DECIMALS } from '../src/units';
 
@@ -33,6 +33,16 @@ for (const r of RAILS) {
   assert.equal(currencyForCountry(r.country), r.currency, `${r.id}: rail currency vs display table for ${r.country}`);
 }
 
+// Where the device stands → which country → which currency. The alias pair is the whole reason
+// this is asserted: the tz database calls one zone both Asia/Kolkata and Asia/Calcutta, engines
+// hand back different halves of that pair, and a lookup that misses would put a user in India
+// nowhere at all — straight back to reading a country out of navigator.language.
+assert.equal(countryFromTimeZone('Asia/Kolkata'), 'IN', 'modern spelling resolves');
+assert.equal(countryFromTimeZone('Asia/Calcutta'), 'IN', 'legacy alias resolves the same');
+assert.equal(currencyForCountry(countryFromTimeZone('Asia/Jakarta')), 'IDR');
+assert.equal(currencyForCountry(countryFromTimeZone('Europe/London')), 'GBP');
+assert.equal(countryFromTimeZone('Not/AZone'), '', 'garbage zone → unknown, never a wrong country');
+
 // Every LIVE rail's currency must be priceable: fiat decimals here, and an FX band + fallback on
 // the backend (asserted by check-fx). A rail flipped live without them throws inside a quote.
 for (const r of RAILS.filter((x) => x.live)) {
@@ -55,18 +65,45 @@ for (const r of RAILS.filter((x) => x.live)) {
 
   // Every LIVE rail must be priceable on the backend too: its currency literal must appear in the
   // corridor registry (a rail flipped live without a corridor fails here, not inside a quote).
+  // Same for its COUNTRY, which the corridor mirrors from this registry so routing can hard-filter
+  // the LP pool by it — a corridor carrying the wrong country would offer an order to a pool that
+  // cannot serve it.
   for (const r of RAILS.filter((x) => x.live)) {
     assert.ok(corridors.includes(`'${r.currency}'`), `live rail ${r.id}: backend corridors.ts has no '${r.currency}' corridor`);
+    assert.ok(corridors.includes(`country: '${r.country}'`), `live rail ${r.id}: backend corridors.ts has no country: '${r.country}'`);
   }
 
-  // Every provider-model corridor needs its platform settlement row in the seed (docs/23):
-  // a `model: 'provider'` entry with no 'psp' merchant on that rail quotes no_merchant forever.
+  // Parse the registry entries whole (single-line and multi-line bodies both) rather than pinning
+  // field order — the previous regex hard-coded `currency` immediately followed by `model`, so a
+  // field inserted between them silently matched nothing and every assert below passed vacuously.
+  const entries = [...corridors.matchAll(/^ {2}(\w+): \{([\s\S]*?)\},$/gm)].map(([, key, body]) => ({ key, body }));
+  assert.ok(entries.length >= 3, 'corridor registry parsed empty — the entry regex drifted');
+
+  // A corridor whose ONLY settler is a provider needs its platform settlement row in the seed
+  // (docs/23) — with no 'psp' merchant on that rail and no LP pool underneath it, it quotes
+  // no_merchant forever. A corridor that also lists 'lp' is covered by the pool, so listing
+  // 'provider' there is a preference that is simply unsatisfiable until one is configured
+  // (UPI today: prefers a provider, has none, settles through the LP network).
   const seed = readFileSync(join(ROOT, 'apps/backend/src/db/seed.ts'), 'utf8');
-  const providerKeys = [...corridors.matchAll(/^  (\w+): \{\n    currency: '\w+',\n    model: 'provider'/gm)].map((m) => m[1]);
-  for (const k of providerKeys) {
-    assert.ok(seed.includes(`'${k}'`) && seed.includes(`'psp'`), `provider corridor ${k}: seed.ts has no platform 'psp' merchant row for it`);
+  const providerKeys = entries.filter((e) => e.body.includes("'provider'")).map((e) => e.key);
+  for (const e of entries) {
+    if (e.body.includes("'provider'") && !e.body.includes("'lp'")) {
+      assert.ok(seed.includes(`'${e.key}'`) && seed.includes(`'psp'`), `provider-only corridor ${e.key}: seed.ts has no platform 'psp' merchant row for it`);
+    }
   }
-  assert.ok(providerKeys.includes('QRIS'), 'QRIS is the provider-model corridor (docs/23) — registry regex drifted if this fails');
+  assert.ok(providerKeys.includes('QRIS'), 'QRIS settles provider-first (docs/23) — registry drifted if this fails');
+  // Indonesia settles through the platform row TODAY (there is no QRIS LP network yet), so losing
+  // that seed row would break the live corridor even though the fallback makes it structurally legal.
+  assert.ok(seed.includes(`'QRIS'`) && seed.includes(`'psp'`), "seed.ts has no platform 'psp' merchant row for QRIS");
+
+  // `settle` is an ordered preference and the order is the product decision: automated settlement
+  // beats waking a human, so 'provider' must never be listed after 'lp'.
+  for (const e of entries) {
+    const p = e.body.indexOf("'provider'");
+    const l = e.body.indexOf("'lp'");
+    assert.ok(p !== -1 || l !== -1, `corridor ${e.key}: no settle preference at all`);
+    if (p !== -1 && l !== -1) assert.ok(p < l, `corridor ${e.key}: 'lp' is preferred over 'provider'`);
+  }
 }
 
 // --- UPI operator resolution ---
