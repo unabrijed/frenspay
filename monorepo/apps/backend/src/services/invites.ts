@@ -8,7 +8,9 @@ import { randomBytes } from 'node:crypto';
 // is no modulo bias to argue about.
 const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const BODY_LEN = 8;
-const PREFIX = 'FP';
+// 'FREN' since 2026-08-13 (Bridge); every FP- code was bulk-revoked and reminted by
+// scripts/remint-invites.ts. canonicalInviteCode self-adjusts via PREFIX.length below.
+const PREFIX = 'FREN';
 
 /** Codes minted for every account at signup. Admin can mint more; nothing else changes this. */
 export const INVITES_PER_USER = 3;
@@ -60,7 +62,7 @@ export function canonicalInviteCode(raw: string): string | null {
   if (typeof raw !== 'string') return null;
   let body = raw.toUpperCase().replace(/[^0-9A-Z]/g, '');
   // Strip the prefix only when doing so leaves exactly a body. A real body may itself start with
-  // 'FP', and at 8 characters that is what it is — length disambiguates, guessing does not.
+  // 'FREN', and at 8 characters that is what it is — length disambiguates, guessing does not.
   if (body.length === PREFIX.length + BODY_LEN && body.startsWith(PREFIX)) body = body.slice(PREFIX.length);
   body = body.replace(/[IL]/g, '1').replace(/O/g, '0');
   if (body.length !== BODY_LEN) return null;

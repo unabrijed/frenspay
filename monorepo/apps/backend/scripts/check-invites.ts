@@ -11,7 +11,7 @@ const { mintCode, canonicalInviteCode, inviteRequired, INVITES_PER_USER } = awai
 );
 
 // --- shape ---
-const SHAPE = /^FP-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/;
+const SHAPE = /^FREN-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/;
 for (let i = 0; i < 500; i++) {
   assert.match(mintCode(), SHAPE, 'every minted code must match the canonical shape');
 }
@@ -36,38 +36,41 @@ for (const ch of '0123456789ABCDEFGHJKMNPQRSTVWXYZ') {
 }
 
 // --- canonicalisation: every way a human might type one code lands on the same string ---
-const CANON = 'FP-7K2M-QXWD';
+const CANON = 'FREN-7K2M-QXWD';
 for (const typed of [
-  'FP-7K2M-QXWD',
-  'fp-7k2m-qxwd',
-  'FP7K2MQXWD',
+  'FREN-7K2M-QXWD',
+  'fren-7k2m-qxwd',
+  'FREN7K2MQXWD',
   '7K2MQXWD',
   '7k2mqxwd',
-  '  fp 7k2m qxwd  ',
-  'fp_7k2m_qxwd',
-  'FP-7K2M-QXWD\n',
+  '  fren 7k2m qxwd  ',
+  'fren_7k2m_qxwd',
+  'FREN-7K2M-QXWD\n',
 ]) {
   assert.equal(canonicalInviteCode(typed), CANON, `${JSON.stringify(typed)} must canonicalise to ${CANON}`);
 }
 
 // Crockford's forgiving decode: I and L are 1, O is 0. Folding these is safe precisely because
 // they are not in the alphabet, so no real code can collide with a folded one.
-assert.equal(canonicalInviteCode('FP-IK2M-QXWD'), 'FP-1K2M-QXWD', 'I folds to 1');
-assert.equal(canonicalInviteCode('FP-LK2M-QXWD'), 'FP-1K2M-QXWD', 'L folds to 1');
-assert.equal(canonicalInviteCode('FP-OK2M-QXWD'), 'FP-0K2M-QXWD', 'O folds to 0');
+assert.equal(canonicalInviteCode('FREN-IK2M-QXWD'), 'FREN-1K2M-QXWD', 'I folds to 1');
+assert.equal(canonicalInviteCode('FREN-LK2M-QXWD'), 'FREN-1K2M-QXWD', 'L folds to 1');
+assert.equal(canonicalInviteCode('FREN-OK2M-QXWD'), 'FREN-0K2M-QXWD', 'O folds to 0');
 
-// A body may legitimately begin with 'FP'. Stripping it by pattern rather than by length would
-// eat four real characters and silently reject a valid code.
-assert.equal(canonicalInviteCode('FPQXWD23'), 'FP-FPQX-WD23', 'a bare 8-char body starting FP is a body, not a prefix');
-assert.equal(canonicalInviteCode('FP-FPQX-WD23'), 'FP-FPQX-WD23', 'and it round-trips once prefixed');
+// A body may legitimately begin with the prefix letters. Stripping by pattern rather than by
+// length would eat real characters and silently reject a valid code. Both spellings are kept:
+// the old-prefix one ('FP…') is a different regression than the current-prefix one ('FREN…').
+assert.equal(canonicalInviteCode('FPQXWD23'), 'FREN-FPQX-WD23', 'a bare 8-char body starting FP is a body, not a prefix');
+assert.equal(canonicalInviteCode('FRENQXWD'), 'FREN-FREN-QXWD', 'a bare 8-char body starting FREN is a body, not a prefix');
+assert.equal(canonicalInviteCode('FREN-FREN-QXWD'), 'FREN-FREN-QXWD', 'and it round-trips once prefixed');
 
 // --- rejection ---
 for (const bad of [
   '',
-  'FP',
+  'FREN',
   '7K2MQXW', // 7 chars
   '7K2MQXWD9', // 9 chars
-  'FP-7K2M-QXWDEF', // body too long even after the prefix
+  'FREN-7K2M-QXWDEF', // body too long even after the prefix
+  'FP-7K2M-QXWD', // the RETIRED prefix: every FP- code was revoked at the FREN remint — must reject, not fold
   'UUUUUUUU', // U is excluded and has nothing to fold to
   '7K2MQXWU',
   '../../etc',
