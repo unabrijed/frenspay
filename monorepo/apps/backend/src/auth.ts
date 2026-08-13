@@ -6,7 +6,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { config } from './envConfig';
-import { findUserById, findUserByPrivyDid, getMerchantForUser, type MerchantRow } from './db/queries';
+import { findUserById, findUserByPrivyDid, getMerchantForUser, touchMerchantSeen, type MerchantRow } from './db/queries';
 import { privyConfigured, verifyAccessToken } from './services/privy';
 
 declare module 'fastify' {
@@ -98,6 +98,11 @@ export async function requireMerchant(req: FastifyRequest): Promise<MerchantRow>
     err.statusCode = 403;
     throw err;
   }
+  // Liveness, for free: every merchant route already comes through here, and "was this LP doing
+  // anything in the last minute" is the strongest available predictor of whether they'll actually
+  // pay an order now. Throttled to one write a minute inside the UPDATE, and not awaited — a
+  // liveness ping must never be able to fail or slow down the request it rode in on.
+  void touchMerchantSeen(merchant.id).catch(() => {});
   return merchant;
 }
 

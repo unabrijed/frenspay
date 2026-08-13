@@ -71,9 +71,9 @@ async function main() {
   // 1) Roles.
   check("new user defaults to role 'user'", (await findUserById(payer))?.role === 'user');
   check("manual grant reads back as 'admin'", (await findUserById(admin))?.role === 'admin');
-  await insertMerchantApplication({ userId: applicant, name: 'ZZ-ADMIN-LP', payoutRail: 'UPI', treasuryAddress: 'ZZAtreasury000000000000000000000000000000' });
+  await insertMerchantApplication({ userId: applicant, name: 'ZZ-ADMIN-LP', payoutRail: 'UPI', treasuryAddress: 'ZZAtreasury000000000000000000000000000000', country: 'IN' });
   check("merchant apply mirrors role='merchant'", (await findUserById(applicant))?.role === 'merchant');
-  await insertMerchantApplication({ userId: admin, name: 'ZZ-ADMIN-LP2', payoutRail: 'UPI', treasuryAddress: 'ZZAtreasury200000000000000000000000000000' });
+  await insertMerchantApplication({ userId: admin, name: 'ZZ-ADMIN-LP2', payoutRail: 'UPI', treasuryAddress: 'ZZAtreasury200000000000000000000000000000', country: 'IN' });
   check('merchant apply never demotes an admin', (await findUserById(admin))?.role === 'admin');
 
   const lp = (

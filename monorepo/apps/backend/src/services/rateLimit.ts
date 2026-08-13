@@ -38,6 +38,13 @@ export const RATE_LIMIT_RULES: Rule[] = [
   { method: 'POST', path: '/merchants/apply', bucket: 'auth', limit: 5, windowMs: 60_000 },
   { method: 'POST', path: '/merchants/orders/:id/paid', bucket: 'order', limit: 20, windowMs: 60_000 },
   { method: 'POST', path: '/merchants/stake/prepare', bucket: 'send', limit: 20, windowMs: 60_000 },
+  // The rest of the LP's self-serve writes. `float` was missing entirely — it was the one merchant
+  // write with no cap at all. Spread and status both feed routing, so a flapping LP is a routing
+  // problem, not just a noisy one; withdraw touches the bond and shares the send bucket.
+  { method: 'POST', path: '/merchants/float', bucket: 'auth', limit: 20, windowMs: 60_000 },
+  { method: 'POST', path: '/merchants/spread', bucket: 'auth', limit: 20, windowMs: 60_000 },
+  { method: 'POST', path: '/merchants/status', bucket: 'auth', limit: 30, windowMs: 60_000 },
+  { method: 'POST', path: '/merchants/stake/withdraw', bucket: 'send', limit: 5, windowMs: 60_000 },
   { method: 'POST', path: '/orders/:id/feedback', bucket: 'order', limit: 20, windowMs: 60_000 },
   // Public (unauthenticated) landing-page endpoints — anonymous callers key on IP. The confirm click
   // is capped too: it is the one path that can trigger a DB write from a bare GET.

@@ -18,7 +18,8 @@
     "check:waitlist": "tsx scripts/check-waitlist.ts",
     "check:invites": "tsx scripts/check-invites.ts",
     "check:flist": "tsx scripts/check-flist-gate.ts",
-    "check:fx": "tsx scripts/check-fx.ts"
+    "check:fx": "tsx scripts/check-fx.ts",
+    "check:routing": "tsx scripts/check-routing-math.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

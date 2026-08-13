@@ -6,6 +6,9 @@
 import type { PayoutMethod } from '@fpay/shared';
 
 import { committedFloatByMerchant, listRoutableMerchants, type MerchantRow } from '../db/queries';
+import { CORRIDORS } from '../lib/corridors';
+
+import { leverageFor, MIN_BOND } from './merchantStats';
 
 export interface RankedMerchant {
   merchant: MerchantRow;
@@ -31,29 +34,67 @@ function normalize(values: number[], invert: boolean): number[] {
 
 /**
  * Rank eligible merchants best-first for an order of `amountUsdc`.
- * - hard filter: drop LPs whose **available** float (total − in-flight) can't cover the order, and any
- *   in `excludeIds` (already tried this order); keep the rail filter with a cross-rail fallback.
- * - score: weighted sum of normalized signals (reliability/cost/speed/dispute/liquidity).
+ * - hard filters, all in SQL (listRoutableMerchants): online, KYB-approved, same rail, same country,
+ *   bond at or above the floor. Plus, here: `excludeIds` (already tried this order) and available
+ *   float. Anything that must never be offered an order is a hard filter, never a low score.
+ * - score: weighted sum of normalized signals (reliability/cost/speed/dispute/rating/liquidity).
  */
 export async function rankMerchants(input: {
   payoutMethod: PayoutMethod;
   amountUsdc: number;
   excludeIds?: string[];
 }): Promise<RankedMerchant[]> {
-  const exclude = new Set(input.excludeIds ?? []);
-  const all = (await listRoutableMerchants()).filter((m) => !exclude.has(m.id));
-
+  // Country comes from the corridor, which mirrors rails.ts — the only country list (invariant 1).
+  // Today this is implied by the rail (UPI is India, QRIS is Indonesia), so the filter is nearly a
+  // tautology; it stops being one the first time a rail runs in more than one country, which 'bank'
+  // already does in the real world. The column is what makes it enforceable then.
+  //
   // Rail is a HARD filter (project-model invariant 15). The old any-rail fallback leaked money
   // both directions once corridors stopped being interchangeable: a rerouted QRIS order's escrow
   // could release to a 'happy' UPI sim that never paid the payee, and a UPI order could quote
   // against the QRIS platform settlement row into a guaranteed refund round-trip. An empty rail
   // pool now fails fast — `createQuote` → no_merchant, `rerouteOrder` → refund.
-  const byRail = all.filter((m) => m.payout_rail === input.payoutMethod);
+  const corridor = CORRIDORS[input.payoutMethod];
+  if (!corridor) return []; // unquotable rail — fail fast rather than rank an empty concept
 
-  // Live available float = total float − committed (in-flight) float. A saturated LP has little
-  // headroom and drops out until its orders clear.
-  const committed = await committedFloatByMerchant();
-  const availableOf = (m: MerchantRow) => Math.max(Number(m.float_usdc) - (committed[m.id] ?? 0), 0);
+  const eligible = await listRoutableMerchants({
+    payoutRail: input.payoutMethod,
+    country: corridor.country,
+    minBondUsdc: MIN_BOND,
+  });
+  return rankPool(eligible, await committedFloatByMerchant(), input);
+}
+
+/**
+ * The pure half: given an already-eligible pool and each LP's in-flight commitments, apply the
+ * remaining hard filters and score. Split out from `rankMerchants` so the capacity math and the
+ * scoring can be asserted without a database (scripts/check-routing.ts, invariant 10) — this is
+ * money-shaped logic and it was the only part of the router with no runnable check at all.
+ */
+export function rankPool(
+  eligible: MerchantRow[],
+  committed: Record<string, number>,
+  input: { amountUsdc: number; excludeIds?: string[] },
+): RankedMerchant[] {
+  const exclude = new Set(input.excludeIds ?? []);
+  const notTried = eligible.filter((m) => !exclude.has(m.id));
+
+  // Live available float = min(declared float, bond × leverage) − committed (in-flight).
+  //
+  // The bond cap is the half that's new. `float_usdc` is the LP's own claim about their capacity and
+  // nothing checked it against their stake, so a minimum-bond LP could declare unbounded float and
+  // be routed unbounded exposure. Their stake is what makes the trade trustable, so it is what
+  // bounds the trade. A saturated LP still drops out until its orders clear.
+  //
+  // Platform settlement rows are exempt (invariant 14, and the same reasoning settleDispute uses):
+  // their bond is a seeded fiction with no top-up path, so leveraging it would quietly cut the
+  // Indonesia corridor's capacity from its declared float to 3× a number that means nothing.
+  const availableOf = (m: MerchantRow) => {
+    const declared = Number(m.float_usdc);
+    const backed =
+      m.sim_behavior === 'psp' ? declared : Math.min(declared, Number(m.bond_usdc) * leverageFor(m.tier));
+    return Math.max(backed - (committed[m.id] ?? 0), 0);
+  };
 
   // Hard filter (truly hard): only LPs whose available float can cover the order. If none can, return
   // [] so the caller fails fast — `createQuote` → `no_merchant`, `rerouteOrder` → refund — rather than
@@ -61,7 +102,7 @@ export async function rankMerchants(input: {
   // money:number — routing's amountUsdc is a local threshold value, not the wire DTO field of the
   // same name. Ranking compares and scores, it never moves money, so it stays on `number` by
   // decision (docs/01 § Money & decimals); a 1-ulp difference only shifts an exact-boundary tie.
-  const pool = byRail.filter((m) => availableOf(m) >= input.amountUsdc);
+  const pool = notTried.filter((m) => availableOf(m) >= input.amountUsdc);
   if (pool.length === 0) return [];
 
   const avail = pool.map(availableOf);

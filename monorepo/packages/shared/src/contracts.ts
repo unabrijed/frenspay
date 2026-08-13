@@ -127,12 +127,25 @@ export interface MerchantProfile {
   status: 'online' | 'offline' | 'suspended';
   payoutRail: PayoutMethod;
   treasuryAddress: string;
+  /** ISO 3166-1 alpha-2 of the corridor this LP serves. Routing filters on it, so an LP is never
+   *  offered an order they could not pay. Fixed at application time. */
+  country: string;
   /** Staked USDC — skin in the game. Slashed on an upheld dispute; below the floor the LP is
    *  auto-suspended out of routing. */
   bondUsdc: string;
   minBondUsdc: string;
-  /** How much the LP can have in flight at once. */
+  /** How much the LP says they can have in flight at once. Their own claim — see maxFloatUsdc. */
   floatUsdc: string;
+  /** What that claim is actually worth: bond × the tier's leverage. Routing uses
+   *  min(floatUsdc, maxFloatUsdc), so a float declared above this buys nothing — surfaced so the
+   *  LP can see WHY their capacity is capped and that staking more is the lever. */
+  maxFloatUsdc: string;
+  /** Performance tier (1–3), computed from live signals. Sets leverage and the head start. */
+  tier: number;
+  /** An open stake-withdrawal request. The bond is already debited; a human releases the USDC. */
+  pendingWithdrawal?: { id: string; amountUsdc: string; requestedAt: string };
+  /** The LP's take off the mid rate, in basis points. Also the routing `cost` signal. */
+  spreadBps: number;
   /** Live smoothed reputation signals (fractions 0–1) — shown only to the merchant themselves. */
   successRate: number;
   disputeRate: number;

@@ -30,7 +30,7 @@
     "db:seed": "yarn workspace @fpay/backend db:seed",
     "devnet:setup": "yarn workspace @fpay/backend devnet:setup",
     "_comment_checks": "The self-checks: every one is plain node with no DB and no network, so check:all runs anywhere in about a second. It is `check:all` and not `check` because `yarn check` is a Yarn 1 BUILTIN (lockfile verifier) and builtins resolve ahead of scripts — a script named `check` would be silently shadowed.",
-    "check:all": "yarn check:deploy && yarn check:env && yarn check:money && yarn check:paytarget && yarn check:rails && yarn check:fx && yarn check:waitlist && yarn check:invites && yarn check:scenes && yarn check:email && yarn check:api",
+    "check:all": "yarn check:deploy && yarn check:env && yarn check:money && yarn check:paytarget && yarn check:rails && yarn check:routing && yarn check:fx && yarn check:waitlist && yarn check:invites && yarn check:scenes && yarn check:email && yarn check:api",
     "check:api": "yarn workspace @fpay/web check:api",
     "check:fx": "yarn workspace @fpay/backend check:fx",
     "check:deploy": "node scripts/vercel-ignore.mjs --check",
@@ -41,6 +41,7 @@
     "check:waitlist": "yarn workspace @fpay/backend check:waitlist",
     "check:invites": "yarn workspace @fpay/backend check:invites",
     "check:scenes": "yarn workspace @fpay/landing check:scenes",
-    "check:email": "yarn workspace @fpay/landing check:email"
+    "check:email": "yarn workspace @fpay/landing check:email",
+    "check:routing": "yarn workspace @fpay/backend check:routing"
   }
 }

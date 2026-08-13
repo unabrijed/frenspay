@@ -52,13 +52,15 @@ async function main() {
   // re-keys a row other systems treat as an identity. They're upserted below instead.
   await pool.query(`delete from merchants where sim_behavior is distinct from 'psp'`);
   await pool.query(
-    `insert into merchants (name, payout_rail, status, treasury_address, success_rate, avg_completion_secs, spread_bps, float_usdc, dispute_rate, kyb_status, bond_usdc, base_success_rate, base_avg_completion_secs, base_dispute_rate, sim_behavior)
+    // country matches the rail's (rails.ts: upi → IN) — routing hard-filters on it, so a sim LP
+    // seeded with the wrong country is simply invisible to every quote.
+    `insert into merchants (name, payout_rail, country, status, treasury_address, success_rate, avg_completion_secs, spread_bps, float_usdc, dispute_rate, kyb_status, bond_usdc, base_success_rate, base_avg_completion_secs, base_dispute_rate, sim_behavior)
      values
-       ($1, 'UPI','online',$2,  0.992, 120, 50, 100000, 0.003, 'approved', 8000, 0.992, 120, 0.003, 'happy'),
-       ($3, 'UPI','online',$4,  0.972, 200, 25,  80000, 0.006, 'approved', 6000, 0.972, 200, 0.006, 'happy'),
-       ($5, 'UPI','online',$6,  0.951,  70, 90,  60000, 0.012, 'approved', 5000, 0.951,  70, 0.012, 'happy'),
-       ($7, 'UPI','online',$8,  0.960, 180, 80, 100000, 0.008, 'approved', 6000, 0.960, 180, 0.008, 'slow'),
-       ($9, 'UPI','online',$10, 0.940, 150, 60,  40000, 0.030, 'approved', 3000, 0.940, 150, 0.030, 'no_receipt')`,
+       ($1, 'UPI','IN','online',$2,  0.992, 120, 50, 100000, 0.003, 'approved', 8000, 0.992, 120, 0.003, 'happy'),
+       ($3, 'UPI','IN','online',$4,  0.972, 200, 25,  80000, 0.006, 'approved', 6000, 0.972, 200, 0.006, 'happy'),
+       ($5, 'UPI','IN','online',$6,  0.951,  70, 90,  60000, 0.012, 'approved', 5000, 0.951,  70, 0.012, 'happy'),
+       ($7, 'UPI','IN','online',$8,  0.960, 180, 80, 100000, 0.008, 'approved', 6000, 0.960, 180, 0.008, 'slow'),
+       ($9, 'UPI','IN','online',$10, 0.940, 150, 60,  40000, 0.030, 'approved', 3000, 0.940, 150, 0.030, 'no_receipt')`,
     [
       'RapidPay LP', treasuryFor('pay-merchant-rapidpay'),
       'ThriftPay LP', treasuryFor('pay-merchant-thriftpay'),
@@ -75,10 +77,10 @@ async function main() {
   // spread_bps here IS the platform's corridor take; the payout provider executes the fiat leg.
   const platformTreasury = config.platformTreasuryAddress || treasuryFor('pay-platform-treasury');
   await pool.query(
-    `insert into merchants (id, name, payout_rail, status, treasury_address, success_rate, avg_completion_secs, spread_bps, float_usdc, dispute_rate, kyb_status, bond_usdc, base_success_rate, base_avg_completion_secs, base_dispute_rate, sim_behavior)
-     values ('a0000000-0000-4000-8000-000000000001', 'fpay Indonesia', 'QRIS', 'online', $1, 0.99, 60, 60, 1000000, 0.001, 'approved', 5000, 0.99, 60, 0.001, 'psp')
+    `insert into merchants (id, name, payout_rail, country, status, treasury_address, success_rate, avg_completion_secs, spread_bps, float_usdc, dispute_rate, kyb_status, bond_usdc, base_success_rate, base_avg_completion_secs, base_dispute_rate, sim_behavior)
+     values ('a0000000-0000-4000-8000-000000000001', 'fpay Indonesia', 'QRIS', 'ID', 'online', $1, 0.99, 60, 60, 1000000, 0.001, 'approved', 5000, 0.99, 60, 0.001, 'psp')
      on conflict (id) do update set
-       name = excluded.name, payout_rail = excluded.payout_rail,
+       name = excluded.name, payout_rail = excluded.payout_rail, country = excluded.country,
        treasury_address = excluded.treasury_address, spread_bps = excluded.spread_bps,
        float_usdc = excluded.float_usdc, sim_behavior = excluded.sim_behavior`,
     [platformTreasury],

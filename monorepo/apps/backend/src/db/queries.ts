@@ -740,12 +740,42 @@ export interface MerchantRow {
    *  'psp' = a platform settlement row (docs/23): the payout provider executes the fiat leg. */
   sim_behavior: 'happy' | 'slow' | 'no_receipt' | 'timeout' | 'psp' | null;
   user_id: string | null;
+  /** ISO 3166-1 alpha-2 (0014). Mirrors the corridor's country; a hard routing filter. */
+  country: string;
+  /** Performance tier (0014), computed by recomputeMerchantStats. Never set by hand. */
+  tier: number;
+  /** Last authenticated merchant request — "is this LP at their desk right now" (0014). */
+  last_seen_at: Date | null;
 }
 
-/** Merchants eligible for routing: online AND KYB-approved (M4). */
-export async function listRoutableMerchants(): Promise<MerchantRow[]> {
+/**
+ * Merchants eligible for routing. Every filter here is HARD — an LP that fails any of them must
+ * never be offered an order, so all of them live in the SELECT rather than in caller-side code.
+ *
+ * - status/kyb_status: the original M4 gate.
+ * - payout_rail: invariant 15 — routing never crosses rails, no fallback. Was a JS filter in
+ *   routing.ts; it belongs here with the others.
+ * - country: an LP who cannot serve the corridor should never see the order (0014).
+ * - bond_usdc >= minBond: THE FIX. This check previously existed only inside recomputeMerchantStats,
+ *   which runs every 10th confirmer tick — so a freshly-approved LP with a zero bond was routable
+ *   for up to ~80 seconds. A periodic job is not a gate on money movement.
+ *
+ * Platform settlement rows (sim_behavior='psp') are exempt from the bond floor, for the same reason
+ * settleDispute exempts them from bond draws (invariant 14): the platform posting a bond to itself
+ * is fiction, and there is no user_id-gated top-up path that could ever raise it. Gating the
+ * corridor on a fictional number just means a seed edit silently switches Indonesia off.
+ */
+export async function listRoutableMerchants(filter: {
+  payoutRail: PayoutMethod;
+  country: string;
+  minBondUsdc: number;
+}): Promise<MerchantRow[]> {
   const { rows } = await getPool().query<MerchantRow>(
-    `select * from merchants where status = 'online' and kyb_status = 'approved'`,
+    `select * from merchants
+      where status = 'online' and kyb_status = 'approved'
+        and payout_rail = $1 and country = $2
+        and (sim_behavior = 'psp' or bond_usdc >= $3)`,
+    [filter.payoutRail, filter.country, filter.minBondUsdc],
   );
   return rows;
 }
@@ -1524,17 +1554,46 @@ export async function merchantFeedbackStats(): Promise<Record<string, { up: numb
 /** Write recomputed live signals back to a merchant. */
 export async function updateMerchantStats(
   id: string,
-  s: { successRate: number; avgCompletionSecs: number; disputeRate: number; positiveRate: number },
+  s: { successRate: number; avgCompletionSecs: number; disputeRate: number; positiveRate: number; tier: number },
 ): Promise<void> {
   await getPool().query(
-    `update merchants set success_rate = $2, avg_completion_secs = $3, dispute_rate = $4, positive_rate = $5
+    `update merchants set success_rate = $2, avg_completion_secs = $3, dispute_rate = $4, positive_rate = $5,
+                          tier = $6
       where id = $1`,
-    [id, s.successRate, Math.round(s.avgCompletionSecs), s.disputeRate, s.positiveRate],
+    [id, s.successRate, Math.round(s.avgCompletionSecs), s.disputeRate, s.positiveRate, s.tier],
   );
 }
 
-export async function setMerchantStatus(id: string, status: 'online' | 'offline' | 'suspended'): Promise<void> {
-  await getPool().query(`update merchants set status = $2 where id = $1`, [id, status]);
+/**
+ * Set an LP's routing status. `reason` records WHO — 'bond' means the auto-suspend did it and the
+ * auto-reinstate may undo it; the default NULL means a human did (admin moderation, or the
+ * user-suspend cascade) and only a human reverses it. Callers that omit it are asserting "a person
+ * decided this", which is true of every existing call site.
+ */
+export async function setMerchantStatus(
+  id: string,
+  status: 'online' | 'offline' | 'suspended',
+  reason: string | null = null,
+): Promise<void> {
+  await getPool().query(`update merchants set status = $2, suspend_reason = $3 where id = $1`, [id, status, reason]);
+}
+
+/**
+ * The mirror of the bond auto-suspend: an LP who topped back up comes out of it. Guarded so it can
+ * only ever reverse the machine's own decision — `suspend_reason = 'bond'` is the whole safety
+ * predicate, and without it this would silently un-ban a moderated merchant.
+ *
+ * Lands on 'offline', not 'online': being solvent again means eligible to work, not back at the
+ * desk. They say when.
+ */
+export async function reinstateBondSuspendedMerchant(id: string, minBondUsdc: number): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update merchants set status = 'offline', suspend_reason = null
+      where id = $1 and status = 'suspended' and suspend_reason = 'bond'
+        and kyb_status = 'approved' and bond_usdc >= $2`,
+    [id, minBondUsdc],
+  );
+  return (rowCount ?? 0) > 0;
 }
 
 export async function setUserStatus(id: string, status: 'active' | 'suspended'): Promise<void> {
@@ -1581,13 +1640,14 @@ export async function insertMerchantApplication(input: {
   name: string;
   payoutRail: PayoutMethod;
   treasuryAddress: string;
+  country: string;
 }): Promise<string> {
   const { rows } = await getPool().query<{ id: string }>(
     `insert into merchants (user_id, name, payout_rail, status, treasury_address, kyb_status,
-                            sim_behavior, bond_usdc, float_usdc)
-     values ($1, $2, $3, 'offline', $4, 'pending', null, 0, 0)
+                            sim_behavior, bond_usdc, float_usdc, country)
+     values ($1, $2, $3, 'offline', $4, 'pending', null, 0, 0, $5)
      returning id`,
-    [input.userId, input.name, input.payoutRail, input.treasuryAddress],
+    [input.userId, input.name, input.payoutRail, input.treasuryAddress, input.country],
   );
   // Informational role mirror (capability stays merchants.user_id); never demotes an admin.
   await getPool().query(`update users set role = 'merchant' where id = $1 and role = 'user'`, [input.userId]);
@@ -1603,6 +1663,51 @@ export async function getMerchantForUser(userId: string): Promise<MerchantRow | 
 /** Set how much the LP can have in flight at once (its own honest capacity). */
 export async function setMerchantFloat(merchantId: string, floatUsdc: number): Promise<void> {
   await getPool().query('update merchants set float_usdc = $2 where id = $1', [merchantId, floatUsdc]);
+}
+
+/**
+ * The LP's own take, in basis points off the mid rate. Had NO writer outside seed.ts — every real
+ * LP was permanently stuck on the column default of 50 bps, unable to compete on price at all,
+ * while `cost` carries 0.20 of the routing score.
+ */
+export async function setMerchantSpread(merchantId: string, spreadBps: number): Promise<void> {
+  await getPool().query('update merchants set spread_bps = $2 where id = $1', [merchantId, spreadBps]);
+}
+
+/**
+ * The LP taking themselves in and out of routing. Guarded, not a bare write:
+ *   - 'suspended' is never reachable or escapable from here — that is an admin/auto-suspend state,
+ *     and letting an LP flip themselves back online would undo the bond floor in one request.
+ *   - coming ONLINE re-checks KYB and the bond floor, so this can't be used as a side door around
+ *     listRoutableMerchants' gate.
+ *   - going OFFLINE is always allowed. It has to be: it is the honest way to say "I'm asleep",
+ *     and the alternative people were left with was setting float to 0 (merchant.ts:163).
+ * Returns false when the transition was refused, so the route can say which.
+ */
+export async function setMerchantOnlineSelf(
+  merchantId: string,
+  status: 'online' | 'offline',
+  minBondUsdc: number,
+): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update merchants set status = $2
+      where id = $1 and status <> 'suspended'
+        and ($2 = 'offline' or (kyb_status = 'approved' and bond_usdc >= $3))`,
+    [merchantId, status, minBondUsdc],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/**
+ * Liveness ping. Throttled in SQL to one write a minute per LP so it can hang off every
+ * authenticated merchant request without turning reads into writes.
+ */
+export async function touchMerchantSeen(merchantId: string): Promise<void> {
+  await getPool().query(
+    `update merchants set last_seen_at = now()
+      where id = $1 and (last_seen_at is null or last_seen_at < now() - interval '60 seconds')`,
+    [merchantId],
+  );
 }
 
 /**
@@ -1627,6 +1732,91 @@ export async function creditStakeOnConfirm(transferId: string, stakeTreasuryAddr
     [transferId, stakeTreasuryAddress],
   );
   return rows[0] ? Number(rows[0].amount_usdc) : 0;
+}
+
+/** Order states that mean an LP still owes someone a fiat payout — same set committedFloatByMerchant
+ *  treats as in-flight. Money backing these is not the LP's to withdraw. */
+const LIVE_ORDER_STATES = `('pay_instructions','waiting_payment','payment_detected','merchant_confirms','funds_released')`;
+
+/**
+ * Ask for stake back. ONE statement on purpose: the bond debit and the request row must land
+ * together or not at all, and every precondition is a predicate rather than a read-then-write, so
+ * two concurrent requests cannot both pass the checks.
+ *
+ * Refused (returns null) when the LP has less bond than they're asking for, already has an open
+ * request, still has an order in flight, or has an open dispute — an unresolved dispute can still
+ * draw this bond down, and letting it leave first is how you get an uncollectable fine.
+ *
+ * The debit lands NOW, not at release. Money you have asked to withdraw must stop backing new
+ * orders immediately; if that drops the LP under MIN_BOND the existing auto-suspend takes them out
+ * of routing, which is the correct outcome for someone on their way out.
+ */
+export async function requestStakeWithdrawal(merchantId: string, amountUsdc: number): Promise<string | null> {
+  const { rows } = await getPool().query<{ id: string }>(
+    `with debited as (
+       update merchants set bond_usdc = bond_usdc - $2
+        where id = $1 and bond_usdc >= $2
+          and not exists (select 1 from merchant_stake_withdrawals w
+                           where w.merchant_id = $1 and w.status = 'requested')
+          and not exists (select 1 from orders o
+                           where o.merchant_id = $1 and o.state in ${LIVE_ORDER_STATES})
+          and not exists (select 1 from disputes d
+                           where d.merchant_id = $1 and d.status = 'open')
+       returning id
+     )
+     insert into merchant_stake_withdrawals (merchant_id, amount_usdc)
+     select id, $2 from debited
+     returning id`,
+    [merchantId, amountUsdc],
+  );
+  return rows[0]?.id ?? null;
+}
+
+/** Changed their mind before a human released it — restore the bond and close the request. The CAS
+ *  on status='requested' is what stops a cancel racing a release into a double credit. */
+export async function cancelStakeWithdrawal(merchantId: string, withdrawalId: string): Promise<boolean> {
+  const { rows } = await getPool().query<{ id: string }>(
+    `with cancelled as (
+       update merchant_stake_withdrawals
+          set status = 'cancelled', settled_at = now()
+        where id = $2 and merchant_id = $1 and status = 'requested'
+       returning merchant_id, amount_usdc
+     )
+     update merchants m set bond_usdc = m.bond_usdc + c.amount_usdc
+       from cancelled c where m.id = c.merchant_id
+     returning m.id`,
+    [merchantId, withdrawalId],
+  );
+  return rows.length > 0;
+}
+
+export interface StakeWithdrawalRow {
+  id: string;
+  merchant_id: string;
+  amount_usdc: string;
+  status: 'requested' | 'released' | 'cancelled';
+  requested_at: Date;
+  settled_at: Date | null;
+  note: string | null;
+}
+
+export async function listStakeWithdrawals(merchantId: string): Promise<StakeWithdrawalRow[]> {
+  const { rows } = await getPool().query<StakeWithdrawalRow>(
+    `select * from merchant_stake_withdrawals where merchant_id = $1 order by requested_at desc limit 20`,
+    [merchantId],
+  );
+  return rows;
+}
+
+/** Admin: mark a request paid out after sending the USDC by hand. The bond was already debited at
+ *  request time, so this moves no balance — it records that the off-chain half happened. */
+export async function releaseStakeWithdrawal(withdrawalId: string, note: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update merchant_stake_withdrawals set status = 'released', settled_at = now(), note = $2
+      where id = $1 and status = 'requested'`,
+    [withdrawalId, note],
+  );
+  return (rowCount ?? 0) > 0;
 }
 
 /**
