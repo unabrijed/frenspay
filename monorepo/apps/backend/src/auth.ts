@@ -16,8 +16,15 @@ declare module 'fastify' {
   }
 }
 
-/** preHandler: populate req.userId (and req.privyDid in Privy mode). */
-export async function authPreHandler(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
+/** preHandler: populate req.userId (and req.privyDid in Privy mode).
+ *
+ *  Also the ONE suspension gate: this hook already holds the user row on every authed request, so
+ *  `status='suspended'` 403s here and every route — current and future — is covered at once.
+ *  403 with a named code, never 401: clients sign out on `no_account`, and a suspended user is
+ *  signed IN, just not welcome. Admins are exempt — this hook runs before requireAdmin, and a
+ *  blanket 403 would lock a mistakenly-suspended admin out of the console that could fix it,
+ *  defeating the ADMIN_EMAILS recovery bootstrap below. */
+export async function authPreHandler(req: FastifyRequest, reply: FastifyReply): Promise<unknown> {
   const authz = req.headers.authorization;
   if (privyConfigured() && typeof authz === 'string' && authz.startsWith('Bearer ')) {
     try {
@@ -28,6 +35,9 @@ export async function authPreHandler(req: FastifyRequest, _reply: FastifyReply):
       // log out every user at once. privyDid set + no userId now means exactly one thing: we
       // verified you, we asked the DB, and you have no row.
       req.privyDid = privyDid;
+      if (user && user.status !== 'active' && effectiveRole(user) !== 'admin') {
+        return reply.code(403).send({ error: 'account_suspended' });
+      }
       if (user) req.userId = user.id;
     } catch (e) {
       // invalid token (or DB unavailable) → leave unauthenticated; requireUserId will 401
@@ -39,7 +49,15 @@ export async function authPreHandler(req: FastifyRequest, _reply: FastifyReply):
   // misconfig (missing PRIVY secret) turn the spoofable x-dev-user-id header into an auth bypass.
   if (config.isDevelopment && !privyConfigured()) {
     const hdr = req.headers['x-dev-user-id'];
-    if (typeof hdr === 'string' && hdr.length > 0) req.userId = hdr;
+    if (typeof hdr === 'string' && hdr.length > 0) {
+      // The header names a row directly, so fetch it for the same suspension gate as the Privy
+      // path. An id with no row still sets userId (matches old behavior; routes 404 as before).
+      const user = await findUserById(hdr);
+      if (user && user.status !== 'active' && effectiveRole(user) !== 'admin') {
+        return reply.code(403).send({ error: 'account_suspended' });
+      }
+      req.userId = hdr;
+    }
   }
 }
 

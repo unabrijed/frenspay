@@ -21,17 +21,21 @@ import type {
   AdminPayoutProviderUpdateRequest,
   AdminPayoutProvidersResponse,
   AdminRiskEventsResponse,
+  AdminUserPatchRequest,
   AdminUserRoleRequest,
+  AdminUserStatusRequest,
   AdminUsersResponse,
   AdminWaitlistResponse,
 } from '@fpay/shared';
 
-import { isRootAdminEmail, requireAdmin } from '../auth';
+import { effectiveRole, isRootAdminEmail, requireAdmin } from '../auth';
 import {
   addDenylistEntry,
   adminOverview,
+  canonicalHandle,
   findUserByHandle,
   findUserById,
+  getMerchantForUser,
   getDisputeForOrder,
   getOrderAdmin,
   insertAdminAction,
@@ -50,11 +54,15 @@ import {
   mintInviteCodes,
   removeDenylistEntry,
   revokeInviteCode,
+  sanitizeDisplayName,
   setMerchantKyb,
   setMerchantStatus,
   setUserRole,
+  setUserStatus,
   updatePayoutProvider,
+  updateUserProfileAdmin,
 } from '../db/queries';
+import { screenHandle } from '../services/compliance';
 import { canonicalInviteCode } from '../services/invites';
 import { settleDispute } from '../services/orderMachine';
 import { providerHasCredentials } from '../services/payout/provider';
@@ -311,6 +319,110 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       note: target.handle,
     });
     return { ok: true, role: applied };
+  });
+
+  /**
+   * Support-desk profile edits: rename a user and/or set their display name (docs/24).
+   *
+   * The freed old handle releases INSTANTLY — anyone can claim it, saved QR codes now point at
+   * whoever does. Bridge's accepted trade; the audit note's `old -> new` is the only record that
+   * disambiguates history afterwards, which is why it isn't optional.
+   *
+   * Denylist errors are honest here (`handle_denylisted`, not the public `handle_taken` merge) —
+   * the operator is trusted; the merged error exists only to stop outsiders probing the list.
+   */
+  app.post<{ Params: { id: string }; Body: AdminUserPatchRequest }>('/admin/users/:id', async (req, reply) => {
+    const adminId = await requireAdmin(req);
+    const { handle, displayName, reason } = req.body ?? {};
+    if (handle === undefined && displayName === undefined) return reply.code(400).send({ error: 'empty_patch' });
+    const target = await findUserById(req.params.id);
+    if (!target) return reply.code(404).send({ error: 'user_not_found' });
+
+    let newHandle: string | undefined;
+    if (handle !== undefined) {
+      const canonical = canonicalHandle(String(handle));
+      if (!canonical) return reply.code(400).send({ error: 'invalid_handle' });
+      // Renaming a denylisted user would detach them from their denylist row (it matches handle
+      // TEXT, and it gates money movement) — a one-statement sanctions bypass. Resolve the entry
+      // first, then rename.
+      if (await screenHandle(target.handle)) return reply.code(409).send({ error: 'current_handle_denylisted' });
+      if (await screenHandle(canonical)) return reply.code(409).send({ error: 'handle_denylisted' });
+      newHandle = canonical;
+    }
+    let newName: string | undefined;
+    if (displayName !== undefined) {
+      const cleaned = sanitizeDisplayName(String(displayName));
+      if (!cleaned) return reply.code(400).send({ error: 'invalid_display_name' });
+      newName = cleaned;
+    }
+
+    let updated;
+    try {
+      updated = await updateUserProfileAdmin(req.params.id, { handle: newHandle, displayName: newName });
+    } catch (e) {
+      if ((e as { code?: string }).code === '23505') return reply.code(409).send({ error: 'handle_taken' });
+      throw e;
+    }
+    if (!updated) return reply.code(404).send({ error: 'user_not_found' });
+    await insertAdminAction({
+      adminUserId: adminId,
+      action: 'user_edit',
+      targetKind: 'user',
+      targetId: req.params.id,
+      note: [
+        newHandle && newHandle !== target.handle ? `${target.handle} -> ${newHandle}` : null,
+        newName !== undefined ? `name: ${target.display_name ?? '(none)'} -> ${newName}` : null,
+        reason?.trim() || null,
+      ]
+        .filter(Boolean)
+        .join('; '),
+    });
+    return { ok: true, handle: updated.handle, displayName: updated.display_name };
+  });
+
+  /**
+   * Suspend/reinstate an account. Suspension 403s every authed request at the preHandler and makes
+   * the handle unresolvable — but funds are never touched (the wallet is the user's own; we deny
+   * our rails, we don't confiscate).
+   */
+  app.post<{ Params: { id: string }; Body: AdminUserStatusRequest }>('/admin/users/:id/status', async (req, reply) => {
+    const adminId = await requireAdmin(req);
+    const status = req.body?.status;
+    const reason = req.body?.reason?.trim();
+    if (status !== 'active' && status !== 'suspended') return reply.code(400).send({ error: 'invalid_status' });
+    // Identity edits and bans on a money account need a WHY on the record, not just a who/when.
+    if (!reason) return reply.code(400).send({ error: 'reason_required' });
+    if (req.params.id === adminId && status === 'suspended') {
+      return reply.code(409).send({ error: 'cannot_suspend_self' });
+    }
+    const target = await findUserById(req.params.id);
+    if (!target) return reply.code(404).send({ error: 'user_not_found' });
+    // Suspending an admin would fight the preHandler's admin exemption and the console's own
+    // recovery story — demote first, then suspend. (Also subsumes self: the caller is an admin.)
+    if (status === 'suspended' && effectiveRole(target) === 'admin') {
+      return reply.code(409).send({ error: 'cannot_suspend_admin' });
+    }
+    await setUserStatus(req.params.id, status);
+    // A suspended LP must stop earning too: routing reads merchants.status only (never users), and
+    // payouts advance via pollers/webhooks that bypass auth entirely — this cascade is the only
+    // gate on NEW orders. One-way on purpose: reinstating the account does not resurrect the
+    // merchant; that's a deliberate second decision via /admin/merchants/:id/status.
+    let merchantCascade = false;
+    if (status === 'suspended') {
+      const merchant = await getMerchantForUser(req.params.id);
+      if (merchant && merchant.status !== 'suspended') {
+        await setMerchantStatus(merchant.id, 'suspended');
+        merchantCascade = true;
+      }
+    }
+    await insertAdminAction({
+      adminUserId: adminId,
+      action: status === 'suspended' ? 'user_suspend' : 'user_reinstate',
+      targetKind: 'user',
+      targetId: req.params.id,
+      note: [target.handle, reason, merchantCascade ? 'merchant cascade-suspended' : null].filter(Boolean).join('; '),
+    });
+    return { ok: true, status };
   });
 
   /**
