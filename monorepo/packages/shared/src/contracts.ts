@@ -171,6 +171,15 @@ export interface MerchantOrder {
   /** When the escrow auto-releases (dispute window) or when the claim SLA runs out. */
   expiresAt?: string; // ISO 8601
   createdAt: string; // ISO 8601
+  /** True for orders routed to this LP; false for open-pool offers they could still take. */
+  mine: boolean;
+  /** Set once someone has committed to paying this order. While null it is up for grabs, and
+   *  `payoutDestination` is absent — nobody learns who to pay before they've taken it. */
+  lockedAt?: string; // ISO 8601
+  /** When an unpaid lock lapses and the order returns to the pool. */
+  lockExpiresAt?: string; // ISO 8601
+  /** When the routed LP's exclusive window ends and the rest of the pool can take it. */
+  offerWidensAt?: string; // ISO 8601
 }
 
 export interface MerchantOrdersResponse {

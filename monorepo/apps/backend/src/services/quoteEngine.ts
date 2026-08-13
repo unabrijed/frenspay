@@ -78,6 +78,10 @@ export async function createQuote(
     amountUsdc: formatAmount(amountUsdc, USDC_DECIMALS),
     rate: formatAmount(rate, RATE_DECIMALS),
     platformFeeUsdc: formatAmount(platformFeeUsdc, USDC_DECIMALS),
+    // Recorded so the order can later be offered to the pool at this price: only LPs at or below
+    // the spread this quote was struck at are eligible, which is what makes broadcasting safe
+    // without ever repricing what the payer was promised.
+    spreadBps: merchant.spread_bps,
     etaMinSecs: merchant.avg_completion_secs,
     etaMaxSecs: merchant.avg_completion_secs * 2,
     payoutMethod: input.payoutMethod,

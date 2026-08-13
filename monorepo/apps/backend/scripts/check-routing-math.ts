@@ -181,6 +181,51 @@ const ids = (r: ReturnType<typeof rankPool>) => r.map((x) => x.merchant.id);
   // merchantStats suspends on — a mismatch would suspend LPs the router still hands orders to.
   const routing = readFileSync(join(ROOT, 'src/services/routing.ts'), 'utf8');
   assert.ok(routing.includes('minBondUsdc: MIN_BOND'), 'routing must pass MIN_BOND, not its own copy of the floor');
+
+  // --- the lock's two safety predicates (0015) ---
+  //
+  // These are the ones that turn "broadcast the order to a pool" from a leak into a marketplace,
+  // and both are single lines that would go unnoticed if deleted. Executing them needs a database
+  // (scripts/check-lock.ts does that); this catches removal.
+  const offers = queries.slice(queries.indexOf('export async function listOpenOffers'));
+  const offersBody = offers.slice(0, offers.indexOf('\nexport ', 1));
+  assert.ok(offersBody.includes('from merchants'), 'could not locate the listOpenOffers query body');
+  assert.ok(
+    offersBody.includes('null::text as payout_destination') && offersBody.includes('null::text as payout_name'),
+    'listOpenOffers must redact the payee in SQL — an unlocked order must never carry who to pay',
+  );
+  assert.ok(offersBody.includes('o.locked_at is null'), 'listOpenOffers must never surface an order someone already took');
+  assert.ok(
+    offersBody.includes('q.spread_bps <= $2'),
+    'listOpenOffers must filter to LPs at or below the quoted spread — the payer’s rate was struck against one LP',
+  );
+
+  const claim = queries.slice(queries.indexOf('export async function claimOrderPayout'));
+  const claimBody = claim.slice(0, claim.indexOf('\nexport ', 1));
+  assert.ok(claimBody.includes('from merchants') === false, 'claimOrderPayout should still be a single guarded UPDATE');
+  assert.ok(
+    claimBody.includes('locked_at is not null'),
+    'claimOrderPayout must require the lock — otherwise an LP can report paying an order they never took',
+  );
+  assert.ok(claimBody.includes('payout_claimed_at is null'), 'claimOrderPayout lost its double-tap guard');
+
+  const lock = queries.slice(queries.indexOf('export async function lockOrder'));
+  const lockBody = lock.slice(0, lock.indexOf('\nexport ', 1));
+  assert.ok(lockBody.includes('o.locked_at is null'), 'lockOrder lost the predicate that makes it mutually exclusive');
+  assert.ok(
+    lockBody.includes('o.offer_widens_at <= now()'),
+    'lockOrder lost the head start — the routed LP’s exclusive window is the whole reputation reward',
+  );
+
+  // An order that is born locked (provider/sim settled) is what lets claimOrderPayout require a
+  // lock with one predicate instead of a psp special case. If this split goes, the provider path
+  // stops releasing and nothing else fails loudly.
+  const machine = readFileSync(join(ROOT, 'src/services/orderMachine.ts'), 'utf8');
+  assert.ok(
+    machine.includes('const offered = funded.sim_behavior == null'),
+    'orderMachine must decide lockability from sim_behavior — psp/sim orders are born locked',
+  );
+  assert.ok(machine.includes('lockedAt: offered ? null :'), 'orderMachine must set locked_at for non-offered orders');
 }
 
 console.log('check-routing-math: all assertions passed');

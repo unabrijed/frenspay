@@ -21,7 +21,7 @@ import { Txt } from '@/components/ui/Txt';
 import { friendlyError } from '@/lib/errors';
 import { fiatRaw, usd } from '@/lib/money';
 import { colors, fonts, GUTTER, radii, type } from '@/lib/theme';
-import { getMerchantOrders, markOrderPaid } from '@/services/merchant';
+import { getMerchantOrders, lockOrder, markOrderPaid, unlockOrder } from '@/services/merchant';
 
 /** Seconds until the escrow auto-releases, or null when nothing is pending. */
 function useCountdown(iso?: string): number | null {
@@ -36,6 +36,10 @@ function useCountdown(iso?: string): number | null {
 }
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+/** Mirrors LOCK_TTL_MS in services/orderMachine.ts — copy shown to the LP before they commit, so
+ *  it only has to be roughly right; the server's timer is the one that decides. */
+const LOCK_MINUTES = 5;
 
 export default function MerchantOrder() {
   const router = useRouter();
@@ -63,7 +67,41 @@ export default function MerchantOrder() {
   }, [reload]);
 
   const claimed = order?.payoutClaimedAt != null;
-  const secsLeft = useCountdown(claimed ? order?.expiresAt : undefined);
+  // Two different clocks, and they must not be confused. Once claimed, expiresAt is the payer's
+  // dispute window counting down to the LP's money. Before that, lockExpiresAt is how long the LP
+  // has to actually pay before the order goes back to the pool.
+  const held = order?.lockedAt != null;
+  const secsLeft = useCountdown(claimed ? order?.expiresAt : held ? order?.lockExpiresAt : undefined);
+
+  /** Take the order. Until this succeeds nobody — including this LP — has been told who to pay. */
+  const take = async () => {
+    if (!order) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await lockOrder(order.id);
+      await reload();
+    } catch (e) {
+      setErr(friendlyError(e));
+      await reload(); // someone else got it; show that rather than a stale "take it" button
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const giveBack = async () => {
+    if (!order) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await unlockOrder(order.id);
+      router.push('/merchant');
+    } catch (e) {
+      setErr(friendlyError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const submit = async () => {
     if (!order || !reference.trim()) return;
@@ -99,7 +137,7 @@ export default function MerchantOrder() {
           <BackButton onPress={() => router.push('/merchant')} />
         </View>
         <View style={styles.scroll}>
-          <Txt style={type.lead}>This order is no longer assigned to you.</Txt>
+          <Txt style={type.lead}>Someone else took this one.</Txt>
         </View>
       </Screen>
     );
@@ -135,10 +173,22 @@ export default function MerchantOrder() {
                 the payee's side looks like before they pay a stranger's ID. */}
             {vpaOperator(vpa) ? <Txt style={type.inst}>Processed by {vpaOperator(vpa)!.name}</Txt> : null}
           </Pressable>
-        ) : (
+        ) : held ? (
+          // Held but no payee: the order lost its destination somehow. Never invite a payment.
           <Txt style={[type.lead, { color: colors.danger, marginTop: 16 }]}>
             This order has no payout ID. Don’t pay it, report it instead.
           </Txt>
+        ) : (
+          // NOT held — so the server hasn't told us who to pay, and won't until this LP commits.
+          // That is the entire point of the lock: whoever takes it is the only one who can see the
+          // payee, so two people can never pay the same person for the same order.
+          <View style={styles.vpaCard}>
+            <Txt style={type.kvKey}>Who to pay</Txt>
+            <Txt style={[type.lead, { marginTop: 4 }]}>
+              Take this order and we’ll show you. It’s yours for {Math.round(LOCK_MINUTES)} minutes — nobody
+              else can pay it while you hold it.
+            </Txt>
+          </View>
         )}
 
         <List>
@@ -165,7 +215,7 @@ export default function MerchantOrder() {
                 : `You reported reference ${order.payoutUtr ?? '—'}.`}
             </Txt>
           </View>
-        ) : (
+        ) : held ? (
           <>
             {deepLink ? (
               <View style={{ marginTop: 18 }}>
@@ -178,20 +228,41 @@ export default function MerchantOrder() {
               Only mark this paid after the money has actually left your account. Your stake covers the
               payer if it didn’t.
             </Txt>
+            {secsLeft != null && secsLeft > 0 ? (
+              <Txt style={[type.inst, { marginTop: 8, color: secsLeft < 60 ? colors.danger : colors.muted }]}>
+                Yours for {mmss(secsLeft)}. After that it goes back to everyone — don’t pay it once it does.
+              </Txt>
+            ) : null}
           </>
-        )}
+        ) : null}
 
         {err ? <Txt style={[type.lead, { color: colors.danger, marginTop: 12 }]}>{err}</Txt> : null}
 
         <Spacer />
-        {!claimed ? (
+        {claimed ? null : held ? (
+          <>
+            <Btn
+              label={busy ? 'Reporting…' : 'I’ve paid'}
+              variant="ink"
+              disabled={busy || !reference.trim()}
+              onPress={() => void submit()}
+            />
+            {/* The honest exit. It has to be here and it has to be free: if giving an order back
+                costs the same as going quiet, everyone goes quiet and the pool waits out every TTL. */}
+            <Pressable onPress={() => void giveBack()} disabled={busy}>
+              <Txt style={[type.rowTime, { marginTop: 12, textAlign: 'center', color: colors.accent }]}>
+                Can’t pay this one — give it back
+              </Txt>
+            </Pressable>
+          </>
+        ) : (
           <Btn
-            label={busy ? 'Reporting…' : 'I’ve paid'}
+            label={busy ? 'Taking…' : 'Take this order'}
             variant="ink"
-            disabled={busy || !reference.trim()}
-            onPress={() => void submit()}
+            disabled={busy}
+            onPress={() => void take()}
           />
-        ) : null}
+        )}
       </View>
     </Screen>
   );

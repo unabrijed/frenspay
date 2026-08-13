@@ -27,6 +27,31 @@ export async function getMerchantOrders(): Promise<MerchantOrder[]> {
   return res.orders;
 }
 
+/**
+ * Take an order, and learn who to pay in the same call.
+ *
+ * Exactly one caller wins — the server's lock is a single guarded UPDATE — and the payee comes back
+ * only on the winning response. There is deliberately no separate "fetch the payee" call: if the
+ * reveal were its own request, a lock could succeed while the reveal failed, leaving an LP holding
+ * an order they can't see how to pay.
+ */
+export async function lockOrder(orderId: string): Promise<{ payoutDestination?: string; expiresInSecs: number }> {
+  return req<{ ok: true; payoutDestination?: string; payoutName?: string; expiresInSecs: number }>(
+    `/merchants/orders/${orderId}/lock`,
+    { method: 'POST' },
+  );
+}
+
+/** Hand it back before the timer runs out. Free, on purpose. */
+export async function unlockOrder(orderId: string): Promise<void> {
+  await req<{ ok: true }>(`/merchants/orders/${orderId}/unlock`, { method: 'POST' });
+}
+
+/** Where to reach this LP when work lands — the in-app inbox always fires, this is the pocket. */
+export async function setMerchantAlerts(channel: string, address: string): Promise<void> {
+  await req<{ ok: true }>('/merchants/alerts', { method: 'POST', body: JSON.stringify({ channel, address }) });
+}
+
 /** Report that the fiat leg was paid out-of-band. Starts the payer's dispute window. */
 export async function markOrderPaid(orderId: string, reference: string): Promise<{ releasesInSecs: number }> {
   return req<{ ok: true; releasesInSecs: number }>(`/merchants/orders/${orderId}/paid`, {

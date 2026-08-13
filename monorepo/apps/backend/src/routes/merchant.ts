@@ -32,6 +32,10 @@ import {
   getWalletForUser,
   insertMerchantApplication,
   listMerchantOrders,
+  listOpenOffers,
+  lockOrder,
+  setMerchantAlertChannel,
+  unlockOrder,
   listStakeWithdrawals,
   requestStakeWithdrawal,
   setMerchantFloat,
@@ -45,7 +49,7 @@ import { amt, nonNegativeAmount, positiveAmount, USDC_DECIMALS } from '../lib/am
 import { acceptsLps, CORRIDORS, PAYOUT_METHODS } from '../lib/corridors';
 import { formatAmount } from '../lib/units';
 import { KYC_APPROVED_TIER } from '../services/kyc';
-import { DISPUTE_WINDOW_MS } from '../services/orderMachine';
+import { DISPUTE_WINDOW_MS, LOCK_TTL_MS } from '../services/orderMachine';
 import { leverageFor, MIN_BOND } from '../services/merchantStats';
 import { buildUsdcTransfer } from '../services/solana';
 
@@ -60,6 +64,14 @@ const MAX_STAKE_DEPOSIT_USD = 50_000;
  */
 const MIN_SPREAD_BPS = 10;
 const MAX_SPREAD_BPS = 300;
+
+/** Order states that still tie up an LP's capacity — the same set committedFloatByMerchant counts,
+ *  so the pool never offers an order the lock would immediately refuse for want of headroom. */
+const LIVE_FOR_CAPACITY = new Set(['payment_detected', 'merchant_confirms', 'funds_released']);
+
+/** Adapters services/alert knows how to reach. Validated here so an LP can't store an address for a
+ *  channel that will never fire and then wonder why they hear nothing. */
+const ALERT_CHANNELS: readonly string[] = ['telegram'];
 
 export function toMerchantProfile(m: MerchantRow, pending?: StakeWithdrawalRow): MerchantProfile {
   return {
@@ -96,6 +108,8 @@ function toMerchantOrder(r: MerchantOrderRow): MerchantOrder {
     currency: r.currency,
     amountInr: r.amount_inr,
     amountUsdc: r.amount_usdc,
+    // Already NULL on anything this LP doesn't hold — listOpenOffers redacts in SQL, so this mapper
+    // cannot leak a payee by forgetting to.
     payoutDestination: r.payout_destination ?? undefined,
     payoutName: r.payout_name ?? undefined,
     payoutMethod: r.payout_method,
@@ -103,6 +117,10 @@ function toMerchantOrder(r: MerchantOrderRow): MerchantOrder {
     payoutClaimedAt: r.payout_claimed_at?.toISOString(),
     expiresAt: r.expires_at?.toISOString(),
     createdAt: r.created_at.toISOString(),
+    mine: r.mine,
+    lockedAt: r.locked_at?.toISOString(),
+    lockExpiresAt: r.lock_expires_at?.toISOString(),
+    offerWidensAt: r.offer_widens_at?.toISOString(),
   };
 }
 
@@ -153,11 +171,88 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
     },
   );
 
-  /** The merchant's work queue: orders routed to them, newest first. */
+  /**
+   * The merchant's work queue: their own orders, plus the open pool they could take.
+   *
+   * Two sets in one response because they are one screen and one poll. `mine` distinguishes them,
+   * and the payee is present on exactly the orders this LP holds the lock for — enforced by the
+   * queries, not by this handler.
+   */
   app.get('/merchants/orders', async (req): Promise<MerchantOrdersResponse> => {
     const merchant = await requireMerchant(req);
-    const rows = await listMerchantOrders(merchant.id);
-    return { orders: rows.map(toMerchantOrder) };
+    const mine = await listMerchantOrders(merchant.id);
+
+    // An LP who isn't currently routable shouldn't be shown work they can't take — and shouldn't be
+    // handed the shape of the order book either.
+    let open: MerchantOrderRow[] = [];
+    if (merchant.status === 'online' && merchant.kyb_status === 'approved') {
+      // Capacity is the same figure routing uses, minus what this LP already has in flight — so the
+      // pool never shows an order the lock would then refuse.
+      const committed = mine
+        .filter((o) => LIVE_FOR_CAPACITY.has(o.state))
+        .reduce((sum, o) => sum + Number(o.amount_usdc), 0);
+      const headroom =
+        Math.min(Number(merchant.float_usdc), Number(merchant.bond_usdc) * leverageFor(merchant.tier)) - committed;
+      if (headroom > 0) {
+        open = await listOpenOffers({
+          merchantId: merchant.id,
+          payoutRail: merchant.payout_rail,
+          country: merchant.country,
+          spreadBps: merchant.spread_bps,
+          maxAmountUsdc: headroom,
+        });
+      }
+    }
+    return { orders: [...mine, ...open].map(toMerchantOrder) };
+  });
+
+  /**
+   * Take an order — the mutual exclusion the whole marketplace turns on, and the moment the payee
+   * is revealed. Exactly one of N concurrent callers gets a 200; the rest get 409.
+   *
+   * The reveal rides the same atomic statement as the claim (queries.lockOrder) rather than being a
+   * second read afterwards: a lock that succeeded but whose reveal then failed would leave an LP
+   * holding an order they cannot see how to pay.
+   */
+  app.post<{ Params: { id: string } }>('/merchants/orders/:id/lock', async (req, reply) => {
+    const merchant = await requireMerchant(req);
+    if (merchant.kyb_status !== 'approved') return reply.code(403).send({ error: 'kyb_not_approved' });
+    if (merchant.lock_bans_until && merchant.lock_bans_until > new Date()) {
+      return reply.code(429).send({ error: 'lock_temporarily_blocked' });
+    }
+    const taken = await lockOrder({ orderId: req.params.id, merchantId: merchant.id, ttlMs: LOCK_TTL_MS });
+    // 409, not 404: the order exists — someone else got there first, or it moved on.
+    if (!taken) return reply.code(409).send({ error: 'order_already_taken' });
+    return {
+      ok: true,
+      payoutDestination: taken.payoutDestination ?? undefined,
+      payoutName: taken.payoutName ?? undefined,
+      expiresInSecs: Math.round(LOCK_TTL_MS / 1000),
+    };
+  });
+
+  /** Give it back. Free and unpenalised on purpose: if handing an order back costs the same as
+   *  going silent, everyone goes silent and the pool waits out every TTL. */
+  app.post<{ Params: { id: string } }>('/merchants/orders/:id/unlock', async (req, reply) => {
+    const merchant = await requireMerchant(req);
+    if (!(await unlockOrder(req.params.id, merchant.id))) {
+      return reply.code(409).send({ error: 'order_not_unlockable' });
+    }
+    return { ok: true };
+  });
+
+  /**
+   * Where to reach this LP. The token flow lives on the client: they open the bot, it sends
+   * `/start <token>`, and the bot's own webhook calls this with the chat id it learned. Storing the
+   * address is all the backend needs to know.
+   */
+  app.post<{ Body: { channel?: string; address?: string } }>('/merchants/alerts', async (req, reply) => {
+    const merchant = await requireMerchant(req);
+    const { channel, address } = req.body ?? {};
+    if (!channel || !address) return reply.code(400).send({ error: 'missing_fields' });
+    if (!ALERT_CHANNELS.includes(channel)) return reply.code(400).send({ error: 'unsupported_channel' });
+    await setMerchantAlertChannel(merchant.id, channel, address);
+    return { ok: true };
   });
 
   /**

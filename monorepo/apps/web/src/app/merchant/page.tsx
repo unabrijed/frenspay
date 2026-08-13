@@ -33,6 +33,10 @@ const clamp1: CSSProperties = { display: 'block', overflow: 'hidden', textOverfl
 
 /** Orders still needing the merchant to act, or still inside their release window. */
 const isLive = (o: MerchantOrder) => o.state === 'payment_detected';
+/** Work this LP has committed to: theirs, funded, and actually taken. */
+const isHeld = (o: MerchantOrder) => o.mine && isLive(o) && o.lockedAt != null;
+/** Up for grabs — either routed to them and not yet taken, or someone else's that has gone open. */
+const isTakeable = (o: MerchantOrder) => isLive(o) && o.lockedAt == null && o.payoutClaimedAt == null;
 
 function OrderRow({ o, onPress }: { o: MerchantOrder; onPress: () => void }) {
   const claimed = o.payoutClaimedAt != null;
@@ -41,6 +45,8 @@ function OrderRow({ o, onPress }: { o: MerchantOrder; onPress: () => void }) {
       <RowMeta>
         <Txt style={[type.rowName, clamp1]}>{fiatRaw(o.amountInr, o.currency)}</Txt>
         <Txt style={[type.rowTime, { marginTop: 2 }, clamp1]}>
+          {/* payoutDestination is absent on anything this LP hasn't taken — the server redacts it,
+              so this falls through to the reference rather than leaking a payee. */}
           {o.payoutDestination ?? o.payoutName ?? o.referenceCode}
         </Txt>
       </RowMeta>
@@ -68,7 +74,10 @@ function statusText(o: MerchantOrder, claimed: boolean): string {
   if (o.state === 'completed') return 'Settled';
   if (o.state === 'merchant_confirms' || o.state === 'funds_released') return 'Releasing';
   if (o.resolution === 'under_review') return 'Disputed';
-  return claimed ? 'Releasing' : 'Pay now';
+  if (claimed) return 'Releasing';
+  // Untaken. "Take it" for anything still up for grabs; the routed LP sees the same word during
+  // their head start, which is honest — holding it first isn't holding it.
+  return o.lockedAt == null ? 'Take it' : 'Pay now';
 }
 function statusColor(o: MerchantOrder): string {
   if (o.resolution === 'under_review') return colors.danger;
@@ -172,8 +181,10 @@ export default function MerchantHome() {
     );
   }
 
-  const live = (orders ?? []).filter(isLive);
-  const done = (orders ?? []).filter((o) => !isLive(o));
+  const all = orders ?? [];
+  const held = all.filter(isHeld);
+  const takeable = all.filter(isTakeable);
+  const done = all.filter((o) => o.mine && !isLive(o));
   // Number() on both sides: a bare `<` between two decimal STRINGS compares them lexically, so
   // "900.000000" would read as above a "2000.000000" floor and the warning would never show.
   const belowFloor = Number(merchant.bondUsdc) < Number(merchant.minBondUsdc);
@@ -284,14 +295,31 @@ export default function MerchantHome() {
 
         {err ? <Txt style={[type.lead, { color: colors.danger, marginTop: 12 }]}>{err}</Txt> : null}
 
-        <Txt style={[type.kvKey, styles.section]}>To pay ({live.length})</Txt>
+        {/* Two queues, and the split is the point. "To pay" is what this LP has committed to and
+            owes someone. "Up for grabs" is work anyone eligible can still take — first come. */}
+        <Txt style={[type.kvKey, styles.section]}>To pay ({held.length})</Txt>
         {orders === null ? (
           <Txt style={type.inst}>Loading…</Txt>
-        ) : live.length === 0 ? (
-          <Txt style={type.inst}>Nothing waiting. New orders appear here automatically.</Txt>
+        ) : held.length === 0 ? (
+          <Txt style={type.inst}>Nothing on you right now.</Txt>
         ) : (
           <List>
-            {live.map((o) => (
+            {held.map((o) => (
+              <OrderRow key={o.id} o={o} onPress={() => router.push(`/merchant/orders/${o.id}`)} />
+            ))}
+          </List>
+        )}
+
+        <Txt style={[type.kvKey, styles.section]}>Up for grabs ({takeable.length})</Txt>
+        {orders === null ? null : takeable.length === 0 ? (
+          <Txt style={type.inst}>
+            {merchant.status === 'online'
+              ? 'Nothing waiting. We’ll ping you the moment something lands.'
+              : 'You’re offline, so nothing is being offered to you.'}
+          </Txt>
+        ) : (
+          <List>
+            {takeable.map((o) => (
               <OrderRow key={o.id} o={o} onPress={() => router.push(`/merchant/orders/${o.id}`)} />
             ))}
           </List>

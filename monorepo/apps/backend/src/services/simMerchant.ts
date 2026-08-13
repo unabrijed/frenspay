@@ -37,7 +37,14 @@ import {
   type WorkerOrderRow,
 } from '../db/queries';
 
-import { DISPUTE_WINDOW_MS, flagResolution, refundToUser, releaseToMerchant, rerouteOrder } from './orderMachine';
+import {
+  DISPUTE_WINDOW_MS,
+  flagResolution,
+  refundToUser,
+  releaseToMerchant,
+  rerouteOrder,
+  sweepExpiredLocks,
+} from './orderMachine';
 import { payoutProviderById, payoutProviderFor } from './payout/provider';
 
 /**
@@ -70,6 +77,11 @@ export async function runOrderWorkerOnce(log?: (m: string) => void): Promise<voi
   // Retire orders prepared but never funded (client signing abandoned) so they don't linger.
   const stale = await expireStaleOrders();
   if (stale > 0) log?.(`expired ${stale} stale unfunded order(s)`);
+
+  // Reclaim locks that lapsed unpaid (0015) BEFORE the pass below, so an order whose LP went quiet
+  // is back in the pool for someone else in this same tick rather than the next one. Rides this
+  // loop rather than adding a sixth timer to server.ts.
+  await sweepExpiredLocks(log);
 
   const orders = await listWorkerOrders();
   const now = Date.now();

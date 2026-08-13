@@ -14,9 +14,13 @@ import { formatAmount } from '../lib/units';
 import {
   appendOrderEvent,
   casOrderState,
+  countRecentLockAbandons,
   createPendingTransfer,
   creditStakeOnConfirm,
   drawDownBond,
+  expireOrderLocks,
+  getOrderAlertInfo,
+  setLockBan,
   getDisputeRow,
   getOrderByEscrowFundTransfer,
   getOrderByEscrowReleaseTransfer,
@@ -39,6 +43,7 @@ import {
   updateOrder,
 } from '../db/queries';
 
+import { alertLockLost, alertOrderIncoming, alertOrderReady } from './alert';
 import { onBridgeCompanionConfirmed } from './bridge/machine';
 import { checkCashOutLimit, scoreAndRecord, type LimitCheck } from './compliance';
 import { buildDepositTx, escrowAddress, refundEscrow, releaseEscrow } from './escrowProgram';
@@ -70,6 +75,30 @@ export const PROVIDER_SLA_MS = 120_000;
 
 /** M3: cap on routing attempts per order (initial assignment + up to 2 reroutes) before refunding. */
 export const MAX_ROUTING_ATTEMPTS = 3;
+
+/**
+ * How long the LP routing picked holds an order exclusively before the rest of the eligible pool
+ * can take it. This IS the reward for ranking first — first refusal on every order, which costs the
+ * platform nothing and is worth more to a good LP than any badge.
+ *
+ * Short on purpose. The payer is standing somewhere waiting, and a head start long enough to matter
+ * to a sleeping LP is long enough to hurt them.
+ */
+export const HEAD_START_MS = 20_000;
+
+/**
+ * How long a lock is held before it lapses and the order returns to the pool. Generous because the
+ * LP is doing something real in another app — opening their bank, typing a VPA, waiting on an OTP —
+ * and a lock that expires mid-payment would mean two LPs paying the same payee, which is the one
+ * outcome the lock exists to prevent. Well inside MERCHANT_CLAIM_MS, so the payer's SLA still
+ * outlives two full failed locks.
+ */
+export const LOCK_TTL_MS = 300_000; // 5 min
+
+/** Abandon this many locks in LOCK_ABANDON_WINDOW_H and lose the ability to lock for a while. */
+const LOCK_ABANDON_LIMIT = 3;
+const LOCK_ABANDON_WINDOW_H = 24;
+const LOCK_BAN_MINUTES = 60;
 
 type ConfirmResult =
   | { ok: true; order: Order; unsignedTx: string; feePayer: string; transferId: string; referenceCode: string }
@@ -136,6 +165,27 @@ export async function confirmOrderFromQuote(userId: string, quoteId: string): Pr
     await insertRoutingAttempt({ orderId, merchantId: quote.merchantId, sequence: 1, outcome: 'assigned', reason: 'initial' });
   }
 
+  // Tell the routed LP NOW, while the payer is still signing and the deposit is confirming — a few
+  // seconds of head start for free, with nothing added to what the payer sees or waits for.
+  //
+  // This is where the payer-experience constraint lands in code: the LP-side race has to happen
+  // inside time the payer already spends, never in front of them. No "finding someone to pay you"
+  // screen exists, and none should — from the payer's seat this is a normal person paying a normal
+  // shop, and the entire marketplace behind it stays invisible.
+  //
+  // Fire-and-forget: an alert must never delay handing the user their unsigned transaction.
+  void (async () => {
+    try {
+      const info = await getOrderAlertInfo(orderId);
+      // sim_behavior NULL = a real person. Nobody to tell on a provider or simulated row.
+      if (info?.merchant?.user_id && info.merchant.sim_behavior == null) {
+        await alertOrderIncoming(info.merchant, info.amountFiat, info.currency);
+      }
+    } catch {
+      /* best-effort */
+    }
+  })();
+
   const order = await getOrderForUser(orderId, userId);
   if (!order) return { error: 'quote_not_found' };
   return { ok: true, order, unsignedTx: built.unsignedTx, feePayer: built.feePayer, transferId, referenceCode };
@@ -161,8 +211,23 @@ export async function onTransferConfirmed(transferId: string): Promise<void> {
     // that outlives 30s but not minutes; everything else is a sim worker reacting in one tick.
     const slaMs =
       funded.sim_behavior == null ? MERCHANT_CLAIM_MS : funded.sim_behavior === 'psp' ? PROVIDER_SLA_MS : ORDER_SLA_MS;
-    await updateOrder(funded.id, { state: 'payment_detected', expiresAt: new Date(Date.now() + slaMs) });
+    // The same split decides whether this order is OFFERED at all (0015).
+    //
+    // A human-LP order becomes lockable now: the LP routing picked holds it exclusively until
+    // offer_widens_at, then anyone eligible can take it. A provider- or sim-settled order is born
+    // LOCKED — its merchant row is the settler, no pool was ever consulted, and nobody else may
+    // touch it. That uniformity is what lets claimOrderPayout require a lock with one predicate
+    // instead of carving out an exception for the psp caller.
+    const offered = funded.sim_behavior == null;
+    const now = Date.now();
+    await updateOrder(funded.id, {
+      state: 'payment_detected',
+      expiresAt: new Date(now + slaMs),
+      lockedAt: offered ? null : new Date(now),
+      offerWidensAt: offered ? new Date(now + HEAD_START_MS) : null,
+    });
     await appendOrderEvent(funded.id, funded.state, 'payment_detected', 'fund_confirmed');
+    if (offered) await alertMerchantOrderReady(funded.id);
     return;
   }
   const released = await getOrderByEscrowReleaseTransfer(transferId);
@@ -187,6 +252,51 @@ export async function onTransferConfirmedAndNotify(transferId: string): Promise<
   await onBridgeCompanionConfirmed(transferId);
   const recv = await getSendNotifyInfo(transferId);
   if (recv) await notifyReceived(recv.toUserId, recv.amountUsd, recv.fromHandle);
+}
+
+/**
+ * Tell the LP an order they can take is live. Split out so the funding path stays readable and so
+ * every alert goes through one place that knows to skip the rows with no human behind them.
+ */
+async function alertMerchantOrderReady(orderId: string): Promise<void> {
+  try {
+    const info = await getOrderAlertInfo(orderId);
+    if (info?.merchant?.user_id) await alertOrderReady(info.merchant, info.amountFiat, info.currency, orderId);
+  } catch {
+    /* best-effort: an LP we couldn't reach is what the escalation ladder is for */
+  }
+}
+
+/**
+ * Reclaim locks that ran out unpaid, put the orders back in the pool, and record who dropped them.
+ *
+ * Runs inside the existing 8s worker tick rather than as a sixth setInterval — the loops in
+ * server.ts are already unguarded against a second replica (docs/10: single-instance by design),
+ * and adding another timer would add another thing to make safe later.
+ *
+ * The abandonment count is read off the append-only event log, so there is no counter to decay and
+ * the ban is derivable from history. Note what this bans: LOCKING, not routing, and it never
+ * touches the bond. Forgetting an order is not defaulting on one.
+ */
+export async function sweepExpiredLocks(log?: (m: string) => void): Promise<void> {
+  const expired = await expireOrderLocks();
+  for (const o of expired) {
+    await appendOrderEvent(o.id, 'payment_detected', 'payment_detected', 'lock_expired', {
+      merchantId: o.merchant_id,
+    });
+    log?.(`order ${o.reference_code} lock expired → back to the pool`);
+    try {
+      const info = await getOrderAlertInfo(o.id);
+      if (info?.merchant?.user_id) await alertLockLost(info.merchant, o.reference_code);
+      const abandons = await countRecentLockAbandons(o.merchant_id, LOCK_ABANDON_WINDOW_H);
+      if (abandons >= LOCK_ABANDON_LIMIT) {
+        await setLockBan(o.merchant_id, LOCK_BAN_MINUTES);
+        log?.(`merchant ${o.merchant_id} locked out of locking (${abandons} abandons/${LOCK_ABANDON_WINDOW_H}h)`);
+      }
+    } catch {
+      /* best-effort — reclaiming the order is the part that matters */
+    }
+  }
 }
 
 /** Overlay a transient resolution (delayed / needs_action / under_review) without leaving the state. */
@@ -364,7 +474,13 @@ export async function rerouteOrder(input: {
 
   // Atomically reassign while still in payment_detected AND still pointing at the stalled LP — so two
   // concurrent ticks can't both claim. Lost the race → bail.
-  const claimed = await reassignOrderMerchant(input.orderId, next.id, new Date(Date.now() + ORDER_SLA_MS), currentMerchantId);
+  const claimed = await reassignOrderMerchant(
+    input.orderId,
+    next.id,
+    new Date(Date.now() + ORDER_SLA_MS),
+    currentMerchantId,
+    new Date(Date.now() + HEAD_START_MS),
+  );
   if (!claimed) return false;
 
   await markLatestAttemptOutcome(input.orderId, 'failed'); // the LP we just left

@@ -114,6 +114,13 @@ export const config = {
   // Public base URL of this backend (e.g. https://api.pay.app) — needed to register the Helius
   // webhook callback. Unset locally → registration is skipped and the poller confirms transfers.
   publicBaseUrl: env('PUBLIC_BASE_URL'),
+  // Public base URL of the WEB app (e.g. https://pay.app) — distinct from the one above, which is
+  // this API. Used to deep-link an LP from an out-of-band alert straight at the order they need to
+  // act on. Unset → alerts still send, they just carry no button.
+  webBaseUrl: env('WEB_BASE_URL'),
+  // Telegram bot token for LP order alerts (services/alert/telegram.ts). Unset → the adapter is
+  // inert and LPs fall back to the in-app inbox, exactly like an unconfigured Resend key.
+  telegramBotToken: env('TELEGRAM_BOT_TOKEN'),
 
   // Privy (M3).
   privyAppId: env('PRIVY_APP_ID'),
