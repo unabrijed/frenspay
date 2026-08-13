@@ -22,8 +22,12 @@ export async function authPreHandler(req: FastifyRequest, _reply: FastifyReply):
   if (privyConfigured() && typeof authz === 'string' && authz.startsWith('Bearer ')) {
     try {
       const { privyDid } = await verifyAccessToken(authz.slice(7));
-      req.privyDid = privyDid;
       const user = await findUserByPrivyDid(privyDid); // null until /auth/sync runs
+      // Assigned only once the lookup RETURNS. A thrown query (DB down) must not be able to look
+      // like "no account" — clients sign themselves out on that answer, so a database blip would
+      // log out every user at once. privyDid set + no userId now means exactly one thing: we
+      // verified you, we asked the DB, and you have no row.
+      req.privyDid = privyDid;
       if (user) req.userId = user.id;
     } catch (e) {
       // invalid token (or DB unavailable) → leave unauthenticated; requireUserId will 401
