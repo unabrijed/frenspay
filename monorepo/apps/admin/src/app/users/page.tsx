@@ -32,9 +32,9 @@ import {
   usePaged,
 } from '@/components/ui';
 
-/** Edit (rename + display name) or suspend/reinstate — the two actions that need typed input,
+/** Edit (rename + display name), suspend/reinstate, or delete — the actions that need typed input,
  *  which ConfirmDialog deliberately doesn't do. Same overlay skin, denylist-form inputs. */
-type UserAction = { user: AdminUser; mode: 'edit' | 'status' };
+type UserAction = { user: AdminUser; mode: 'edit' | 'status' | 'delete' };
 
 const FIELD =
   'h-8 rounded-md border border-outline bg-surface px-2 text-[13px] font-normal normal-case tracking-normal text-ink placeholder:text-muted/50';
@@ -77,7 +77,10 @@ function UserActionDialog({ action, onClose, onDone }: { action: UserAction | nu
           reason: reason.trim() || undefined,
         });
       } else {
-        await api.userStatus(user.id, { status: suspending ? 'suspended' : 'active', reason: reason.trim() });
+        await api.userStatus(user.id, {
+          status: mode === 'delete' ? 'deleted' : suspending ? 'suspended' : 'active',
+          reason: reason.trim(),
+        });
       }
       await onDone();
       onClose();
@@ -91,14 +94,22 @@ function UserActionDialog({ action, onClose, onDone }: { action: UserAction | nu
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" onClick={onClose}>
       <div className="w-full max-w-sm rounded-xl border border-hair bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <p className="text-[15px] font-bold">
-          {mode === 'edit' ? `Edit ${user.handle}` : suspending ? `Suspend ${user.handle}` : `Reinstate ${user.handle}`}
+          {mode === 'edit'
+            ? `Edit ${user.handle}`
+            : mode === 'delete'
+              ? `Delete ${user.handle}`
+              : suspending
+                ? `Suspend ${user.handle}`
+                : `Reinstate ${user.handle}`}
         </p>
         <p className="mt-2 text-[13px] leading-relaxed text-muted">
           {mode === 'edit'
             ? `Renaming frees ${user.handle} immediately — anyone can claim it, and their old QR codes follow the claimant. Their payment history stays theirs.`
-            : suspending
-              ? 'They are signed out of the app in effect: every request is refused and their handle stops resolving, so nobody can send to them. Their money is untouched. Their merchant account, if any, is suspended too.'
-              : 'They get the app back immediately. A suspended merchant account stays suspended — reinstate it from the Merchants page if that was intended.'}
+            : mode === 'delete'
+              ? `They lose app access immediately and ${user.handle} is released — anyone can claim it. Their transaction history and any balance are untouched; the money stays theirs in their own embedded wallet. There is no undelete button.`
+              : suspending
+                ? 'They are signed out of the app in effect: every request is refused and their handle stops resolving, so nobody can send to them. Their money is untouched. Their merchant account, if any, is suspended too.'
+                : 'They get the app back immediately. A suspended merchant account stays suspended — reinstate it from the Merchants page if that was intended.'}
         </p>
         <div className="mt-4 flex flex-col gap-3">
           {mode === 'edit' ? (
@@ -123,8 +134,20 @@ function UserActionDialog({ action, onClose, onDone }: { action: UserAction | nu
           <Btn onClick={onClose} disabled={busy}>
             Cancel
           </Btn>
-          <Btn variant={mode === 'edit' || suspending ? 'danger' : 'primary'} disabled={busy || !canSubmit} onClick={submit}>
-            {busy ? 'Working…' : mode === 'edit' ? 'Save changes' : suspending ? 'Suspend' : 'Reinstate'}
+          <Btn
+            variant={mode === 'edit' || mode === 'delete' || suspending ? 'danger' : 'primary'}
+            disabled={busy || !canSubmit}
+            onClick={submit}
+          >
+            {busy
+              ? 'Working…'
+              : mode === 'edit'
+                ? 'Save changes'
+                : mode === 'delete'
+                  ? 'Delete account'
+                  : suspending
+                    ? 'Suspend'
+                    : 'Reinstate'}
           </Btn>
         </div>
       </div>
@@ -174,10 +197,21 @@ export default function Users() {
                 {u.role === 'admin' ? <Badge tone="warn">admin</Badge> : <span className="text-muted">{u.role}</span>}
               </Td>
               <Td>
-                {u.status === 'suspended' ? <Badge tone="danger">suspended</Badge> : <span className="text-muted">active</span>}
+                {u.status === 'suspended' ? (
+                  <Badge tone="danger">suspended</Badge>
+                ) : u.status === 'deleted' ? (
+                  <Badge tone="danger">deleted</Badge>
+                ) : (
+                  <span className="text-muted">active</span>
+                )}
               </Td>
               <Td className="whitespace-nowrap text-muted">{at(u.createdAt)}</Td>
               <Td>
+                {/* A deleted row offers nothing: reinstate would leave a scrambled handle (a real
+                    undelete needs a rename anyway — manual SQL is the rare-recovery escape hatch). */}
+                {u.status === 'deleted' ? (
+                  <span className="text-muted">—</span>
+                ) : (
                 <div className="flex gap-1">
                   <Btn variant="ghost" onClick={() => setAction({ user: u, mode: 'edit' })}>
                     Edit
@@ -187,6 +221,9 @@ export default function Users() {
                     onClick={() => setAction({ user: u, mode: 'status' })}
                   >
                     {u.status === 'active' ? 'Suspend' : 'Reinstate'}
+                  </Btn>
+                  <Btn variant="ghost" onClick={() => setAction({ user: u, mode: 'delete' })}>
+                    Delete
                   </Btn>
                   <Btn
                     variant={u.role === 'admin' ? 'danger' : 'ghost'}
@@ -218,6 +255,7 @@ export default function Users() {
                     {u.role === 'admin' ? 'Remove admin' : 'Make admin'}
                   </Btn>
                 </div>
+                )}
               </Td>
             </tr>
           ))}
