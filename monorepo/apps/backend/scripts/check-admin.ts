@@ -7,8 +7,9 @@
 //   4. user moderation (docs/24): status default + suspend hides the handle from resolution (but not
 //      from findUserByHandle), rename frees the old handle instantly, the unique index still guards
 //      collisions, and the display-name sanitizer holds the trust-surface line;
-//   5. soft-delete (docs/07): status flips to 'deleted' AND the handle releases instantly — the
-//      scramble is the release; a NEW user can claim the freed name (genuinely released, not hidden).
+//   5. soft-delete (docs/07): status flips to 'deleted' AND both uniques release instantly — the
+//      handle scramble and the email null are the release; a NEW user can claim the freed name and
+//      the freed address (genuinely released, not hidden).
 // Run: yarn workspace @fpay/backend tsx scripts/check-admin.ts   (needs DATABASE_URL + `db:init`)
 import { getPool } from '../src/db/pool';
 import {
@@ -155,12 +156,15 @@ async function main() {
   check('sanitizer: trims/collapses and strips control chars', sanitizeDisplayName(' ZZA\u{0000}  Payer\n') === 'ZZA Payer');
   check('sanitizer: rejects empty and oversized', sanitizeDisplayName('  ') === null && sanitizeDisplayName('x'.repeat(51)) === null);
 
-  // 5) soft-delete — the reclaim assertion is the load-bearing one: without the handle scramble,
-  // every other piece (403 gate, unresolvable, audit) looks right while the name stays claimed.
+  // 5) soft-delete — the reclaim assertions are the load-bearing ones: without the handle scramble
+  // and the email null, every other piece (403 gate, unresolvable, audit) looks right while the
+  // name and the address stay claimed. Both are covered by uniques, so both must release.
+  await pool.query(`update users set email=$2 where id=$1`, [payer, 'zza-payer@example.test']);
   await deleteUser(payer); // payer holds '@zza_renamed' after §4's rename
   const deletedRow = await findUserById(payer);
   check("delete flips status to 'deleted'", deletedRow?.status === 'deleted');
   check('delete releases the handle (row no longer holds it)', deletedRow?.handle !== '@zza_renamed');
+  check('delete releases the email (row no longer holds it)', deletedRow?.email == null);
   check('deleted account is unresolvable', deletedRow ? (await resolveHandleToFriend(deletedRow.handle)) === null : false);
   check('deleteUser is idempotent (retry keeps the same scrambled handle)', await (async () => {
     const before = deletedRow?.handle;
@@ -169,6 +173,17 @@ async function main() {
   })());
   const reclaimer = await mkUser('zza:reclaimer', '@zza_renamed');
   check('freed handle is claimable by a NEW user (genuinely released)', (await findUserById(reclaimer))?.handle === '@zza_renamed');
+  // The real-world case this exists for: the SAME person returning under a new Privy DID. Before
+  // the email null, uq_users_email (0010) made this a permanent 409 email_in_use at /auth/sync.
+  check('freed email is claimable by a NEW user (genuinely released)', await (async () => {
+    try {
+      await pool.query(`insert into users (privy_did, handle, email) values ($1,$2,$3)`,
+        ['zza:returner', '@zza_returner', 'zza-payer@example.test']);
+      return true;
+    } catch {
+      return false;
+    }
+  })());
 
   await clean(pool);
   await pool.end();
