@@ -6,7 +6,7 @@
 // signing. The app is always real; balance/activity load from the backend once signed in.
 import type { ApiPaymentRequest, KycStatus, MerchantProfile, Notification, Order, Quote } from '@fpay/shared';
 import type { NetworkId } from '@fpay/shared';
-import { classifyPayTarget, fiatDecimals, isoFromE164, phoneCandidates, truncateAddress } from '@fpay/shared';
+import { classifyPayTarget, currencyForCountry, fiatDecimals, isoFromE164, phoneCandidates, RAILS, truncateAddress } from '@fpay/shared';
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -172,6 +172,9 @@ interface PayState {
   // ---- backend sync (real mode only) ----
   load: () => Promise<void>;
   refresh: () => Promise<void>;
+  /** Pull the mid rates this client needs — derived from the live rails and this user's country,
+   *  never a hardcoded list. Never throws; an unpriceable currency is simply left absent. */
+  syncRates: () => Promise<void>;
   readNotifications: () => Promise<void>;
 
   // ---- payment requests ----
@@ -275,7 +278,10 @@ export const usePayStore = create<PayState>()(
       transactions: [],
       notifications: [],
       unread: 0,
-      displayCurrency: 'INR',
+      // Dollars by default: the balance IS dollars, and the local currency now appears beneath it
+      // on its own (useBalanceDisplay), so leading in a corridor currency would show a conversion
+      // where the actual figure belongs — and showed the same number twice for Indian users.
+      displayCurrency: 'USD',
       handle: '',
       phone: '',
       country: '',
@@ -369,15 +375,13 @@ export const usePayStore = create<PayState>()(
         }
         set({ busy: true, error: null });
         try {
-          const [me, bal, txns, reqs, notifs, fx, fxIdr] = await Promise.all([
+          const [me, bal, txns, reqs, notifs] = await Promise.all([
             api.me(),
             wallet.getBalanceUsd(),
             wallet.getTransactions(),
             wallet.getRequests(),
             // Non-critical: a failing /notifications must never blank the dashboard.
             api.getNotifications().catch(() => ({ notifications: get().notifications, unread: get().unread })),
-            api.fxRate().catch(() => ({ rate: get().fxRate, asOf: null })),
-            api.fxRate('IDR').catch(() => ({ rate: get().fxRates.IDR, asOf: null })),
           ]);
           set({
             walletAddress: me.walletAddress,
@@ -394,8 +398,6 @@ export const usePayStore = create<PayState>()(
             merchant: me.merchant ?? null,
             role: me.role ?? 'user',
             balanceUSD: bal,
-            fxRate: fx.rate,
-            fxRates: { ...get().fxRates, INR: fx.rate, IDR: fxIdr.rate },
             transactions: txns,
             requests: reqs,
             notifications: notifs.notifications,
@@ -403,6 +405,11 @@ export const usePayStore = create<PayState>()(
             busy: false,
             firstLoadDone: true,
           });
+          // AFTER the set above, because which rates we want depends on `country`, which arrives
+          // with `me` and is not persisted. Not awaited: the balance paints at the seeded/persisted
+          // rate and the local line settles a moment later, rather than the whole dashboard waiting
+          // on FX.
+          void get().syncRates();
           void get().resumePendingDeposit(); // lost-burn-hash recovery (docs/19 inbound)
         } catch (e) {
           // Mark firstLoadDone even on failure so skeletons resolve to the empty/error state
@@ -414,15 +421,15 @@ export const usePayStore = create<PayState>()(
         // Same gate as load(): never poll before the backend user exists (onboarding pre-sync → 401).
         if (USE_PRIVY && !(get().authStatus === 'signedIn' && (get().provisioned || get().onboarded))) return;
         try {
-          const [bal, txns, reqs, notifs, fx, fxIdr] = await Promise.all([
+          // Rates ride along on every poll, not just load(): a session left open all day kept its
+          // boot-time rate and every converted line drifted from the quote the backend would
+          // actually return.
+          const [bal, txns, reqs, notifs] = await Promise.all([
             wallet.getBalanceUsd(),
             wallet.getTransactions(),
             wallet.getRequests(),
             api.getNotifications().catch(() => null),
-            // Only load() pulled this before, so a session left open all day kept its boot-time rate
-            // and every "≈ ₹" line drifted from the quote the backend would actually return.
-            api.fxRate().catch(() => ({ rate: get().fxRate, asOf: null })),
-            api.fxRate('IDR').catch(() => ({ rate: get().fxRates.IDR, asOf: null })),
+            get().syncRates(),
           ]);
           // Don't overwrite notifications while the inbox is open — it would resurrect the just-cleared
           // unread badge (the optimistic read-all may not be committed server-side yet).
@@ -431,14 +438,38 @@ export const usePayStore = create<PayState>()(
             balanceUSD: bal,
             transactions: txns,
             requests: reqs,
-            fxRate: fx.rate,
-            fxRates: { ...get().fxRates, INR: fx.rate, IDR: fxIdr.rate },
             ...(keepInbox ? {} : { notifications: notifs.notifications, unread: notifs.unread }),
           });
         } catch {
           // Background poll — stay quiet; the next tick recovers. Don't pollute the shared error slot
           // or spam a toast every interval. User-initiated actions surface their own errors.
         }
+      },
+      syncRates: async () => {
+        // Two different needs, one fetch. The LIVE rails' currencies are needed wherever the user
+        // is, because any of them can be scanned and the pay keypad prices off fxRates[currency]
+        // (sheets/pay.tsx) — an Indian user scanning a QRIS code still needs IDR. Their own
+        // country's currency is needed to write the balance's second line. Both derived: a rail
+        // going live, or a band being added on the backend, is picked up with no edit here.
+        const wanted = [
+          ...new Set([
+            ...RAILS.filter((r) => r.live).map((r) => r.currency),
+            currencyForCountry(get().country),
+            get().displayCurrency,
+          ]),
+        ].filter((c) => c && c !== 'USD');
+
+        const got = await Promise.all(
+          // A currency with no FX band 4xx's — that is not an error, it is the answer. Leaving it
+          // absent from fxRates is precisely what makes the balance fall back to dollars, so a
+          // placeholder rate here would defeat the whole rule.
+          wanted.map((c) => api.fxRate(c).then((r) => [c, r.rate] as const).catch(() => null)),
+        );
+        const next = { ...get().fxRates };
+        for (const pair of got) if (pair) next[pair[0]] = pair[1];
+        // `fxRate` is the INR-only scalar the send/request sheets still read; keep it in step so
+        // those don't drift from fxRates.INR.
+        set({ fxRates: next, fxRate: next.INR ?? get().fxRate });
       },
       // M6: mark the inbox read (optimistic; the next refresh reconciles).
       readNotifications: async () => {
@@ -1216,12 +1247,16 @@ export const usePayStore = create<PayState>()(
     }),
     {
       name: 'pay-store',
-      version: 1,
-      // Migrate the old cosmetic `kyc: boolean` to the real `kycTier` (verified → tier 2).
+      version: 2,
       migrate: (persisted: unknown) => {
         const s = (persisted ?? {}) as Record<string, unknown>;
+        // v1: the old cosmetic `kyc: boolean` became the real `kycTier` (verified → tier 2).
         if (typeof s.kycTier !== 'number') s.kycTier = s.kyc === true ? 2 : 1;
         delete s.kyc;
+        // v2: drop the stored display currency so it falls back to the new USD default. Everyone
+        // holding 'INR' got it from the old default rather than by choosing it, and without this
+        // they keep reading a conversion where the balance itself belongs.
+        delete s.displayCurrency;
         return s as unknown as PayState;
       },
       // SSR-safe: localStorage in the browser, a no-op store during server render.
@@ -1237,6 +1272,9 @@ export const usePayStore = create<PayState>()(
         recoveryPrompted: s.recoveryPrompted,
         balanceUSD: s.balanceUSD,
         fxRate: s.fxRate,
+        // Persisted alongside `fxRate` so a returning user's local-currency line paints at the last
+        // known rate instead of flashing the hardcoded seed before syncRates lands.
+        fxRates: s.fxRates,
         transactions: s.transactions,
         displayCurrency: s.displayCurrency,
         handle: s.handle,

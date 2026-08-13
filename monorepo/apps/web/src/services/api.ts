@@ -49,6 +49,20 @@ export function setTokenRefresher(fn: (() => Promise<string | null>) | null): vo
   refreshToken = fn;
 }
 
+let onSessionRevoked: (() => void) | null = null;
+/**
+ * Registered by the Privy bridge. Fires only when the server CONFIRMS this session has no account —
+ * the row was deleted or access was revoked — never on a transient failure. Distinct from an expired
+ * token, which the refresh-and-retry in `req()` already handles.
+ *
+ * It lives here, not in the store's load(), because the Privy session outlives our row: every other
+ * caller (refresh(), the 12s poller, any user action) would otherwise keep running against a dead
+ * account, and the persisted handle/tier would render it as signed in indefinitely.
+ */
+export function setSessionRevokedHandler(fn: (() => void) | null): void {
+  onSessionRevoked = fn;
+}
+
 export async function req<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
   const headers: Record<string, string> = {
     'content-type': 'application/json',
@@ -75,6 +89,10 @@ export async function req<T>(path: string, init?: RequestInit, retried = false):
     } catch {
       /* non-JSON error body */
     }
+    // The two answers that mean "this session has no account": `no_account` from requireUserId, and
+    // `user_not_found` from GET /me. Read off `message` because the backend has no setErrorHandler,
+    // so Fastify's default serializer puts our string there and a generic "Unauthorized" in `error`.
+    if (payload.message === 'no_account' || payload.error === 'user_not_found') onSessionRevoked?.();
     throw new ApiError(res.status, typeof payload.error === 'string' ? payload.error : `http_${res.status}`, payload);
   }
   return (await res.json()) as T;

@@ -62,12 +62,43 @@ export const inr = (usdAmount: MoneyLike, rate: MoneyLike = RATE): string =>
 /** USD figure with 2 decimals. e.g. usd(5.71) -> "$5.71" */
 export const usd = (n: MoneyLike): string => '$' + num(n).toFixed(2);
 
-/** The currencies the app can display a USD balance in. */
-export type DisplayCurrency = 'INR' | 'USD';
+/**
+ * The currencies the app can display a USD balance in: the balance's own currency, plus the
+ * corridor currencies we hold a live mid rate for. Deliberately NOT every rail in rails.ts — a
+ * currency with no rate can only be shown converted at a stale or invented one, which is worse
+ * than showing dollars. Adding one here means adding it to the client's `fxRates` too.
+ */
+export const DISPLAY_CURRENCIES = ['USD', 'INR', 'IDR'] as const;
+export type DisplayCurrency = (typeof DISPLAY_CURRENCIES)[number];
 
-/** Format a USD amount in the user's chosen display currency. */
-export const formatMoney = (usdAmount: MoneyLike, currency: DisplayCurrency): string =>
-  currency === 'USD' ? usd(usdAmount) : inr(usdAmount);
+/** Narrow a currency code (e.g. one derived from a country) to something we can actually display.
+ *  A rail exists for Thailand, so `currencyForCountry` will hand back 'THB' — this is what stops
+ *  that reaching the store as a currency nothing can price. */
+export const isDisplayCurrency = (code: string): code is DisplayCurrency =>
+  (DISPLAY_CURRENCIES as readonly string[]).includes(code);
+
+/**
+ * The SECOND currency a balance should be written in, or null when there isn't one.
+ *
+ * Two steps, and the order matters. First pick the *other* currency: where they are, when we can
+ * price it — otherwise dollars, which we can always show because the balance is already dollars.
+ * Then drop it if it turns out to be what they're reading in anyway, because restating a figure
+ * directly beneath itself is the redundancy this whole rule exists to avoid. Note that null now
+ * means only "it would say the same thing twice" — an unpriceable local currency no longer
+ * silently costs the second line, it falls back.
+ *
+ * Pure and here rather than inside the hook that calls it, because "how many currencies does this
+ * person see" is the rule the whole balance display turns on, and a rule this branchy is worth
+ * being able to assert on (see scripts/check-money.ts).
+ */
+export const secondaryCurrency = (
+  preferred: string,
+  local: string,
+  rates: Record<string, number>,
+): string | null => {
+  const other = local && rates[local] ? local : 'USD';
+  return other === preferred ? null : other;
+};
 
 /**
  * Format a raw fiat figure in its own currency, keeping fractional minor units only when present

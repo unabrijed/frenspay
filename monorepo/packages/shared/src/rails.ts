@@ -25,6 +25,9 @@ export const RAILS: Rail[] = [
 
 export const railById = (id: RailId): Rail => RAILS.find((r) => r.id === id)!;
 
+// `currencyForCountry` deliberately does NOT live here. Which currency someone's balance reads in
+// is a display question about where they are, not about where fpay can pay — see currencyCodes.ts.
+
 /** Who actually processes a payment address — the PSP app, the bank, or the network itself. */
 export interface Operator {
   code: string; // the alias suffix / registry key
