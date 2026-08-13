@@ -94,7 +94,16 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     } catch (e) {
       const code = (e as { code?: string }).code;
       if (code === 'invalid_invite') return reply.code(403).send({ error: 'invalid_invite' });
-      if (code === '23505') return reply.code(409).send({ error: 'handle_taken' });
+      if (code === '23505') {
+        // WHICH unique fired matters, because only the handle one is the caller's to fix. This
+        // transaction also writes `wallets`, whose address is unique GLOBALLY (not per user), so a
+        // clash there was reported as `handle_taken` — telling someone to pick another name when
+        // no name would ever have worked. Map the ones we know; anything new keeps the old answer
+        // rather than inventing a code the client has no copy for.
+        const constraint = (e as { constraint?: string }).constraint;
+        if (constraint === 'wallets_address_key') return reply.code(409).send({ error: 'wallet_in_use' });
+        return reply.code(409).send({ error: 'handle_taken' });
+      }
       throw e;
     }
     const wallet = await getWalletForUser(user.id);
