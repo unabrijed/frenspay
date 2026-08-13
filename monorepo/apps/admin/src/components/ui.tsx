@@ -124,13 +124,16 @@ export function SectionTitle({ children }: { children: ReactNode }) {
   return <h2 className="mb-2 mt-7 text-[12px] font-semibold uppercase tracking-wide text-muted">{children}</h2>;
 }
 
-export function Denied() {
+/** A page refused by the API (403). `msg`/`children` let the whole-console gate in Providers.tsx
+ *  reuse this for its other refusal states instead of restating the copy. */
+export function Denied({ msg, children }: { msg?: string; children?: React.ReactNode } = {}) {
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center text-center">
       <p className="text-[18px] font-bold">Not authorized</p>
       <p className="mt-2 max-w-sm text-[13px] text-muted">
-        This console is for the fpay operator. Your account doesn&apos;t carry the admin role.
+        {msg ?? "This console is for the fpay operator. Your account doesn't carry the admin role."}
       </p>
+      {children}
     </div>
   );
 }
