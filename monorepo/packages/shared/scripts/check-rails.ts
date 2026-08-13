@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { PAYOUT_METHODS } from '../src/contracts';
 import { parseEmvQr } from '../src/emvqr';
 import { classifyPayTarget } from '../src/payTarget';
+import { currencyForCountry } from '../src/currencyCodes';
 import { RAILS, railById, vpaOperator } from '../src/rails';
 import { FIAT_DECIMALS } from '../src/units';
 
@@ -22,6 +23,15 @@ assert.equal(RAILS.filter((r) => r.live).map((r) => r.id).join(','), 'upi,qris',
 assert.equal(new Set(RAILS.map((r) => r.id)).size, RAILS.length, 'rail ids unique');
 assert.equal(railById('promptpay').currency, 'THB');
 assert.equal(railById('qris').currency, 'IDR');
+
+// currencyCodes.ts is a SECOND country table (display-only, see its header). It answers a
+// different question to this registry, but wherever both have an opinion they must agree — a rail
+// in country X paying in currency Y, while someone standing in X reads their balance in Z, is a
+// contradiction users would see. Only asserted for rails: the display table covers ~250 countries
+// this registry says nothing about, which is the point of it existing.
+for (const r of RAILS) {
+  assert.equal(currencyForCountry(r.country), r.currency, `${r.id}: rail currency vs display table for ${r.country}`);
+}
 
 // Every LIVE rail's currency must be priceable: fiat decimals here, and an FX band + fallback on
 // the backend (asserted by check-fx). A rail flipped live without them throws inside a quote.

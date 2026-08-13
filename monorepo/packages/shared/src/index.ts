@@ -5,6 +5,7 @@ export * from './tokens';
 export * from './chains';
 export * from './phones';
 export * from './dialCodes';
+export * from './currencyCodes';
 export * from './rails';
 export * from './emvqr';
 export * from './payTarget';
