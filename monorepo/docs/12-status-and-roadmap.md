@@ -29,7 +29,7 @@ flowchart LR
 | Auth & embedded wallet | Privy email-OTP, self-custody | ✅ | M0 |
 | Custody & gas sponsorship | fee-payer model, no SOL for users | ✅ | M0 |
 | P2P send / request | real gas-sponsored USDC + requests | ✅ | M0 |
-| Money in (funding) | **devnet faucet** | 🟡 | M0 → M7 |
+| Money in (funding) | **mainnet deposit-only** (faucet = local dev) | 🟡 | M0 → M7 |
 | Quote engine | rate+fee+ETA, 45s lock; **live FX** (M7) | ✅ | M1 / M7 FX |
 | Order state machine | 7 states + resolutions, CAS, failure-first | ✅ | M1 |
 | Escrow / conditional release | **on-chain Anchor PDA** (devnet) | ✅ | M2 |

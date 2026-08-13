@@ -2,9 +2,11 @@
 
 ## What it is
 
-How dollars get into a user's balance. **Today this is a devnet faucet**: the backend *mints*
-controlled test-USDC straight into the user's wallet. In production this becomes a real **on-ramp** —
-the user adds money with a debit card / bank transfer / Apple Pay and a licensed partner converts fiat
+How dollars get into a user's balance. **On deployed envs (stage + prod, both mainnet) this is
+deposit-only**: send real USDC to the address shown in Add money — the faucet UI is hidden and the
+endpoint 403s. The **devnet faucet exists only in local dev**: the backend *mints* controlled
+test-USDC straight into the user's wallet. Eventually this becomes a real **on-ramp** — the user
+adds money with a debit card / bank transfer / Apple Pay and a licensed partner converts fiat
 → USDC. The faucet is the single most "test-environment" part of the app and is **dev-gated**.
 
 ## Flow — today (devnet faucet)

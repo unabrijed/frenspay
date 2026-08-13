@@ -4,9 +4,9 @@
 
 A **yarn-workspaces monorepo** with five apps (one parked) and a shared package. The backend is the brain (it
 builds transactions, runs the order lifecycle, talks to the chain and the database); the clients are
-thin (they render, collect a signature, and poll). Everything is **always-real against Solana
-devnet** — there is no mock toggle; "simulation" only ever means a *simulated merchant/LP*, never a
-fake chain.
+thin (they render, collect a signature, and poll). Everything is **always-real against Solana** —
+mainnet on deployed envs (mainnet-lite, see `DEPLOY.stage.md`), devnet in local dev; there is no
+mock toggle; "simulation" only ever means a *simulated merchant/LP*, never a fake chain.
 
 ```
 monorepo/
@@ -28,7 +28,7 @@ monorepo/
 | Admin / Landing | **Next.js** console / **static export** marketing site | admin role-gated by the backend; landing hosts the f-list |
 | Mobile | **Expo + Privy Expo SDK** (parked) | consumer P2P; cash-out flow not ported |
 | Shared | raw TS (`main: ./src/index.ts`), one runtime dep (bignumber.js) | backend imports **types only** (see below) |
-| Chain | **Solana devnet, SPL "USDC"** (6 dp), Anchor 0.32 | controlled devnet mint in dev |
+| Chain | **Solana, SPL USDC** (6 dp), Anchor 0.32 | mainnet USDC on deployed envs; controlled devnet mint in local dev |
 | Data | **Postgres on Supabase** (session pooler — advisory locks) | access control in the API layer, no RLS |
 | Infra | Privy (wallets), Helius (RPC + webhooks) | both have free tiers |
 | Hosting | **Railway** (backend, Dockerfile) + **Vercel** (frontends, one project per app per env) | web gated by a shared access key until launch — runbooks: `../DEPLOY.stage.md`, `../DEPLOY.md` |
@@ -228,8 +228,8 @@ Run it: `yarn check:money`.
 - **One poller inside the API process.** Rate-limiting, metrics, and notifications are in-process (M6);
   a separate worker/Redis (multi-instance) is the remaining M7 scale step. The 8s confirmer doubles as
   the order-escalation clock. Simple, good enough for devnet, explicitly temporary.
-- **Always-real, devnet.** Avoids mock/real drift: the code you test is the code that ships; only the
-  *counterparty* (merchant/LP) is simulated.
+- **Always-real.** Avoids mock/real drift: the code you test is the code that ships (mainnet when
+  deployed, devnet locally); only the *counterparty* (merchant/LP) is simulated.
 
 ## Legalities (system-level)
 

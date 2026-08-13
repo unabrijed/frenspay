@@ -5,7 +5,8 @@
 > picture, or jump to the integration you care about.
 
 The product is a **consumer money app** — you hold a dollar balance, send money to friends, and pay
-merchants — built on **stablecoins (USDC) on Solana devnet**, with the crypto deliberately hidden.
+merchants — built on **stablecoins (USDC) on Solana** (mainnet on deployed envs, devnet for local
+dev), with the crypto deliberately hidden.
 The north star (`stablecoin-onofframp-architecture.pdf`) is *"a money product with protocol
 advantages: expose certainty, hide complexity, failure-first then growth."*
 
