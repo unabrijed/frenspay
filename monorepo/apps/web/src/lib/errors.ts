@@ -15,6 +15,14 @@ const BY_CODE: Record<string, string> = {
   // limits / verification
   limit_exceeded: 'Verify your identity to raise your limits.',
   kyc_required: 'Verify your identity first. Merchants need a verified account.',
+  // The vendor session couldn't be started (routes/kyc.ts). The real reason is server-side only,
+  // so the copy promises nothing about the cause and points at the one useful action: wait, retry.
+  kyc_unavailable: 'Verification is temporarily unavailable. Please try again shortly.',
+  // Prod running the sim provider — a misconfiguration the user can never fix by retrying.
+  kyc_provider_unavailable: 'Verification isn’t available right now. Please contact support.',
+  // Any rate-limited route (services/rateLimit.ts), not just KYC — retrying a failing verify is
+  // the fastest way to hit it, which is exactly when a raw code would have surfaced.
+  rate_limited: 'Too many attempts. Wait a minute and try again.',
   // funding / faucet
   faucet_empty: 'Test funds are temporarily out. Try again shortly.',
   faucet_disabled: 'Adding test money isn’t available here.',

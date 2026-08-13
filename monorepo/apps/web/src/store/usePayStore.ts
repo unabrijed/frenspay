@@ -870,7 +870,7 @@ export const usePayStore = create<PayState>()(
           }
           set({ kycTier: r.kycTier, kycStatus: 'approved' });
         } catch (e) {
-          set({ error: e instanceof Error ? e.message : String(e) });
+          set({ error: friendlyError(e) });
           return;
         }
         if (get().pendingPay) {
