@@ -6,13 +6,16 @@
 //      events, adminOverview surfaces the open dispute + the stuck (frozen) order;
 //   4. user moderation (docs/24): status default + suspend hides the handle from resolution (but not
 //      from findUserByHandle), rename frees the old handle instantly, the unique index still guards
-//      collisions, and the display-name sanitizer holds the trust-surface line.
+//      collisions, and the display-name sanitizer holds the trust-surface line;
+//   5. soft-delete (docs/07): status flips to 'deleted' AND the handle releases instantly — the
+//      scramble is the release; a NEW user can claim the freed name (genuinely released, not hidden).
 // Run: yarn workspace @fpay/backend tsx scripts/check-admin.ts   (needs DATABASE_URL + `db:init`)
 import { getPool } from '../src/db/pool';
 import {
   adminOverview,
   cancelOrder,
   claimOrderPayout,
+  deleteUser,
   expireStaleOrders,
   findUserByHandle,
   findUserById,
@@ -151,6 +154,21 @@ async function main() {
 
   check('sanitizer: trims/collapses and strips control chars', sanitizeDisplayName(' ZZA\u{0000}  Payer\n') === 'ZZA Payer');
   check('sanitizer: rejects empty and oversized', sanitizeDisplayName('  ') === null && sanitizeDisplayName('x'.repeat(51)) === null);
+
+  // 5) soft-delete — the reclaim assertion is the load-bearing one: without the handle scramble,
+  // every other piece (403 gate, unresolvable, audit) looks right while the name stays claimed.
+  await deleteUser(payer); // payer holds '@zza_renamed' after §4's rename
+  const deletedRow = await findUserById(payer);
+  check("delete flips status to 'deleted'", deletedRow?.status === 'deleted');
+  check('delete releases the handle (row no longer holds it)', deletedRow?.handle !== '@zza_renamed');
+  check('deleted account is unresolvable', deletedRow ? (await resolveHandleToFriend(deletedRow.handle)) === null : false);
+  check('deleteUser is idempotent (retry keeps the same scrambled handle)', await (async () => {
+    const before = deletedRow?.handle;
+    await deleteUser(payer);
+    return (await findUserById(payer))?.handle === before;
+  })());
+  const reclaimer = await mkUser('zza:reclaimer', '@zza_renamed');
+  check('freed handle is claimable by a NEW user (genuinely released)', (await findUserById(reclaimer))?.handle === '@zza_renamed');
 
   await clean(pool);
   await pool.end();
