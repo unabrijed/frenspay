@@ -9,7 +9,7 @@ import { useCreateWallet, useSignAndSendTransaction, useWallets } from '@privy-i
 import { useEffect, useRef } from 'react';
 
 import { base58encode } from '@/lib/base58';
-import { setAuthToken, setTokenRefresher } from '@/services/api';
+import { setAuthToken, setSessionRevokedHandler, setTokenRefresher } from '@/services/api';
 import { IS_MAINNET } from '@/services/envConfig';
 import { setActiveSigner } from '@/services/signer';
 import { usePayStore } from '@/store/usePayStore';
@@ -113,6 +113,15 @@ export function PrivyBridge(): null {
       if (cancelled) return;
       setAuthToken(token);
       setTokenRefresher(getAccessToken); // api.ts refreshes an expired token on 401
+      setSessionRevokedHandler(() => {
+        // The backend confirmed this session has no account. Believe it: the Privy session survives
+        // our row being deleted, and the persisted onboarded/handle/kycTier would otherwise keep
+        // rendering a dead account's app — verified badge and all — forever.
+        // Guarded because a pre-/auth/sync onboarding 401 is also 'no_account', and signing out
+        // mid-signup would wipe a half-finished one.
+        const s = usePayStore.getState();
+        if (s.onboarded || s.provisioned) void s.logout();
+      });
       setActiveSigner(
         new PrivySigner(wallet.address, async (bytes) => {
           const { signature } = await signAndSendTransaction({ transaction: bytes, wallet, chain: SOLANA_CHAIN });
