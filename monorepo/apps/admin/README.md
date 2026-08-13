@@ -26,17 +26,24 @@ yarn workspace @fpay/admin tsc --noEmit  # typecheck just this app
 
 ## Signing in
 
-Two paths, both configured in `apps/admin/.env.local` (see `.env.example`):
+Configured in `apps/admin/.env.local` (see `.env.example`). With no such file the console renders
+its shell, mounts no login at all, sends no credential, and every panel returns 401 — which looks
+like a bug and is really an empty config.
 
-**Seeded admin user** — fastest for local work. Set `NEXT_PUBLIC_LOCAL_DEV_USER_ID` to a user id
-whose `role` is `'admin'`; the client sends it as `x-dev-user-id` and the backend's dev shim accepts
-it. The row must exist — `admin_actions` has an FK to it. Promote a seeded user with SQL, or add the
-account's address to `ADMIN_EMAILS` in `apps/backend/.env` and sign in once via Privy. The header is
-compiled out of production builds and the backend refuses it outside local anyway.
+**Privy** — the working path, and the same Privy app as web, no wallet involved. Setting
+`NEXT_PUBLIC_STAGE_PRIVY_APP_ID` is what mounts Privy (`USE_PRIVY`) and renders the Sign in button.
+Allow `http://localhost:3002` as an origin in the Privy dashboard. The **App Secret is
+backend-only** — it lives in `apps/backend/.env`, never here.
 
-**Privy** — the same Privy app as web, no wallet involved. Setting the app id is what mounts Privy
-(`USE_PRIVY`). Allow `http://localhost:3002` as an origin in the Privy dashboard. The **App Secret
-is backend-only** — it lives in `apps/backend/.env`, never here.
+The account you sign in with needs a users row and admin rights. The console **cannot create one**:
+it never calls `/auth/sync` (only web does), so sign into web once with that address first. Put it
+in the backend's `ADMIN_EMAILS` and it's a root admin from that first login — root admins skip the
+invite gate precisely so this bootstrap works on a directory that already has members.
+
+**Seeded admin user** (`NEXT_PUBLIC_LOCAL_DEV_USER_ID` → `x-dev-user-id`) is documented in
+`.env.example` but is **inert unless the backend has no Privy configured** — `auth.ts` accepts the
+header only when `!privyConfigured()`, and this repo's `.env` configures it. Don't reach for it
+first; it looks like it should work and silently doesn't.
 
 ## Deploy
 
