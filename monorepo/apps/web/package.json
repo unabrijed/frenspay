@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:api": "tsx scripts/check-api-headers.ts"
   },
   "dependencies": {
     "@fpay/shared": "*",
