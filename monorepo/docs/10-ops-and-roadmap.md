@@ -73,17 +73,22 @@ Two providers behind one API (`POST /kyc/verify` in `routes/kyc.ts`), selected b
 Replaces the old M0–M7 ladder: the shipped system is the baseline
 ([01](01-architecture.md)–[09](09-data-model.md)); what remains is grouped by what unlocks it.
 
-### Decided 2026-08-13 — the Stage-B backlog (in order)
+### The Stage-B backlog — decided AND shipped 2026-08-13 (code side)
 
-| # | Work | Notes |
+All seven landed the same day they were planned. What remains is operational, in this order:
+**`yarn db:migrate`** (applies 0010 email-unique + 0011 currency-prefs + 0012 soft-delete on the
+shared stage DB) → **`yarn workspace @fpay/backend tsx scripts/remint-invites.ts`** (the FREN
+cutover) → the DB-backed checks (`check:admin`, `check-fees`). All Bridge-run.
+
+| # | Work | Outcome |
 |---|---|---|
-| 1 | **FREN invite remint** | bulk-revoke `FP-` codes, remint `FREN-XXXX-XXXX` (3/user + house) — [02](02-identity-and-onboarding.md) |
-| 2 | **Migration 0010** | partial unique index on `users.email` + 409 sync collision policy; `users.local_currency` + `users.preferred_currency` + `/me` plumbing |
-| 3 | **Soft-delete** | `users.status` `'deleted'` (or `deleted_at`), admin route + audit, "your money is still yours via Privy" recovery copy — [07](07-admin-and-moderation.md) |
-| 4 | **Flat-fee fold** | quoteEngine per-quote $0.001 fold + `check-fees.ts` update; retire `PLATFORM_FEE_BPS` — [05](05-fees-fx-and-display.md) |
-| 5 | **USDC-only funding config** | verify Privy funding-asset restriction, deposit-screen copy — [03](03-custody-money-in-and-confirmation.md) |
-| 6 | **Balance UI** | flip interaction, local/preferred pickers on the server columns, eye-hide (global + per-row), home grid → Add · Send |
-| 7 | **Send-to-Contacts entry** | wire existing PeopleSearch/picker as the leading Send surface — [04](04-p2p-and-contacts.md) |
+| 1 | **FREN invite remint** | ✅ prefix + rerun-safe cutover script — [02](02-identity-and-onboarding.md) |
+| 2 | **Migrations 0010/0011** | ✅ email unique index + 409 `email_in_use`; server currency prefs + `/me` plumbing (split into two files: different risk profiles) |
+| 3 | **Soft-delete** | ✅ 0012 + `deleteUser` handle-release + console Delete + `account_deleted` screen — [07](07-admin-and-moderation.md) |
+| 4 | **Flat-fee fold** | ✅ fee-first quoteEngine, `PLATFORM_FEE_BPS` deleted, check-fees rewritten — [05](05-fees-fx-and-display.md) |
+| 5 | **USDC-only funding config** | ✅ nothing to build: Privy funding is never called; only the USDC ATA is credited; `asset:'USDC'` verified in the SDK as the one-liner if an on-ramp ever lands — [03](03-custody-money-in-and-confirmation.md) |
+| 6 | **Balance UI** | ✅ flip + LocalCurrency pin + the eye (global + per-row reveal) + home → Add · Send |
+| 7 | **Send-to-Contacts entry** | ✅ ContactsPrompt leads the Send sheet where the picker exists — [04](04-p2p-and-contacts.md) |
 
 ### Gated on ops or partners
 

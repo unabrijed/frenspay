@@ -124,12 +124,14 @@ still points at something real. Status (`unused | burned | revoked`) is **derive
 - **Revoke** — unused codes only; a burned code created an account that still exists, so revoking it
   would make the audit trail lie. Audited as `invite_revoke` (`target_id` = the code).
 
-⬜ **Decided 2026-08-13, not built:** remint the format from `FP-XXXX-XXXX` to `FREN-XXXX-XXXX`,
+✅ **Shipped 2026-08-13 (cutover pending):** the mint prefix is `FREN-` and
+`scripts/remint-invites.ts` (Bridge-run, rerun-safe: the revoke filters `code like 'FP-%'`)
+performs the one-shot cutover — reminting from `FP-XXXX-XXXX` to `FREN-XXXX-XXXX`,
 alongside a bulk-revoke of every outstanding `FP-` code and a reissue of 3 per user + fresh house
 codes. Today's code still mints and validates `FP-` (`invites.ts` `PREFIX = 'FP'`); the migration
 and reissue haven't landed.
 
-## Soft-delete — ⬜ decided 2026-08-13, gap to close
+## Soft-delete — ✅ shipped 2026-08-13 (🟡 until migration 0012 applies on stage)
 
 **Decision:** delete is allowed anytime, even with a balance — funds are the user's own custody via
 Privy (see [03-custody-money-in-and-confirmation](03-custody-money-in-and-confirmation.md)), never
@@ -212,9 +214,11 @@ KYC-tier interaction with account status are covered in
 ## Status
 
 ✅ Suspend/reinstate, rename/display-name edit, role grant/revoke, invite mint/revoke, and the full
-audit trail are built, routed, and enforced at the single `authPreHandler` choke point. 🟡 Invite
-code re-format (`FP-` → `FREN-`) is decided but not built. ⬜ Soft-delete is decided but not built —
-no schema column, no route, no web recovery copy.
+audit trail are built, routed, and enforced at the single `authPreHandler` choke point.
+✅ Soft-delete (2026-08-13): migration 0012 + `deleteUser` handle-release + the route's third state
++ distinct `account_deleted` web screen + console Delete action + check-admin §5 — 🟡 until
+`db:migrate` applies 0012 on stage. ✅ FREN re-format shipped in code; 🟡 the one-shot
+`remint-invites.ts` cutover awaits its Bridge-run.
 
 ## Key files
 

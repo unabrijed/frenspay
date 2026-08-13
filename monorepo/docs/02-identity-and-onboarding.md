@@ -15,10 +15,11 @@ Three identities are tracked per person:
 - **Email** — the entrance. Synced from Privy on every `/auth/sync` (`getLinkedEmail` →
   `coalesce(excluded.email, users.email)` in `db/queries.ts` — Privy's value wins when present).
   Also the admin bootstrap key (`ADMIN_EMAILS` → `isRootAdminEmail`).
-  ⬜ **Gap (decided 2026-08-13):** `users.email` has **no unique index** yet, so "one email" is
-  currently inherited from Privy's login model, not enforced by us. Planned migration 0010 adds a
-  partial unique index (`where email is not null`) + a 409 collision policy at `/auth/sync`
-  (admin resolves — see [07-admin-and-moderation](07-admin-and-moderation.md)).
+  ✅ **Enforced (2026-08-13):** migration 0010 adds a partial unique index (`where email is not
+  null`, duplicate-guarded so it fails loudly on dirty data) and `/auth/sync` maps the collision
+  to **409 `email_in_use`** — admin resolves which account keeps the address
+  ([07-admin-and-moderation](07-admin-and-moderation.md)). 🟡 until `db:migrate` applies on stage;
+  before it, "one email" was inherited from Privy's login model, not enforced by us.
 - **`@handle`** — the human-facing payment ID; unique, canonical
   (`'@' + [a-z0-9_.]{3,30}`, lowercased/validated server-side). **Users can never change it** —
   not at onboarding's end, not later ("can't be changed later" in onboarding is literally true).
@@ -86,7 +87,8 @@ objects, not derived strings):
   counts only. The admin console is the only place a code stays readable (why they're plain text).
 - **Admin mints, lists, revokes** (`/admin/invites`); owner-less codes are *house* codes,
   constrained by nobody's allowance. Revoke = `revoked_at` timestamp, never a delete.
-- ⬜ **FREN remint (decided 2026-08-13):** every existing `FP-XXXX-XXXX` code is bulk-revoked and
+- ✅ **FREN remint (code shipped 2026-08-13; cutover = Bridge runs `scripts/remint-invites.ts`):**
+  every existing `FP-XXXX-XXXX` code is bulk-revoked and
   reminted as **`FREN-XXXX-XXXX`** — 3 per user + fresh house codes; in-flight FP redemptions die
   at the cutover (acceptable: revoked codes read as `invalid_invite`). Until it ships, live codes
   are `FP-` format.
@@ -130,8 +132,8 @@ not code. Testing runbook: [10-ops-and-roadmap](10-ops-and-roadmap.md).
   waits on the **parked OTP-channel decision** (Privy SMS = US/CA-only; WhatsApp = all regions;
   the dashboard choice is irreversible — nothing gets enabled without Bridge).
 - ✅ KYC tiers enforced; 🟡 sim provider active (Didit wired, config-flip away).
-- ✅ Invite codes as real minted objects (0007/0008). ⬜ FREN-XXXX-XXXX remint (decided 2026-08-13).
-- ⬜ Email unique index + sync collision policy (decided 2026-08-13, migration 0010).
+- ✅ Invite codes as real minted objects (0007/0008). ✅ `FREN-` prefix + remint script (🟡 cutover run pending).
+- ✅ Email unique index + 409 collision policy (migration 0010; 🟡 until applied on stage).
 
 ## Key files
 

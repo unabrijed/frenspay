@@ -19,15 +19,16 @@ never sees a fee — anywhere, ever.**
   [08-compliance-and-legalities](08-compliance-and-legalities.md) — a normal money app shows you the
   rate, not its margin.
 - **This replaces the bps model.** Until 2026-08-13 the platform cut was `PLATFORM_FEE_BPS` (a
-  percentage folded into the rate). The flat model supersedes it; the env knob retires when the new
-  fold ships. Any doc/code text quoting `$0.45`, `$0.09`, or a default-50-bps cut is historical.
+  percentage folded into the rate). The flat fold shipped the same day and the env knob is gone.
+  Any doc/code text quoting `$0.45`, `$0.09`, or a default-50-bps cut is historical.
 
-### The fold — how $0.001 becomes a rate ⬜ decided, gap to close
+### The fold — how $0.001 becomes a rate ✅ shipped 2026-08-13
 
-Today's code still folds a percentage (`apps/backend/src/services/quoteEngine.ts:60-64` shaves
-`platformFeeBps` off the mid rate). A flat amount cannot be expressed that way — on a big order the
-rate delta rounds away at 4 dp; on the $1 minimum it silently becomes 10 bps. The decided fold
-computes the fee first and derives the rate from it:
+The old bps fold could not express a flat amount (it rounded away at 4 dp on a big order and
+silently became 10 bps at the $1 minimum), so `quoteEngine.ts` now computes the fee first and
+derives the rate from it — `PLATFORM_FEE_USDC = 0.001` is a constant, not a knob
+(`PLATFORM_FEE_BPS` is retired), and `check-fees.ts` asserts flatness + conservation at both a
+near-minimum and a large order:
 
 ```
 lpRate          = mid × (10000 − spread_bps) / 10000          (round DOWN, 4 dp — unchanged)
@@ -49,8 +50,8 @@ USDC owed rounds up, sub-cent dust always lands on the user-pays side so the LP 
 - **Refund = make-whole:** vault + fee return in one transaction; a refunded user gets every
   fractional cent back.
 - **Release** records `amount − fee` for the LP leg.
-- **Guard:** `apps/backend/scripts/check-fees.ts` asserts fold, split, and conservation — it tests
-  the bps fold today and is updated alongside the new fold (same Stage-B change).
+- **Guard:** `apps/backend/scripts/check-fees.ts` asserts the flat fee exactly, the fee-first sum,
+  the derived rate, and conservation — at both a near-minimum and a large order.
 
 At $1 (the order minimum) the flat fee is 0.1% — still below card-network territory; at $1,000 it is
 0.0001% and vanishes inside the 4 dp rate display, yet is still collected exactly. That asymmetry is
@@ -89,16 +90,16 @@ which currency is on top. If the two would be the same currency, the second line
 | Two-currency stack: preferred big + local small, absent when equal | ✅ `apps/web/src/hooks/useBalanceDisplay.ts` — the one definition, used by Home's hero and Activity's summary |
 | Preferred currency as a user choice (USD default, INR/IDR offered by country) | ✅ `displayCurrency` in the store, picker in `apps/web/src/components/sheets/Currency.tsx` (list is derived: USD + what the user's country spends) |
 | Local currency derived from profile country (locale-seeded at signup, `POST /me/country` override) | ✅ `currencyForCountry(users.country)` |
-| **Local as an independently pickable setting** | ⬜ decided — today local is always derived; a second picker row lets the user pin it |
-| **Server-stored prefs: `users.preferred_currency` + `users.local_currency`** | ⬜ decided — both choices move server-side (migration 0010, with `/me` plumbing) so they follow the user across devices; the store keeps them as a cache |
-| **The flip** (tap small line → currencies swap positions) | ⬜ decided — display-order state only; it changes which figure is big, never what anything costs |
+| **Local as an independently pickable setting** | ✅ `sheets/LocalCurrency.tsx` — pin any display currency or Automatic (the full list on purpose: the pin exists to override the country derivation) |
+| **Server-stored prefs: `users.preferred_currency` + `users.local_currency`** | ✅ code + migration 0011 (`/me` + `POST /me/preferred-currency` + `/me/local-currency`; optimistic store writes, server truth wins on load) — 🟡 until `db:migrate` applies on stage |
+| **The flip** (tap small line → currencies swap positions) | ✅ one ephemeral store flag read by `useBalanceDisplay` — Home and Activity always agree; deliberately not persisted |
 
 De-crypto rule carried: USD *is* the balance's real denomination (USDC never appears by name);
 every other currency is a live-rate restatement, and `secondaryCurrency()`
 (`packages/shared/src/money.ts:94`) is the single pure rule for whether a second line exists —
 asserted in `scripts/check-money.ts`.
 
-## The eye — hiding amounts ⬜ decided, gap to close
+## The eye — hiding amounts ✅ shipped 2026-08-13
 
 Privacy toggle for using the app in public:
 
@@ -108,7 +109,9 @@ Privacy toggle for using the app in public:
   ephemerally (cleared on navigation) — check one payment without undressing the whole screen.
 - The global state is device-local and persisted client-side (privacy of *this screen in this
   pocket* — deliberately not synced, unlike currency prefs; a shared-device reveal shouldn't follow
-  you to your phone). No precedent exists in the UI today; it lands with the Stage-B balance work.
+  you to your phone). Masking lives inside `useBalanceDisplay` (both balance screens for free) and
+  `components/ui/MaskedAmount.tsx` (rows, requests, and the detail page — which bypasses the hook
+  and is masked explicitly). Per-row reveals are local state: they clear on navigation.
 
 ---
 
