@@ -30,7 +30,32 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
 13. `orders.payout_provider_id` is claimed (guarded CAS) BEFORE the first initiate and never silently reassigned; sticky orders keep polling a disabled row — disable affects selection only (docs/23).
 14. Provider-model corridors settle through a platform-owned merchants row (`sim_behavior='psp'`, `user_id` NULL) — `merchant_id` stays NOT NULL on every order; platform rows are exempt from bond draws (docs/23).
 15. Routing never crosses rails — rail is a hard filter, no fallback (docs/23; the old fallback leaked escrow cross-corridor).
-16. `users.status` is enforced in `authPreHandler` (403 `account_suspended`, admins exempt — the console must stay reachable for recovery); user-suspend cascades one-way to the owned merchants row (routing/payouts never join users); `resolveHandleToFriend` filters suspended, `findUserByHandle` deliberately does NOT (docs/24).
+16. Routing's hard filters ALL live in `listRoutableMerchants`' SELECT (online, KYB, rail, country,
+    bond ≥ MIN_BOND) — never in a periodic job. The bond floor was previously only in
+    `recomputeMerchantStats` (every 10th tick, ~80s), so a zero-stake approved LP was routable in
+    the gap. Platform `psp` rows are exempt from the bond floor AND from leverage, same reasoning as
+    their dispute-draw exemption (docs/23; queries.ts `listRoutableMerchants`, routing.ts `availableOf`).
+17. Effective float = `min(float_usdc, bond_usdc × LEVERAGE[tier])`. `float_usdc` is a self-declared
+    claim and was never checked against the stake (merchantStats.ts `LEVERAGE`).
+18. `orders.merchant_id` is the PROVISIONAL holder; the lock (`locked_at`) is a CAS that transfers
+    it — invariant 14 (never NULL) survives the marketplace. An order is offered only while
+    `locked_at is null and now() >= offer_widens_at`; provider/sim orders are **born locked** at
+    `payment_detected`, which is what lets `claimOrderPayout` require `locked_at is not null` with
+    one predicate and no psp special case (0015; orderMachine `onTransferConfirmed`).
+19. The payee is redacted in SQL (`null::text as payout_destination` in `listOpenOffers`), never in
+    a mapper. The offer pool is DERIVED per request, never stored — a stored offer list would be a
+    stale snapshot of capacity, price and eligibility.
+20. An order is only offered to LPs with `spread_bps <= quotes.spread_bps` (the price it was struck
+    at). This is what makes broadcasting safe with per-LP pricing: any locker earns ≥ their own ask
+    and the payer's quote is never repriced. Requires `quotes.spread_bps` (0015) — `rate` is
+    display-only and post-fee, so the spread is unrecoverable from it.
+21. The payer must never perceive that a person settles their payment: no LP-aware copy, no
+    LP-aware wait state, no LP name on a payer DTO. Any LP-side race happens inside time the payer
+    already spends (alert fires at `pay_instructions`, while they sign) — never in front of them.
+22. `merchants.suspend_reason` distinguishes machine suspension ('bond') from human (admin
+    moderation, user-suspend cascade — both write the same status through `setMerchantStatus`).
+    Auto-reinstate may ONLY reverse 'bond', or it silently un-bans a moderated merchant.
+23. `users.status` is enforced in `authPreHandler` (403 `account_suspended`, admins exempt — the console must stay reachable for recovery); user-suspend cascades one-way to the owned merchants row (routing/payouts never join users); `resolveHandleToFriend` filters suspended, `findUserByHandle` deliberately does NOT (docs/24).
 
 ## Danger zones
 
@@ -52,4 +77,19 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
 
 - 2026-08-10 · **Indonesia corridor enabled** as currency-generalization keyed off the rails registry; sim LPs + key-gated Xendit test-mode payout seam; Philippines designated fast-follow; Singapore avoided → docs/22-indonesia-corridor-and-asia-research.md. Open questions tracked there (Didit workflow country config, Xendit schema verify-on-first-run, QRIS real-sample validation, docs/11 Indonesia section, poller.ts:31 vs docs/18).
 - 2026-08-11 · **Per-corridor settlement models adopted** (`lp` vs `provider`; the choice is an entity/licensing commitment) with a DB payout-provider registry (rows = routing metadata; creds = env; priority+failover with raw-status discipline) and the platform-settlement-row mechanism — `merchant_id NULL` rejected under adversarial verify (4 subsystem breaks incl. deleted payer recourse) → docs/23-settlement-models-and-provider-registry.md. Open: float model (prefund vs vendor-converts), charge-the-flat-fee, per-model order floor, THB timing, REVERSED auto-resolution, cross-account idempotency scope (unverified). All work on `stage` branch (stage→stage env, sacred→prod).
+- 2026-08-14 · **LP marketplace: offer → lock → pay → release** (plan:
+  `~/.claude/plans/merchant-side-of-app-distributed-dahl.md`; 6 phases, P1–P3 shipped). Staged
+  broadcast with the lock as a `merchant_id` transfer (no offers table, invariant 14 intact);
+  head start = the reputation reward; spread-ceiling filter = how speed pays without a bonus
+  system. Corridors gained an ordered `settle` preference (provider-first, LP fallback) resolved
+  through the provider registry, not a DB row — so UPI flips the day an India partner is enabled.
+  `merchants.country` hard-filters the pool. Alerts are an adapter seam (Telegram now, FCM/APNs
+  when mobile returns); web push rejected for now because SwKiller.tsx removes service workers.
+  Fixed live: zero-stake LPs were routable for ~80s after approval; float was unbounded by bond.
+  **Open**: migrations 0014/0015 unapplied (shared stage DB — Bridge runs `yarn db:migrate`);
+  `check:rails` is RED at HEAD because its fix sits in a file another session is also editing;
+  P4 (KYB evidence), P5 (warmth/hour-of-week routing), P6 (tiering, LP earnings, dispute view)
+  not started; payer's in-flight order still not persisted across refresh (blocked on the same
+  shared `usePayStore.ts`). Cut deliberately: shortened dispute window for high-tier LPs (trades
+  payer protection for LP throughput — wrong side of that trade).
 - 2026-08-13 · **Admin user moderation shipped** (handle renames admin-ONLY — users still can't self-change; display-name edits; suspend/reinstate with mandatory reason) — freed handles release INSTANTLY, Bridge's explicit accepted risk ("you have to manage your username"). Suspension = one gate in authPreHandler (admins exempt) + resolve-time receive-block + one-way merchant cascade; audit note `@old -> @new; reason` is the sole post-release history disambiguator → docs/24-admin-user-moderation.md. Cut-but-mandatory-later: recipient pinning + request-payment binding to `from_user_id` BEFORE self-service handle changes ever ship. Open for retro: does support need read-only access for suspended users; request-pay staleness window.
