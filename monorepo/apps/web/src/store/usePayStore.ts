@@ -275,7 +275,10 @@ export const usePayStore = create<PayState>()(
       transactions: [],
       notifications: [],
       unread: 0,
-      displayCurrency: 'INR',
+      // Dollars by default: the balance IS dollars, and the local currency now appears beneath it
+      // on its own (useBalanceDisplay), so leading in a corridor currency would show a conversion
+      // where the actual figure belongs — and showed the same number twice for Indian users.
+      displayCurrency: 'USD',
       handle: '',
       phone: '',
       country: '',
@@ -1216,12 +1219,16 @@ export const usePayStore = create<PayState>()(
     }),
     {
       name: 'pay-store',
-      version: 1,
-      // Migrate the old cosmetic `kyc: boolean` to the real `kycTier` (verified → tier 2).
+      version: 2,
       migrate: (persisted: unknown) => {
         const s = (persisted ?? {}) as Record<string, unknown>;
+        // v1: the old cosmetic `kyc: boolean` became the real `kycTier` (verified → tier 2).
         if (typeof s.kycTier !== 'number') s.kycTier = s.kyc === true ? 2 : 1;
         delete s.kyc;
+        // v2: drop the stored display currency so it falls back to the new USD default. Everyone
+        // holding 'INR' got it from the old default rather than by choosing it, and without this
+        // they keep reading a conversion where the balance itself belongs.
+        delete s.displayCurrency;
         return s as unknown as PayState;
       },
       // SSR-safe: localStorage in the browser, a no-op store during server render.
