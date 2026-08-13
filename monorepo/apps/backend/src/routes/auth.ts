@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 
 import type { AuthSyncRequest, MeResponse, ResolveHandleResponse } from '@fpay/shared';
 
-import { isRootAdminEmail, requirePrivyDid, requireUserId } from '../auth';
+import { effectiveRole, isRootAdminEmail, requirePrivyDid, requireUserId } from '../auth';
 import { config } from '../envConfig';
 import {
   canonicalHandle,
@@ -134,7 +134,9 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       // Rides on /me (already fetched on boot and on the KYC poll) rather than its own endpoint —
       // one extra query here beats a second round trip + loading state for the 99% who aren't LPs.
       merchant: merchant ? toMerchantProfile(merchant) : undefined,
-      role: user.role,
+      // The governing role, not the column — a root admin's row still says 'user'. The console
+      // gates its whole UI on this, so it has to agree with requireAdmin.
+      role: effectiveRole(user) as MeResponse['role'],
       invitesTotal: invites.total,
       invitesUsed: invites.used,
       // Present exactly once. Once /me/invites/ack stamps invites_revealed_at this goes undefined

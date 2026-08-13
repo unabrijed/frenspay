@@ -81,13 +81,29 @@ export function isRootAdminEmail(email: string | null | undefined): boolean {
   return Boolean(email) && config.adminEmails.includes(email!.trim().toLowerCase());
 }
 
+/**
+ * The role that actually governs, which is not always the column: ADMIN_EMAILS outranks
+ * `users.role` by design, so a root admin whose row still says 'user' IS an admin.
+ *
+ * Every place that asks "is this person an admin" must ask HERE. It used to be asked twice — once
+ * by requireAdmin and once by GET /me — and the two answers disagreed for exactly the root admins
+ * the env var exists to rescue: the API let them in while /me reported them ordinary. Harmless
+ * while nothing read /me's answer, and a lockout the moment the console gated its UI on it.
+ */
+export function effectiveRole(
+  user: { role?: string | null; email?: string | null } | null | undefined,
+): string | undefined {
+  if (!user) return undefined;
+  return isRootAdminEmail(user.email) ? 'admin' : (user.role ?? undefined);
+}
+
 /** Throw 403 unless the user is an admin: either role='admin' in the DB (granted from the console)
  *  or a root admin named in ADMIN_EMAILS. The email is the Privy-verified login address, written to
  *  users.email at sync — never a self-claimed value. */
 export async function requireAdmin(req: FastifyRequest): Promise<string> {
   const userId = requireUserId(req);
   const user = await findUserById(userId);
-  if (user?.role !== 'admin' && !isRootAdminEmail(user?.email)) {
+  if (effectiveRole(user) !== 'admin') {
     const err = new Error('not_admin') as Error & { statusCode?: number };
     err.statusCode = 403;
     throw err;
