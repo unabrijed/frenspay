@@ -19,6 +19,11 @@ const BY_CODE: Record<string, string> = {
   faucet_empty: 'Test funds are temporarily out. Try again shortly.',
   faucet_disabled: 'Adding test money isn’t available here.',
   wallet_not_found: 'Your wallet is still being set up. Try again in a moment.',
+  // signup
+  handle_taken: 'That name is already taken. Try another.',
+  // Not a handle problem, and no amount of renaming fixes it — wallets.address is unique across
+  // every account, so this means the wallet is already linked to a different one.
+  wallet_in_use: 'That wallet is already linked to another fpay account.',
 };
 
 /** Human copy for any thrown error. ApiError → its code; a plain Error whose message is a known code
