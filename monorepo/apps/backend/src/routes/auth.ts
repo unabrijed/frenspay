@@ -15,6 +15,7 @@ import {
   getInviteStats,
   getMerchantForUser,
   listKybEvents,
+  merchantSettledCount,
   listStakeWithdrawals,
   hasAnyUsers,
   markInvitesRevealed,
@@ -160,6 +161,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
             // The KYB timeline rides along rather than getting its own endpoint: it is only ever
             // read on the one screen that already has this payload, and it is a handful of rows.
             await listKybEvents(merchant.id),
+            await merchantSettledCount(merchant.id),
           )
         : undefined,
       // The governing role, not the column — a root admin's row still says 'user'. The console

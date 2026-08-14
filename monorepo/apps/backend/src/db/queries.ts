@@ -2104,6 +2104,18 @@ export async function getOrderAlertInfo(
   return { merchant: r.id ? (r as MerchantRow) : null, amountFiat: r.amount_inr, currency: r.currency };
 }
 
+/** Settled attempts (released + failed) for ONE merchant — the volume term in the tier ladder.
+ *  merchantOutcomeCounts() answers this for every merchant at once for the stats pass; this is the
+ *  single-row read the LP's own screen needs. */
+export async function merchantSettledCount(merchantId: string): Promise<number> {
+  const { rows } = await getPool().query<{ n: string }>(
+    `select count(*) as n from order_routing_attempts
+      where merchant_id = $1 and outcome in ('released','failed')`,
+    [merchantId],
+  );
+  return Number(rows[0].n);
+}
+
 export interface MerchantEarningsRow {
   settled: number;
   usdc_in: string;

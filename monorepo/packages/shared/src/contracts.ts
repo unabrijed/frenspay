@@ -162,6 +162,16 @@ export interface MerchantProfile {
   maxFloatUsdc: string;
   /** Performance tier (1–3), computed from live signals. Sets leverage and the head start. */
   tier: number;
+  /** What stands between them and the next tier, or null at the top. Computed from the SAME rules
+   *  routing scores on, so the console can never promise a threshold the router disagrees with —
+   *  which is the only reason it is safe to put a target in front of someone. */
+  tierProgress?: {
+    nextTier: number;
+    /** Effective float multiplier that tier would buy — the thing actually worth having. */
+    leverage: number;
+    /** Only the terms not yet met. Empty would mean the tier is already earned. */
+    needs: Array<{ key: string; have: number; need: number }>;
+  };
   /** An open stake-withdrawal request. The bond is already debited; a human releases the USDC. */
   pendingWithdrawal?: { id: string; amountUsdc: string; requestedAt: string };
   /** The LP's take off the mid rate, in basis points. Also the routing `cost` signal. */

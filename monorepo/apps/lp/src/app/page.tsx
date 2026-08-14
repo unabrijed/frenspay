@@ -19,7 +19,7 @@ import { Txt } from '@fpay/ui/Txt';
 import { friendlyError } from '@/lib/errors';
 import { fiatRaw, usd } from '@fpay/shared';
 import { colors, fonts, GUTTER, radii, type } from '@fpay/ui/theme';
-import type { MerchantLedgerResponse } from '@fpay/shared';
+import type { MerchantLedgerResponse, MerchantProfile } from '@fpay/shared';
 
 import {
   cancelStakeWithdrawal,
@@ -60,6 +60,77 @@ function OrderRow({ o, onPress }: { o: MerchantOrder; onPress: () => void }) {
     </Row>
   );
 }
+
+/**
+ * The hero. This is why an LP opens the app when nothing is waiting: what their score is, and what
+ * the next rung buys.
+ *
+ * Every number comes from the server's own tier rules — the same ones routing scores on — so this
+ * can never promise a threshold the router disagrees with. That is the only reason it is honest to
+ * put a target in front of someone.
+ */
+function ScoreCard({ m }: { m: MerchantProfile }) {
+  const p = m.tierProgress;
+  return (
+    <View style={styles.scoreCard}>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10 }}>
+        <Txt style={[type.bigAmount, { fontSize: 30 }]}>{tierName(m.tier)}</Txt>
+        <Txt style={type.inst}>carries {usd(m.maxFloatUsdc)} at once</Txt>
+      </View>
+
+      <View style={styles.statRow}>
+        <Stat label="settled" v={`${(m.successRate * 100).toFixed(1)}%`} />
+        <Stat label="liked" v={`${(m.positiveRate * 100).toFixed(0)}%`} />
+        <Stat label="disputed" v={`${(m.disputeRate * 100).toFixed(1)}%`} />
+      </View>
+
+      {p && p.needs.length > 0 ? (
+        <View style={styles.nextTier}>
+          <Txt style={[type.rowName, { color: colors.accent }]}>
+            Reach {tierName(p.nextTier)} → {p.leverage}× your stake
+          </Txt>
+          {p.needs.map((n) => (
+            <Txt key={n.key} style={[type.rowTime, { marginTop: 2 }]}>
+              {needLabel(n)}
+            </Txt>
+          ))}
+        </View>
+      ) : (
+        <Txt style={[type.inst, { marginTop: 10 }]}>
+          {p ? 'Almost there — keep going.' : 'You’re at the top tier. Your stake works as hard as it can.'}
+        </Txt>
+      )}
+    </View>
+  );
+}
+
+function Stat({ label, v }: { label: string; v: string }) {
+  return (
+    <View>
+      <Txt style={type.rowAmount}>{v}</Txt>
+      <Txt style={type.rowTime}>{label}</Txt>
+    </View>
+  );
+}
+
+/** Plain English for one unmet threshold. Says the GAP, not the rule — "12 more orders" is
+ *  actionable in a way "settled >= 50" is not. */
+function needLabel(n: { key: string; have: number; need: number }): string {
+  switch (n.key) {
+    case 'settled':
+      return `${Math.max(0, Math.ceil(n.need - n.have))} more settled orders`;
+    case 'successRate':
+      return `settle ${(n.need * 100).toFixed(0)}% of what you take (you're at ${(n.have * 100).toFixed(1)}%)`;
+    case 'disputeRate':
+      return `keep disputes under ${(n.need * 100).toFixed(1)}% (you're at ${(n.have * 100).toFixed(1)}%)`;
+    case 'avgCompletionSecs':
+      return `pay within ${Math.round(n.need)}s on average (you're at ${Math.round(n.have)}s)`;
+    default:
+      return n.key;
+  }
+}
+
+const tierName = (t: number) => (t >= 3 ? 'Top tier' : `Tier ${t}`);
 
 function StatRow({ k, v, sub }: { k: string; v: string; sub?: string }) {
   return (
@@ -206,17 +277,7 @@ export default function MerchantHome() {
         <BackButton onPress={() => router.push('/')} />
       </View>
       <View style={styles.scroll}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Txt style={type.handle}>{merchant.name}</Txt>
-          {/* The tier is earned, not granted — recomputed from live signals. Shown because what it
-              buys (more capacity per dollar staked, first refusal on every order) is invisible
-              otherwise, and an incentive nobody can see is not an incentive. */}
-          {merchant.tier > 1 ? (
-            <Txt style={{ ...fonts.body500, fontSize: 13, color: colors.secondary }}>
-              {merchant.tier >= 3 ? 'Top tier' : 'Tier 2'}
-            </Txt>
-          ) : null}
-        </View>
+        <Txt style={type.handle}>{merchant.name}</Txt>
         <Pressable onPress={() => router.push('/business')}>
           <Txt
             style={[
@@ -232,6 +293,9 @@ export default function MerchantHome() {
             {merchant.kybStatus === 'approved' ? statusLabel(merchant.status) : kybLabel(merchant.kybStatus)}
           </Txt>
         </Pressable>
+
+        {/* The reason to open this app when nothing is waiting. */}
+        <ScoreCard m={merchant} />
 
         {/* The stake is the whole trust model — the most prominent number on the screen. */}
         <Pressable
@@ -372,7 +436,10 @@ export default function MerchantHome() {
         {err ? <Txt style={[type.lead, { color: colors.danger, marginTop: 12 }]}>{err}</Txt> : null}
 
         {/* Two queues, and the split is the point. "To pay" is what this LP has committed to and
-            owes someone. "Up for grabs" is work anyone eligible can still take — first come. */}
+            owes someone. "Up for grabs" is work anyone eligible can still take — first come.
+            These sit ABOVE the score only when there is something in them: a five-minute lock is
+            time-critical and a score is not, but making someone scroll past their stats every time
+            they open the app to check on nothing is the other failure. */}
         <Txt style={[type.kvKey, styles.section]}>To pay ({held.length})</Txt>
         {orders === null ? (
           <Txt style={type.inst}>Loading…</Txt>
@@ -445,6 +512,9 @@ const styles = {
     paddingRight: GUTTER,
     paddingBottom: 28,
   },
+  scoreCard: { marginTop: 16, padding: 18, borderRadius: radii.card, backgroundColor: colors.surface },
+  statRow: { flexDirection: 'row', gap: 28, marginTop: 14 },
+  nextTier: { marginTop: 14, paddingTop: 12, borderTop: `1px solid ${colors.hair}` },
   stakeCard: { marginTop: 16, marginBottom: 6, padding: 18, borderRadius: radii.card, backgroundColor: colors.surface },
   notice: { marginTop: 6, marginBottom: 10, padding: 14, borderRadius: radii.card, backgroundColor: colors.surfaceLow },
   value: { flexDirection: 'row', alignItems: 'center', gap: 6 },
