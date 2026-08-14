@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "framework": "nextjs",
+  "installCommand": "yarn install --frozen-lockfile",
+  "buildCommand": "yarn workspace @fpay/lp build",
+  "ignoreCommand": "node \"$(git rev-parse --show-toplevel)/monorepo/scripts/vercel-ignore.mjs\" lp"
+}

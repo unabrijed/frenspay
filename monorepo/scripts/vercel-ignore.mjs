@@ -12,7 +12,7 @@
 // money once. A wrongly skipped one leaves a stale build on a live domain and is discovered later,
 // by someone confused about why their fix never shipped.
 //
-// Run: node scripts/vercel-ignore.mjs <admin|web|landing>
+// Run: node scripts/vercel-ignore.mjs <admin|web|lp|landing>
 //      node scripts/vercel-ignore.mjs --check    (asserts the rules below; no git, no network)
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
@@ -21,11 +21,15 @@ import { pathToFileURL } from 'node:url';
 // above the monorepo (there is a payments/ wrapper — see apps/admin/next.config.ts).
 const COMMON = ['monorepo/package.json', 'monorepo/yarn.lock', 'monorepo/tsconfig'];
 const SHARED = 'monorepo/packages/shared/';
+// The design system is its own package, so it needs its own entry — SHARED is literally
+// packages/shared/, and a UI change would otherwise wake nobody.
+const UI = 'monorepo/packages/ui/';
 
 const SCOPES = {
   admin: [...COMMON, SHARED, 'monorepo/apps/admin/'],
-  web: [...COMMON, SHARED, 'monorepo/apps/web/', 'monorepo/vercel.json'],
-  // Landing does not consume @fpay/shared, so a shared change must not wake it.
+  web: [...COMMON, SHARED, UI, 'monorepo/apps/web/', 'monorepo/vercel.json'],
+  lp: [...COMMON, SHARED, UI, 'monorepo/apps/lp/'],
+  // Landing consumes neither package, so a shared or UI change must not wake it.
   landing: [...COMMON, 'monorepo/apps/landing/'],
 };
 
@@ -69,17 +73,20 @@ if (!isMain) {
 } else if (process.argv[2] === '--check') {
   const { strict: assert } = await import('node:assert');
   const t = (changed, expected, why) => {
-    for (const app of ['admin', 'web', 'landing']) {
+    for (const app of ['admin', 'web', 'lp', 'landing']) {
       assert.equal(shouldBuild(app, changed), expected[app], `${app}: ${why} — ${JSON.stringify(changed)}`);
     }
   };
-  const all = { admin: true, web: true, landing: true };
-  const none = { admin: false, web: false, landing: false };
+  const all = { admin: true, web: true, lp: true, landing: true };
+  const none = { admin: false, web: false, lp: false, landing: false };
 
   // The push that prompted this file: two docs files inside an app directory.
   t(['monorepo/apps/admin/README.md', 'monorepo/apps/admin/.env.example'], none, 'docs in an app dir deploy nothing');
   t(['monorepo/apps/admin/next.config.ts'], { ...none, admin: true }, 'app code wakes only its own app');
-  t(['monorepo/packages/shared/src/units.ts'], { admin: true, web: true, landing: false }, 'landing skips shared');
+  t(['monorepo/packages/shared/src/units.ts'], { admin: true, web: true, lp: true, landing: false }, 'landing skips shared');
+  // The design system is shared by exactly the two apps that render the product's own UI.
+  t(['monorepo/packages/ui/src/primitives.tsx'], { admin: false, web: true, lp: true, landing: false }, 'ui wakes web + lp only');
+  t(['monorepo/apps/lp/src/app/page.tsx'], { ...none, lp: true }, 'lp code wakes only lp');
   t(['monorepo/yarn.lock'], all, 'a dependency change can move any output');
   t(['monorepo/docs/01-architecture.md'], none, 'docs/ is outside every scope');
   t(['monorepo/DEPLOY.md'], none, 'so are the runbooks');
@@ -89,7 +96,7 @@ if (!isMain) {
   // A typo in the wiring must not silently mute a project.
   assert.equal(shouldBuild('addmin', ['monorepo/apps/admin/README.md']), true, 'unknown app builds');
 
-  console.log('vercel-ignore: OK — 9 cases, docs never deploy, unknowns always build');
+  console.log('vercel-ignore: OK — 11 cases, docs never deploy, unknowns always build');
 } else {
   process.exit(main(process.argv[2]));
 }

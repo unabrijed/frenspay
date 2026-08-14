@@ -1,0 +1,107 @@
+'use client';
+
+// PrivyBridge — the ONE place Privy hooks are called in this app. Bridges Privy's hook state into
+// the imperative store (so screens never import Privy) and registers the signer.
+//
+// A trimmed sibling of apps/web's: email OTP and the embedded Solana wallet, and nothing else. No
+// smart wallets (this console has no cross-chain deposits), no passkeys, no phone linking — the LP
+// already has an fpay account, and everything that creates or enriches one lives in the wallet app.
+import { useLoginWithEmail, usePrivy } from '@privy-io/react-auth';
+import { useCreateWallet, useSignAndSendTransaction, useWallets } from '@privy-io/react-auth/solana';
+import { useEffect, useRef } from 'react';
+
+import { base58encode } from '@/lib/base58';
+import { setAccountSuspendedHandler, setAuthToken, setSessionRevokedHandler, setTokenRefresher } from '@/services/api';
+import { IS_MAINNET } from '@/services/envConfig';
+import { setActiveSigner } from '@/services/signer';
+import { useLpStore } from '@/store/useLpStore';
+
+import { PrivySigner } from './signer';
+
+// Must match the cluster the backend builds transactions for — derived from the RPC env, never
+// hardcoded (a devnet-pinned chain id silently breaks every mainnet broadcast).
+const SOLANA_CHAIN = IS_MAINNET ? ('solana:mainnet' as const) : ('solana:devnet' as const);
+
+export function PrivyBridge(): null {
+  const { user, ready, getAccessToken, logout } = usePrivy();
+  const { sendCode, loginWithCode } = useLoginWithEmail();
+  const { wallets } = useWallets();
+  const { createWallet } = useCreateWallet();
+  const { signAndSendTransaction } = useSignAndSendTransaction();
+
+  // Register imperative auth actions into the store (screens call these, not Privy hooks).
+  useEffect(() => {
+    useLpStore.getState().setAuthBridge({
+      sendCode: async (email) => {
+        await sendCode({ email });
+      },
+      verifyCode: async (code) => {
+        await loginWithCode({ code });
+      },
+      logout: async () => {
+        setAuthToken(null);
+        setTokenRefresher(null);
+        setActiveSigner(null); // no stale wallet authority lingering after a sign-out
+        await logout();
+        useLpStore.getState().onSignedOut();
+      },
+    });
+  }, [sendCode, loginWithCode, logout]);
+
+  // Privy resolved with no session → signedOut, so the sign-in screen renders instead of a splash.
+  useEffect(() => {
+    if (ready && !user) useLpStore.getState().onSignedOut();
+  }, [ready, user]);
+
+  // Once authenticated: ensure an embedded Solana wallet, then publish token + signer + address.
+  const wallet = wallets?.[0];
+  const creatingRef = useRef(false);
+  useEffect(() => {
+    if (!ready || !user) return undefined;
+    let cancelled = false;
+    (async () => {
+      if (!wallet) {
+        // Create the embedded wallet at most once — Privy errors on a second call. Reset only on
+        // failure so a later run can retry.
+        if (!creatingRef.current) {
+          creatingRef.current = true;
+          try {
+            await createWallet();
+          } catch (e) {
+            creatingRef.current = false;
+            throw e;
+          }
+        }
+        return; // effect re-runs when wallets updates
+      }
+      const token = await getAccessToken();
+      if (cancelled) return;
+      setAuthToken(token);
+      setTokenRefresher(getAccessToken); // api.ts refreshes an expired token on 401
+
+      // The backend confirmed this session has no fpay account. This console never creates one —
+      // applying needs a users row and an invite, both of which live in the wallet app — so the
+      // honest answer is a dead end that says so, not a half-signed-in shell.
+      setSessionRevokedHandler(() => useLpStore.setState({ noAccount: true, loaded: true }));
+      setAccountSuspendedHandler(() => useLpStore.setState({ suspended: true }));
+
+      setActiveSigner(
+        new PrivySigner(wallet.address, async (bytes) => {
+          const { signature } = await signAndSendTransaction({ transaction: bytes, wallet, chain: SOLANA_CHAIN });
+          return base58encode(signature);
+        }),
+      );
+      useLpStore.getState().onSignedIn(wallet.address);
+      void useLpStore.getState().load();
+    })().catch(() => {
+      // A bridge failure must not leave the app on a splash forever; the sign-in screen is the
+      // correct fallback and retrying is one tap.
+      useLpStore.getState().onSignedOut();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, user, wallet, createWallet, getAccessToken, signAndSendTransaction]);
+
+  return null;
+}

@@ -1,6 +1,6 @@
 'use client';
 
-// /merchant/orders/[id] — the screen the whole merchant flow exists for.
+// /orders/[id] — the screen the whole merchant flow exists for.
 //
 // It shows the ONE thing the rest of the system never recorded until now: the payee's real UPI ID.
 // The merchant pays it in their own banking app, comes back, and types the reference. That opens the
@@ -12,15 +12,15 @@ import { useCallback, useEffect, useState } from 'react';
 import type { MerchantOrder } from '@fpay/shared';
 import { vpaOperator } from '@fpay/shared';
 
-import { BackButton } from '@/components/ui/BackButton';
-import { Btn } from '@/components/ui/Button';
-import { List, Row, RowMeta, SearchBar, Spacer } from '@/components/ui/primitives';
-import { Pressable, View } from '@/components/ui/rn';
-import { Screen } from '@/components/ui/Screen';
-import { Txt } from '@/components/ui/Txt';
+import { BackButton } from '@fpay/ui/BackButton';
+import { Btn } from '@fpay/ui/Button';
+import { List, Row, RowMeta, SearchBar, Spacer } from '@fpay/ui/primitives';
+import { Pressable, View } from '@fpay/ui/rn';
+import { Screen } from '@fpay/ui/Screen';
+import { Txt } from '@fpay/ui/Txt';
 import { friendlyError } from '@/lib/errors';
-import { fiatRaw, usd } from '@/lib/money';
-import { colors, fonts, GUTTER, radii, type } from '@/lib/theme';
+import { fiatRaw, usd } from '@fpay/shared';
+import { colors, fonts, GUTTER, radii, type } from '@fpay/ui/theme';
 import { getMerchantOrders, lockOrder, markOrderPaid, unlockOrder } from '@/services/merchant';
 
 /** Seconds until the escrow auto-releases, or null when nothing is pending. */
@@ -95,7 +95,7 @@ export default function MerchantOrder() {
     setErr(null);
     try {
       await unlockOrder(order.id);
-      router.push('/merchant');
+      router.push('/');
     } catch (e) {
       setErr(friendlyError(e));
     } finally {
@@ -122,7 +122,7 @@ export default function MerchantOrder() {
     return (
       <Screen edges={['top']} style={styles.safe}>
         <View style={styles.head}>
-          <BackButton onPress={() => router.push('/merchant')} />
+          <BackButton onPress={() => router.push('/')} />
         </View>
         <View style={styles.scroll}>
           <Txt style={type.inst}>Loading…</Txt>
@@ -134,7 +134,7 @@ export default function MerchantOrder() {
     return (
       <Screen edges={['top']} style={styles.safe}>
         <View style={styles.head}>
-          <BackButton onPress={() => router.push('/merchant')} />
+          <BackButton onPress={() => router.push('/')} />
         </View>
         <View style={styles.scroll}>
           <Txt style={type.lead}>Someone else took this one.</Txt>
@@ -154,7 +154,7 @@ export default function MerchantOrder() {
   return (
     <Screen edges={['top']} style={styles.safe}>
       <View style={styles.head}>
-        <BackButton onPress={() => router.push('/merchant')} />
+        <BackButton onPress={() => router.push('/')} />
       </View>
       <View style={styles.scroll}>
         <Txt style={type.kvKey}>Pay this person</Txt>

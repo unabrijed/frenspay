@@ -27,7 +27,6 @@ export default function Settings() {
   const localCurrency = usePayStore((s) => s.localCurrency);
   const recoveryPasskey = usePayStore((s) => s.recoveryPasskey);
   const kycTier = usePayStore((s) => s.kycTier);
-  const merchant = usePayStore((s) => s.merchant);
   const invitesTotal = usePayStore((s) => s.invitesTotal);
   const invitesUsed = usePayStore((s) => s.invitesUsed);
   const logout = usePayStore((s) => s.logout);
@@ -64,15 +63,6 @@ export default function Settings() {
           <SettingsRow k="Display currency" v={displayCurrency} accent onPress={() => open('currency')} />
           <SettingsRow k="Local currency" v={localCurrency ?? 'Auto'} accent onPress={() => open('localCurrency')} />
           <SettingsRow k="Help and support" onPress={() => open('help')} />
-          {/* Only surfaced once they run a merchant account — an ordinary payer never sees it. */}
-          {merchant ? (
-            <SettingsRow
-              k="Merchant"
-              v={merchant.kybStatus === 'approved' ? merchant.status : merchant.kybStatus}
-              accent
-              onPress={() => router.push('/merchant')}
-            />
-          ) : null}
         </List>
 
         <Spacer />

@@ -46,6 +46,9 @@ step "@fpay/web build"
 step "@fpay/admin build"
 (cd monorepo && yarn workspace @fpay/admin build) || fail "@fpay/admin build"
 
+step "@fpay/lp build"
+(cd monorepo && yarn workspace @fpay/lp build) || fail "@fpay/lp build"
+
 step "@fpay/backend typecheck"
 (cd monorepo && yarn workspace @fpay/backend tsc --noEmit) || fail "@fpay/backend typecheck"
 

@@ -1,28 +1,27 @@
 'use client';
 
-// /merchant/apply — become an LP. Creates a pending-KYB merchant bound to this user; an admin
+// /apply — become an LP. Creates a pending-KYB merchant bound to this user; an admin
 // approves it, and staking is what actually brings them online.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
 import { useState } from 'react';
 
-import { BackButton } from '@/components/ui/BackButton';
-import { Btn } from '@/components/ui/Button';
-import { SearchBar, Spacer } from '@/components/ui/primitives';
-import { View } from '@/components/ui/rn';
-import { Screen } from '@/components/ui/Screen';
-import { Txt } from '@/components/ui/Txt';
+import { BackButton } from '@fpay/ui/BackButton';
+import { Btn } from '@fpay/ui/Button';
+import { SearchBar, Spacer } from '@fpay/ui/primitives';
+import { View } from '@fpay/ui/rn';
+import { Screen } from '@fpay/ui/Screen';
+import { Txt } from '@fpay/ui/Txt';
 import { friendlyError } from '@/lib/errors';
-import { colors, GUTTER, type } from '@/lib/theme';
+import { colors, GUTTER, type } from '@fpay/ui/theme';
 import { applyAsMerchant } from '@/services/merchant';
-import { usePayStore } from '@/store/usePayStore';
+import { useLpStore } from '@/store/useLpStore';
 
 export default function MerchantApply() {
   const router = useRouter();
-  const walletAddress = usePayStore((s) => s.walletAddress);
-  const kycTier = usePayStore((s) => s.kycTier);
-  const open = usePayStore((s) => s.open);
-  const load = usePayStore((s) => s.load);
+  const walletAddress = useLpStore((s) => s.walletAddress);
+  const kycTier = useLpStore((s) => s.kycTier);
+  const load = useLpStore((s) => s.load);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -35,7 +34,7 @@ export default function MerchantApply() {
       // typo waiting to become an irreversible payout to a stranger.
       await applyAsMerchant({ name: name.trim(), payoutMethod: 'UPI', treasuryAddress: walletAddress });
       await load(); // /me now carries the merchant profile
-      router.push('/merchant');
+      router.push('/');
     } catch (e) {
       setErr(friendlyError(e));
       setBusy(false);
@@ -45,7 +44,7 @@ export default function MerchantApply() {
   return (
     <Screen edges={['top']} style={styles.safe}>
       <View style={styles.head}>
-        <BackButton onPress={() => router.push('/merchant')} />
+        <BackButton onPress={() => router.push('/')} />
       </View>
       <View style={styles.scroll}>
         <Txt style={type.handle}>Apply as a merchant</Txt>
@@ -56,7 +55,9 @@ export default function MerchantApply() {
 
         {/* Merchant KYC: the human behind the merchant must be identity-verified before the form.
             The server enforces the same gate (403 kyc_required); this is just the friendly path.
-            The store's KYC poll flips kycTier on approval, so the form appears without a reload. */}
+            In the wallet app this opened a sheet; here it is a route, because this console has no
+            sheet layer and one screen is cheaper than one. The store's KYC poll flips kycTier on
+            approval, so the form appears without a reload. */}
         {kycTier < 2 ? (
           <>
             <Txt style={type.inst}>
@@ -64,7 +65,7 @@ export default function MerchantApply() {
               identity check that unlocks higher limits.
             </Txt>
             <Spacer />
-            <Btn label="Verify your identity" variant="ink" onPress={() => open('verify')} />
+            <Btn label="Verify your identity" variant="ink" onPress={() => router.push('/identity')} />
           </>
         ) : (
           <>

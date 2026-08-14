@@ -1,31 +1,31 @@
 'use client';
 
-// /merchant/stake — put real money behind the promise. The stake is what makes a stranger's payout
+// /stake — put real money behind the promise. The stake is what makes a stranger's payout
 // safe to route to this merchant: an upheld dispute takes from it, and falling under the minimum
 // takes them out of routing entirely.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 
-import { BackButton } from '@/components/ui/BackButton';
-import { Btn } from '@/components/ui/Button';
-import { Keypad } from '@/components/ui/Keypad';
-import { Spacer } from '@/components/ui/primitives';
-import { View } from '@/components/ui/rn';
-import { Screen } from '@/components/ui/Screen';
-import { Txt } from '@/components/ui/Txt';
+import { BackButton } from '@fpay/ui/BackButton';
+import { Btn } from '@fpay/ui/Button';
+import { Keypad } from '@fpay/ui/Keypad';
+import { Spacer } from '@fpay/ui/primitives';
+import { View } from '@fpay/ui/rn';
+import { Screen } from '@fpay/ui/Screen';
+import { Txt } from '@fpay/ui/Txt';
 import { friendlyError } from '@/lib/errors';
-import { usd } from '@/lib/money';
-import { colors, GUTTER, radii, type } from '@/lib/theme';
+import { usd } from '@fpay/shared';
+import { colors, GUTTER, radii, type } from '@fpay/ui/theme';
 import { depositStake } from '@/services/merchant';
-import { usePayStore } from '@/store/usePayStore';
+import { useLpStore } from '@/store/useLpStore';
 
 export default function MerchantStake() {
   const router = useRouter();
-  const merchant = usePayStore((s) => s.merchant);
-  const balanceUSD = usePayStore((s) => s.balanceUSD);
-  const load = usePayStore((s) => s.load);
-  const notify = usePayStore((s) => s.notify);
+  const merchant = useLpStore((s) => s.merchant);
+  const balanceUSD = useLpStore((s) => s.balanceUSD);
+  const load = useLpStore((s) => s.load);
+  const notify = useLpStore((s) => s.notify);
   const [d, setD] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -45,7 +45,7 @@ export default function MerchantStake() {
       // The bond credits only when the transfer confirms on-chain, so don't claim it's live yet.
       notify('Stake sent. It’ll show up once it confirms.', 'success');
       await load();
-      router.push('/merchant');
+      router.push('/');
     } catch (e) {
       setErr(friendlyError(e));
     } finally {
@@ -56,7 +56,7 @@ export default function MerchantStake() {
   // Redirect in an effect, not during render — the client router touches `location`, which
   // doesn't exist while this page is being statically prerendered.
   useEffect(() => {
-    if (!merchant) router.replace('/merchant');
+    if (!merchant) router.replace('/');
   }, [merchant, router]);
   if (!merchant) return null;
 
@@ -67,7 +67,7 @@ export default function MerchantStake() {
   return (
     <Screen edges={['top']} style={styles.safe}>
       <View style={styles.head}>
-        <BackButton onPress={() => router.push('/merchant')} />
+        <BackButton onPress={() => router.push('/')} />
       </View>
       <View style={styles.scroll}>
         <View style={styles.current}>

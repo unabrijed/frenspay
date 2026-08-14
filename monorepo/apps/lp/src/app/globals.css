@@ -1,0 +1,361 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* These :root vars mirror @fpay/shared brand tokens (CSS can't import the TS source).
+   They only style the app-frame + body chrome; component styling is shared via lib/theme.ts.
+   Theme: fpay (warm Material-3). */
+:root {
+  --canvas: #fff8f4;
+  --surface: #ffffff;
+  --ink: #1e1b19;
+  --muted: #58413d;
+  --hair: #e8e1dd;
+  --accent: #a6341f;
+  /* warm neutral surround shown around the phone column on wide screens */
+  --backdrop: #ece4dd;
+
+  /* Motion. Same curve as apps/landing's --ease-soft: the two apps share the
+     vocabulary, not the stylesheet — they are on different Tailwind majors and
+     neither imports the other. (--paper-ease is not copied; nothing here tears.)
+     These live here rather than in @fpay/shared for the same reason the colours
+     above are mirrored: a @keyframes block cannot read a TS token, and an inline
+     CSSProperties string CAN read a var(), so one declaration serves both the
+     mark's keyframes and every inline `transition` in the RN-shim components. */
+  --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-quick: 140ms;
+  --dur-enter: 420ms;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--backdrop);
+  color: var(--ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Material Symbols Outlined — the fpay icon set. Default to unfilled, weight 400. */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  /* Each icon renders its glyph NAME as ligature text (see icons.tsx). Until the icon font
+     actually loads, the browser would paint that source text ("home", "send", …) in a fallback
+     font — the "random words on screen" bug. Hide it (space is still reserved by the span's
+     width/height, so no layout shift) until the inline boot script in layout.tsx confirms the
+     font is available and adds `fonts-ready`. If the font never loads, icons stay blank rather
+     than showing words — the lesser evil. */
+  visibility: hidden;
+}
+html.fonts-ready .material-symbols-outlined {
+  visibility: visible;
+}
+
+/* Settling success — pulsing rings behind the confirmation check (fpay "Settling"). */
+.pulse-ring {
+  animation: pulse-ring 2.2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.5;
+  }
+  80%,
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+/* ===== the mark =====
+   Inline SVG (see components/ui/primitives.tsx) so the dots and the curve move
+   independently. Alongside .skeleton and .pulse-ring this is one of the app's few
+   class-styled components, for the same reason they are: a @keyframes block needs
+   a stylesheet and this app styles inline, so geometry and colour stay in the
+   component and only motion lives here.
+   Every gesture here is a BODY gesture: the two lean toward each other at rest and
+   hop together on success. The landing's wink and press-blink are deliberately NOT
+   ported (and are being removed there too) — at 20-56px two dots over a curve are
+   one bad reading away from a smiley, and an eyelid is what settles that reading the
+   wrong way. Two frens sitting either side move the way two people do. */
+
+/* Each part pivots on ITSELF. The default `view-box` reference box would put every
+   50% origin at the centre of the 256x256 viewBox — and would pin the bead's
+   offset-path anchor there too, throwing it clean off the curve, because
+   offset-anchor: auto resolves to transform-origin. (That exact bug shipped on the
+   landing for a while and made its joining state render nothing at all.) With
+   fill-box the percentages below mean "% of this dot", so they survive a
+   `yarn brand` artwork change unedited. */
+.fp-logo-dot,
+.fp-logo-link,
+.fp-logo-bead {
+  transform-box: fill-box;
+}
+
+/* Hidden until something is actually in flight. Setting `offset-path` is enough to
+   put the bead ON the curve, so without this it rests at offset-distance 0% — a
+   terracotta notch bitten out of the left end of every idle mark. It survived
+   because the only two placements were the splash, which mounts straight into
+   `joining`, and onboarding/welcome, where a notch at the end of the curve is easy
+   to read as part of the artwork.
+   `offset-rotate: 0deg` because the default `auto` turns the element to follow the
+   path — invisible on a circle, and not worth rediscovering if the bead ever stops
+   being one. The landing carries both lines already. */
+.fp-logo-bead {
+  offset-distance: 0%;
+  offset-rotate: 0deg;
+  opacity: 0;
+}
+
+/* The dots drop in from outside the svg's own box. */
+.fp-logo {
+  overflow: visible;
+}
+
+/* Entrance is opt-in: a mark inside a submit button appears mid-interaction, where
+   a second of assembling reads as a glitch. Only the placements that arrive on a
+   settled screen set data-enter.
+   The second slot is normally empty and is the rest-lean's only way in. It has to be
+   a slot rather than a separate rule because CSS matches animations by INDEX:
+   redeclaring the shorthand for the idle state would restart fp-dot-in too, and the
+   dots would drop in again. `none` is a valid <single-animation>, so a mark that
+   never idles (the splash, which mounts straight into `joining`) costs nothing. */
+.fp-logo[data-enter] .fp-logo-dot-l {
+  animation:
+    fp-dot-in var(--dur-enter) var(--ease-soft) both,
+    var(--fp-lean-l, none);
+}
+.fp-logo[data-enter] .fp-logo-dot-r {
+  animation:
+    fp-dot-in var(--dur-enter) var(--ease-soft) 120ms both,
+    var(--fp-lean-r, none);
+}
+.fp-logo[data-enter] .fp-logo-link {
+  animation:
+    fp-link-draw 620ms var(--ease-soft) 300ms both,
+    var(--fp-lean-link, none);
+}
+
+/* Rest: every so often the two lean toward each other, hold, and settle back — the
+   dip deepening with them, so the whole mark compresses rather than two dots sliding.
+   Only on the placements that actually sit still: `data-enter` is set by the
+   standalone marks and never by the button spinner, so that exclusion is free, and
+   `idle` keeps it off the splash while the bead is running.
+   Occasional-and-deliberate, not a continuous wobble — a loop this size reads as a
+   glitch, while one gesture every 7s reads as two people shifting. It takes over the
+   slot the landing spends on a wink, which is the trade this whole pass is about:
+   the mark gets idle personality from its bodies, never from an eyelid. */
+.fp-logo[data-enter][data-state='idle'] {
+  --fp-lean-l: fp-lean-l 7s var(--ease-soft) 1.4s infinite;
+  --fp-lean-r: fp-lean-r 7s var(--ease-soft) 1.4s infinite;
+  --fp-lean-link: fp-lean-link 7s var(--ease-soft) 1.4s infinite;
+}
+
+/* Percentages of each part's OWN box (transform-box: fill-box above), so a
+   `yarn brand` artwork change never needs these re-aimed. 16% of a dot closes about
+   a third of the gap between the two. */
+@keyframes fp-lean-l {
+  0%,
+  62%,
+  100% {
+    translate: 0 0;
+  }
+  74%,
+  88% {
+    translate: 16% 0;
+  }
+}
+@keyframes fp-lean-r {
+  0%,
+  62%,
+  100% {
+    translate: 0 0;
+  }
+  74%,
+  88% {
+    translate: -16% 0;
+  }
+}
+@keyframes fp-lean-link {
+  0%,
+  62%,
+  100% {
+    translate: 0 0;
+  }
+  74%,
+  88% {
+    translate: 0 8%;
+  }
+}
+
+@keyframes fp-dot-in {
+  from {
+    opacity: 0;
+    translate: 0 -75%; /* three quarters of a dot above home */
+  }
+}
+
+/* pathLength="1" on the path normalises the draw-on, so this never has to know the
+   curve's real length. */
+@keyframes fp-link-draw {
+  from {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Joining: something is in flight, passing from one fren to the other. Never the
+   only signal — every surface that shows it keeps its own text ("Saving…",
+   "Adding…", role="status" on the splash). Motion is the flourish, never the
+   message. */
+.fp-logo[data-state='joining'] .fp-logo-bead {
+  opacity: 1;
+  animation: fp-bead 1400ms linear infinite;
+}
+
+@keyframes fp-bead {
+  from {
+    offset-distance: 0%;
+  }
+  to {
+    offset-distance: 100%;
+  }
+}
+
+/* Success: one hop, then settle. Mounted, not toggled — the Sent and Requested
+   sheets only exist once the money has moved, so the hop fires on mount and no state
+   has to travel from the store to the mark. -75% is the height the dots arrive from
+   in fp-dot-in, so the two motions share one number instead of two hand-aimed ones. */
+.fp-logo[data-state='success'] .fp-logo-dot-l {
+  animation: fp-hop 620ms var(--ease-soft) both;
+}
+.fp-logo[data-state='success'] .fp-logo-dot-r {
+  animation: fp-hop 620ms var(--ease-soft) 90ms both;
+}
+
+@keyframes fp-hop {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  40% {
+    translate: 0 -75%;
+  }
+}
+
+/* A value that just landed. Both users — the home balance and the handle
+   "Available" pill — replace a placeholder, so without this they hard-cut. */
+.fp-arrive {
+  animation: fp-arrive var(--dur-enter) var(--ease-soft) both;
+}
+
+@keyframes fp-arrive {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+
+/* Skeleton shimmer — placeholder blocks shown while first-load data arrives (see
+   components/ui/Skeleton.tsx). A warm neutral base with a light sweep, so screens read as
+   "loading" instead of flashing empty→full. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--hair);
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+/* Deliberately a list of families, NOT a global `animation-duration: 0.01ms` clamp
+   (the landing needs one and pays for it with per-family exceptions): clamping
+   freezes an infinite loop on its END frame, which would park .pulse-ring at
+   scale(1.4)/opacity 0 — permanently invisible. Naming four families is shorter
+   than a clamp plus its escape hatches.
+   Safe to drop outright rather than shorten, because no keyframe above moves an
+   element AWAY from where it belongs and leaves it there: the entrance ones declare
+   only a `from`, and the lean and the hop return to 0 at 100%. With no animation at
+   all, each element rests at its own natural state — dots visible and level, curve
+   drawn, balance shown. Nothing is lost, because every pending
+   surface keeps its text ("Saving…", "Adding…", role="status" on the splash).
+   `transition`s (toast, sheet, button press) are left alone: they are 12-16px
+   opacity moves, and switching them off mid-flight risks parking a sheet
+   off-screen.
+   !important is load-bearing, not stylistic: .fp-logo[data-enter] .fp-logo-dot-l
+   outweighs .fp-logo * on specificity, so source order alone would not win. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after,
+  .pulse-ring,
+  .fp-logo *,
+  .fp-arrive {
+    animation: none !important;
+  }
+}
+
+/* Mobile-first, FIXED phone column. The app never widens on tablet/desktop —
+   it stays a centered ~430px column on a neutral backdrop. */
+.app-frame {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 430px;
+  height: 100dvh;
+  margin: 0 auto;
+  background: var(--canvas);
+  position: relative;
+  overflow: hidden; /* children scroll, not the frame */
+  box-shadow: 0 0 0 1px rgba(28, 22, 16, 0.04);
+}
+
+@media (min-width: 480px) {
+  .app-frame {
+    height: min(920px, 100dvh);
+    margin-top: max(0px, calc((100dvh - 920px) / 2));
+    border-radius: 22px;
+    box-shadow: 0 18px 50px rgba(28, 22, 16, 0.14);
+  }
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+input {
+  font-family: inherit;
+}

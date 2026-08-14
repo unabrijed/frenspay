@@ -4,7 +4,7 @@
 //
 // Money flows delegate to the RealWalletProvider (@/services/wallet) → the backend API + on-device
 // signing. The app is always real; balance/activity load from the backend once signed in.
-import type { ApiPaymentRequest, KycStatus, MerchantProfile, Notification, Order, Quote } from '@fpay/shared';
+import type { ApiPaymentRequest, KycStatus, Notification, Order, Quote } from '@fpay/shared';
 import type { NetworkId } from '@fpay/shared';
 import { classifyPayTarget, countryFromTimeZone, currencyForCountry, fiatDecimals, isoFromE164, phoneCandidates, truncateAddress } from '@fpay/shared';
 import { useEffect, useState } from 'react';
@@ -122,8 +122,6 @@ interface PayState {
   pendingPay: boolean;
   /** Real-vendor verification lifecycle (M7): 'pending' while the user is in/returning from the flow. */
   kycStatus: KycStatus;
-  /** This user's merchant/LP account, if they run one. null = an ordinary payer. From /me. */
-  merchant: MerchantProfile | null;
   /** Coarse role from /me — gates the Settings → Admin link ('merchant' is informational). */
   role: 'user' | 'merchant' | 'admin';
   /** In-flight direct send to a raw wallet address (outside fpay). network 'evm' = family
@@ -322,7 +320,6 @@ export const usePayStore = create<PayState>()(
       detail: null,
       pendingPay: false,
       kycStatus: 'none',
-      merchant: null,
       role: 'user',
       externalSend: null,
       lastSend: { u: 12, handle: '@neha' },
@@ -445,7 +442,6 @@ export const usePayStore = create<PayState>()(
             invitesUsed: me.invitesUsed ?? 0,
             // Absent once acknowledged — the server stops sending them, so this goes back to [].
             invites: me.invites ?? [],
-            merchant: me.merchant ?? null,
             role: me.role ?? 'user',
             balanceUSD: bal,
             transactions: txns,

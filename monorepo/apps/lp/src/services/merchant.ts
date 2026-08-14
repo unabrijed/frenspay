@@ -1,6 +1,5 @@
-// merchant.ts — the merchant/LP side of the API. Kept out of usePayStore on purpose: this is a
-// different person doing a different job (settling other people's payouts), and none of it belongs
-// in the payer's screen state.
+// merchant.ts — every LP-facing call. This file used to live in the payer app with a header
+// explaining why it stayed out of the payer's store; it now lives in the app it always described.
 import type {
   MerchantLedgerResponse,
   MerchantOrder,
@@ -9,7 +8,7 @@ import type {
   PrepareTransferResponse,
 } from '@fpay/shared';
 
-import { api, req } from './api';
+import { req } from './api';
 import { getActiveSigner } from './signer';
 
 export async function applyAsMerchant(input: {
@@ -120,5 +119,11 @@ export async function depositStake(amountUsd: number): Promise<void> {
     body: JSON.stringify({ amountUsd }),
   });
   const signature = await getActiveSigner().signAndSend(prep.unsignedTx);
-  await api.submitTransfer({ transferId: prep.transferId, signature });
+  // The same /transfer/submit every money movement uses — it is scoped to from_user_id, so it
+  // accepts any transfer the caller owns. This console needs exactly this one call from it, so it
+  // is written out rather than dragging the payer app's 40-method client across.
+  await req<{ ok: true }>('/transfer/submit', {
+    method: 'POST',
+    body: JSON.stringify({ transferId: prep.transferId, signature }),
+  });
 }

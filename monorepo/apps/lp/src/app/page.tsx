@@ -1,6 +1,6 @@
 'use client';
 
-// /merchant — the LP dashboard. Status, stake, and the queue of orders routed to this merchant.
+// / — the LP dashboard. Status, stake, and the queue of orders routed to this merchant.
 // A different job from the rest of the app: here the user is settling OTHER people's payouts, so
 // the screen leads with what they owe and what their stake is worth.
 import { useRouter } from 'next/navigation';
@@ -9,16 +9,16 @@ import { useCallback, useEffect, useState } from 'react';
 
 import type { MerchantOrder } from '@fpay/shared';
 
-import { Icons } from '@/components/icons';
-import { BackButton } from '@/components/ui/BackButton';
-import { Btn } from '@/components/ui/Button';
-import { List, Row, RowMeta, Spacer } from '@/components/ui/primitives';
-import { Pressable, View } from '@/components/ui/rn';
-import { Screen } from '@/components/ui/Screen';
-import { Txt } from '@/components/ui/Txt';
+import { Icons } from '@fpay/ui/icons';
+import { BackButton } from '@fpay/ui/BackButton';
+import { Btn } from '@fpay/ui/Button';
+import { List, Row, RowMeta, Spacer } from '@fpay/ui/primitives';
+import { Pressable, View } from '@fpay/ui/rn';
+import { Screen } from '@fpay/ui/Screen';
+import { Txt } from '@fpay/ui/Txt';
 import { friendlyError } from '@/lib/errors';
-import { fiatRaw, usd } from '@/lib/money';
-import { colors, fonts, GUTTER, radii, type } from '@/lib/theme';
+import { fiatRaw, usd } from '@fpay/shared';
+import { colors, fonts, GUTTER, radii, type } from '@fpay/ui/theme';
 import type { MerchantLedgerResponse } from '@fpay/shared';
 
 import {
@@ -30,7 +30,7 @@ import {
   setMerchantOnline,
   setMerchantSpread,
 } from '@/services/merchant';
-import { usePayStore } from '@/store/usePayStore';
+import { useLpStore } from '@/store/useLpStore';
 
 const clamp1: CSSProperties = { display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 
@@ -90,8 +90,8 @@ function statusColor(o: MerchantOrder): string {
 
 export default function MerchantHome() {
   const router = useRouter();
-  const merchant = usePayStore((s) => s.merchant);
-  const load = usePayStore((s) => s.load);
+  const merchant = useLpStore((s) => s.merchant);
+  const load = useLpStore((s) => s.load);
   const [orders, setOrders] = useState<MerchantOrder[] | null>(null);
   const [ledger, setLedger] = useState<MerchantLedgerResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -177,7 +177,7 @@ export default function MerchantHome() {
     return (
       <Screen edges={['top']} style={styles.safe}>
         <View style={styles.head}>
-          <BackButton onPress={() => router.push('/home')} />
+          <BackButton onPress={() => router.push('/')} />
         </View>
         <View style={styles.scroll}>
           <Txt style={type.handle}>Become a merchant</Txt>
@@ -186,7 +186,7 @@ export default function MerchantHome() {
             If you don’t pay someone, it covers them.
           </Txt>
           <Spacer />
-          <Btn label="Apply" variant="ink" onPress={() => router.push('/merchant/apply')} />
+          <Btn label="Apply" variant="ink" onPress={() => router.push('/apply')} />
         </View>
       </Screen>
     );
@@ -203,7 +203,7 @@ export default function MerchantHome() {
   return (
     <Screen edges={['top']} style={styles.safe}>
       <View style={styles.head}>
-        <BackButton onPress={() => router.push('/home')} />
+        <BackButton onPress={() => router.push('/')} />
       </View>
       <View style={styles.scroll}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -217,7 +217,7 @@ export default function MerchantHome() {
             </Txt>
           ) : null}
         </View>
-        <Pressable onPress={() => router.push('/merchant/verify')}>
+        <Pressable onPress={() => router.push('/business')}>
           <Txt
             style={[
               type.profileSub,
@@ -235,7 +235,7 @@ export default function MerchantHome() {
 
         {/* The stake is the whole trust model — the most prominent number on the screen. */}
         <Pressable
-          onPress={() => router.push('/merchant/stake')}
+          onPress={() => router.push('/stake')}
           style={({ pressed }) => [styles.stakeCard, pressed ? { backgroundColor: colors.surfaceLow } : null]}
         >
           <Txt style={type.kvKey}>Your stake</Txt>
@@ -334,7 +334,7 @@ export default function MerchantHome() {
             <Txt style={[type.kvKey, styles.section]}>Disputes ({ledger.disputes.length})</Txt>
             <List>
               {ledger.disputes.map((d) => (
-                <Row key={d.id} onPress={() => router.push(`/merchant/orders/${d.orderId}`)}>
+                <Row key={d.id} onPress={() => router.push(`/orders/${d.orderId}`)}>
                   <RowMeta>
                     <Txt style={type.rowName}>{d.referenceCode}</Txt>
                     <Txt style={[type.rowTime, { marginTop: 2 }]}>
@@ -381,7 +381,7 @@ export default function MerchantHome() {
         ) : (
           <List>
             {held.map((o) => (
-              <OrderRow key={o.id} o={o} onPress={() => router.push(`/merchant/orders/${o.id}`)} />
+              <OrderRow key={o.id} o={o} onPress={() => router.push(`/orders/${o.id}`)} />
             ))}
           </List>
         )}
@@ -396,7 +396,7 @@ export default function MerchantHome() {
         ) : (
           <List>
             {takeable.map((o) => (
-              <OrderRow key={o.id} o={o} onPress={() => router.push(`/merchant/orders/${o.id}`)} />
+              <OrderRow key={o.id} o={o} onPress={() => router.push(`/orders/${o.id}`)} />
             ))}
           </List>
         )}
@@ -406,7 +406,7 @@ export default function MerchantHome() {
             <Txt style={[type.kvKey, styles.section]}>Recent</Txt>
             <List>
               {done.slice(0, 10).map((o) => (
-                <OrderRow key={o.id} o={o} onPress={() => router.push(`/merchant/orders/${o.id}`)} />
+                <OrderRow key={o.id} o={o} onPress={() => router.push(`/orders/${o.id}`)} />
               ))}
             </List>
           </>
