@@ -116,7 +116,7 @@ quietly becomes a weight still routes the order.
   both leaked money.
 - **Country** comes from the corridor, which mirrors `rails.ts` — the only country list. Today it is
   nearly implied by the rail; it stops being so the first time a rail runs in two countries, which
-  `bank` already does in the real world.
+  bank transfer does in the real world — the reason the column exists ahead of the need for it.
 - **The bond floor lives in the query.** It used to exist only inside `recomputeMerchantStats`,
   which runs every 10th confirmer tick — so a freshly-approved LP with a **zero** bond was routable
   for up to ~80 seconds. A periodic job is not a gate on money movement.

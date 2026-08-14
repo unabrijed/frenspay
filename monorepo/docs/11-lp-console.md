@@ -116,27 +116,41 @@ An LP who has to keep a tab open is an LP who misses orders, so the console is a
 
 ## What an LP is asked to pay
 
-We hand over a destination; they pay it however they normally would. The shapes depend on the
-country, which is what the corridor registry is for:
+We hand over a destination; they pay it however they normally would. Today there is exactly one
+shape per live corridor, and the corridor registry is what decides:
 
-- **UPI ID** (`name@bank`) — India. Gets a deep link into their UPI app and a "processed by" label.
-- **Bank account + IFSC** — India, when the payee has no UPI. Two fields the LP copies separately,
-  and no deep link.
-- **Phone number** — where the rail resolves one.
+- **UPI ID** (`name@bank`) — India. Gets a deep link into their UPI app and a "processed by" label
+  derived from the handle's suffix.
+- **QRIS merchant ID** — Indonesia. Copied by hand; there is no equivalent public URI scheme.
 
-The beneficiary **name** stops being decorative for bank transfers: name matching is how a
-misdirected transfer is caught, and it is what the LP checks before sending money that does not come
-back.
+**Bank account + IFSC, and phone numbers, are deferred** (2026-08-14). Two things have to be
+answered first, and neither is a formatting problem:
+
+1. **A destination is one text column.** An account number, an IFSC and a beneficiary name are three
+   fields the LP copies separately — a single string they have to split by hand, at 3am, for money
+   that does not come back, is not a design.
+2. **A typed account has no independent name check.** With UPI the payee's name comes from the QR or
+   the PSP and the payer confirms it against something they didn't write. With an account number the
+   payer supplies the account, the code *and* the name, so a mistyped digit reaches a stranger and
+   nothing on our side catches it. The likely answer is that the LP's own bank is the check — IMPS
+   and NEFT name-match at their end, a mismatch fails, the LP never claims, and the ladder refunds —
+   but that costs the payer time and an LP a wasted lock, and it should be a decision rather than a
+   discovery.
+
+Until then `bank` and `Pix` are declared `NOT_QUOTABLE` in `lib/corridors.ts`: they remain valid
+enum values, and any attempt to quote or register on them is refused at the door rather than
+accepted into a dead end.
 
 ## Status
 
 - ✅ Apply, KYB submission with a merchant-visible timeline, staking, self-serve availability and
   pricing, capacity, the order queue with offer/lock/reveal, reporting a payout, the earnings and
   disputes ledger, and the alert seam with a Telegram adapter.
-- 🟡 The console still lives inside the wallet app while it is being moved to its own; the score is
-  shown but does not yet lead, and distance-to-next-tier is not surfaced.
-- ⬜ Its own app and domain. Web/mobile push. Bank and phone destinations. Staked returns. An admin
-  surface for releasing a stake withdrawal ([07](07-admin-and-moderation.md)).
+- ✅ Its own app (`apps/lp`), with the score leading and distance-to-next-tier computed from the
+  same rules routing scores on.
+- 🟡 No domain or Vercel project yet; the working name is `@fpay/lp`.
+- ⬜ Web/mobile push. **Bank and phone destinations** (above). Staked returns. An admin surface for
+  releasing a stake withdrawal ([07](07-admin-and-moderation.md)).
 
 ## Key files
 

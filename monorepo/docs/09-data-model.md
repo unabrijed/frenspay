@@ -265,11 +265,16 @@ unclaimable on the path that reports fiat already sent.
   no matching committed file (see Migrations, conventions above) — `waitlist.first_name` exists on
   stage only and is undocumented here on purpose.
 - ⬜ RLS, encryption-at-rest, retention policy (production hardening).
-- ⬜ **A structured payout destination.** `quotes.payout_destination` is a single `text` column, so
-  an account number + IFSC has nowhere to live as two fields. Whatever shape it takes, it must be
-  added to **both** redaction sites — the `case when o.locked_at is not null` in the LP's own queue
-  and the `null::text` literal in the open-offer query — or the payee leaks to LPs who never took
-  the order, which is the one thing the lock exists to prevent.
+- ⬜ **A structured payout destination**, and the reason the `bank` rail is deferred rather than
+  merely unbuilt. `quotes.payout_destination` is a single `text` column, so an account number, an
+  IFSC and a beneficiary name have nowhere to live as three fields — and an LP splitting one string
+  by hand, for money that does not come back, is not a design. Whatever shape it takes must be added
+  to **both** redaction sites — the `case when o.locked_at is not null` in the LP's own queue and
+  the `null::text` literal in the open-offer query — or the payee leaks to LPs who never took the
+  order, which is the one thing the lock exists to prevent. The second blocker is not schema at all:
+  a typed account has no independent name check the way a VPA does ([11](11-lp-console.md)).
+  Meanwhile `bank` and `Pix` are declared `NOT_QUOTABLE` in `lib/corridors.ts` — the DB CHECKs still
+  admit them as values, which is harmless because no row uses either.
 
 ## Key files
 
