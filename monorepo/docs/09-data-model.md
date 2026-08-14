@@ -68,7 +68,7 @@ erDiagram
         uuid id PK
         text privy_did UK
         text handle UK
-        text email "nullable, no unique index"
+        text email "nullable, partial unique (0010)"
         text status "active/suspended"
         int kyc_tier
     }
@@ -94,10 +94,25 @@ erDiagram
     merchants {
         uuid id PK
         uuid user_id FK "null = seeded sim LP"
+        text country "hard routing filter"
         text status
+        text suspend_reason "'bond' = machine's own"
         text kyb_status
-        numeric float_usdc
-        numeric bond_usdc
+        smallint tier "sets leverage + head start"
+        numeric float_usdc "a claim, see bond_usdc"
+        numeric bond_usdc "bounds effective float"
+    }
+    merchant_stake_withdrawals {
+        uuid id PK
+        uuid merchant_id FK
+        numeric amount_usdc
+        text status "requested/released/cancelled"
+    }
+    merchant_kyb_events {
+        uuid id PK
+        uuid merchant_id FK
+        text to_status
+        jsonb detail "reviewer note, never the fields"
     }
     quotes {
         uuid id PK
@@ -105,14 +120,17 @@ erDiagram
         text currency
         numeric amount_usdc
         numeric platform_fee_usdc
+        integer spread_bps "the offer's price ceiling"
         timestamptz expires_at
     }
     orders {
         uuid id PK
         uuid quote_id FK
-        uuid merchant_id FK
+        uuid merchant_id FK "provisional until locked"
         text reference_code UK
         text state
+        timestamptz locked_at "the reveal gate"
+        timestamptz offer_widens_at "null = never offered"
         text payout_provider_id
     }
     invite_codes {
@@ -138,15 +156,18 @@ erDiagram
 
 | Table | Purpose | Notes |
 |---|---|---|
-| **users** | one row per person | keyed to Privy DID; unique canonical **immutable** `handle`; `email` is **nullable with no unique index** — two rows can share an email today (⬜ flagged below); opt-in E.164 `phone` (partial unique `uq_users_phone`, present iff the user enrolled — enrollment *is* the consent, mirroring NPCI's numeric mapper); best-effort `country` (dialing default, never a compliance attribute); `kyc_tier` (0 restricted · 1 basic · 2 verified · 3 enhanced) drives send/cash-out limits; `kyc_status`/`kyc_provider`/`kyc_session_id` (unique)/`kyc_verified_at` track the real vendor's verification lifecycle separately from the tier that actually gates money; `role ∈ user/merchant/admin`, but the role that *governs* is `effectiveRole()` — `ADMIN_EMAILS` outranks the column so a root admin is undemotable even if their row still says `user`; `status ∈ active/suspended` (0009, moderation); `referred_by` self-FK = the redeemed invite code's `owner_id` (null for a house code), write-once; `invites_revealed_at` gates the one-look reveal of a user's own three codes |
+| **users** | one row per person | keyed to Privy DID; unique canonical **immutable** `handle`; `email` is nullable with a **partial unique index** (`uq_users_email`, 0010) — one address, one account; opt-in E.164 `phone` (partial unique `uq_users_phone`, present iff the user enrolled — enrollment *is* the consent, mirroring NPCI's numeric mapper); best-effort `country` (dialing default, never a compliance attribute); `kyc_tier` (0 restricted · 1 basic · 2 verified · 3 enhanced) drives send/cash-out limits; `kyc_status`/`kyc_provider`/`kyc_session_id` (unique)/`kyc_verified_at` track the real vendor's verification lifecycle separately from the tier that actually gates money; `role ∈ user/merchant/admin`, but the role that *governs* is `effectiveRole()` — `ADMIN_EMAILS` outranks the column so a root admin is undemotable even if their row still says `user`; `status ∈ active/suspended/deleted` (0009 moderation, widened by 0012 for soft-delete); `referred_by` self-FK = the redeemed invite code's `owner_id` (null for a house code), write-once; `invites_revealed_at` gates the one-look reveal of a user's own three codes |
 | **wallets** | a user's chain address(es) | `chain='solana'` default; unique `address`; unique `(user_id, chain)` so a re-sync upserts in place instead of accumulating rows |
 | **transfers** | the money ledger | `amount_usdc numeric(20,6)`, `> 0`; `kind ∈ send/add/pay/escrow_fund/escrow_release`; `status ∈ pending/confirmed/failed`; unique `signature`; `chain` (confirmer polls `'solana'` only — a foreign signature here is a permanent-pending zombie); unique `idempotency_key` per sender (prepare replay/dedupe). **The `kind='send'` daily-cap invariant:** `recentSendVolumeUsd` sums `amount_usdc` where `kind = 'send' and status <> 'failed'` over a rolling 24h window, and `checkSendLimit` (`services/compliance.ts`) gates that sum against the KYC tier's `sendDaily` cap — so P2P sends count toward the daily limit and merchant `pay`/`escrow_fund` legs deliberately do not; they have their own cash-out cap keyed the same way off `orders` |
 | **payment_requests** | "you owe me $X" | `amount_usdc numeric(20,6)`, `> 0`; `status ∈ open/paid/cancelled`; links the fulfilling `transfer_id` |
-| **merchants** | the LP network — seeded simulations *and* real onboarded LPs | ranking signals (`success_rate`/`dispute_rate`/`avg_completion_secs`/`spread_bps`/`float_usdc`) kept live + `base_*` seed priors; `status ∈ online/offline/suspended`, `kyb_status ∈ pending/approved/rejected`, `bond_usdc` (drawn down on an upheld dispute), `positive_rate` (payer 👍/👎 signal); `payout_rail ∈ UPI/QRIS/Pix/bank`; `sim_behavior ∈ happy/slow/no_receipt/timeout/psp` **or NULL** — NULL means a real human LP the sim worker must not auto-drive (nullable + no default, added once `merchants.user_id` could be a real logged-in person); unique `user_id` (partial, sim LPs stay NULL) |
-| **quotes** | a 45s-locked price | fiat leg `amount_inr` is a legacy name but now generic 2dp money (`numeric(20,2)`) qualified by `currency` (default `'INR'`, added for the Indonesia corridor — every pre-existing row is INR by construction); crypto leg is 6dp (`numeric(20,6)`) — different scales, code must say which it means; `rate`, `fee_inr`/`network_fee_inr` (both `>= 0`), `platform_fee_usdc` (0006, default 0 — the platform's cut, folded into the quoted rate, never a separate line item, collected at deposit into the fee-payer ATA and returned on refund); `payout_method ∈ UPI/QRIS/Pix/bank`; `payout_destination`/`payout_name` (who actually receives the fiat — lives here, not on `orders`, because the merchant order view already joins quotes); `route_quality`, `expires_at` |
-| **orders** | the 7-state machine | `amount_usdc numeric(20,6)`, `> 0`; `state ∈ quote_locked→pay_instructions→waiting_payment→payment_detected→merchant_confirms→funds_released→completed` plus terminal `refunded`/`failed`; transient `resolution ∈ delayed/needs_action/under_review`; links escrow fund/release `transfers`; `expires_at` = the worker's escalation deadline for the current state; `payout_utr`/`payout_claimed_at` (a real LP's hand-entered proof of the fiat leg — deliberately not a new `state`, so the order stays `payment_detected` while this is just data about it); `feedback_up` (nullable boolean, one payer 👍/👎 per order, mirrors `uq_disputes_order`); `payout_provider_id`/`payout_providers_tried` (`text[]`, the exclusion set for failover)/`payout_provider_ref` (0005 — claimed *before* the first initiate, since vendor idempotency doesn't span accounts; **no DB-level FK** to `payout_providers.id`, matched by app code only) |
+| **merchants** | the LP network — seeded simulations *and* real onboarded LPs | **`country`** (0014, ISO-2, NOT NULL, backfilled from the rail) — a hard routing filter, and deliberately **no CHECK**: `packages/shared/src/rails.ts` is the only country list, and a CHECK here would be a second one. `status ∈ online/offline/suspended` — now written by the LP themselves (`POST /merchants/status`) as well as by an admin, so **`suspend_reason`** (0014) records *who*: `'bond'` means the auto-suspend did it and the auto-reinstate may undo it, NULL means a human did and only a human reverses it. `kyb_status ∈ pending/submitted/under_review/more_info/approved/rejected` (0016 widened it; only `approved` is routable) with **`kyb_fields jsonb`**, **`kyb_note`** (the reviewer's reason, shown to the merchant verbatim) and **`kyb_submitted_at`**. `bond_usdc` is the stake — drawn down on an upheld dispute, and now a **hard routing filter in the SELECT**, not a background job. `float_usdc` is the LP's *claim* about their capacity; routing uses `min(float_usdc, bond_usdc × LEVERAGE[tier])`, so **`tier`** (0014, smallint, computed by `recomputeMerchantStats`, never set by hand) is what a good score actually buys. Ranking signals (`success_rate`/`dispute_rate`/`avg_completion_secs`/`positive_rate`) kept live + `base_*` seed priors, plus two availability signals: **`last_seen_at`** (0014, touched by any authenticated merchant request, throttled to one write a minute) and **`active_hours smallint[]`** (0017, 168 day×hour UTC slots; NULL = never computed, which scores *neutral* — 168 zeros would say "never around", a very different claim about someone who simply hasn't traded). **`alert_channel`/`alert_address`** (0015) are how to reach them out of band; **`lock_bans_until`** (0015) times them out of *locking* after repeated abandonment — not out of routing, and never touching the bond. `payout_rail ∈ UPI/QRIS/Pix/bank`; `sim_behavior ∈ happy/slow/no_receipt/timeout/psp` **or NULL** — NULL means a real human LP the sim worker must not auto-drive; unique `user_id` (partial, sim LPs stay NULL) |
+| **quotes** | a 45s-locked price | fiat leg `amount_inr` is a legacy name but now generic 2dp money (`numeric(20,2)`) qualified by `currency` (default `'INR'`, added for the Indonesia corridor — every pre-existing row is INR by construction); crypto leg is 6dp (`numeric(20,6)`) — different scales, code must say which it means; `rate`, `fee_inr`/`network_fee_inr` (both `>= 0`), `platform_fee_usdc` (0006, default 0 — the platform's cut, folded into the quoted rate, never a separate line item, collected at deposit into the fee-payer ATA and returned on refund); `payout_method ∈ UPI/QRIS/Pix/bank`; `payout_destination`/`payout_name` (who actually receives the fiat — lives here, not on `orders`, because the merchant order view already joins quotes; **revealed to an LP only once they hold the order's lock**, redacted in SQL in both LP-facing queries); **`spread_bps`** (0015, default 0) — the spread this quote was actually struck at, persisted because it is the *price ceiling* for the offer: an order is shown only to LPs asking at or below it, so whoever takes it earns at least their own ask and the payer's rate is never repriced. It cannot be recovered from `rate`, which is display-only and post-fee. Backfill 0 is the conservative direction — offer to nobody rather than to someone who'd be underpaid; `route_quality`, `expires_at` |
+| **orders** | the 7-state machine | `amount_usdc numeric(20,6)`, `> 0`; `state ∈ quote_locked→pay_instructions→waiting_payment→payment_detected→merchant_confirms→funds_released→completed` plus terminal `refunded`/`failed`; transient `resolution ∈ delayed/needs_action/under_review`; links escrow fund/release `transfers`; `expires_at` = the worker's escalation deadline for the current state; `payout_utr`/`payout_claimed_at` (a real LP's hand-entered proof of the fiat leg — deliberately not a new `state`, so the order stays `payment_detected` while this is just data about it); `feedback_up` (nullable boolean, one payer 👍/👎 per order, mirrors `uq_disputes_order`); **the lock (0015)** — `locked_at` is both the reveal gate (the payee is invisible until it is set) and the precondition for `claimOrderPayout`, `lock_expires_at` is when an unpaid lock lapses back to the pool, and `offer_widens_at` is when the routed LP's 20s exclusivity ends — **NULL meaning "never widens"**, which is how a provider- or sim-settled order is *born locked* (its merchant row is the settler; no pool was ever consulted). 0015 backfills both cases for orders already in flight, without which every `payment_detected` order at deploy would have stranded — silently, on the path that reports fiat already sent; `payout_provider_id`/`payout_providers_tried` (`text[]`, the exclusion set for failover)/`payout_provider_ref` (0005 — claimed *before* the first initiate, since vendor idempotency doesn't span accounts; **no DB-level FK** to `payout_providers.id`, matched by app code only) |
+| **merchant_stake_withdrawals** | an LP asking for their stake back (0014) | `amount_usdc > 0`; `status ∈ requested/released/cancelled`; `requested_at`/`settled_at`; free-text `note` (the release tx signature, or why it was cancelled — a record of an out-of-band human action, not machine-readable state). Partial unique index `uq_stake_withdrawal_open on (merchant_id) where status='requested'` makes a second open request **unrepresentable** rather than merely rejected. The load-bearing rule: **the bond is debited at REQUEST time, not release** — money on its way out must stop backing new orders immediately, and if that drops the LP under the floor the existing auto-suspend takes them out of routing, which is correct for someone leaving. Cancelling restores it |
+| **merchant_kyb_events** | append-only business-check timeline (0016) | same shape and same reason as `order_events`: `(from_status, to_status, event, detail jsonb)`. `detail` carries the reviewer's note, the actor, and which country's field spec applied — **never the submitted fields themselves**, which live in `merchants.kyb_fields` so they stay correctable and erasable; copying business identifiers into an append-only log makes both impossible |
+| **deployment_tier** | which tier owns this database (0013) | forced singleton (`singleton boolean primary key default true check (singleton)`), `tier ∈ production/development`, `claimed_at`. Two tiers, not four, because local and stage deliberately share one database — the only boundary worth defending is production vs everything else. Enforced at boot and claimed at `db:deploy` |
 | **order_events** | append-only timeline | powers the live tracker; `(from_state, to_state, event, detail jsonb)` |
-| **order_routing_attempts** | routing audit + tried-set + scoring substrate | `(sequence, outcome ∈ assigned/released/failed/rerouted, reason)`; unique `(order_id, sequence)`; `released`/`failed` outcomes feed `merchants.success_rate` |
+| **order_routing_attempts** | routing audit + tried-set + scoring substrate | `(sequence, outcome ∈ assigned/released/failed/rerouted, reason)`; unique `(order_id, sequence)`; `released`/`failed` outcomes feed `merchants.success_rate`, and (0017) their timestamps rebuild `merchants.active_hours`. **Note the limit:** a lock transfers `orders.merchant_id` *without* writing an attempt row, so this log answers "who was offered this", not "who settled it" — which is why release/refund credit the outcome to the order's actual merchant rather than to whoever the latest attempt names |
 | **payout_providers** | the payout-vendor registry | `id` (env-key-shaped text PK, e.g. `xendit_id`) — one vendor is *not* one provider, each live country is its own credentialed account; `adapter` (code module: `xendit`/`sim`), `payout_method ∈ */UPI/QRIS/Pix/bank`, `priority` (lower wins, ties by id), `enabled` (default **false** — a migrated row is inert until switched on). Rows are routing metadata only; credentials live in env, resolved by provider id |
 | **disputes** | user disputes on a completed order | `status ∈ open/resolved`, `resolution ∈ upheld/rejected`; unique `order_id` (one dispute per order — prevents bond over-draw and `dispute_rate` corruption from repeats); upheld draws down the merchant's `bond_usdc` and feeds `dispute_rate` |
 | **denylist** | simulated sanctions list | `kind ∈ address/handle`, `value`, unique `(kind, value)`; screened on every money movement |
@@ -179,7 +200,12 @@ erDiagram
   reality.
 - **Indexes** cover the hot reads: transfers by user, orders by user and by `(state, expires_at)`
   (the worker's scan), events by order, `waitlist.ref_code` (unique) and `.referred_by`,
-  `invite_codes` by `owner_id`/`owner_email`.
+  `invite_codes` by `owner_id`/`owner_email`. Three more arrived with the marketplace:
+  `idx_orders_merchant (merchant_id, created_at desc)` (0014 — the LP's queue, committed float, and
+  all four stats aggregates keyed on `merchant_id` with no index, and the aggregates run on a timer
+  forever); `idx_orders_open_offers (state, offer_widens_at) where locked_at is null` (0015 —
+  **partial precisely because a locked order is what the open pool must never return**, and that is
+  most of the table over time); and `idx_kyb_events_merchant`.
 - **One polymorphic column instead of two FKs — `waitlist.referred_by`.** Holds either an app
   user's `@handle` or another f-list member's `ref_code`, both opaque strings, `@` disambiguates.
   One code path for two referral sources, no join, no second FK — but no referential integrity
@@ -197,20 +223,17 @@ erDiagram
   UNIQUE constraint that structurally guarantees one account never burns two codes. Status stays
   derived from the single `redeemed_at`, so "spent" means spent at *both* doors.
 
-## Planned — migration 0010 (⬜, decided 2026-08-13, not yet written)
+## Shipped since this doc was first written
 
-- **Partial unique index on `users.email`.** Today `email` is nullable with **no** uniqueness —
-  two accounts can share one address, which is a real gap for anything email-based (account
-  recovery, dedupe, notifications-by-email). Planned: `create unique index … on users (email)
-  where email is not null`, mirroring the `uq_users_phone` pattern already in `0001`.
-- **`users.local_currency` / `users.preferred_currency`.** No such columns exist yet — display
-  currency is currently a client-side/browser concern. Planned to move the "what currency does
-  this person see" decision server-side and persist it per user.
-- **`users.status` extended with `'deleted'`.** Today's CHECK is `status in ('active',
-  'suspended')` (`0009`). Planned to add `'deleted'` for soft-delete (account closure that keeps
-  the row — and the audit trail pointing at it — rather than a hard `delete`).
+`0010` email unique index · `0011` currency prefs · `0012` user soft-delete · `0013` deployment tier
+· `0014` merchant safety + country + stake withdrawals · `0015` order lock + alerts +
+`quotes.spread_bps` · `0016` KYB evidence + timeline · `0017` activity histogram.
 
-None of the three exist in any committed migration as of this doc; they are intent, not schema.
+Two of these carry **data** migrations, not just DDL, and both would have been silent failures:
+0014 backfills `merchants.country` from the rail before making it NOT NULL, and 0015 backfills the
+lock state of every order already in `payment_detected` — provider/sim rows born locked, human-LP
+rows opened to the pool. Without the second, every in-flight order at deploy would have become
+unclaimable on the path that reports fiat already sent.
 
 ## Legalities
 
@@ -228,11 +251,12 @@ None of the three exist in any committed migration as of this doc; they are inte
 
 ## Status
 
-- ✅ Full schema through `0009`: Phase-1 ledger/state-machine core (`0001`), money-sign CHECKs
+- ✅ Full schema through `0017`. Phase-1 ledger/state-machine core (`0001`), money-sign CHECKs
   (`0003`), multi-corridor currency + QRIS rail (`0004`), payout-provider registry + per-order
   binding (`0005`), platform fee folded into quotes (`0006`), real invite codes replacing the
   `referral_limit` counter (`0007`), invite-only f list with its own minted codes (`0008`), user
-  account moderation (`0009`).
+  account moderation (`0009`), then the four listed above (`0010`–`0013`) and the marketplace set
+  (`0014`–`0017`).
 - ✅ `users.referral_limit` — **dropped** in `0007`, confirmed absent from every migration after;
   do not resurrect it in code or docs, the count of `invite_codes` rows is the allowance.
 - 🟡 `waitlist.ref_code` is null on rows written before the referral loop existed; backfilled the
@@ -240,9 +264,12 @@ None of the three exist in any committed migration as of this doc; they are inte
 - 🟡 Known drift: `schema_migrations` on stage records an applied `0002_waitlist_first_name` with
   no matching committed file (see Migrations, conventions above) — `waitlist.first_name` exists on
   stage only and is undocumented here on purpose.
-- ⬜ Migration `0010` (unique partial index on `users.email`, `local_currency`/
-  `preferred_currency`, `status='deleted'`) — planned, not written.
 - ⬜ RLS, encryption-at-rest, retention policy (production hardening).
+- ⬜ **A structured payout destination.** `quotes.payout_destination` is a single `text` column, so
+  an account number + IFSC has nowhere to live as two fields. Whatever shape it takes, it must be
+  added to **both** redaction sites — the `case when o.locked_at is not null` in the LP's own queue
+  and the `null::text` literal in the open-offer query — or the payee leaks to LPs who never took
+  the order, which is the one thing the lock exists to prevent.
 
 ## Key files
 

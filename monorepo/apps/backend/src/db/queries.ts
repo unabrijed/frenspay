@@ -1950,10 +1950,11 @@ export async function releaseStakeWithdrawal(withdrawalId: string, note: string)
  * window passes, only the LP routing actually picked can take it; after, anyone eligible can. That
  * is the entire reward for ranking first, and it costs nothing to give.
  *
- * Eligibility (rail, country, price, capacity) is NOT re-checked here — the caller resolves it from
- * the same pool query that offered the order, and re-deriving it inside the CAS would double the
- * statement's size to re-answer a question asked moments ago. The predicates that MUST be atomic
- * are the ones about this row's own state, and they all are.
+ * Eligibility (rail, country, price, capacity) IS re-checked here, inside the CAS. It used not to
+ * be — the pool query in the route was the only thing enforcing it, which made taking an order a
+ * check-then-act split across two HTTP requests: an LP could lock work on the wrong rail, in the
+ * wrong country, at a price that underpaid them, or past what their stake backs, and two concurrent
+ * locks could each pass the route's headroom check and together blow through it.
  *
  * Returns the payee on success, because a lock that doesn't reveal is a lock with no purpose — and
  * returning it here means the reveal and the claim are the same atomic act.

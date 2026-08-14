@@ -2,9 +2,9 @@
 
 ## What it is
 
-A **yarn-workspaces monorepo**: four apps (`admin`, `backend`, `landing`, `web`) plus a shared
-package. `mobile` (Expo) exists in the repo but is **excluded from the workspace** — parked, no
-installed deps. The backend is the brain (builds transactions, runs the order lifecycle, talks to
+A **yarn-workspaces monorepo**: five apps (`admin`, `backend`, `landing`, `lp`, `web`) plus two
+shared packages. `mobile` (Expo) exists in the repo but is **excluded from the workspace** — parked,
+no installed deps. The backend is the brain (builds transactions, runs the order lifecycle, talks to
 the chain and the database); clients are thin (render, collect a signature, poll).
 
 **One-line mental model:** the **client** asks the **backend** to *build* a transaction, the
@@ -18,10 +18,12 @@ monorepo/
 │   ├── backend/     Fastify API (tsx, ESM) — the brain
 │   ├── web/         Next.js consumer app (full feature set incl. cash-out)
 │   ├── admin/       Next.js ops console (backend enforces role='admin')
+│   ├── lp/          Next.js LP console — separate app, separate domain (see 11)
 │   ├── landing/     Next.js static export — marketing site + the f-list waitlist
 │   └── mobile/      Expo app, PARKED — outside the yarn workspace, no installed deps
 ├── packages/
-│   └── shared/      @fpay/shared — TypeScript types + the money module (units.ts) + formatters
+│   ├── shared/      @fpay/shared — TypeScript types + the money module (units.ts) + formatters
+│   └── ui/          @fpay/ui — the design system (RN-over-DOM shim, primitives, theme, icons)
 └── anchor/          Solana program (Rust + Anchor) — the on-chain escrow
 ```
 
@@ -30,7 +32,9 @@ monorepo/
 | Backend | **Fastify 5 + tsx** (no build step), ESM | one process; several background pollers run inside it |
 | Web | **Next.js App Router + Zustand + Privy web SDK** | mobile-first browser UI; ships as a Next **server**, not a static export (see Environments) |
 | Admin / Landing | **Next.js** console / **static export** marketing site | admin role-gated by the backend; landing hosts the f-list |
+| LP | **Next.js + Privy web SDK** | the LP console ([11](11-lp-console.md)) — its own app and domain, so the marketplace never ships in a payer's bundle. Auth depth matches web, not admin: staking signs a real USDC transfer |
 | Shared | raw TS (`main: ./src/index.ts`), one runtime dep (bignumber.js) | backend imports **types only** — `import type` (runtime value imports fail under tsx) |
+| UI | raw TSX, same source-only pattern; `react`/`react-dom` are **peer** deps | shared by `web` and `lp`. Consumers must list it in `transpilePackages`; `apps/web`'s own `components/ui/*` are one-line re-export shims, so its ~40 import sites never moved |
 | Chain | **Solana, SPL USDC** (6 dp), Anchor | **mainnet** on deployed envs (stage + prod); devnet only in local dev |
 | Data | **Postgres on Supabase** (session pooler — advisory locks) | access control in the API layer, no RLS; local dev also writes to the shared stage DB |
 | Infra | Privy (wallets), Helius (RPC + webhooks) | both have free tiers |

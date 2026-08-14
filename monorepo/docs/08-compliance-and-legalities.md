@@ -8,7 +8,9 @@
 ## The core thesis: simulated-rails-first keeps us out of scope
 
 The product is built **structure-first with simulated rails**: real on-chain escrow and a real order
-lifecycle, but a **simulated merchant/LP network** and, until a licensed payout partner is picked,
+lifecycle, but an **LP network that is real in shape and simulated in substance** — real KYB
+evidence, real bonds gating routing, real reputation and offers, and no real fiat — and, until a
+licensed payout partner is picked,
 **no real fiat payout**. Real on-chain USDC deposits and a real live-FX quote already work on
 mainnet (both deployed envs — see [01-architecture](01-architecture.md)). Because **no real fiat
 movement occurs on the payout side**, most of the heavy regulation is *triggered by that missing
@@ -88,14 +90,24 @@ source-of-funds at entry. Deliberately last; nothing of legal consequence moves 
 (`payout_providers`, key-gated test mode) drives the fiat leg per corridor, and **which settlement
 model a corridor uses is a licensing decision, not a code detail**:
 
-- **`lp` (marketplace) has no affirmative live-phase legal support in any corridor researched so
-  far.** India rules it out in writing — P2P INR settlement through personal accounts is the
-  documented **account-freeze failure mode** (cyber-cell liens on accounts later traced to fraud;
-  `india-legal-compliance-brief.md`), so India's live model is `provider` (a licensed float),
-  never `lp`.
-- **`provider` (the platform settles through a licensed payout vendor) lands AML/tax reporting once,
-  on the licensed entity**, instead of distributing it across unlicensed LP counterparties while the
-  platform still holds escrow release authority — the worst combination of both models.
+- **LP settlement has no affirmative live-phase legal support in any corridor researched so far.**
+  India rules it out in writing — P2P INR settlement through personal accounts is the documented
+  **account-freeze failure mode** (cyber-cell liens on accounts later traced to fraud;
+  `india-legal-compliance-brief.md`), so India's live settler must be a licensed provider, never
+  the pool.
+- **Provider settlement lands AML/tax reporting once, on the licensed entity**, instead of
+  distributing it across unlicensed LP counterparties while the platform still holds escrow release
+  authority — the worst combination of both. The corridor registry now *encodes* that argument: a
+  corridor's `settle` is an ordered preference with `'provider'` first everywhere, so automated
+  licensed settlement wins whenever it is available.
+
+> **⚠️ And the registry currently contradicts the first bullet.** Every corridor also lists `'lp'`,
+> and on India — the corridor this research rules out — `lp` is the entry that actually *resolves*,
+> because no INR provider is configured yet. Stated plainly rather than smoothed: this is the live
+> position. It is survivable only because merchant-pay is **503-gated on every deployed
+> environment** and the marketplace runs on devnet alone. Enabling an India-licensed partner flips
+> the corridor to provider-first with no code change — that is the intended resolution, and it is
+> ops work, not a build.
 
 Full per-country comparison, the provider registry, and its safety invariants:
 [06-offramp-and-settlement](06-offramp-and-settlement.md).
@@ -146,12 +158,41 @@ reachable directly via Privy outside the app. **Posture is closed; implementatio
 (why hard-delete was rejected, why soft-delete is the only shape the schema survives) is in
 [07-admin-and-moderation](07-admin-and-moderation.md).
 
-### 10. Merchant/LP network (KYB) — 🟡 *modelled; real vendor deferred*
-The **structure** is built ([06-offramp-and-settlement](06-offramp-and-settlement.md)): KYB lifecycle
-(`kyb_status`, onboarding/approval gating), performance scoring from real outcomes, **bonds**
-(skin-in-the-game, auto-suspend below a floor), and a **dispute** open/resolve flow that draws the
-bond down. Still **simulated** — no real KYB vendor, contracts, payout, or arbitration — so no real
-counterparty risk yet.
+### 10. Merchant/LP network (KYB) — 🟡 *evidence collected; no vendor, no contracts*
+The structure is built and is no longer a sketch ([06](06-offramp-and-settlement.md),
+[11](11-lp-console.md)). KYB now **collects evidence**: a per-country field spec (India: legal name,
+entity type, PAN, optional GSTIN, registered address, contact, and the account payouts leave from;
+Indonesia: NIB/NPWP in place of PAN/GSTIN), a six-state lifecycle with a `more_info` step so a
+reviewer can ask rather than only refuse, mandatory reviewer notes the merchant reads verbatim, and
+an append-only timeline. The spec is defined once and mirrored into the backend, drift-checked.
+
+**The load-bearing field is "which account will you pay from".** That is a direct answer to the
+account-freeze finding in §3 above: the failure mode is third-party money moving through a personal
+account, and asking *which* account before anyone is onboarded makes that reviewable rather than
+discoverable afterwards.
+
+**No document upload, deliberately** — there is no file storage in this system, and the identity
+documents already sit with the KYC vendor. Typed fields plus a human reading them is the honest
+first rung; the alternative would have been a document vault nobody had designed.
+
+Bonds gate routing **in the query that picks LPs** rather than in a background job, and cap an LP's
+in-flight exposure at a multiple of their stake. Still no real KYB vendor, no contracts, no
+arbitration, and no real fiat — so no live counterparty risk yet, but the shape is now specific
+enough to be argued about with counsel rather than described in the abstract.
+
+### 11. LP payment metadata leaves the system — ⬜ *unaddressed*
+Out-of-band alerting sends an LP the amount and timing of work available, through **Telegram**. That
+is a third-party processor seeing payment metadata about our LPs, and it is not covered by anything
+in §7 (Data & privacy). Alerts deliberately never carry the **payee** — that is revealed only after
+an LP commits — so the exposure is "this LP was offered ₹X at this time", not who was paid. Needs a
+processor entry and a decision about whether a self-hosted channel (web/mobile push) should replace
+it before real volume.
+
+### 12. Reveal-on-commitment — ✅ *a data-minimisation win, claimed*
+Worth recording on the positive side of this ledger. The payee's payment address is disclosed only
+to the single LP who has committed to paying it, and only while they hold the lock — enforced in
+SQL, in both LP-facing queries, rather than by remembering to strip a field. Before this, the LP
+routing happened to pick saw every payee assigned to them whether or not they ever acted on it.
 
 ## Summary table
 
@@ -164,7 +205,9 @@ counterparty risk yet.
 | AML / sanctions / monitoring | screening + fraud score built (seeded lists) | 🟡 | real lists + monitoring vendor |
 | FX & disclosure | live per-currency rate, single all-in number, no fee line | ✅ | regulated provider SLA later |
 | On-ramp / payout (fiat) | seam built (`payout_providers`), simulated fiat leg | ⬜ | licensed partner per corridor |
-| Merchant KYB / bonds / disputes | structure built, simulated network | 🟡 | real vendor |
+| Merchant KYB / bonds / disputes | evidence collected per country, 6-state review with merchant-visible reasons, bonds gate routing in SQL and cap exposure | 🟡 | no vendor, no contracts, no arbitration |
+| LP payment metadata to a third party | Telegram alerts carry amount + timing (never the payee) | ⬜ | processor entry; self-hosted push |
+| Payee disclosed only on commitment | enforced in SQL in both LP queries | ✅ | — |
 | Data / privacy | minimal, **no retention policy** | 🟡 | pre-launch |
 | Account deletion | soft-delete posture resolved | ✅ posture / ⬜ built | schema + route + web copy |
 

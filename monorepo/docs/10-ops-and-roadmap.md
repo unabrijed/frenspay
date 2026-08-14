@@ -68,6 +68,18 @@ Two providers behind one API (`POST /kyc/verify` in `routes/kyc.ts`), selected b
 - Key files: `services/kyc/{index,didit,sim,poller}.ts`, `routes/kyc.ts`, `routes/webhooks.ts`,
   web `store/usePayStore.ts` (`verifyDone`, `pollKyc`, `resetForTesting`).
 
+## Owed, and known
+
+- **`apps/lp` needs its own path-scoped deploy filter** before it ships. The HARD RULE above is
+  enforced by `scripts/vercel-ignore.mjs`, whose `--check` mode asserts per-app expectations by
+  name — an app missing from `SCOPES` returns `true` and **deploys on every production push,
+  docs-only included**. It fails open, so nothing warns you. `packages/ui` needs its own scope entry
+  too: `SHARED` is only `packages/shared/`, so a design-system change would otherwise wake nobody.
+- **Stake-withdrawal release has no admin surface** — manual SQL today; automating it means a second
+  hot key in env, a security decision deliberately not taken as a side effect
+  ([07](07-admin-and-moderation.md), [11](11-lp-console.md)).
+- **Staked returns** are undecided and unbuilt. Stake is idle collateral.
+
 ## Roadmap
 
 Replaces the old M0–M7 ladder: the shipped system is the baseline
@@ -93,7 +105,7 @@ cutover) → the DB-backed checks (`check:admin`, `check-fees`). All Bridge-run.
 ### Gated on ops or partners
 
 - **Anchor mainnet deploy** (~1.5–3 SOL) → orders go live (remove the two 503 gates), real LP
-  treasuries (seeded sim treasuries are derivable = drainable), spread admin endpoint, fee sweep
+  treasuries (seeded sim treasuries are derivable = drainable), fee sweep
   to a cold treasury.
 - **UPI payout to non-users** (pay a phone number, lands in their UPI ID) — needs a licensed
   India payout partner; the settlement-model groundwork is [06](06-offramp-and-settlement.md).

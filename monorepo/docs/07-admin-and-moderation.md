@@ -211,6 +211,32 @@ a balance" and "ban" from being fund-seizure questions at all. Sanctions/denylis
 KYC-tier interaction with account status are covered in
 [08-compliance-and-legalities](08-compliance-and-legalities.md).
 
+## KYB review — four replies, and a reason that is read
+
+A business check used to be a boolean an admin flipped, with no evidence collected and no reason
+recorded. It is now four decisions from `POST /admin/merchants/:id/kyb`:
+
+- **approve** — the only one that needs no note. Lands the merchant on *offline*, never online:
+  approved means eligible to work, not at the desk. They say when.
+- **more_info** — the one that matters. It hands the ball back and lets them resubmit. Without it a
+  reviewer's only replies are yes and no, and "no, and I won't say why" is how you lose an LP who
+  mistyped their PAN.
+- **review** — a claim, not a verdict, so a second reviewer sees someone is already on it.
+- **reject** — terminal.
+
+**A note is required on everything except an approval, and the merchant reads it verbatim.** That is
+the whole improvement: a status word with nothing behind it is not a decision anyone can act on.
+Every decision appends to `merchant_kyb_events`, which is what the merchant's own timeline renders,
+*and* writes the usual `admin_actions` row. Only `submitted`/`under_review`/`more_info` are
+decidable — there is nothing to judge before a submission exists, and reopening a terminal is a
+separate deliberate act.
+
+**Gap, named rather than buried: stake-withdrawal release has no surface here.** An LP can request
+their stake back, and the request debits their bond immediately. Sending the USDC is a human action
+— and today it is manual SQL, because `releaseStakeWithdrawal` has no route and no console page.
+Automating it needs a signer for the stake treasury, which deliberately has none
+([11](11-lp-console.md) § The stake).
+
 ## Status
 
 ✅ Suspend/reinstate, rename/display-name edit, role grant/revoke, invite mint/revoke, and the full
