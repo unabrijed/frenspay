@@ -15,8 +15,8 @@ An in-house runner (`db/migrations.ts`, no deps), not a framework:
 - **Forward-only.** Files live in `migrations/` as `NNNN_name.sql`, applied in filename order,
   each inside its own transaction. To undo something you write another migration — there is no
   `down`. `yarn db:new <name>` scaffolds the next number; `yarn db:migrate` / `db:status` /
-  `db:deploy` / `db:reset` drive it (`db:deploy` is `db:migrate` under a name Railway's start
-  sequence calls explicitly).
+  `db:deploy` / `db:reset` drive it (`db:deploy` is `db:migrate` under a name the deployed image's
+  `CMD` calls explicitly, before the server starts).
 - **Checksummed.** Every applied file's md5 is recorded in `schema_migrations`. `db:status` warns
   if an applied file's checksum no longer matches disk (edited after the fact — the fix is a new
   migration, not touching the old one) or if an applied version's file is missing. **This doc must

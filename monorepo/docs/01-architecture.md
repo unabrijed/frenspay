@@ -38,7 +38,7 @@ monorepo/
 | Chain | **Solana, SPL USDC** (6 dp), Anchor | **mainnet** on deployed envs (stage + prod); devnet only in local dev |
 | Data | **Postgres on Supabase** (session pooler — advisory locks) | access control in the API layer, no RLS; local dev also writes to the shared stage DB |
 | Infra | Privy (wallets), Helius (RPC + webhooks) | both have free tiers |
-| Hosting | **Railway** (backend, Dockerfile) + **Vercel** (frontends, one project per app per env) | web gated by a shared access key until public launch |
+| Hosting | **Railway** (backend — pulls a prebuilt image; **GitHub Actions** builds it) + **Vercel** (frontends, one project per app per env) | web gated by a shared access key until public launch |
 
 ---
 
@@ -53,7 +53,11 @@ There is no devnet deployment anywhere — devnet exists only in local dev, read
 |---|---|---|---|
 | local | — | Solana devnet | `NODE_ENV` local/development; writes to the shared stage Postgres (no local DB) |
 | stage | `stage` | Solana **mainnet** ("mainnet-lite") | Railway stage env + Vercel stage projects; real USDC, most money moves |
-| production | `sacred` | Solana **mainnet** | same shapes, bare env var names, separate access key |
+| production | `sacred` | Solana **mainnet** | same shapes, bare env var names, separate access key; backend not wired yet — a `sacred` push deploys frontends only |
+
+> The Branch column means two different mechanisms: for Vercel it is the project's Production
+> Branch, for the backend it is the CI workflow's trigger. They are kept in step by hand, not by a
+> shared setting.
 
 Stage is called **mainnet-lite** because a few paths stay off even though the mint is real:
 

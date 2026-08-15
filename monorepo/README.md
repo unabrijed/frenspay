@@ -10,16 +10,25 @@ monorepo/
   apps/
     web/        Next.js (App Router) web app — mobile-first, runs in any browser
     mobile/     Expo / React Native app — PARKED, not in the workspace (see below)
-    backend/    Fastify API service (deploys on Railway)
+    backend/    Fastify API service (runs on Railway, from an image built in CI)
     admin/      Next.js operator console — admin.frenspay.xyz
+    lp/         Next.js LP console — the marketplace side
     landing/    Static Next export — frenspay.xyz (Tailwind v4; web/admin are v3)
   packages/
     shared/     money math + API contract types, used by all apps
+    ui/         the design system — used by web + lp
   brand/        logo source + `yarn brand` — generates every app icon (see brand/README.md)
 ```
 
-> Project docs (`backend-architecture.md`, `india-legal-compliance-brief.md`,
-> `design-reference/`) live one level up in the `payments/` root, not in this repo.
+> **Adding a workspace? Add its `package.json` to the repo-root `Dockerfile` too.** Every
+> workspace's manifest must reach the install layer, even ones the backend never imports — workspace
+> deps resolve from the tree, not the lockfile, so a missing one makes yarn look on npm and the
+> image build dies. `packages/ui` broke it exactly this way.
+
+> One level up, in the `payments/` root: the build files this repo deploys with (`Dockerfile`,
+> `.dockerignore`, `.github/workflows/`) plus `backend-architecture.md` and
+> `india-legal-compliance-brief.md`. The git root is `payments/`, not `monorepo/` — which is why
+> every path inside those build files is `monorepo/`-prefixed.
 
 ---
 
@@ -31,8 +40,8 @@ corepack enable    # honors the pinned Yarn (yarn@1.22.22)
 yarn install       # run from this monorepo/ directory
 ```
 
-> Run everything under **Node 24** (`@solana-program/token` needs ≥24; Railway's image and the
-> Vercel projects are pinned to it too). `nvm use` first.
+> Run everything under **Node 24** (`@solana-program/token` needs ≥24; the repo's own `Dockerfile`
+> is `node:24-slim` and the Vercel projects are pinned to it too). `nvm use` first.
 
 ---
 
@@ -62,6 +71,7 @@ missing Postgres at the moment something tries to write.
 | `yarn dev:fpay` | Same as `yarn dev:web` | 3000 · 3001 |
 | `yarn dev:admin` | **Operator console** + backend | 3002 · 3001 |
 | `yarn dev:landing` | **Landing page** + backend (the f-list form POSTs to it) | 3003 · 3001 |
+| `yarn dev:lp` | **LP console** + backend | 3004 · 3001 |
 | `yarn dev:backend` | **API** alone, in watch mode | 3001 |
 
 Ctrl-C stops the whole group; nothing is left holding a port.
@@ -69,8 +79,9 @@ Ctrl-C stops the whole group; nothing is left holding a port.
 | Everything else | |
 |---|---|
 | `yarn brand` | Regenerate every app icon from `brand/logo-lockup.svg` + `brand/logo-icon.svg` |
-| `yarn typecheck` | Type-check **all five** workspaces (shared + backend + web + admin + landing) |
-| `yarn check:all` | Every self-check below, in one go (~1s, no DB, no network) |
+| `yarn typecheck` | Type-check **every** workspace (shared + ui + backend + web + admin + lp + landing) |
+| `yarn check:all` | Every self-check below, in one go (~12s, no DB, no network) |
+| `yarn check:deploy` | The path gate that decides what a push deploys — see [Deploy](#deploy) |
 | `yarn db:migrate` | Apply pending DB migrations (`yarn db:status` to inspect, `db:seed` · `db:reset` · `db:new` · `db:init` · `db:deploy` all exist too) |
 | `yarn db:seed` | Insert 2 test users (@bridge, @neha) + sample activity (prints ids) |
 | `yarn devnet:setup` | Provision fee-payer + USDC mint + funded devnet wallets |
@@ -83,9 +94,10 @@ Ctrl-C stops the whole group; nothing is left holding a port.
 | `yarn workspace @fpay/<app> <cmd>` | Run any script in a specific workspace |
 
 Every repo-level tool is typed the short way. The deliberate exception is per-app **`build`** and
-**`start`** — the Vercel configs (the root `vercel.json` for web, `apps/{admin,landing}/vercel.json`)
-and `.githooks/pre-push` run those exact strings, so a root alias would be a second way to say
-something deploy config already says one way, and the two can drift.
+**`start`** — the Vercel configs (the root `vercel.json` for web, `apps/{admin,lp,landing}/vercel.json`),
+the repo-root `Dockerfile`'s `CMD` (`db:deploy && start`), and `.githooks/pre-push` run those exact
+strings, so a root alias would be a second way to say something deploy config already says one way,
+and the two can drift.
 
 > **There is no `yarn mobile` / `yarn dev:mobile`.** `apps/mobile` is parked out of the workspace, so
 > it has no installed dependencies and no root script — see [Mobile app](#mobile-app-appsmobile-parked)
@@ -246,10 +258,16 @@ yarn typecheck        # tsc --noEmit across all five workspaces
 yarn check:all        # every self-check below, stops at the first failure
 ```
 
-`check:all` is the closest thing to a test suite: seven plain assert scripts, **no DB and no
-network**, about a second end to end. Run one on its own when you know what you touched —
-`check:env` · `check:money` · `check:paytarget` · `check:rails` · `check:waitlist` · `check:scenes` ·
-`check:email`.
+`check:all` is the closest thing to a test suite: fourteen plain assert scripts, **no DB and no
+network**, about twelve seconds end to end. Run one on its own when you know what you touched —
+`check:deploy` · `check:env` · `check:money` · `check:paytarget` · `check:rails` · `check:kyb` ·
+`check:routing` · `check:fx` · `check:waitlist` · `check:invites` · `check:scenes` · `check:email` ·
+`check:api` · `check:api:lp`.
+
+`check:deploy` is the one to run after touching anything that moves a file between apps: it asserts
+the path gate in `scripts/vercel-ignore.mjs`, which is the **single** thing deciding what a push
+deploys — every Vercel project via `ignoreCommand`, and the backend image via the CI workflow. Add a
+scope there when you add a deploy target; a second filter elsewhere is how these drift apart.
 
 `check:money` is the one to run after touching anything that carries an amount: it covers the
 parse/format round-trip, the rounding law, the backend mirror of `units.ts`, and the two traps the
@@ -287,13 +305,30 @@ Once the parked mobile app is resumed:
 
 ## Deploy
 
-Backend on **Railway** (repo-root `Dockerfile`, `node:24-slim`, Supabase Postgres), frontends on
-**Vercel** — one project per app per environment (`stage` branch → stage projects, `sacred` →
-prod). The deployed web app sits behind a shared **access-key gate** until launch. The runbooks —
-every dashboard setting, variable, domain step, and test — are
-[`DEPLOY.stage.md`](./DEPLOY.stage.md) (start here) and [`DEPLOY.md`](./DEPLOY.md) (prod/mainnet).
+Backend on **Railway** (Supabase Postgres), frontends on **Vercel** — one project per app per
+environment (`stage` branch → stage projects, `sacred` → prod). The deployed web app sits behind a
+shared **access-key gate** until launch. The runbooks — every dashboard setting, variable, domain
+step, and test — are [`DEPLOY.stage.md`](./DEPLOY.stage.md) (start here) and
+[`DEPLOY.md`](./DEPLOY.md) (prod/mainnet).
+
+**Railway does not build — it pulls.** A push to `stage` runs
+`.github/workflows/backend-image.yml`, which builds the repo-root `Dockerfile` (`node:24-slim`) on
+GitHub Actions, pushes it to `ghcr.io/unabrijed/fpay-backend:<sha>`, and tells Railway to pull that
+SHA. The service's source is that image, not this repo, so no push can trigger a build there. Two
+consequences worth knowing before you deploy:
+
+- **The backend goes live before the frontends**, every time — a pull is seconds, a Next build is
+  minutes. That is the safe order (old frontend + new backend works; the reverse breaks), so keep
+  backend API changes backward-compatible for one deploy cycle.
+- **What deploys is decided by one file**, `scripts/vercel-ignore.mjs` (`yarn check:deploy`), for
+  both Vercel and the image. A docs-only push deploys nothing.
 
 ## Cost note
 Everything here is free to develop with: Solana **devnet**, Helius free RPC, Privy free
-tier, Railway's free/low trial tier, Vercel's free Hobby tier for the frontends, and the free
+tier, Railway's free/low trial tier, GitHub Actions (free and unlimited on a public repo — which is
+why the image is built there and not on Railway), Vercel's free Hobby tier for the frontends, and the free
 **web** workflow (no EAS needed — and if mobile is resumed, the Android dev build is local + free).
+
+> One thing to keep that way: the **GHCR package must stay public**. GitHub creates container
+> packages private even for a public repo, and Railway gates *private* registry deploys behind its
+> **Pro** plan — so a private package quietly turns a free setup into a paid one, or fails to pull.
