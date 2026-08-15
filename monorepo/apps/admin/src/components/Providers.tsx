@@ -29,12 +29,25 @@ import { isProduction, PRIVY_APP_ID, PRIVY_CLIENT_ID } from '@/services/envConfi
  *               or a backend configured with a different Privy app than this console signs into. */
 type Access = 'checking' | 'admin' | 'denied' | 'absent' | 'refused' | 'error';
 
+// Safety net, same one apps/web/src/services/privy/PrivyRoot.tsx keeps and for the same reason: if
+// the SDK never initialises (blocked network, or this origin missing from the Privy app's allowed
+// origins) `ready` stays false forever and the splash below never lifts. Falling through renders the
+// Sign in screen, which carries the env switch — a wrong target stops being a dead end.
+const PRIVY_READY_TIMEOUT_MS = 4000;
+
 function AuthGate({ children }: { children: ReactNode }) {
   const { ready, authenticated, login, getAccessToken } = usePrivy();
   // Children only mount once a token is actually in the api client — otherwise the first page
   // fetch races the token effect and burns a 401 round-trip on every load.
   const [tokenReady, setTokenReady] = useState(false);
   const [access, setAccess] = useState<Access>('checking');
+  const [readyTimedOut, setReadyTimedOut] = useState(false);
+
+  useEffect(() => {
+    if (ready) return;
+    const t = setTimeout(() => setReadyTimedOut(true), PRIVY_READY_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [ready]);
 
   useEffect(() => {
     if (!authenticated) {
@@ -82,7 +95,7 @@ function AuthGate({ children }: { children: ReactNode }) {
     };
   }, [tokenReady]);
 
-  if (!ready) {
+  if (!ready && !readyTimedOut) {
     return <div className="flex min-h-screen items-center justify-center text-[13px] text-muted">Loading…</div>;
   }
   if (!authenticated) {
@@ -105,7 +118,14 @@ function AuthGate({ children }: { children: ReactNode }) {
     );
   }
   if (!tokenReady || access === 'checking') {
-    return <div className="flex min-h-screen items-center justify-center text-[13px] text-muted">Signing in…</div>;
+    // Target here too: /me has no timeout, so a backend that never answers parks on this screen, and
+    // a screen you cannot leave is how the wrong target became a devtools problem.
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-2 text-[13px] text-muted">
+        Signing in…
+        <Target />
+      </div>
+    );
   }
   if (access !== 'admin') {
     return <NoAccess kind={access} />;
