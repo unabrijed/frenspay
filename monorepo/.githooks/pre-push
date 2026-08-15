@@ -1,11 +1,15 @@
 #!/bin/sh
 # Build gate. A commit that cannot build does not leave this machine.
 #
-# Every push builds EVERYTHING: install + all three Vercel apps (their vercel.json
-# buildCommand verbatim) + `tsc --noEmit` for the backend, which has no build step —
-# Railway just starts it under tsx, so a type error there ships and crashes at runtime
-# with nothing red anywhere first. Full gate costs a few minutes per push; that is the
-# point — only successful builds get pushed.
+# Every push builds all four Vercel apps (their vercel.json buildCommand verbatim) +
+# `tsc --noEmit` for the backend, which has no build step — it just starts under tsx, so
+# a type error there ships and crashes at runtime with nothing red anywhere first. Full
+# gate costs a few minutes per push; that is the point — only successful builds get pushed.
+#
+# It does NOT build the repo-root Dockerfile, so an image-breaking change still leaves the
+# machine: that is exactly how packages/ui shipped a broken install (see the Dockerfile's
+# manifest rule). The image is built in GitHub Actions on push, where the failure is at
+# least loud and nothing deploys — but it is caught after the push, not before it.
 #
 # Enable (once per clone):  git config core.hooksPath monorepo/.githooks
 # Bypass (deliberately):    git push --no-verify
@@ -32,8 +36,9 @@ fail() {
 
 step() { printf '\n\033[1mpre-push: %s\033[0m\n' "$1"; }
 
-# Vercel and Railway both install with --frozen-lockfile; it fails on a lockfile that
-# does not cover every declared dep, which a local node_modules happily masks.
+# Vercel and the Docker build both install with --frozen-lockfile; it fails on a lockfile
+# that does not cover every declared dep, which a local node_modules happily masks.
+# (Railway itself installs nothing now — it pulls a prebuilt image.)
 step "yarn install --frozen-lockfile"
 (cd monorepo && yarn install --frozen-lockfile) || fail "yarn install --frozen-lockfile"
 
