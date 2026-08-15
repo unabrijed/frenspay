@@ -64,7 +64,19 @@ export async function req<T>(path: string, init?: RequestInit, retried = false):
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(res.status, typeof payload.error === 'string' ? payload.error : `http_${res.status}`, payload);
+    // Read the code off `message` as well as `error`, the way web already does (its api.ts explains
+    // it in full): the backend has no setErrorHandler, so a THROWN error — everything requireUserId
+    // raises — lands its string in Fastify's `message` with a generic "Unauthorized" in `error`,
+    // while reply.send({ error }) puts it in `error`. Reading only `error` collapsed the two 401s
+    // requireUserId deliberately separates, and the console then told an operator whose token had
+    // been REJECTED that they had no profile here — a different problem with a different fix.
+    const code =
+      typeof payload.message === 'string' && payload.message
+        ? payload.message
+        : typeof payload.error === 'string'
+          ? payload.error
+          : `http_${res.status}`;
+    throw new ApiError(res.status, code, payload);
   }
   return (await res.json()) as T;
 }

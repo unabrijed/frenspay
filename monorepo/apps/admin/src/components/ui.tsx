@@ -126,10 +126,18 @@ export function SectionTitle({ children }: { children: ReactNode }) {
 
 /** A page refused by the API (403). `msg`/`children` let the whole-console gate in Providers.tsx
  *  reuse this for its other refusal states instead of restating the copy. */
-export function Denied({ msg, children }: { msg?: string; children?: React.ReactNode } = {}) {
+/** `title` overrides the heading, and the gate screens in Providers.tsx use it. The default is right
+ *  for the 403 every panel shows, and wrong for the gate's other outcomes — a rejected token or a
+ *  missing row is not an authorization decision, and heading them "Not authorized" is what made a
+ *  wrong-backend session get diagnosed as a permissions problem. */
+export function Denied({
+  msg,
+  title = 'Not authorized',
+  children,
+}: { msg?: string; title?: string; children?: React.ReactNode } = {}) {
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center text-center">
-      <p className="text-[18px] font-bold">Not authorized</p>
+      <p className="text-[18px] font-bold">{title}</p>
       <p className="mt-2 max-w-sm text-[13px] text-muted">
         {msg ?? "This console is for the fpay operator. Your account doesn't carry the admin role."}
       </p>
