@@ -146,6 +146,11 @@ export function Providers({ children }: { children: ReactNode }) {
       appId={PRIVY_APP_ID}
       clientId={PRIVY_CLIENT_ID || undefined}
       config={{
+        // Email, and nothing else — the same policy web states at PrivyRoot.tsx. Without it this
+        // console's login() modal renders whatever the Privy dashboard happens to allow, which made
+        // it the one place in the repo a wallet login could start. Everything else here already
+        // said "no wallets"; this is the login door saying it too.
+        loginMethods: ['email'],
         embeddedWallets: {
           ethereum: { createOnLogin: 'off' },
           solana: { createOnLogin: 'off' },
