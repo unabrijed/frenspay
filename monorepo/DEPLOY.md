@@ -49,11 +49,14 @@ environment's bare `CORS_ORIGIN`. Details and the reasoning: `apps/admin/README.
 - **The prod backend is NOT wired.** `.github/workflows/backend-image.yml` triggers on `stage` only,
   so **a `sacred` push today deploys the prod frontends against a backend that never moved.** Know
   that before the first mainnet push. Wiring it, in full:
-  1. Railway → **`production`** environment → New → **Empty Service**, named `fpay-prod-api`.
-     Healthcheck `/health`, restart ON_FAILURE max 3. Never "Deploy from GitHub repo".
+  1. Railway → **`production`** environment → New → **Empty Service**. Healthcheck `/health`,
+     restart ON_FAILURE max 3. Never "Deploy from GitHub repo". Name it whatever you like — the
+     stage twin is `frenspay-stage`, so `frenspay-prod` keeps them scannable side by side.
   2. GitHub → Settings → Secrets and variables → Actions: secret **`RAILWAY_PROD_TOKEN`** (a Railway
-     project token scoped to **production**) and variable **`RAILWAY_PROD_SERVICE`** =
-     `fpay-prod-api`.
+     project token scoped to **production**) and variable **`RAILWAY_PROD_SERVICE`** = that service's
+     name, read back from `railway status` under `All resources` rather than typed from memory. A
+     mismatch surfaces as `Failed to upload code with status code 404 Not Found`, which reads like a
+     broken token and is not.
   3. Add `sacred` to the workflow's `on.push.branches`, and select per branch —
      `RAILWAY_TOKEN: ${{ github.ref_name == 'sacred' && secrets.RAILWAY_PROD_TOKEN || secrets.RAILWAY_STAGE_TOKEN }}`,
      same shape for the service variable, and `--environment production` instead of `stage`.
@@ -70,7 +73,7 @@ environment's bare `CORS_ORIGIN`. Details and the reasoning: `apps/admin/README.
   Vercel takes 2–3. Keep API changes backward-compatible for one deploy cycle — add the field or
   route first, switch the frontend later, remove the old one after that. This matters more at prod
   than at stage: real money is moving through the window.
-- **Rollback**: Railway → `fpay-prod-api` → Deployments → last good one → Redeploy (no image tags
+- **Rollback**: Railway → the prod service → Deployments → last good one → Redeploy (no image tags
   exist to re-pin). Migrations do not roll back — write them additively. Frontends: Vercel →
   Deployments → Promote a previous one.
 - Migrations auto-apply at boot (`db:deploy` runs before `start`).

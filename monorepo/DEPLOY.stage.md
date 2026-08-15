@@ -77,20 +77,28 @@ Production Branch — `stage` here, `sacred` for the prod twins. Details in §Fr
 
 ## Service setup
 
-1. **Create the Railway service.** Railway → project → **`stage`** environment → New → **Empty
-   Service**, named `fpay-stage-api`. Never "Deploy from GitHub repo" — a repo connection would
-   deploy every push regardless of the gate. In its **Settings**, set healthcheck path **`/health`**
-   and restart policy **ON_FAILURE, max 3**; the healthcheck is what turns a boot crash into a
-   failed deploy instead of a live-but-broken API. (These used to live in a root `railway.json`;
-   that file is gone, because Railway reads a repo config only when it builds from a connected repo,
-   which this service never will.)
+1. **The Railway service.** Project `fpay`, environment **`stage`**, service **`frenspay-stage`** —
+   it already exists and carries the `stage.api.frenspay.xyz` domain. If you are rebuilding this
+   from scratch: New → **Empty Service**, never "Deploy from GitHub repo", because a repo connection
+   deploys every push regardless of the gate.
+
+   In its **Settings**, set healthcheck path **`/health`** and restart policy **ON_FAILURE, max 3**.
+   The healthcheck is what turns a boot crash into a failed deploy instead of a live-but-broken API.
+   (These used to live in a root `railway.json`; that file is gone, because Railway reads a repo
+   config only when it builds from a connected repo, which this service never will.)
 
    Then give CI its credentials — GitHub → repo Settings → Secrets and variables → Actions:
 
    | kind | name | value |
    | --- | --- | --- |
-   | **Secret** | `RAILWAY_STAGE_TOKEN` | a Railway **project** token scoped to the **stage** environment (Railway → project Settings → Tokens). Not an account token. |
-   | **Variable** | `RAILWAY_STAGE_SERVICE` | the service name, exactly — `fpay-stage-api` |
+   | **Secret** | `RAILWAY_STAGE_TOKEN` | a Railway **project** token scoped to the **stage** environment (Railway → project Settings → Tokens). Not an account token — those are read from `RAILWAY_API_TOKEN` and carry no project. |
+   | **Variable** | `RAILWAY_STAGE_SERVICE` | the service name, **exactly** — `frenspay-stage` |
+
+   **Do not type that name from memory — read it back.** `railway status` lists every service in the
+   environment under `All resources`; the variable must match one of them character for character. A
+   mismatch does not say "no such service", it fails as
+   `Failed to upload code with status code 404 Not Found`, which reads like a broken token. That cost
+   a full debugging round, and it is why the deploy step now runs `railway status` before uploading.
 
    The workflow hands that secret to the CLI as `RAILWAY_TOKEN`, which is the name the Railway CLI
    reads and the one thing here that cannot be renamed. The secret itself is environment-specific on
@@ -371,7 +379,7 @@ watch, in order:
 1. **Actions → "backend deploy".** Open the **gate** step: silent means *build*; the
    `Nothing in the backend scope changed` notice means it decided to skip. Then Railway's build log
    streams into the deploy step (that's `--ci`). Expect 3–5 minutes.
-2. **Railway → `fpay-stage-api`.** A deployment appears and goes **Active** once `/health` answers.
+2. **Railway → `frenspay-stage`.** A deployment appears and goes **Active** once `/health` answers.
 3. **Its logs.** Migrations applied (or "no pending"), then the server listening on `0.0.0.0`.
 4. **The API.**
    ```sh
@@ -390,7 +398,7 @@ Frontend checks are per app in §Project setup step 7.
 ## Rollback
 
 **Backend.** There are no image tags to re-pin — Railway's deployment history *is* the rollback:
-**Railway → `fpay-stage-api` → Deployments → the last good one → Redeploy.** It redeploys that
+**Railway → `frenspay-stage` → Deployments → the last good one → Redeploy.** It redeploys that
 build's image, no rebuild. If the bad commit is already on `stage`, revert it in git too, or the
 next backend-scope push ships the same breakage again.
 
@@ -405,8 +413,8 @@ forward — which is why migrations must be written additively.
 | --- | --- |
 | Railway deployed something CI didn't push | The service got connected to the GitHub repo (Settings → Source). Disconnect it — its only source should be the CI upload. |
 | Workflow never ran | The change was outside the backend scope. Check with `node scripts/vercel-ignore.mjs backend; echo $?`. Ship it anyway with Actions → Run workflow, which skips the gate deliberately. |
-| `railway up` fails: unauthorized | `RAILWAY_STAGE_TOKEN` missing, expired, or scoped to the wrong environment. It must be a **project** token for **stage**. |
-| `railway up` fails: service not found | `RAILWAY_STAGE_SERVICE` doesn't match the service name exactly. |
+| `Failed to upload code with status code 404 Not Found` | `RAILWAY_STAGE_SERVICE` names a service that doesn't exist in this environment. The `railway status` output printed just above it lists the real names under `All resources` — copy one exactly. This is the most likely cause by far; the 404 is Railway's answer for "no such target", not for a bad token. |
+| `railway up` fails: unauthorized | `RAILWAY_STAGE_TOKEN` missing, expired, or scoped to the wrong environment. It must be a **project** token for **stage**. An account token (from Account Settings) is read from `RAILWAY_API_TOKEN`, carries no project, and makes `railway status` fail to resolve one. |
 | Deploy stuck "waiting for healthcheck" | `PORT` was set by hand (never set it — Railway injects it), or the server crashed at boot. The deploy logs carry the real error. |
 | Boot throws on KYC config | `assertKycConfig` — stage refuses to start without it. Set `STAGE_KYC_PROVIDER` (§Service setup step 3). |
 | `prepared statement does not exist` / lock hangs | `STAGE_DATABASE_URL` points at the transaction pooler (`:6543`). It must be the **session** pooler (`:5432`). |
