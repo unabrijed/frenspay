@@ -31,7 +31,7 @@ its shell, mounts no login at all, sends no credential, and every panel returns 
 like a bug and is really an empty config.
 
 **Privy** — the working path, and the same Privy app as web, no wallet involved. Setting
-`NEXT_PUBLIC_STAGE_PRIVY_APP_ID` is what mounts Privy (`USE_PRIVY`) and renders the Sign in button.
+`NEXT_PUBLIC_PRIVY_APP_ID` is what mounts Privy and renders the Sign in button.
 Allow `http://localhost:3002` as an origin in the Privy dashboard. The **App Secret is
 backend-only** — it lives in `apps/backend/.env`, never here.
 
@@ -112,59 +112,51 @@ particular it never reads `NEXT_PUBLIC_LANDING_URL`, which the prod runbook list
 collectively. The working copy of this list is `apps/admin/.env.deploy` (gitignored, paste-ready).
 
 ```bash
-NEXT_PUBLIC_APP_ENV=stage
 NEXT_PUBLIC_STAGE_API_URL=https://stage.api.frenspay.xyz   # the "stage" target
 NEXT_PUBLIC_API_URL=https://api.frenspay.xyz               # the "prod" target — unset ⇒ no switch
-NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<privy app id>
-NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<optional — see below>
+NEXT_PUBLIC_PRIVY_APP_ID=<privy app id>                    # one app, both targets
+NEXT_PUBLIC_PRIVY_CLIENT_ID=<optional — see below>
 ```
 
-**The API hosts AND the Privy apps are targets, not tiers.** Both pairs are inlined and `apiMode.ts`
-picks between them. `APP_ENV` governs only the dev shim now, and is best left unset on the
-deployment — nothing else reads it.
+**The API hosts are targets, not tiers.** Both are inlined and `apiMode.ts` picks between them.
+`APP_ENV` governs only the dev shim now, and is best left unset on the deployment — nothing else
+reads it.
 
-**Each backend brings its own Privy app.** A token minted by one Privy app does not verify against a
-backend configured with another (`services/privy.ts` → `verifyAuthToken`), so the app id belongs to
-the backend you selected, not to the build:
+**One Privy app, both backends.** A token minted by one Privy app does not verify against a backend
+configured with another (`services/privy.ts` → `verifyAuthToken`), so the one id here must also be
+set as `STAGE_PRIVY_APP_ID` on the stage backend and `PRIVY_APP_ID` on the prod backend. Whichever
+backend disagrees refuses every token before a row is ever looked up.
 
-```
-NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<the app the STAGE backend verifies with>
-NEXT_PUBLIC_PRIVY_APP_ID=<the app the PROD backend verifies with>
-```
+It used to be one app per target, and the switch swapped the id under its reload. Privy's stored
+token keys (`privy:token`, `privy:refresh_token`) are **not** app-scoped, so the incoming provider
+read the outgoing app's session, its refresh threw into a `.then` with no `.catch`, and the console
+sat on "Signing in…" forever with no control on the screen. One app removes the swap; the missing
+`.catch` and a `ready` timeout were fixed alongside it, so a refused or stalled session now lands on
+a screen with Sign out and the env switch on it.
 
-They may be the same app; they no longer have to be. What is NOT allowed is leaving one unset — the
-switch hides prod when its pair is incomplete (`PROD_AVAILABLE`), and a missing stage app id gets an
-explicit screen rather than a console that silently sends no credential.
-
-This used to resolve through the shared tier chain, and it went wrong the moment prod got its own
-app: with `APP_ENV` unset on the deployment the chain quietly returned the **production** tier, so
-the console signed operators into the prod Privy app while `getApiMode()` defaulted its API to
-stage. Every token was rejected before a row was ever looked up, and the console reported it as
-"no profile on this environment". A build-time answer could not have been right — whichever app id
-got baked in, one of the two targets rejects everything.
-
-**Switching targets signs you out.** Privy sessions are per app, so the other target simply has no
-session and you land on Sign in. That is correct, not a bug.
+**Switching targets keeps you signed in.** Same app, same session, so the reload lands straight in
+the other backend's console. (It did once sign you out, back when the targets were separate apps.)
 
 **Your account needs a row in both databases.** Privy DID is looked up per-database, so sign into
 web once per environment; `Providers.tsx` has copy for the in-between state ("no profile on this
 environment yet"). Both `STAGE_ADMIN_EMAILS` and prod `ADMIN_EMAILS` must name you.
 
-That screen means the token VERIFIED and this database has no row for it. Its neighbour — "this
-backend refused the session" — means the opposite: the token never verified, so nothing was looked
-up, and the fix is the target rather than the account. Telling them apart needs `api.ts` to read the
-error code off Fastify's `message`, which is where a thrown error puts it; reading only `error` gave
-both the same generic "Unauthorized" and the two screens collapsed into the wrong one.
+That screen means the token VERIFIED and this database has no row for it. Its neighbour — "Session
+refused" — means the opposite: the token never verified, so nothing was looked up, and the fix is
+the session (or a backend pointed at the wrong Privy app) rather than the account. Telling them
+apart needs `api.ts` to read the error code off Fastify's `message`, which is where a thrown error
+puts it; reading only `error` gave both the same generic "Unauthorized" and the two screens
+collapsed into the wrong one.
 
 `NEXT_PUBLIC_*` is inlined at build time, so a variable change does nothing until the next deploy:
 set variables **then** deploy.
 
 **The client id is optional.** Privy dashboard → your app → Settings → Clients; the client id looks
 like `client-…`, the app id is the `cm…` on the same screen. Leaving it unset is supported —
-`Providers.tsx` passes `clientId={PRIVY_CLIENT_IDS[mode] || undefined}` and Privy falls back to the
-app's default client. It only matters when you want per-client config. Set it for the target whose
-app id you set, never across the pair: a client id belongs to exactly one app. What actually gates
-login is adding the admin origin to **each** Privy app's allowed origins.
+`Providers.tsx` passes `clientId={PRIVY_CLIENT_ID || undefined}` and Privy falls back to the app's
+default client. It only matters when you want per-client config. What actually gates login is adding
+the admin origin to that one Privy app's allowed origins — a missing origin is the other way this
+console used to hang on "Loading…" forever, which the `ready` timeout now escapes.
 
 ### Prerequisites — a green build proves nothing on its own
 
