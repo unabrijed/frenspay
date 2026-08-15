@@ -2,6 +2,7 @@
 
 // identity.tsx — Verify (just-in-time KYC tiers) and Recovery (deferred backup).
 import type { CSSProperties } from 'react';
+import { useEffect, useState } from 'react';
 
 import { Icons } from '@/components/icons';
 import { Btn, TextLink } from '@/components/ui/Button';
@@ -11,14 +12,63 @@ import { View } from '@/components/ui/rn';
 import { colors, fonts, radii, type } from '@/lib/theme';
 import { usePayStore } from '@/store/usePayStore';
 
+// The wait on the vendor's decision, made visible. Rings breathing out of a dot — the `Sent` hero's
+// settling motion (sheets/friends.tsx) at card scale, and the same shape as OrderTracking's active
+// step, whose ring is this one holding still. Never the only signal: the caller always pairs it with
+// a sentence and a role="status", because motion is the flourish and never the message.
+function PulseDot() {
+  return (
+    <View style={styles.pulseWrap}>
+      <View className="pulse-ring" style={styles.pulseRing} />
+      <View className="pulse-ring" style={[styles.pulseRing, { animationDelay: '0.6s' }]} />
+      <View style={styles.pulseCore} />
+    </View>
+  );
+}
+
+// What each waiting status is told to the user, in their words rather than the vendor's enum.
+const WAIT_COPY = {
+  pending: { tag: 'Checking', title: 'Checking your result…', sub: 'Usually under a minute.' },
+  in_review: { tag: 'In review', title: 'A person is looking at it', sub: 'We’ll let you know — nothing for you to do.' },
+} as const;
+
 export function Verify() {
   const close = usePayStore((s) => s.close);
   const verifyDone = usePayStore((s) => s.verifyDone);
+  const refresh = usePayStore((s) => s.refresh);
   const payCtx = usePayStore((s) => s.pendingPay);
   const tier = usePayStore((s) => s.kycTier);
   const kycStatus = usePayStore((s) => s.kycStatus);
   const error = usePayStore((s) => s.error);
-  const verifying = kycStatus === 'pending' || kycStatus === 'in_review';
+  // Local, not the store's `busy`: that flag has 35 writers (load() among them), so a cold refresh
+  // landing while this sheet is open would otherwise disable the only button on it.
+  const [starting, setStarting] = useState(false);
+  const waiting = kycStatus === 'pending' || kycStatus === 'in_review' ? WAIT_COPY[kycStatus] : null;
+  const declined = kycStatus === 'declined';
+
+  // `error` is a shared slot — a stale scan/quote failure would otherwise render red inside the tier
+  // card. Same fresh-sheet reset as sheets/pay.tsx.
+  useEffect(() => {
+    usePayStore.setState({ error: null });
+  }, []);
+
+  // The pulse has to correspond to a real check. useLiveSync only ticks every 12s and stops on a
+  // hidden tab; while this sheet is open and waiting we poll like OrderTracking does.
+  useEffect(() => {
+    if (!waiting) return undefined;
+    const t = setInterval(() => void refresh(), 4000);
+    return () => clearInterval(t);
+  }, [waiting, refresh]);
+
+  const start = async () => {
+    setStarting(true);
+    try {
+      await verifyDone();
+    } finally {
+      setStarting(false);
+    }
+  };
+
   return (
     <>
       <Grab />
@@ -54,17 +104,43 @@ export function Verify() {
             )}
             <Txt style={type.tierTitle}>Tier 2</Txt>
             <Txt style={[type.tierTag, { marginLeft: 'auto', color: tier >= 2 ? colors.accent : colors.muted }]}>
-              {tier >= 2 ? 'Active' : 'Verify to unlock'}
+              {tier >= 2 ? 'Active' : (waiting?.tag ?? (declined ? 'Not verified' : 'Verify to unlock'))}
             </Txt>
           </View>
           <Txt style={styles.desc}>Pay merchants across India. Passport + visa, about 2 minutes.</Txt>
-          {error ? <Txt style={[type.lead, { color: colors.danger, marginTop: 10 }]}>{error}</Txt> : null}
           {tier < 2 ? (
-            verifying ? (
-              <Txt style={[type.lead, { marginTop: 14 }]}>Checking your verification…</Txt>
-            ) : (
-              <Btn label="Verify identity" onPress={verifyDone} style={{ marginTop: 14 }} />
-            )
+            <>
+              {/* One note slot, in priority order: a live failure, then a vendor decline, then the
+                  wait. Rendering two of them at once said the same thing twice in two voices. */}
+              {error ? (
+                <Txt style={[type.lead, { color: colors.danger, marginTop: 12 }]}>{error}</Txt>
+              ) : declined ? (
+                <Txt style={[type.lead, { color: colors.danger, marginTop: 12 }]}>
+                  Verification didn’t pass. You can try again with your documents to hand.
+                </Txt>
+              ) : waiting ? (
+                <View style={styles.wait} role="status" aria-label={waiting.title}>
+                  <PulseDot />
+                  <View style={{ flex: 1 }}>
+                    <Txt style={type.lead}>{waiting.title}</Txt>
+                    <Txt style={[type.inst, { marginTop: 2 }]}>{waiting.sub}</Txt>
+                  </View>
+                </View>
+              ) : null}
+              {/* The button survives the wait: a session the user abandoned (closed the vendor tab,
+                  hit back) leaves the row 'pending' until it expires hours later, and hiding the
+                  button behind that made the wait a dead end. Starting over is safe — POST
+                  /kyc/verify overwrites the session (db/queries.ts setKycSession). It steps back to
+                  `secondary` while waiting so it reads as the way out, not the thing to do next. */}
+              <Btn
+                label={starting ? 'Starting…' : waiting ? 'Start over' : declined ? 'Try again' : 'Verify identity'}
+                onPress={() => void start()}
+                variant={waiting && !starting ? 'secondary' : 'primary'}
+                pending={starting}
+                disabled={starting}
+                style={{ marginTop: 14 }}
+              />
+            </>
           ) : null}
         </View>
 
@@ -132,6 +208,12 @@ export function Recovery() {
 }
 
 const styles = {
+  wait: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14 },
+  // The rings grow past the wrap (scale 1.4) rather than being clipped by it, so the box only has to
+  // hold the dot. Sized off the tier card's own text, not the `Sent` hero's 168px.
+  pulseWrap: { position: 'relative', width: 26, height: 26, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  pulseRing: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 999, borderWidth: 2, borderStyle: 'solid', borderColor: colors.accentLine },
+  pulseCore: { width: 10, height: 10, borderRadius: 999, backgroundColor: colors.accent },
   tier: { borderWidth: 1, borderStyle: 'solid', borderColor: colors.hair, borderRadius: radii.card, padding: 16, backgroundColor: colors.surface },
   tierOn: { backgroundColor: colors.accentSoft, borderColor: colors.accentLine },
   th: { flexDirection: 'row', alignItems: 'center', gap: 8 },

@@ -27,6 +27,7 @@ export default function Settings() {
   const localCurrency = usePayStore((s) => s.localCurrency);
   const recoveryPasskey = usePayStore((s) => s.recoveryPasskey);
   const kycTier = usePayStore((s) => s.kycTier);
+  const kycStatus = usePayStore((s) => s.kycStatus);
   const invitesTotal = usePayStore((s) => s.invitesTotal);
   const invitesUsed = usePayStore((s) => s.invitesUsed);
   const logout = usePayStore((s) => s.logout);
@@ -52,7 +53,7 @@ export default function Settings() {
           </View>
         </View>
 
-        <VerifyCard tier={kycTier} onPress={() => open('verify')} />
+        <VerifyCard tier={kycTier} status={kycStatus} onPress={() => open('verify')} />
 
         <InviteCard used={invitesUsed} total={invitesTotal} />
 

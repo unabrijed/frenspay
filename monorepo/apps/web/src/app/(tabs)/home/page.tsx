@@ -29,6 +29,7 @@ export default function Home() {
   const router = useRouter();
   const pollKyc = usePayStore((s) => s.pollKyc);
   const kycTier = usePayStore((s) => s.kycTier);
+  const kycStatus = usePayStore((s) => s.kycStatus);
   const txns = usePayStore((s) => s.transactions);
   const loaded = usePayStore((s) => s.firstLoadDone);
   const handle = usePayStore((s) => s.handle);
@@ -110,7 +111,7 @@ export default function Home() {
             Waits for `loaded` so the persisted tier can't flash a stale prompt at a verified user. */}
         {loaded && kycTier < 2 ? (
           <View style={styles.verify}>
-            <VerifyCard tier={kycTier} onPress={() => open('verify')} />
+            <VerifyCard tier={kycTier} status={kycStatus} onPress={() => open('verify')} />
           </View>
         ) : null}
 

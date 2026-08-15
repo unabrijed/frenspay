@@ -927,6 +927,8 @@ export const usePayStore = create<PayState>()(
         // ?verificationSessionId=… appended). The callback carries NO query of our own, so Didit's
         // appended params can't collide with one (…/home?kyc=done?verificationSessionId=… would
         // otherwise mis-parse and skip the poll).
+        // No `busy` here on purpose: that flag is global (load() writes it too), so the in-flight
+        // state belongs to the caller — sheets/identity.tsx owns a local one.
         try {
           set({ error: null });
           const r = await api.kycVerify(`${window.location.origin}/home`);
