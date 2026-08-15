@@ -2,9 +2,11 @@
 # Build gate. A commit that cannot build does not leave this machine.
 #
 # Every push builds all four Vercel apps (their vercel.json buildCommand verbatim) +
-# `tsc --noEmit` for the backend, which has no build step — it just starts under tsx, so
-# a type error there ships and crashes at runtime with nothing red anywhere first. Full
-# gate costs a few minutes per push; that is the point — only successful builds get pushed.
+# `tsc --noEmit` and the esbuild bundle for the backend. The typecheck catches what tsx
+# would otherwise let ship and crash at boot; the bundle catches what only bundling can
+# break (a value import of @fpay/shared, which is external in the bundle and would fail to
+# resolve inside the image). Full gate costs a few minutes per push; that is the point —
+# only successful builds get pushed.
 #
 # It does NOT build the repo-root Dockerfile, so an image-breaking change still leaves the
 # machine: that is exactly how packages/ui shipped a broken install (see the Dockerfile's
@@ -56,5 +58,9 @@ step "@fpay/lp build"
 
 step "@fpay/backend typecheck"
 (cd monorepo && yarn workspace @fpay/backend tsc --noEmit) || fail "@fpay/backend typecheck"
+
+# The image runs these bundles, not src/. If esbuild cannot produce them, the deploy is dead.
+step "@fpay/backend bundle"
+(cd monorepo && yarn workspace @fpay/backend build) || fail "@fpay/backend bundle"
 
 exit 0
