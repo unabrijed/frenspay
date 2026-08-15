@@ -59,6 +59,9 @@ async function start() {
     app.log.error({ err }, 'request error');
   });
 
+  // Railway's healthcheck target — a deploy is only marked Active once this answers, which is what
+  // turns a boot crash (or a failed migration, since migrations run first) into a failed deploy
+  // instead of a live-but-broken API. Keep it dependency-free and always cheap.
   app.get('/health', async () => ({ status: 'ok', database: hasDatabase() ? 'configured' : 'none' }));
 
   await registerRoutes(app);
