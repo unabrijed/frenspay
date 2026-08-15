@@ -42,25 +42,40 @@ environment's bare `CORS_ORIGIN`. Details and the reasoning: `apps/admin/README.
 ## Model
 
 - One Railway project, two environments: `stage` and `production`. Pushing **`sacred`** (the prod
-  branch) deploys the `production` environment — wired up only at mainnet time; until then a
-  `sacred` push deploys nothing.
+  branch) deploys the `production` environment, gated by the same `scripts/vercel-ignore.mjs backend`
+  scope as stage.
 - Same repo-root `Dockerfile` (`node:24-slim`) and start command everywhere: `envConfig` keys off
   `NODE_ENV` (stage→`STAGE_*` prefix, prod→bare names). No per-env scripts.
-- **The prod backend is NOT wired.** `.github/workflows/backend-image.yml` triggers on `stage` only,
-  so **a `sacred` push today deploys the prod frontends against a backend that never moved.** Know
-  that before the first mainnet push. Wiring it, in full:
-  1. Railway → **`production`** environment → New → **Empty Service**. Healthcheck `/health`,
-     restart ON_FAILURE max 3. Never "Deploy from GitHub repo". Name it whatever you like — the
-     stage twin is `frenspay-stage`, so `frenspay-prod` keeps them scannable side by side.
-  2. GitHub → Settings → Secrets and variables → Actions: secret **`RAILWAY_PROD_TOKEN`** (a Railway
-     project token scoped to **production**) and variable **`RAILWAY_PROD_SERVICE`** = that service's
-     name, read back from `railway status` under `All resources` rather than typed from memory. A
-     mismatch surfaces as `Failed to upload code with status code 404 Not Found`, which reads like a
-     broken token and is not.
-  3. Add `sacred` to the workflow's `on.push.branches`, and select per branch —
-     `RAILWAY_TOKEN: ${{ github.ref_name == 'sacred' && secrets.RAILWAY_PROD_TOKEN || secrets.RAILWAY_STAGE_TOKEN }}`,
-     same shape for the service variable, and `--environment production` instead of `stage`.
-  4. Set the service variables (below) **before** the first deploy.
+- **CI is wired for prod; the service is not.** `.github/workflows/backend-image.yml` now triggers on
+  both `stage` and `sacred`, selecting the token, service and Railway environment from the branch.
+  So **a `sacred` push deploys the backend automatically — and runs migrations against the
+  production database before the server starts.** Everything below must exist first, or the deploy
+  fails loudly (deliberately: the prod frontends ship from the same push, and a quietly-skipped
+  backend would hide a version split behind a green run).
+
+  1. **A separate production database — not stage's.** `apps/backend/src/db/tier.ts` stamps every
+     database with the tier that owns it and refuses to serve another: *"refusing to run against the
+     wrong tier's database"*, fatal at boot. Create a new Supabase project, use the **session**
+     pooler (`:5432`, never the transaction pooler — advisory locks), and set it as the bare
+     `DATABASE_URL`.
+  2. **Railway service.** `production` environment → New → **Empty Service**. Healthcheck `/health`,
+     restart ON_FAILURE max 3. Never "Deploy from GitHub repo" — and check Settings → Source even on
+     a service you did not create that way; a repo connection means two deployments per push and a
+     bypassed path gate. Name it whatever you like; the stage twin is `frenspay-stage`.
+  3. **CI credentials.** GitHub → Settings → Secrets and variables → Actions: secret
+     **`RAILWAY_PROD_TOKEN`** (a Railway **project** token scoped to **production**; an *account*
+     token is read from `RAILWAY_API_TOKEN`, carries no project, and 404s) and variable
+     **`RAILWAY_PROD_SERVICE`** = that service's name, **read back from `railway status`** rather
+     than typed. A mismatch surfaces as `Failed to upload code with status code 404 Not Found`,
+     which reads like a broken token and is not.
+  4. **Variables, bare names, before the first deploy.** Three asserts run before the server accepts
+     traffic and every one of them is fatal:
+     - `assertKycConfig` (`services/kyc/index.ts`) — prod is meant to run **didit**, needing
+       `DIDIT_API_KEY`, `DIDIT_WORKFLOW_ID` and `DIDIT_WEBHOOK_SECRET`; placeholder-looking values
+       count as missing. Stage runs `sim` only because Didit isn't live, and prod on `sim` means no
+       real identity verification on real money — decide that deliberately.
+     - `assertPayoutConfig` (`services/payout/provider.ts`)
+     - `assertDatabaseTier` — item 1.
 
   The image is environment-agnostic — `envConfig` keys off `NODE_ENV` — so nothing in the build
   changes, only variables.

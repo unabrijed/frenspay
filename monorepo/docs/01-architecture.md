@@ -53,7 +53,7 @@ There is no devnet deployment anywhere — devnet exists only in local dev, read
 |---|---|---|---|
 | local | — | Solana devnet | `NODE_ENV` local/development; writes to the shared stage Postgres (no local DB) |
 | stage | `stage` | Solana **mainnet** ("mainnet-lite") | Railway stage env + Vercel stage projects; real USDC, most money moves |
-| production | `sacred` | Solana **mainnet** | same shapes, bare env var names, separate access key; backend not wired yet — a `sacred` push deploys frontends only |
+| production | `sacred` | Solana **mainnet** | same shapes, bare env var names, separate access key; CI deploys the backend too, but the Railway service needs its **own** database — the tier stamp makes sharing stage's fatal at boot |
 
 > The Branch column means two different mechanisms: for Vercel it is the project's Production
 > Branch, for the backend it is the CI workflow's trigger. They are kept in step by hand, not by a
