@@ -78,4 +78,18 @@ jobs:
           SERVICE: ${{ vars.RAILWAY_STAGE_SERVICE }}
         run: |
           npm install -g @railway/cli
+
+          # Preflight, because `railway up` reports every one of these as a bare
+          # "Failed to upload code with status code 404 Not Found" and that log tells you nothing.
+          # It cost a full debugging round the first time. Never echo RAILWAY_TOKEN.
+          test -n "$SERVICE" || { echo "::error::RAILWAY_STAGE_SERVICE is empty. Set it under repo Settings -> Secrets and variables -> Actions -> VARIABLES (not Secrets)."; exit 1; }
+          test -n "$RAILWAY_TOKEN" || { echo "::error::RAILWAY_STAGE_TOKEN is empty. Set it under repo Settings -> Secrets and variables -> Actions -> Secrets."; exit 1; }
+          echo "service=[$SERVICE]"
+
+          # The decisive probe: `status` resolves a project only if RAILWAY_TOKEN is a PROJECT token
+          # (Railway -> the project -> Settings -> Tokens). An ACCOUNT token carries no project, is
+          # read via RAILWAY_API_TOKEN instead, and authenticates fine right up until the upload
+          # 404s with nothing to attach to.
+          railway status || echo "::warning::railway status could not resolve a project — RAILWAY_STAGE_TOKEN is probably an ACCOUNT token. Regenerate it inside the project (Settings -> Tokens), scoped to the stage environment."
+
           railway up --ci --service "$SERVICE" --environment stage
