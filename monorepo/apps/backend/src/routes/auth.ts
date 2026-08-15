@@ -10,6 +10,7 @@ import { config } from '../envConfig';
 import {
   canonicalHandle,
   ensureInviteCodes,
+  findUserByEmail,
   findUserById,
   findUserByPhone,
   getInviteStats,
@@ -70,10 +71,15 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     // left req.userId unset). Who skips it and why is inviteRequired() in services/invites.ts. The
     // code is validated and BURNED inside the upsert transaction, not here: checking it here and
     // spending it there would leave a window where two people both pass this line.
+    //
+    // "Existing" is asked of the EMAIL as well as the DID. authPreHandler can only match a DID, so a
+    // returning person under a new one reads as brand new here and gets asked for an invite to their
+    // own account — a code they have no reason to have, blocking the adoption path in
+    // upsertUserByPrivyDid before it can run. The address is Privy-verified, never self-claimed.
     let inviteCode: string | undefined;
     if (
       inviteRequired({
-        isExistingUser: Boolean(req.userId),
+        isExistingUser: Boolean(req.userId) || Boolean(email && (await findUserByEmail(email))),
         directoryHasUsers: await hasAnyUsers(),
         isRootAdmin: isRootAdminEmail(email),
       })
