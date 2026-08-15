@@ -1,0 +1,98 @@
+# Build the backend image here, so Railway only ever pulls.
+#
+# Railway used to build the root Dockerfile itself on every matching push: a cold
+# `yarn install --frozen-lockfile` across every workspace — Next, Privy, wagmi, Solana — for a
+# backend that has no build step at all. That took minutes, was billed as usage, and finished at a
+# time unrelated to Vercel's frontend builds, so each push left a window where the app and the API
+# were on different commits and nobody could predict which was ahead.
+#
+# Now the image is built here (free and unlimited on a public repo, native x86_64, and the
+# expensive install layer stays warm in the GHA cache), and Railway's whole job is a pull + boot +
+# healthcheck — some tens of seconds. It lands inside Vercel's window instead of minutes from it.
+#
+# Ordering is deliberate: the backend goes live BEFORE the frontends. Old frontend against new
+# backend is the safe pairing; new frontend against old backend is the one that breaks. So keep
+# backend API changes backward-compatible for one deploy cycle.
+name: backend image
+
+on:
+  push:
+    branches: [stage]
+  # Ship the current commit without editing code — a redeploy, or a recovery after a failed run.
+  # Skips the path gate on purpose: asking for it by hand IS the decision.
+  workflow_dispatch:
+
+# One deploy at a time per branch. A newer push supersedes an older one rather than racing it onto
+# the same service.
+concurrency:
+  group: backend-image-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/fpay-backend
+
+jobs:
+  ship:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The gate diffs HEAD against HEAD^; a depth-1 checkout has no parent to diff.
+          fetch-depth: 2
+
+      # Same scopes, same self-test, as the Vercel gate — see monorepo/scripts/vercel-ignore.mjs.
+      # Exit codes are Vercel's and inverted: 0 = SKIP, 1 = BUILD. `if` is exempt from errexit,
+      # which is why the non-zero "build" answer doesn't fail the step.
+      - id: gate
+        name: Does this commit touch the backend image?
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo 'ship=true' >> "$GITHUB_OUTPUT"
+            echo '::notice::Manual run — path gate skipped.'
+          elif node monorepo/scripts/vercel-ignore.mjs backend; then
+            echo 'ship=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::Nothing in the backend scope changed — no image, no deploy.'
+          else
+            echo 'ship=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.gate.outputs.ship == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - if: steps.gate.outputs.ship == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Context is the git root, because the Dockerfile reaches into monorepo/ for every COPY.
+      - if: steps.gate.outputs.ship == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          # :stage says what the branch is on, :<sha> is what actually gets deployed — see below.
+          tags: |
+            ${{ env.IMAGE }}:stage
+            ${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Pin the service to the exact SHA rather than a moving :stage tag, so what is live is always
+      # traceable to a commit — and a rollback is this same pair of commands with an older SHA.
+      - if: steps.gate.outputs.ship == 'true'
+        name: Point Railway at the new image and pull it
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          SERVICE: ${{ vars.RAILWAY_SERVICE }}
+        run: |
+          npm install -g @railway/cli
+          railway service source connect \
+            --image "$IMAGE:$GITHUB_SHA" --service "$SERVICE" --environment stage
+          railway redeploy --from-source --service "$SERVICE" --environment stage --yes
