@@ -39,9 +39,15 @@ export default function Settings() {
         </View>
 
         <View style={styles.profile}>
-          <ProfileAvatar label={(handle.replace(/^@/, '')[0] ?? 'U').toUpperCase()} />
+          {/* Never invent an identity. This used to read '@you' over a 'U' monogram and the caption
+              "fpay account" — and '@you' is a VALID handle shape, so it looked like a real account
+              someone had been given rather than a placeholder. It shows whenever the store's own
+              handle is empty, which includes the frame right after Log out clears it below (this
+              screen is still mounted) and the /me window on a cold sign-in. The dash is what the
+              Receive sheet already shows for the same unknown. */}
+          <ProfileAvatar label={(handle.replace(/^@/, '')[0] ?? '').toUpperCase()} />
           <View>
-            <Txt style={type.handle}>{handle || '@you'}</Txt>
+            <Txt style={type.handle}>{handle || '—'}</Txt>
             <Txt style={[type.profileSub, { marginTop: 2 }]}>fpay account</Txt>
           </View>
         </View>

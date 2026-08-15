@@ -320,7 +320,12 @@ export const usePayStore = create<PayState>()(
 
       sheet: null,
       closing: false,
-      payee: { name: 'Anjuna Beach Cafe' },
+      // Empty, not a plausible demo value. Every sheet that reads these is opened by the same set()
+      // that writes the real ones, so a seed is never SUPPOSED to render — which is exactly why a
+      // realistic one is dangerous: the day some path opens a sheet without writing first, the
+      // screen states a payment that did not happen instead of showing an obvious blank. Same
+      // reason Settings no longer says '@you'. `friend` was already written this way.
+      payee: { name: '' },
       friend: { name: '', handle: '', ini: '' },
       payRupees: 500,
       scannedRupees: 0,
@@ -329,8 +334,8 @@ export const usePayStore = create<PayState>()(
       kycStatus: 'none',
       role: 'user',
       externalSend: null,
-      lastSend: { u: 12, handle: '@neha' },
-      lastRequest: { u: 20, handle: '@neha' },
+      lastSend: { u: 0, handle: '' },
+      lastRequest: { u: 0, handle: '' },
       requestDraftUsd: 20,
       requests: [],
       busy: false,

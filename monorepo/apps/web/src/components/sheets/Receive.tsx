@@ -23,7 +23,7 @@ export function Receive() {
 
   const onShare = async () => {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const text = `Pay me on fpay. My handle is ${handle || ''}`.trim();
+    const text = `Pay me on fpay. My handle is ${handle}`;
     const message = origin ? `${text}\n${origin}` : text;
     try {
       if (typeof navigator !== 'undefined' && navigator.share) {
@@ -52,9 +52,13 @@ export function Receive() {
           )}
         </View>
         <Txt style={[type.handle, { marginTop: 20 }]}>{handle || '—'}</Txt>
+        {/* Disabled on the same condition that suppresses the QR. Sharing without a handle sent the
+            dangling sentence "Pay me on fpay. My handle is" and a bare origin URL — an invite that
+            names nobody, from the one screen whose entire job is to name you. */}
         <Btn
           label={copied ? 'Copied' : 'Share / invite'}
           variant="secondary"
+          disabled={!handle}
           onPress={onShare}
           style={{ marginTop: 22, alignSelf: 'stretch' }}
         />
