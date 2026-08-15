@@ -39,11 +39,12 @@ export function useLiveSync(): void {
 
     if (document.visibilityState === 'visible') start();
     document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('focus', refresh);
+    // No 'focus' listener: visibilitychange already covers the case that matters (tab returns to
+    // foreground), while focus ALSO fires for same-tab refocus — alt-tabbing back, dismissing the
+    // Privy modal, clicking in from another window — each one a duplicate of a poll already running.
     return () => {
       stop();
       document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('focus', refresh);
     };
   }, [ready]);
 }
