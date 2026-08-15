@@ -117,7 +117,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     async (req): Promise<AdminUsersResponse> => {
       await requireAdmin(req);
       const page = await listUsersAdmin(Number(req.query.limit ?? 50), req.query.cursor);
-      return { users: page.items, nextCursor: page.nextCursor };
+      // The GOVERNING role, not the column — same answer /me gives and requireAdmin enforces. The
+      // raw column reads 'user' for a root admin (ADMIN_EMAILS outranks it and never writes it), so
+      // the directory used to show the operators reading it as ordinary users. Mapped here rather
+      // than in listUsersAdmin because "who is effectively an admin" is policy, and queries.ts
+      // importing auth.ts would close an import cycle.
+      const users = page.items.map((u) => ({ ...u, role: effectiveRole(u) as (typeof u)['role'] }));
+      return { users, nextCursor: page.nextCursor };
     },
   );
 
