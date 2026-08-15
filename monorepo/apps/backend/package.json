@@ -24,7 +24,8 @@
     "check:flist": "tsx scripts/check-flist-gate.ts",
     "check:fx": "tsx scripts/check-fx.ts",
     "check:routing": "tsx scripts/check-routing-math.ts",
-    "check:lock": "tsx scripts/check-lock.ts"
+    "check:lock": "tsx scripts/check-lock.ts",
+    "check:balance": "tsx scripts/check-balance.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
