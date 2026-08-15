@@ -17,14 +17,16 @@
   a scope per target and a `--check` self-test (`yarn check:deploy`); Vercel calls it via
   `ignoreCommand`, the backend workflow calls it as `... backend`. Add a scope there when you add
   a deploy target — do not start a second filter somewhere else.
-- **Railway builds nothing.** The backend service pulls a prebuilt image that GitHub Actions pushes
-  to GHCR on a `stage` push. That keeps a multi-minute install off the critical path, so the API
-  lands inside Vercel's build window rather than minutes from it — the frontend/backend version
-  skew is a correctness problem, not just a slow one. The backend lands **first**, which is the
-  safe order, so keep API changes backward-compatible for one deploy cycle.
-- **Runbooks live at the repo root**, next to what they deploy: `DEPLOY.stage.md` (stage
-  mainnet-lite: ON/OFF table, fee-payer funding, Helius webhook chores, smoke test) and
-  `DEPLOY.md` (prod). Deployment is deliberately not a numbered doc.
+- **Nothing is published to a registry.** CI uploads the checkout and Railway builds it. Pushing a
+  prebuilt image would be faster, but it needs a **public** image (Railway gates private-registry
+  pulls behind Pro) and the image is a readable codebase. The cost is skew: a Railway build is 3–5
+  minutes against Vercel's 2–3, so the **frontend can land first** — the pairing that breaks. That
+  makes backward-compatible API changes for one deploy cycle a rule, not a nicety.
+- **Runbooks live at the repo root — exactly two, one per environment**, each complete for backend
+  and frontends: `DEPLOY.stage.md` (stage mainnet-lite: how a deploy happens, service wiring, ON/OFF
+  table, fee-payer funding, Helius chores, Vercel projects, rollback, troubleshooting) and
+  `DEPLOY.md` (prod: the same shape with mainnet values, plus the mainnet checklist). No third file
+  — a pipeline doc separate from the environment docs is how the two drift apart.
 
 ## Environment config convention
 

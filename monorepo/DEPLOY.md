@@ -46,19 +46,33 @@ environment's bare `CORS_ORIGIN`. Details and the reasoning: `apps/admin/README.
   `sacred` push deploys nothing.
 - Same repo-root `Dockerfile` (`node:24-slim`) and start command everywhere: `envConfig` keys off
   `NODE_ENV` (stage→`STAGE_*` prefix, prod→bare names). No per-env scripts.
-- **Railway builds nothing** — the service pulls a prebuilt image that GitHub Actions pushes to
-  GHCR (`DEPLOY.stage.md` §Build model). Wiring prod means: a `sacred` branch trigger and a
-  `:prod`/`:<short-sha>` tag in `.github/workflows/backend-image.yml`, a **production**-scoped
-  `RAILWAY_TOKEN`, and the same image source + `/health` healthcheck + ON_FAILURE/3 restart policy
-  on the production service, pinned to `:prod` the way stage is pinned to `:stage`. The image is
-  env-agnostic; only variables differ.
-- **The GHCR package is public and the repo is not.** Railway's Hobby plan cannot pull a private
-  image (registry credentials are Pro-only), so the image is public and the Dockerfile's runner
-  stage exists to make that safe: minified bundles, no source. If prod ever justifies Railway Pro,
-  make the package private and add registry credentials per environment — but until then, anything
-  added to the runner stage is published. `oms` runs under the identical constraint.
-- **The backend goes live before the frontends**, so keep API changes backward-compatible for one
-  deploy cycle. This matters more at prod than at stage: real money is moving through the window.
+- **The prod backend is NOT wired.** `.github/workflows/backend-image.yml` triggers on `stage` only,
+  so **a `sacred` push today deploys the prod frontends against a backend that never moved.** Know
+  that before the first mainnet push. Wiring it, in full:
+  1. Railway → **`production`** environment → New → **Empty Service**, named `fpay-prod-api`.
+     Healthcheck `/health`, restart ON_FAILURE max 3. Never "Deploy from GitHub repo".
+  2. GitHub → Settings → Secrets and variables → Actions: secret **`RAILWAY_PROD_TOKEN`** (a Railway
+     project token scoped to **production**) and variable **`RAILWAY_PROD_SERVICE`** =
+     `fpay-prod-api`.
+  3. Add `sacred` to the workflow's `on.push.branches`, and select per branch —
+     `RAILWAY_TOKEN: ${{ github.ref_name == 'sacred' && secrets.RAILWAY_PROD_TOKEN || secrets.RAILWAY_STAGE_TOKEN }}`,
+     same shape for the service variable, and `--environment production` instead of `stage`.
+  4. Set the service variables (below) **before** the first deploy.
+
+  The image is environment-agnostic — `envConfig` keys off `NODE_ENV` — so nothing in the build
+  changes, only variables.
+- **Nothing is published to a registry**, at either tier: CI uploads the checkout and Railway builds
+  it. No image exists outside Railway, so the private repo stays private. The faster
+  build-here-and-pull design needs a **public** image (Railway gates private-registry pulls behind
+  **Pro**), and a public image is a readable codebase. Full reasoning: `DEPLOY.stage.md` §How a
+  deploy happens.
+- **The frontends can go live before the backend**, because a Railway build takes 3–5 minutes and
+  Vercel takes 2–3. Keep API changes backward-compatible for one deploy cycle — add the field or
+  route first, switch the frontend later, remove the old one after that. This matters more at prod
+  than at stage: real money is moving through the window.
+- **Rollback**: Railway → `fpay-prod-api` → Deployments → last good one → Redeploy (no image tags
+  exist to re-pin). Migrations do not roll back — write them additively. Frontends: Vercel →
+  Deployments → Promote a previous one.
 - Migrations auto-apply at boot (`db:deploy` runs before `start`).
 
 ## Variables

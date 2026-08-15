@@ -38,7 +38,7 @@ monorepo/
 | Chain | **Solana, SPL USDC** (6 dp), Anchor | **mainnet** on deployed envs (stage + prod); devnet only in local dev |
 | Data | **Postgres on Supabase** (session pooler — advisory locks) | access control in the API layer, no RLS; local dev also writes to the shared stage DB |
 | Infra | Privy (wallets), Helius (RPC + webhooks) | both have free tiers |
-| Hosting | **Railway** (backend — pulls a prebuilt image; **GitHub Actions** builds it) + **Vercel** (frontends, one project per app per env) | web gated by a shared access key until public launch |
+| Hosting | **Railway** (backend — **GitHub Actions** uploads the checkout, Railway builds it; nothing is published to a registry) + **Vercel** (frontends, one project per app per env) | web gated by a shared access key until public launch |
 
 ---
 

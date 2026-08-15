@@ -20,94 +20,82 @@ tier (envConfig.ts). Local dev keeps devnet — it reads the repo `.env`, not th
 `/sim/kyc` stays live (tier gating only — acceptable behind the access gate). Money-in is
 deposit-only: send USDC (Solana) to the address shown in Add money.
 
-## Build model
+## How a deploy happens
 
-**Railway does not build. It pulls.** The service's source is a Docker image, not this repo — there
-is no GitHub connection on it, so no push can ever trigger a Railway build.
+One push to `stage` fans out to two independent systems. Nothing else triggers either — no manual
+step, and **Railway has no GitHub connection**, so no push reaches it except through CI.
 
-- **Trigger**: pushing **`stage`** runs `.github/workflows/backend-image.yml`, which builds the
-  image on GitHub Actions and then tells Railway to pull it. The repo is private, so Actions
-  minutes are **metered** (2,000/month on the Free plan) — a warm build is about a minute, and the
-  path gate below is what keeps that number boring. Runners are native x86_64.
-  `workflow_dispatch` ships the current commit by hand — a redeploy, or recovery after a failed run.
-- **Path isolation**: `node scripts/vercel-ignore.mjs backend` — the same file, scopes and self-test
-  the Vercel projects use. Backend scope = backend code, `packages/shared`, the workspace
-  manifests/lockfile, and the git-root build files (`Dockerfile`, `.dockerignore`). Anything else
-  builds no image and deploys nothing. (This replaced `build.watchPatterns`, which was a second copy
-  of these rules in another syntax that nothing tested.)
-- **Build**: the repo-root **`Dockerfile`**, two stages, `node:24-slim` (web's
-  `@solana-program/token@0.14` needs node ≥24 and the builder installs every workspace). The
-  builder runs `yarn install --frozen-lockfile` at `monorepo/` (the workspace root) then
-  `yarn workspace @fpay/backend build` — esbuild emits two flat, minified, sourcemap-less bundles,
-  `dist/server.mjs` and `dist/migrate.mjs`. The **runner stage carries only those bundles**, plus
-  `node_modules`, the `.sql` migrations and `idl/escrow.json`. No `src/`, no frontends. The install
-  layer is cached in GitHub Actions and only busts when a manifest or the lockfile changes, so a
-  source-only change rebuilds in well under a minute. The root `.dockerignore` keeps secrets
-  (`.env*`, `.devnet/`) and dead weight out of the image — keep it that way when adding files.
-- **Why two stages**: the GHCR package is **public** (see troubleshooting), so the runner stage is
-  world-readable. It used to be a single `COPY monorepo/ .` running TS through `tsx`, which would
-  have published the entire monorepo. A minified bundle is obscurity, not secrecy — but it is the
-  same bar `shoonyastore/oms` has run at on Hobby for months.
-- **Tags**: every build pushes `ghcr.io/unabrijed/fpay-backend:stage` **and** `:<short-sha>` (12
-  chars). The service tracks the moving `:stage` tag and `railway redeploy` re-pulls it; the
-  `:<short-sha>` tags exist so a rollback has something immutable to point at.
-- **Why**: Railway's build was a cold multi-minute install of every workspace's dependencies —
-  Next, Privy, wagmi, Solana — to produce a sub-second esbuild bundle, billed as usage, and
-  finishing at a time unrelated to Vercel's frontend builds. Pull + boot + healthcheck is tens of
-  seconds, so
-  the API now lands *inside* the Vercel window instead of minutes away from it.
+```
+git push origin stage
+├─ GitHub Actions  .github/workflows/backend-image.yml  ("backend deploy")   → the backend
+└─ Vercel          one build per frontend project                            → web, admin, lp, landing
+```
 
-> **Deploy ordering is load-bearing.** The backend goes live BEFORE the frontends, every time. Old
-> frontend against new backend is the safe pairing; new frontend against old backend is the one
-> that breaks. **Keep backend API changes backward-compatible for one deploy cycle** — add the new
-> field/route first, switch the frontend to it on a later push, remove the old one after that.
+**One gate decides both.** `scripts/vercel-ignore.mjs` — Vercel calls it per project via
+`ignoreCommand`, the workflow calls it as `... backend`. Exit 0 = skip, 1 = build. A docs-only push
+deploys nothing, anywhere. Anything undecidable builds, because a wasted deploy costs money once
+while a wrongly skipped one leaves a stale build on a live domain.
 
-### Adding a workspace? Add its manifest to the Dockerfile
+**How the backend image is built.** The workflow runs `railway up --ci` from the git root. That
+uploads the checkout (`.gitignore` honoured — no `.env`, no `node_modules`) and Railway builds the
+repo-root two-stage `Dockerfile` on its own builder:
 
-Every workspace's `package.json` must be COPY'd before the `yarn install` layer, not just the ones
-the backend imports. Workspace deps are declared `"*"` and are deliberately absent from
-`yarn.lock` — yarn resolves them from the workspace tree, so a manifest missing at that layer makes
-yarn fall through to the npm registry and die on a package that was never published. This is not
-hypothetical: it is exactly how `packages/ui` broke the build (web and lp declare `@fpay/ui`; its
-manifest was not copied; the backend never touches it and it broke anyway).
+- **builder** — `yarn install --frozen-lockfile` across every workspace, then
+  `yarn workspace @fpay/backend build`: esbuild emits `dist/server.mjs` and `dist/migrate.mjs`,
+  minified, no sourcemap.
+- **runner** — those two bundles plus `node_modules`, the `.sql` migrations and `idl/escrow.json`.
+  No `src/`, no frontends.
 
-> **Troubleshooting: the build log shows Railway building anything at all.** It should not — the
-> service source is an image. A Railway-side build means the service got reconnected to the GitHub
-> repo (Settings → Source). Reconnect the image:
-> `railway service source connect --image ghcr.io/unabrijed/fpay-backend:<sha> --service <svc> --environment stage`
+**How it deploys.** The container CMD runs `node dist/migrate.mjs deploy`, then
+`node dist/server.mjs`. Migrations always precede the server, so it can never boot against a stale
+schema. The `/health` healthcheck decides Active vs failed deploy.
+
+**How the frontends deploy.** Vercel builds each project from its own `vercel.json`. The branch pin
+is implicit: the gate skips unless `VERCEL_ENV=production`, which a project only sees on its own
+Production Branch — `stage` here, `sacred` for the prod twins. Details in §Frontends.
+
+> ### Nothing is published, anywhere
 >
-> **Troubleshooting: Railway cannot pull the image.** The GHCR package went private. Railway gates
-> *private* registry deploys behind the **Pro plan** and we are on **Hobby**, so the package has to
-> be public — GitHub creates container packages private by default, and a package can silently
-> revert. Fix: package → Settings → Danger Zone → Change visibility → Public. Public GHCR images
-> allow anonymous pull, which is what Railway does.
+> No registry, no Docker Hub, no GHCR package, no public image. The built image exists only inside
+> Railway. The repo stays private and so does the code.
 >
-> This is exactly why the Dockerfile is multi-stage. **Never ship source in the runner stage** —
-> public package + source in the image = the private repo published. `oms` hit the same Hobby
-> constraint and answered it the same way (`shoonyastore/oms/STAGE_DEPLOY.md` §6).
+> The faster design — build in Actions, push to a registry, let Railway pull — needs a **public**
+> image, because Railway gates private-registry pulls behind the **Pro** plan and we are on
+> **Hobby**. And a public image is a published codebase: `dist/server.mjs` is minified, not
+> encrypted (route paths, fee math and the literal `frens@frenspay.xyz` all survive) and
+> `dist/migrations/*.sql` is the schema in plain SQL. Renaming the registry repo does not help —
+> anyone who pulls it identifies the project in seconds.
+>
+> Changing this is a deliberate decision, not a config tweak. The two-stage Dockerfile is already
+> written for it if Railway ever goes Pro.
+
+> **Deploy ordering is load-bearing, and it cuts against us.** A Railway build takes 3–5 minutes;
+> Vercel finishes the frontends in 2–3, so the **frontend can go live first** — the pairing that
+> breaks (old frontend + new backend is fine; the reverse is not). **Keep backend API changes
+> backward-compatible for one deploy cycle**: add the new field/route first, switch the frontend to
+> it on a later push, remove the old one after that.
 
 ## Service setup
 
-1. New Railway **service** in the **stage** environment, source = **Docker image**, not the GitHub
-   repo. The image must exist first, so run the workflow once (Actions → backend image → Run
-   workflow) and make the GHCR package **public** before this step (see troubleshooting above).
-   Then point the service at it and set what `railway.json` used to carry:
-   ```sh
-   railway service source connect --image ghcr.io/unabrijed/fpay-backend:stage \
-     --service <svc> --environment stage
-   ```
-   That pin is set **once and left alone** — CI never rewrites the service source, it only runs
-   `railway redeploy`, which re-pulls whatever `:stage` now points at. Changing the pin is how you
-   roll back, and nothing else should touch it.
+1. **Create the Railway service.** Railway → project → **`stage`** environment → New → **Empty
+   Service**, named `fpay-stage-api`. Never "Deploy from GitHub repo" — a repo connection would
+   deploy every push regardless of the gate. In its **Settings**, set healthcheck path **`/health`**
+   and restart policy **ON_FAILURE, max 3**; the healthcheck is what turns a boot crash into a
+   failed deploy instead of a live-but-broken API. (These used to live in a root `railway.json`;
+   that file is gone, because Railway reads a repo config only when it builds from a connected repo,
+   which this service never will.)
 
-   In service Settings, set **healthcheck path `/health`** and **restart policy ON_FAILURE, max 3**.
-   These used to live in the root `railway.json`; that file is gone, because Railway reads a repo
-   config only when it builds from a repo, and this service never will. The healthcheck is what
-   catches a boot crash — do not skip it.
+   Then give CI its credentials — GitHub → repo Settings → Secrets and variables → Actions:
 
-   CI needs two repo settings to reach this service: secret **`RAILWAY_TOKEN`** (a Railway *project*
-   token scoped to the **stage** environment) and variable **`RAILWAY_SERVICE`** (this service's
-   name). Both under GitHub → Settings → Secrets and variables → Actions.
+   | kind | name | value |
+   | --- | --- | --- |
+   | **Secret** | `RAILWAY_STAGE_TOKEN` | a Railway **project** token scoped to the **stage** environment (Railway → project Settings → Tokens). Not an account token. |
+   | **Variable** | `RAILWAY_STAGE_SERVICE` | the service name, exactly — `fpay-stage-api` |
+
+   The workflow hands that secret to the CLI as `RAILWAY_TOKEN`, which is the name the Railway CLI
+   reads and the one thing here that cannot be renamed. The secret itself is environment-specific on
+   purpose: a Railway project token *is* the environment selector, so one shared name would make the
+   difference between stage and mainnet invisible at the call site.
 2. Set `STAGE_DATABASE_URL` to the **Supabase session pooler** URL — same value as the working
    `apps/backend/.env` (`…pooler.supabase.com:5432`). Never the transaction pooler (port 6543): the
    backend and the migration runner take session-scoped `pg_advisory_lock`s, which transaction
@@ -363,8 +351,9 @@ root above it) and WILL hit the same crash on its first deploy. Fix then: set ad
 `monorepo/.githooks/pre-push` builds EVERYTHING on every push — only successful builds leave the
 machine: `yarn install --frozen-lockfile`, then the landing/web/admin builds (each app's Vercel
 buildCommand verbatim), then `yarn workspace @fpay/backend tsc --noEmit` and
-`yarn workspace @fpay/backend build` (Railway builds nothing, so these two are the only gate before
-a type error crashes the server at boot or a bundling failure kills the image).
+`yarn workspace @fpay/backend build` — the typecheck catches what would otherwise crash the server
+at boot, and the bundle catches what only bundling can break (a *value* import of `@fpay/shared`,
+which is external in the bundle and would fail to resolve inside the container).
 
 Enable once per clone (git config, not a committed setting):
 
@@ -373,3 +362,54 @@ git config core.hooksPath monorepo/.githooks
 ```
 
 Bypass deliberately with `git push --no-verify`.
+
+## Test a deploy
+
+Push a backend-scope change to `stage` — a comment in `apps/backend/src/server.ts` is enough — and
+watch, in order:
+
+1. **Actions → "backend deploy".** Open the **gate** step: silent means *build*; the
+   `Nothing in the backend scope changed` notice means it decided to skip. Then Railway's build log
+   streams into the deploy step (that's `--ci`). Expect 3–5 minutes.
+2. **Railway → `fpay-stage-api`.** A deployment appears and goes **Active** once `/health` answers.
+3. **Its logs.** Migrations applied (or "no pending"), then the server listening on `0.0.0.0`.
+4. **The API.**
+   ```sh
+   curl -s https://stage.api.frenspay.xyz/health
+   # → {"status":"ok","database":"configured"}
+   ```
+   Use the `*.up.railway.app` URL Railway shows until the custom domain is attached (§Domains).
+
+Then the negative test: push a change to a `.md` file alone. **Correct behaviour is no workflow run
+and no Vercel deploy.** That is the gate working — a docs-only push deploying anything is the bug,
+so debug the gate, never remove it. Locally: `node scripts/vercel-ignore.mjs backend; echo $?`
+(0 = skip, 1 = build), and `yarn check:deploy` runs the rule asserts.
+
+Frontend checks are per app in §Project setup step 7.
+
+## Rollback
+
+**Backend.** There are no image tags to re-pin — Railway's deployment history *is* the rollback:
+**Railway → `fpay-stage-api` → Deployments → the last good one → Redeploy.** It redeploys that
+build's image, no rebuild. If the bad commit is already on `stage`, revert it in git too, or the
+next backend-scope push ships the same breakage again.
+
+Migrations do **not** roll back. A deploy that applied one and then failed leaves the schema
+forward — which is why migrations must be written additively.
+
+**Frontends.** Vercel → the project → Deployments → an older one → Promote to Production.
+
+## When it goes wrong
+
+| Symptom | Cause / fix |
+| --- | --- |
+| Railway deployed something CI didn't push | The service got connected to the GitHub repo (Settings → Source). Disconnect it — its only source should be the CI upload. |
+| Workflow never ran | The change was outside the backend scope. Check with `node scripts/vercel-ignore.mjs backend; echo $?`. Ship it anyway with Actions → Run workflow, which skips the gate deliberately. |
+| `railway up` fails: unauthorized | `RAILWAY_STAGE_TOKEN` missing, expired, or scoped to the wrong environment. It must be a **project** token for **stage**. |
+| `railway up` fails: service not found | `RAILWAY_STAGE_SERVICE` doesn't match the service name exactly. |
+| Deploy stuck "waiting for healthcheck" | `PORT` was set by hand (never set it — Railway injects it), or the server crashed at boot. The deploy logs carry the real error. |
+| Boot throws on KYC config | `assertKycConfig` — stage refuses to start without it. Set `STAGE_KYC_PROVIDER` (§Service setup step 3). |
+| `prepared statement does not exist` / lock hangs | `STAGE_DATABASE_URL` points at the transaction pooler (`:6543`). It must be the **session** pooler (`:5432`). |
+| Build fails on an unpublished `@fpay/*` package | A new workspace's `package.json` isn't COPY'd before the install layer in the root `Dockerfile`. Its header explains why; add the line. |
+| `Cannot find package '@fpay/shared'` at runtime | A *value* import of `@fpay/shared` reached the bundle, where it is external. Make it `import type`. |
+| CORS errors from the app | `STAGE_CORS_ORIGIN` doesn't list the origin — §CORS. |

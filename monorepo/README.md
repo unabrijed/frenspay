@@ -311,24 +311,28 @@ shared **access-key gate** until launch. The runbooks — every dashboard settin
 step, and test — are [`DEPLOY.stage.md`](./DEPLOY.stage.md) (start here) and
 [`DEPLOY.md`](./DEPLOY.md) (prod/mainnet).
 
-**Railway does not build — it pulls.** A push to `stage` runs
-`.github/workflows/backend-image.yml`, which builds the repo-root `Dockerfile` (`node:24-slim`) on
-GitHub Actions, pushes it to `ghcr.io/unabrijed/fpay-backend:<sha>`, and tells Railway to pull that
-SHA. The service's source is that image, not this repo, so no push can trigger a build there. Two
-consequences worth knowing before you deploy:
+**Nothing is published to a registry.** A push to `stage` runs
+`.github/workflows/backend-image.yml`, which `railway up`s this checkout; Railway builds the
+repo-root `Dockerfile` (`node:24-slim`) on its own builder. The service has no GitHub connection, so
+no push can trigger a build there directly — CI is the only path. Full model:
+[`DEPLOY.stage.md`](./DEPLOY.stage.md) §How a deploy happens. Two consequences worth knowing before
+you deploy:
 
-- **The backend goes live before the frontends**, every time — a pull is seconds, a Next build is
-  minutes. That is the safe order (old frontend + new backend works; the reverse breaks), so keep
-  backend API changes backward-compatible for one deploy cycle.
+- **The frontends can go live before the backend** — a Railway build is 3–5 minutes, a Next build
+  2–3. That is the pairing that breaks (old frontend + new backend is fine; the reverse is not), so
+  keep backend API changes backward-compatible for one deploy cycle.
 - **What deploys is decided by one file**, `scripts/vercel-ignore.mjs` (`yarn check:deploy`), for
-  both Vercel and the image. A docs-only push deploys nothing.
+  both Vercel and the backend. A docs-only push deploys nothing.
 
 ## Cost note
 Everything here is free to develop with: Solana **devnet**, Helius free RPC, Privy free
-tier, Railway's free/low trial tier, GitHub Actions (free and unlimited on a public repo — which is
-why the image is built there and not on Railway), Vercel's free Hobby tier for the frontends, and the free
-**web** workflow (no EAS needed — and if mobile is resumed, the Android dev build is local + free).
+tier, Railway's Hobby plan, GitHub Actions (metered on a private repo — 2,000 min/month — but this
+workflow only uploads, so it barely registers), Vercel's free Hobby tier for the frontends, and the
+free **web** workflow (no EAS needed — and if mobile is resumed, the Android dev build is local +
+free).
 
-> One thing to keep that way: the **GHCR package must stay public**. GitHub creates container
-> packages private even for a public repo, and Railway gates *private* registry deploys behind its
-> **Pro** plan — so a private package quietly turns a free setup into a paid one, or fails to pull.
+> The one recurring cost is Railway **build** compute, billed as ordinary usage at roughly a cent
+> per build against the Hobby plan's $5 monthly credit. Building in Actions and having Railway pull
+> would be faster and free — but it needs a **public** image, because Railway gates private-registry
+> pulls behind **Pro**, and a public image is a published codebase. `DEPLOY.stage.md` §How a deploy
+> happens.
