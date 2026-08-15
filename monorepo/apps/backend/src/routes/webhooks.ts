@@ -13,11 +13,26 @@ import { applyKycForSession } from '../services/kyc/poller';
 import { DISPUTE_WINDOW_MS, onTransferConfirmedAndNotify } from '../services/orderMachine';
 import { payoutProviderById } from '../services/payout/provider';
 
+// Constant-time shared-secret compare for vendor callbacks. Length is checked first because
+// timingSafeEqual throws on a length mismatch (and a length is not a secret).
+function secretEq(got: unknown, expected: string): boolean {
+  return (
+    expected.length > 0 &&
+    typeof got === 'string' &&
+    got.length === expected.length &&
+    timingSafeEqual(Buffer.from(got), Buffer.from(expected))
+  );
+}
+
 export async function registerWebhookRoutes(app: FastifyInstance) {
   // --- M2: Helius webhook for push confirmation (poller in confirmer.ts is the fallback) ---
-  app.post<{ Querystring: { secret?: string } }>('/webhooks/helius', async (req, reply) => {
+  // The secret arrives in the Authorization header (Helius' `authHeader` field), never in the URL:
+  // query strings are logged in plaintext by every proxy, access log and error tracker on the path.
+  app.post('/webhooks/helius', async (req, reply) => {
     if (config.heliusWebhookSecret) {
-      if (req.query.secret !== config.heliusWebhookSecret) return reply.code(401).send({ error: 'unauthorized' });
+      if (!secretEq(req.headers.authorization, config.heliusWebhookSecret)) {
+        return reply.code(401).send({ error: 'unauthorized' });
+      }
     } else {
       req.log.warn('HELIUS_WEBHOOK_SECRET unset — /webhooks/helius is open (dev only)');
     }
@@ -72,14 +87,9 @@ export async function registerWebhookRoutes(app: FastifyInstance) {
   app.post<{ Params: { providerId: string } }>('/webhooks/xendit/:providerId', async (req, reply) => {
     const { providerId } = req.params;
     const expected = config.payoutCallbackTokens[providerId];
-    const got = req.headers['x-callback-token'];
-    const tokenOk =
-      typeof expected === 'string' &&
-      expected.length > 0 &&
-      typeof got === 'string' &&
-      got.length === expected.length &&
-      timingSafeEqual(Buffer.from(got), Buffer.from(expected));
-    if (!tokenOk) return reply.code(401).send({ error: 'unauthorized' });
+    if (typeof expected !== 'string' || !secretEq(req.headers['x-callback-token'], expected)) {
+      return reply.code(401).send({ error: 'unauthorized' });
+    }
 
     const data = ((req.body ?? {}) as { data?: Record<string, unknown> }).data ?? (req.body as Record<string, unknown>);
     const reference = typeof data?.reference_id === 'string' ? data.reference_id : null;

@@ -26,6 +26,7 @@ import {
   normalizePhone,
   resolveHandleToFriend,
   setUserCountry,
+  setUserEmail,
   setUserLocalCurrency,
   setUserPhone,
   setUserPreferredCurrency,
@@ -136,8 +137,25 @@ export async function registerAuthRoutes(app: FastifyInstance) {
 
   app.get('/me', async (req, reply): Promise<MeResponse | undefined> => {
     const userId = requireUserId(req);
-    const user = await findUserById(userId);
+    let user = await findUserById(userId);
     if (!user) return reply.code(404).send({ error: 'user_not_found' });
+    // A row with no email can never be a root admin, and nothing refilled it. /auth/sync is the ONLY
+    // writer of users.email, web calls it from the onboarding handle screen alone, and a returning
+    // user never sees that screen again — so the single .catch(() => null) above, on one flaky Privy
+    // call at signup, was a permanent ADMIN_EMAILS lockout with no self-service way out. The console
+    // couldn't repair it either: it never syncs.
+    //
+    // Repair here, where every client already passes on every load, and which already writes
+    // (ensureInviteCodes below). That covers admin too, so signing into the console is enough to
+    // bootstrap a root admin — no web round-trip. Best-effort by construction: a Privy failure, or
+    // an address that belongs to another row, leaves things exactly as they were.
+    //
+    // ponytail: retries on every /me while it keeps failing. Bounded by "rows with a null email",
+    // which is ~0 once this ships — stamp an attempted_at column if that stops being true.
+    if (!user.email && privyConfigured() && req.privyDid) {
+      const email = await getLinkedEmail(req.privyDid).catch(() => null);
+      if (email) user = (await setUserEmail(userId, email)) ?? user;
+    }
     const wallet = await getWalletForUser(userId);
     const evmWallet = await getWalletForUser(userId, 'ethereum');
     const merchant = await getMerchantForUser(userId);

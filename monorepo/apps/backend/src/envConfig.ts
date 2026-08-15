@@ -109,7 +109,8 @@ export const config = {
   // as the faucet treasury (sendUsdcFromTreasury) and would hand merchant stake out as faucet
   // inventory. Add a secret key here only when merchants can offboard and withdraw.
   stakeTreasuryAddress: env('STAKE_TREASURY_ADDRESS'),
-  // Shared secret for the Helius webhook (?secret=...). Open in dev if unset.
+  // Shared secret for the Helius webhook — registered as Helius' `authHeader`, so it arrives in the
+  // Authorization header rather than the URL. Open in dev if unset.
   heliusWebhookSecret: env('HELIUS_WEBHOOK_SECRET'),
   // Public base URL of this backend (e.g. https://api.pay.app) — needed to register the Helius
   // webhook callback. Unset locally → registration is skipped and the poller confirms transfers.

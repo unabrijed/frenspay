@@ -141,6 +141,29 @@ export async function findUserByEmail(email: string): Promise<UserRow | null> {
   return rows[0] ?? null;
 }
 
+/**
+ * Fill in a MISSING Privy-verified address — a pure repair, never an overwrite. `and email is null`
+ * is the whole safety argument: a good address can't be clobbered by a later bad read, so the caller
+ * doesn't have to be careful.
+ *
+ * Returns null when there was nothing to repair, and — deliberately the same answer — when the
+ * address already belongs to another row (uq_users_email, 0010). A repair that cannot run is not an
+ * error: it means this is a duplicate account, and which one keeps the address is admin's call, not
+ * a decision to make inside a best-effort backfill.
+ */
+export async function setUserEmail(id: string, email: string): Promise<UserRow | null> {
+  try {
+    const { rows } = await getPool().query<UserRow>(
+      `update users set email = $2 where id = $1 and email is null returning *`,
+      [id, email],
+    );
+    return rows[0] ?? null;
+  } catch (e) {
+    if ((e as { code?: string }).code === '23505') return null;
+    throw e;
+  }
+}
+
 /** Who a freshly minted code belongs to. An account (`id`), an f-list member who has no account
  *  (`email`), or nobody at all — `null` is a house code minted from the admin console. */
 export type InviteOwner = { id: string } | { email: string } | null;

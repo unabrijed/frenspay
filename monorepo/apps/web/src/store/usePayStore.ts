@@ -24,6 +24,16 @@ import { wallet, type Friend, type Payee, type Txn } from '@/services/wallet';
 // In-flight guard for the silent background re-quote (see refreshQuote).
 let refreshingQuote = false;
 
+// Same guard for the two data-fetching entry points. Cold boot fires load() (PrivyBridge, on token)
+// and refresh() (useLiveSync, on mount) at the same instant, StrictMode double-mounts the second,
+// and the fund step prefetches a third — five overlapping copies of the SAME six calls. Guarding
+// here rather than at each call site is the point: every path routes through these two, and the
+// burst is what tipped the Solana RPC into throttling, which is what /balance 500s were.
+// refresh() also stands down for an in-flight load(), which fetches a superset — never the reverse,
+// because load() commits identity (onboarded/provisioned) that refresh() does not.
+let loading = false;
+let refreshing = false;
+
 export type SheetId =
   | 'scan'
   | 'amount'
@@ -422,6 +432,11 @@ export const usePayStore = create<PayState>()(
       load: async () => {
         // Pre-sign-in only. Leave firstLoadDone false so the splash stays until Privy resolves.
         if (USE_PRIVY && get().authStatus !== 'signedIn') return;
+        // A concurrent duplicate is dropped, not queued: the one already running lands the same
+        // data into the same store. Every caller fire-and-forgets (`void load()`), so nothing is
+        // waiting on this promise for a result.
+        if (loading) return;
+        loading = true;
         // First load of this session: drop any persisted prior-session financials so they can't flash
         // before the fresh fetch resolves. Skeletons (gated on firstLoadDone) cover the gap. Identity
         // (handle/kycTier) is left intact — load() repopulates it and losing it would break routing.
@@ -472,10 +487,19 @@ export const usePayStore = create<PayState>()(
           // on FX.
           void get().syncRates();
           void get().resumePendingDeposit(); // lost-burn-hash recovery (docs/19 inbound)
+          // Each money call keeps its own footing. In one bare Promise.all the first rejection took
+          // the other two down and dropped the whole load into the catch below — so a single 503
+          // from /balance (RPC throttled) blanked activity and requests too, on an account whose
+          // identity had just resolved fine. The comment above is only true if they fail alone.
+          // Balance holds its previous figure rather than falling to 0: this is the number people
+          // read as "my money", and inventing a zero for it is worse than showing a stale one.
+          // ponytail: on a COLD load there is no previous figure (the reset above zeroed it), so a
+          // failed first balance read still paints $0 for one poll cycle. Fixing that properly means
+          // a nullable balanceUSD threaded through every consumer — do it if the 503 is ever common.
           const [bal, txns, reqs, notifs] = await Promise.all([
-            wallet.getBalanceUsd(),
-            wallet.getTransactions(),
-            wallet.getRequests(),
+            wallet.getBalanceUsd().catch(() => get().balanceUSD),
+            wallet.getTransactions().catch(() => get().transactions),
+            wallet.getRequests().catch(() => get().requests),
             // Non-critical: a failing /notifications must never blank the dashboard.
             api.getNotifications().catch(() => ({ notifications: get().notifications, unread: get().unread })),
           ]);
@@ -503,11 +527,16 @@ export const usePayStore = create<PayState>()(
           // Mark firstLoadDone even on failure so skeletons resolve to the empty/error state
           // rather than spinning forever.
           set({ busy: false, firstLoadDone: true, error: e instanceof Error ? e.message : String(e) });
+        } finally {
+          loading = false;
         }
       },
       refresh: async () => {
         // Same gate as load(): never poll before the backend user exists (onboarding pre-sync → 401).
         if (USE_PRIVY && !(get().authStatus === 'signedIn' && (get().provisioned || get().onboarded))) return;
+        // Stand down for a cold load() as well as a sibling refresh() — see the flags' declaration.
+        if (loading || refreshing) return;
+        refreshing = true;
         try {
           // Rates ride along on every poll, not just load(): a session left open all day kept its
           // boot-time rate and every converted line drifted from the quote the backend would
@@ -545,6 +574,8 @@ export const usePayStore = create<PayState>()(
         } catch {
           // Background poll — stay quiet; the next tick recovers. Don't pollute the shared error slot
           // or spam a toast every interval. User-initiated actions surface their own errors.
+        } finally {
+          refreshing = false;
         }
       },
       syncRates: async (extra) => {

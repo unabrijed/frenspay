@@ -119,27 +119,52 @@ NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<privy app id>
 NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<optional — see below>
 ```
 
-**The two API hosts are targets, not tiers.** Both are inlined; `apiMode.ts` picks between them.
-`APP_ENV=stage` still governs everything else — Privy and the dev shim resolve through the shared
-tier chain, unchanged.
+**The API hosts AND the Privy apps are targets, not tiers.** Both pairs are inlined and `apiMode.ts`
+picks between them. `APP_ENV` governs only the dev shim now, and is best left unset on the
+deployment — nothing else reads it.
 
-**One Privy app must serve both backends.** The browser holds a single session, and a token minted
-for one Privy app will not verify against a backend configured with another (`services/privy.ts`
-→ `verifyAuthToken`). If prod ever gets its own app, `Providers.tsx` needs a mode-keyed `appId` —
-cheap, because the switch already reloads.
+**Each backend brings its own Privy app.** A token minted by one Privy app does not verify against a
+backend configured with another (`services/privy.ts` → `verifyAuthToken`), so the app id belongs to
+the backend you selected, not to the build:
+
+```
+NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<the app the STAGE backend verifies with>
+NEXT_PUBLIC_PRIVY_APP_ID=<the app the PROD backend verifies with>
+```
+
+They may be the same app; they no longer have to be. What is NOT allowed is leaving one unset — the
+switch hides prod when its pair is incomplete (`PROD_AVAILABLE`), and a missing stage app id gets an
+explicit screen rather than a console that silently sends no credential.
+
+This used to resolve through the shared tier chain, and it went wrong the moment prod got its own
+app: with `APP_ENV` unset on the deployment the chain quietly returned the **production** tier, so
+the console signed operators into the prod Privy app while `getApiMode()` defaulted its API to
+stage. Every token was rejected before a row was ever looked up, and the console reported it as
+"no profile on this environment". A build-time answer could not have been right — whichever app id
+got baked in, one of the two targets rejects everything.
+
+**Switching targets signs you out.** Privy sessions are per app, so the other target simply has no
+session and you land on Sign in. That is correct, not a bug.
 
 **Your account needs a row in both databases.** Privy DID is looked up per-database, so sign into
-web once per environment; `Providers.tsx` already has copy for the in-between state ("no profile on
-this environment yet"). Both `STAGE_ADMIN_EMAILS` and prod `ADMIN_EMAILS` must name you.
+web once per environment; `Providers.tsx` has copy for the in-between state ("no profile on this
+environment yet"). Both `STAGE_ADMIN_EMAILS` and prod `ADMIN_EMAILS` must name you.
+
+That screen means the token VERIFIED and this database has no row for it. Its neighbour — "this
+backend refused the session" — means the opposite: the token never verified, so nothing was looked
+up, and the fix is the target rather than the account. Telling them apart needs `api.ts` to read the
+error code off Fastify's `message`, which is where a thrown error puts it; reading only `error` gave
+both the same generic "Unauthorized" and the two screens collapsed into the wrong one.
 
 `NEXT_PUBLIC_*` is inlined at build time, so a variable change does nothing until the next deploy:
 set variables **then** deploy.
 
 **The client id is optional.** Privy dashboard → your app → Settings → Clients; the client id looks
 like `client-…`, the app id is the `cm…` on the same screen. Leaving it unset is supported —
-`Providers.tsx` passes `clientId={PRIVY_CLIENT_ID || undefined}` and Privy falls back to the app's
-default client. It only matters when you want per-client config. What actually gates login is
-adding the admin origin to the Privy app's **allowed origins**.
+`Providers.tsx` passes `clientId={PRIVY_CLIENT_IDS[mode] || undefined}` and Privy falls back to the
+app's default client. It only matters when you want per-client config. Set it for the target whose
+app id you set, never across the pair: a client id belongs to exactly one app. What actually gates
+login is adding the admin origin to **each** Privy app's allowed origins.
 
 ### Prerequisites — a green build proves nothing on its own
 

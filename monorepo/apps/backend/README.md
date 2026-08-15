@@ -28,7 +28,7 @@ selects a prefix and all values are read under it (`stage → STAGE_*`). See `.e
 ## Endpoints (Phase 1)
 `GET /health` · `POST /auth/sync` · `GET /me` · `GET /balance` (on-chain USDC) ·
 `GET /transactions` · `GET /users/resolve?handle=@x` · `GET|POST /requests` ·
-`POST /transfer/prepare` · `POST /transfer/submit` · `POST /webhooks/helius?secret=…`.
+`POST /transfer/prepare` · `POST /transfer/submit` · `POST /webhooks/helius` (`Authorization: <HELIUS_WEBHOOK_SECRET>`).
 Request/response types are shared with the app via `@fpay/shared`.
 
 **Public (no auth)** — the landing site's f list: `POST /waitlist` (email + city + optional `ref`)
