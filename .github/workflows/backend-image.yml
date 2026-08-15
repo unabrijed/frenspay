@@ -42,14 +42,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # The gate diffs HEAD against HEAD^; a depth-1 checkout has no parent to diff.
-          fetch-depth: 2
+          # The gate diffs the whole pushed range, so the commit the branch was on before this push
+          # has to be reachable. A shallow clone cannot guarantee that for a multi-commit push.
+          fetch-depth: 0
 
       # Same scopes, same self-test, as the Vercel gate — see monorepo/scripts/vercel-ignore.mjs.
       # Exit codes are Vercel's and inverted: 0 = SKIP, 1 = BUILD. `if` is exempt from errexit,
       # which is why the non-zero "build" answer doesn't fail the step.
       - id: gate
-        name: Does this commit touch the backend?
+        name: Does this push touch the backend?
+        # The range this push actually moved — not just its tip commit. Empty on workflow_dispatch,
+        # where the gate is skipped anyway.
+        env:
+          DIFF_BASE: ${{ github.event.before }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo 'ship=true' >> "$GITHUB_OUTPUT"

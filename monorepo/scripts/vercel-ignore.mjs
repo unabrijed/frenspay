@@ -69,14 +69,25 @@ function main(app) {
   // Without the exemption every CI run would read an unset VERCEL_ENV and silently skip forever.
   if (app !== 'backend' && process.env.VERCEL_ENV !== 'production') return SKIP;
 
-  // No parent commit reachable (first deploy, or a clone too shallow to diff) → we cannot tell.
+  // DIFF_BASE is the commit the branch was on BEFORE this push (GitHub Actions passes
+  // github.event.before). Judging a push by its tip commit alone is wrong whenever a push carries
+  // more than one: a backend fix followed by a docs commit looked like a docs-only push and
+  // deployed nothing. That happened twice in one afternoon before this existed.
+  //
+  // Vercel sets no DIFF_BASE, so it keeps comparing against the parent — which is right there,
+  // because Vercel evaluates one deployment per commit.
+  const base = process.env.DIFF_BASE;
+  const from = base && !/^0+$/.test(base) ? base : 'HEAD^';
+
+  // Unreachable base — a first deploy, a force-push that orphaned it, or a clone too shallow to
+  // diff. We cannot tell, so we build. Same fail-safe direction as the rest of this file.
+  let changed;
   try {
-    git('rev-parse', 'HEAD^');
+    changed = git('diff', '--name-only', from, 'HEAD').split('\n').filter(Boolean);
   } catch {
     return BUILD;
   }
 
-  const changed = git('diff', '--name-only', 'HEAD^', 'HEAD').split('\n').filter(Boolean);
   return shouldBuild(app, changed) ? BUILD : SKIP;
 }
 
