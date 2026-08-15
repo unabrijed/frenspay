@@ -66,11 +66,20 @@ const KNOWN_UNSPENDABLE = new Set([
 
 export async function registerMoneyRoutes(app: FastifyInstance) {
   // --- balance / activity ---
-  app.get('/balance', async (req): Promise<BalanceResponse> => {
+  app.get('/balance', async (req, reply): Promise<BalanceResponse | undefined> => {
     const userId = requireUserId(req);
     const wallet = await getWalletForUser(userId);
     if (!wallet?.address) return { balanceUsd: formatAmount(amt(0), USDC_DECIMALS) };
-    return { balanceUsd: await getUsdcBalance(wallet.address) };
+    try {
+      return { balanceUsd: await getUsdcBalance(wallet.address) };
+    } catch (err) {
+      // An RPC failure is not a zero balance. 503 (same shape as the send paths below) lets the
+      // client hold the last known figure; the 500 this replaced carried an EMPTY message, because
+      // spl-token's errors are constructed without one — undebuggable from the response alone.
+      req.log.warn({ err }, 'balance read failed — rpc unavailable');
+      reply.code(503).send({ error: 'solana_unavailable' });
+      return undefined;
+    }
   });
 
   app.get<{ Querystring: { limit?: string; cursor?: string } }>(

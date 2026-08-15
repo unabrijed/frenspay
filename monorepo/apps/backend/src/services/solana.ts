@@ -41,9 +41,21 @@ export function usdcMint(): PublicKey {
   return new PublicKey(config.usdcMint);
 }
 
-let _decimals: number | null = null;
+// The in-flight PROMISE is cached, not the resolved number: a cold dashboard load fires several
+// balance reads at once, and caching the value let all of them race into their own getMint. That
+// burst is what tipped the public RPC into throttling — which answers with a null account, which
+// spl-token reports as TokenAccountNotFoundError with an EMPTY message, i.e. a 500 saying nothing.
+// A rejection is never kept: clearing it means one bad minute can't poison the whole process.
+let _decimals: Promise<number> | null = null;
 export async function decimals(): Promise<number> {
-  if (_decimals == null) _decimals = (await getMint(connection(), usdcMint())).decimals;
+  if (!_decimals) {
+    _decimals = getMint(connection(), usdcMint())
+      .then((m) => m.decimals)
+      .catch((e) => {
+        _decimals = null;
+        throw e;
+      });
+  }
   return _decimals;
 }
 
@@ -106,12 +118,17 @@ export async function getUsdcBalance(owner: string): Promise<string> {
   if (!config.usdcMint || !isValidPubkey(owner)) return formatAmount(new BN(0), await decimals());
   const ownerPk = new PublicKey(owner);
   const ata = await getAssociatedTokenAddress(usdcMint(), ownerPk);
+  // decimals() reads the MINT over the same RPC, so it fails whenever getAccount would — and its
+  // TokenAccountNotFoundError is a different event from the one below: a missing mint means the RPC
+  // is throttling or on the wrong cluster, while a missing ATA is a real, meaningful zero. Only the
+  // second may answer "0"; reporting the first as an empty wallet is how a funded user sees $0.
+  // Both reach the caller as a throw — /balance turns that into 503, never a fabricated balance.
+  const dec = await decimals();
   try {
     const acct = await getAccount(connection(), ata);
-    const dec = await decimals();
     return formatAmount(fromBaseUnits(acct.amount, dec), dec);
   } catch (err) {
-    if (err instanceof TokenAccountNotFoundError) return formatAmount(new BN(0), await decimals());
+    if (err instanceof TokenAccountNotFoundError) return formatAmount(new BN(0), dec);
     throw err;
   }
 }
