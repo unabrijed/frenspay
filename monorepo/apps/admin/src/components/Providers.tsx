@@ -45,10 +45,14 @@ function AuthGate({ children }: { children: ReactNode }) {
       return;
     }
     setTokenRefresher(getAccessToken);
-    void getAccessToken().then((t) => {
-      setAuthToken(t);
-      setTokenReady(true);
-    });
+    // .finally, not .then — a REJECTED token has to advance the gate too. Without it the rejection
+    // died unhandled, tokenReady never flipped, and the console sat on "Signing in…" forever with no
+    // control on screen. Letting it through sends a tokenless /me, which 401s into NoAccess — a
+    // screen that at least has Sign out and the env switch on it.
+    void getAccessToken()
+      .then((t) => setAuthToken(t))
+      .catch(() => setAuthToken(null))
+      .finally(() => setTokenReady(true));
   }, [authenticated, getAccessToken]);
 
   // The authorization half. `role` here is the EFFECTIVE role (backend auth.ts effectiveRole), so a
