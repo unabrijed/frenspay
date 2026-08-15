@@ -6,9 +6,16 @@
 # time unrelated to Vercel's frontend builds, so each push left a window where the app and the API
 # were on different commits and nobody could predict which was ahead.
 #
-# Now the image is built here (free and unlimited on a public repo, native x86_64, and the
-# expensive install layer stays warm in the GHA cache), and Railway's whole job is a pull + boot +
-# healthcheck — some tens of seconds. It lands inside Vercel's window instead of minutes from it.
+# Now the image is built here (native x86_64, and the expensive install layer stays warm in the GHA
+# cache), and Railway's whole job is a pull + boot + healthcheck — some tens of seconds. It lands
+# inside Vercel's window instead of minutes from it.
+#
+# The repo is PRIVATE, which constrains both ends of this:
+#   - Actions minutes are metered (2,000/month on the Free plan), not unlimited. A warm build is
+#     about a minute, so the gate below is what keeps that number boring.
+#   - The GHCR package must be PUBLIC, because Railway gates private-registry pulls behind the Pro
+#     plan and we are on Hobby. That is only safe because the runner stage of the root Dockerfile
+#     carries a minified bundle and no source — read the header there before changing either file.
 #
 # Ordering is deliberate: the backend goes live BEFORE the frontends. Old frontend against new
 # backend is the safe pairing; new frontend against old backend is the one that breaks. So keep
@@ -60,6 +67,11 @@ jobs:
           fi
 
       - if: steps.gate.outputs.ship == 'true'
+        id: meta
+        name: Short SHA for the immutable tag
+        run: echo "sha=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+
+      - if: steps.gate.outputs.ship == 'true'
         uses: docker/setup-buildx-action@v3
 
       - if: steps.gate.outputs.ship == 'true'
@@ -77,22 +89,25 @@ jobs:
           file: Dockerfile
           platforms: linux/amd64
           push: true
-          # :stage says what the branch is on, :<sha> is what actually gets deployed — see below.
+          # :stage is what the service tracks; :<short-sha> is the immutable rollback target.
           tags: |
             ${{ env.IMAGE }}:stage
-            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:${{ steps.meta.outputs.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Pin the service to the exact SHA rather than a moving :stage tag, so what is live is always
-      # traceable to a commit — and a rollback is this same pair of commands with an older SHA.
+      # The service is pinned to :stage once, in the dashboard, and redeploy re-pulls it — so a
+      # deploy needs no source rewrite and CI needs no permission to change where the service points.
+      #
+      # Rollback is therefore deliberate rather than automatic, which is the point:
+      #   railway service source connect --image ghcr.io/unabrijed/fpay-backend:<short-sha> \
+      #     --service <svc> --environment stage
+      #   railway redeploy --service <svc> --environment stage --yes
       - if: steps.gate.outputs.ship == 'true'
-        name: Point Railway at the new image and pull it
+        name: Tell Railway to pull the new image
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           SERVICE: ${{ vars.RAILWAY_SERVICE }}
         run: |
           npm install -g @railway/cli
-          railway service source connect \
-            --image "$IMAGE:$GITHUB_SHA" --service "$SERVICE" --environment stage
-          railway redeploy --from-source --service "$SERVICE" --environment stage --yes
+          railway redeploy --service "$SERVICE" --environment stage --yes
