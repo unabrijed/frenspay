@@ -9,8 +9,11 @@
 //      collisions, and the display-name sanitizer holds the trust-surface line;
 //   5. soft-delete (docs/07): status flips to 'deleted' AND both uniques release instantly — the
 //      handle scramble and the email null are the release; a NEW user can claim the freed name and
-//      the freed address (genuinely released, not hidden).
-// Run: yarn workspace @fpay/backend tsx scripts/check-admin.ts   (needs DATABASE_URL + `db:init`)
+//      the freed address (genuinely released, not hidden);
+//   6. identity by email, not by DID: a returning person under a new DID adopts their own account;
+//   7. the null-email repair GET /me runs — setUserEmail fills a null, never overwrites a good
+//      address, and answers null (not a 500) when the address belongs to another row.
+// Run: yarn workspace @fpay/backend check:admin   (needs DATABASE_URL + `db:init`)
 import { getPool } from '../src/db/pool';
 import {
   adminOverview,
@@ -28,6 +31,7 @@ import {
   listOrdersAdmin,
   resolveHandleToFriend,
   sanitizeDisplayName,
+  setUserEmail,
   setUserStatus,
   unfreezeOrderAfterDispute,
   updateUserProfileAdmin,
@@ -228,6 +232,31 @@ async function main() {
     'adoption re-points the wallet to the new signing address',
     (await getWalletForUser(first.id))?.address === 'ZZAadoptwallet0000000000000000000000000B',
   );
+
+  // 7) the null-email repair (/me). users.email is what ADMIN_EMAILS matches, and /auth/sync is its
+  // only writer — from a screen a returning user never sees again. So one flaky Privy read at signup
+  // used to be a permanent root-admin lockout. GET /me now refills it; these are the two facts that
+  // makes safe to run on the hot path.
+  const REPAIR_EMAIL = 'zza-repair@example.test';
+  const { rows: nullEmailRows } = await pool.query<{ id: string }>(
+    `insert into users (privy_did, handle, email) values ($1,$2,null) returning id`,
+    ['zza:repair', '@zza_repair'],
+  );
+  const repairId = nullEmailRows[0].id;
+  check('setUserEmail fills a null email', (await setUserEmail(repairId, REPAIR_EMAIL))?.email === REPAIR_EMAIL);
+  check('...and it is durable', (await findUserById(repairId))?.email === REPAIR_EMAIL);
+  // Never an overwrite: `and email is null` means a later bad read cannot clobber a good address,
+  // which is the whole reason the caller can be careless and best-effort.
+  check('setUserEmail refuses to OVERWRITE an existing email', (await setUserEmail(repairId, 'zza-other@example.test')) === null);
+  check('...and the original address survives', (await findUserById(repairId))?.email === REPAIR_EMAIL);
+  // The duplicate-account case: uq_users_email (0010) fires, and a repair that cannot run must be a
+  // null, not a 500 — /me would otherwise fail closed for the very account it was trying to rescue.
+  const { rows: dupRows } = await pool.query<{ id: string }>(
+    `insert into users (privy_did, handle, email) values ($1,$2,null) returning id`,
+    ['zza:repair-dup', '@zza_repair_dup'],
+  );
+  check('a taken email returns null instead of throwing (23505 swallowed)', (await setUserEmail(dupRows[0].id, REPAIR_EMAIL)) === null);
+  check('...and the loser row keeps its null email', (await findUserById(dupRows[0].id))?.email === null);
 
   await clean(pool);
   await pool.end();

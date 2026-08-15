@@ -18,6 +18,7 @@
     "db:init": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "devnet:setup": "tsx scripts/setup-devnet.ts",
+    "check:admin": "tsx scripts/check-admin.ts",
     "check:waitlist": "tsx scripts/check-waitlist.ts",
     "check:invites": "tsx scripts/check-invites.ts",
     "check:flist": "tsx scripts/check-flist-gate.ts",
