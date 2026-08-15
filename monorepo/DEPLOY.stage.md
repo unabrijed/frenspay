@@ -315,18 +315,18 @@ Ship to prod by merging `stage` → `sacred` (PR).
    admin (the only admin project — it serves both environments):
    ```
    # NEXT_PUBLIC_APP_ENV is deliberately UNSET here — nothing but the dev shim reads it
-   NEXT_PUBLIC_STAGE_API_URL=<same as web>                    # the "stage" target, host…
-   NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<stage privy app id>        # …and the app that backend verifies with
-   NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<stage privy client id>
-   NEXT_PUBLIC_API_URL=https://api.frenspay.xyz               # the "prod" target, host…
-   NEXT_PUBLIC_PRIVY_APP_ID=<prod privy app id>               # …and ITS app. Both halves or neither.
+   NEXT_PUBLIC_STAGE_API_URL=<same as web>                    # the "stage" target
+   NEXT_PUBLIC_API_URL=https://api.frenspay.xyz               # the "prod" target
+   NEXT_PUBLIC_PRIVY_APP_ID=<privy app id>                    # ONE app, both targets
+   NEXT_PUBLIC_PRIVY_CLIENT_ID=<privy client id>              # optional
    ```
-   Admin's API hosts **and Privy apps** are targets, not tiers: all four are inlined and the operator
-   picks a pair in the sidebar, which is why there is no admin twin project. A target needs both
-   halves — the switch hides prod unless it has a host and an app id, because a token minted by one
-   Privy app is refused by a backend configured with another, before any row is looked up. Setting
-   `APP_ENV` is what once made the tier chain hand the console the prod Privy app while it defaulted
-   to the stage API. Full reasoning: `apps/admin/README.md` §Deploy.
+   Admin's API **hosts** are targets, not tiers: both are inlined and the operator picks one in the
+   sidebar, which is why there is no admin twin project. The **Privy app is not per-target** — the
+   same app id must also be the backend's `STAGE_PRIVY_APP_ID` on stage and `PRIVY_APP_ID` on prod,
+   or whichever backend disagrees refuses every token before a row is looked up. It used to be one
+   app per target; the switch swapped the id under its reload, the incoming app inherited the
+   outgoing app's stored token (Privy's keys are not app-scoped), and the console hung on
+   "Signing in…". Full reasoning: `apps/admin/README.md` §Deploy.
    landing (stage):
    ```
    NEXT_PUBLIC_APP_ENV=stage
@@ -351,11 +351,10 @@ Ship to prod by merging `stage` → `sacred` (PR).
      or poller) → `/sim/kyc` to tier 2 → a small P2P or external send, verified on Solscan. Network
      tab open throughout — every API call goes to the stage API origin, no CORS errors.
    - **admin**: loads (no gate configured), Privy login works, and a non-admin account is refused
-     by the backend (`role='admin'` is checked server-side). The stage/prod switch renders only when
-     the prod target has **both** a host and a Privy app id — if it renders while prod is not ready,
-     one half got set early. Switch to prod and back: each side should land on Sign in with the
-     backend named on screen, never on "no profile on this environment", which now means only what
-     it says. Confirm the sign-in screen names the backend before you sign in.
+     by the backend (`role='admin'` is checked server-side). The stage/prod switch renders as soon
+     as `NEXT_PUBLIC_API_URL` is set. Switch to prod and back: one login covers both, so each side
+     should land in a working console without re-signing in, never on a spinner. "No profile here"
+     means only what it says — that database has no row for the account yet.
    - **landing**: static pages render; a waitlist signup round-trips (needs the Resend block
      above, otherwise it accepts silently without mail — that's the documented safe state).
 
