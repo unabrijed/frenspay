@@ -1,5 +1,15 @@
+# Two stages, and the split is a privacy boundary, not an optimisation.
+#
+# The repo is private but the GHCR package is PUBLIC, because Railway's Hobby plan cannot pull a
+# private image (registry credentials are a Pro feature). So whatever lands in the final stage is
+# world-readable. This file used to be single-stage `COPY monorepo/ .` running TS through tsx —
+# publishing that image published the entire monorepo. The runner below carries a minified bundle
+# of the backend and nothing else: no src/, no web, no admin, no lp, no landing.
+#
+# Same shape as shoonyastore/oms, which has run this way on Hobby for months.
+
 # node >=24: apps/web's @solana-program/token@0.14 demands it, and this install covers every workspace.
-FROM node:24-slim
+FROM node:24-slim AS builder
 WORKDIR /app
 
 # Manifests first so the install layer caches across source-only changes.
@@ -18,12 +28,31 @@ COPY monorepo/apps/landing/package.json apps/landing/
 COPY monorepo/apps/lp/package.json apps/lp/
 COPY monorepo/packages/shared/package.json packages/shared/
 COPY monorepo/packages/ui/package.json packages/ui/
-# Full install, devDeps included — the backend runs TS via tsx (a devDependency), no build step.
-# ponytail: installs every workspace's deps (fat image); prune to backend+shared if size ever matters
+# devDeps included — esbuild lives there and the build below needs it.
 RUN yarn install --frozen-lockfile --network-timeout 300000
 
 COPY monorepo/ .
 
+# Two flat bundles, .mjs, no sourcemap (a sourcemap would put the source back in a public image).
+RUN yarn workspace @fpay/backend build
+
+FROM node:24-slim AS runner
+WORKDIR /app
+
+# ponytail: this is the whole workspace's node_modules (Next, wagmi, the lot) — yarn 1.22 has no
+# `workspaces focus`, and `--production` still drags Next in because it is a *dependency* of web.
+# They are public packages, so it costs image size, not privacy. Trim by hand-listing the backend's
+# runtime deps in a minimal runner package.json only if pull time ever hurts.
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/apps/backend/dist ./dist
+
+# Both bundles are flat in dist/, so both resolve these at runtime off import.meta.url:
+#   src/db/migrations.ts    -> <dir of the bundle>/migrations   (server AND migrate read it)
+#   src/services/escrowProgram.ts -> <dir of the bundle>/../idl/escrow.json
+# Move either bundle a directory deeper and these paths break silently. Keep them side by side.
+COPY --from=builder /app/apps/backend/src/db/migrations ./dist/migrations
+COPY --from=builder /app/apps/backend/src/idl ./idl
+
 # NODE_ENV + secrets come from Railway variables; PORT is injected by the platform.
 # Migrations run before the server so it can never boot against a stale schema.
-CMD yarn workspace @fpay/backend db:deploy && yarn workspace @fpay/backend start
+CMD node dist/migrate.mjs deploy && node dist/server.mjs
