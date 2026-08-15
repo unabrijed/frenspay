@@ -58,11 +58,15 @@ The step-by-step runbook — every dashboard setting, variable, domain step, and
 [`DEPLOY.stage.md`](../../DEPLOY.stage.md) (prod: [`DEPLOY.md`](../../DEPLOY.md)). The shape, so
 this README doesn't lie by omission:
 
-- Pushing **`stage`** deploys the stage environment; path isolation via `build.watchPatterns` in
-  the repo-root `railway.json`.
-- Build is the repo-root **`Dockerfile`** (`node:24-slim`) — NOT Nixpacks; if the build log shows
-  Nixpacks, the service's Root Directory got set (leave it **unset**). No dashboard start command:
-  the container CMD runs `db:deploy && start`, so migrations always precede the server.
+- **Railway does not build — it pulls.** The service's source is a Docker image, so no push can
+  trigger a build there. Pushing **`stage`** runs `.github/workflows/backend-image.yml`, which
+  builds the repo-root **`Dockerfile`** (`node:24-slim`) on GitHub Actions, pushes it to
+  `ghcr.io/unabrijed/fpay-backend:<sha>`, and tells Railway to pull that SHA. Path isolation is
+  `scripts/vercel-ignore.mjs backend` — the same gate the Vercel projects use.
+- No dashboard start command: the container CMD runs `db:deploy && start`, so migrations always
+  precede the server.
+- **The backend goes live before the frontends.** Keep API changes backward-compatible for one
+  deploy cycle — a new frontend against an old backend is the pairing that breaks.
 - DB is **Supabase Postgres** via `STAGE_DATABASE_URL` — always the **session** pooler (`:5432`),
   never the transaction pooler (it breaks the advisory locks).
 - Variables: `NODE_ENV=stage` + the `STAGE_*` list (KYC config is mandatory — boot throws without

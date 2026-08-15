@@ -22,26 +22,74 @@ deposit-only: send USDC (Solana) to the address shown in Add money.
 
 ## Build model
 
-- **Trigger**: pushing **`stage`** auto-deploys the stage environment (branch is the environment's
-  deploy trigger, dashboard setting). Path isolation is `build.watchPatterns` in the root
-  `railway.json`: backend code, `packages/shared`, the workspace manifests/lockfile, and the root
-  build files (`Dockerfile`, `.dockerignore`, `railway.json`). Any other path skips the deploy.
-- **Build**: the repo-root **`Dockerfile`** (root `railway.json` pins `builder: DOCKERFILE` + the
-  `/health` healthcheck): `node:24-slim` (web's `@solana-program/token@0.14` needs node ≥24 and the
-  image installs every workspace), `yarn install --frozen-lockfile` at `monorepo/` (the
-  workspace root), then `db:deploy && start` as the container CMD — migrations run before the
-  server, and the backend runs TS via `tsx` with no build step. The root `.dockerignore` keeps
-  secrets (`.env*`, `.devnet/`) and dead weight out of the image — keep it that way when adding files.
+**Railway does not build. It pulls.** The service's source is a Docker image, not this repo — there
+is no GitHub connection on it, so no push can ever trigger a Railway build.
 
-> **Troubleshooting: build log shows `nix-env` / Nixpacks errors** (e.g.
-> `undefined variable 'nodejs_22'`) ⇒ the service's **Root Directory is set** in the dashboard,
-> which hides the repo-root `Dockerfile` + `railway.json` and drops Railway back to Nixpacks.
-> Settings → Source → clear Root Directory, redeploy. A correct build opens with `FROM node:24-slim`.
+- **Trigger**: pushing **`stage`** runs `.github/workflows/backend-image.yml`, which builds the
+  image on GitHub Actions and then tells Railway to pull it. Actions is free and unlimited on this
+  repo (it is public) and its runners are native x86_64. `workflow_dispatch` ships the current
+  commit by hand — a redeploy, or recovery after a failed run.
+- **Path isolation**: `node scripts/vercel-ignore.mjs backend` — the same file, scopes and self-test
+  the Vercel projects use. Backend scope = backend code, `packages/shared`, the workspace
+  manifests/lockfile, and the git-root build files (`Dockerfile`, `.dockerignore`). Anything else
+  builds no image and deploys nothing. (This replaced `build.watchPatterns`, which was a second copy
+  of these rules in another syntax that nothing tested.)
+- **Build**: the repo-root **`Dockerfile`**, `node:24-slim` (web's `@solana-program/token@0.14`
+  needs node ≥24 and the image installs every workspace), `yarn install --frozen-lockfile` at
+  `monorepo/` (the workspace root), then `db:deploy && start` as the container CMD — migrations run
+  before the server, and the backend runs TS via `tsx` with no build step. The install layer is
+  cached in GitHub Actions and only busts when a manifest or the lockfile changes, so a
+  source-only change rebuilds in well under a minute. The root `.dockerignore` keeps secrets
+  (`.env*`, `.devnet/`) and dead weight out of the image — keep it that way when adding files.
+- **Tags**: every build pushes `ghcr.io/unabrijed/fpay-backend:stage` **and** `:<git-sha>`. The
+  service is pinned to the SHA, so what is live is always traceable to a commit.
+- **Why**: Railway's build was a cold multi-minute install of every workspace's dependencies —
+  Next, Privy, wagmi, Solana — for a backend that has no build step, billed as usage, and finishing
+  at a time unrelated to Vercel's frontend builds. Pull + boot + healthcheck is tens of seconds, so
+  the API now lands *inside* the Vercel window instead of minutes away from it.
+
+> **Deploy ordering is load-bearing.** The backend goes live BEFORE the frontends, every time. Old
+> frontend against new backend is the safe pairing; new frontend against old backend is the one
+> that breaks. **Keep backend API changes backward-compatible for one deploy cycle** — add the new
+> field/route first, switch the frontend to it on a later push, remove the old one after that.
+
+### Adding a workspace? Add its manifest to the Dockerfile
+
+Every workspace's `package.json` must be COPY'd before the `yarn install` layer, not just the ones
+the backend imports. Workspace deps are declared `"*"` and are deliberately absent from
+`yarn.lock` — yarn resolves them from the workspace tree, so a manifest missing at that layer makes
+yarn fall through to the npm registry and die on a package that was never published. This is not
+hypothetical: it is exactly how `packages/ui` broke the build (web and lp declare `@fpay/ui`; its
+manifest was not copied; the backend never touches it and it broke anyway).
+
+> **Troubleshooting: the build log shows Railway building anything at all.** It should not — the
+> service source is an image. A Railway-side build means the service got reconnected to the GitHub
+> repo (Settings → Source). Reconnect the image:
+> `railway service source connect --image ghcr.io/unabrijed/fpay-backend:<sha> --service <svc> --environment stage`
+>
+> **Troubleshooting: Railway cannot pull the image.** The GHCR package is private. GitHub creates
+> container packages private even when the repo is public, and Railway gates *private* registry
+> deploys behind the **Pro plan**. Make the package public once (package → Settings → Danger Zone →
+> Change visibility); public GHCR images allow anonymous pull, which is what Railway does.
 
 ## Service setup
 
-1. New Railway **service** from the GitHub repo (`unabrijed/frenspay`), deploy branch **`stage`**,
-   in the **stage** environment. **Leave Root Directory unset** (see troubleshooting above).
+1. New Railway **service** in the **stage** environment, source = **Docker image**, not the GitHub
+   repo. The image must exist first, so run the workflow once (Actions → backend image → Run
+   workflow) and make the GHCR package **public** before this step (see troubleshooting above).
+   Then point the service at it and set what `railway.json` used to carry:
+   ```sh
+   railway service source connect --image ghcr.io/unabrijed/fpay-backend:stage \
+     --service <svc> --environment stage
+   ```
+   In service Settings, set **healthcheck path `/health`** and **restart policy ON_FAILURE, max 3**.
+   These used to live in the root `railway.json`; that file is gone, because Railway reads a repo
+   config only when it builds from a repo, and this service never will. The healthcheck is what
+   catches a boot crash — do not skip it.
+
+   CI needs two repo settings to reach this service: secret **`RAILWAY_TOKEN`** (a Railway *project*
+   token scoped to the **stage** environment) and variable **`RAILWAY_SERVICE`** (this service's
+   name). Both under GitHub → Settings → Secrets and variables → Actions.
 2. Set `STAGE_DATABASE_URL` to the **Supabase session pooler** URL — same value as the working
    `apps/backend/.env` (`…pooler.supabase.com:5432`). Never the transaction pooler (port 6543): the
    backend and the migration runner take session-scoped `pg_advisory_lock`s, which transaction
@@ -74,7 +122,7 @@ deposit-only: send USDC (Solana) to the address shown in Add money.
    balances. One-time flip chores: delete the old devnet-era Helius webhook in the Helius dashboard
    (registration is idempotent **by URL**, so the stale one blocks re-registration), and optionally
    mark any pending devnet-era bridge rows failed in SQL (the poller retries them harmlessly).
-4. Deploy. Migrations auto-apply at boot — `railway.json` runs `db:deploy` before `start`, so the
+4. Deploy. Migrations auto-apply at boot — the image's `CMD` runs `db:deploy` before `start`, so the
    server can never come up against a stale schema. To apply by hand instead:
    ```
    yarn db:migrate   # applies pending apps/backend/src/db/migrations/*.sql
@@ -172,6 +220,7 @@ Ship to prod by merging `stage` → `sacred` (PR).
 | ------- | ----------------- | -------------- | ----------- |
 | web (stage) | `stage` | **`monorepo`** | root `vercel.json` (builds `@fpay/web`, output `apps/web/.next`) |
 | admin (stage) | `stage` | `monorepo/apps/admin` | `apps/admin/vercel.json` |
+| lp (stage) | `stage` | `monorepo/apps/lp` | `apps/lp/vercel.json` |
 | landing (stage, optional) | `stage` | `monorepo/apps/landing` | `apps/landing/vercel.json` |
 
 ### Project setup — every step, per project

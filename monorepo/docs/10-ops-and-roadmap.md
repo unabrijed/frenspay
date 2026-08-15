@@ -11,7 +11,15 @@
   server-side.
 - **Path-scoped deploys (HARD RULE):** a push deploys only the app whose files changed; a
   docs-only push deploys **nothing**. When a deploy misfires, debug the path filters — never
-  remove them.
+  remove them. There is exactly **one** implementation, `monorepo/scripts/vercel-ignore.mjs`, with
+  a scope per target and a `--check` self-test (`yarn check:deploy`); Vercel calls it via
+  `ignoreCommand`, the backend workflow calls it as `... backend`. Add a scope there when you add
+  a deploy target — do not start a second filter somewhere else.
+- **Railway builds nothing.** The backend service pulls a prebuilt image that GitHub Actions pushes
+  to GHCR on a `stage` push. That keeps a multi-minute install off the critical path, so the API
+  lands inside Vercel's build window rather than minutes from it — the frontend/backend version
+  skew is a correctness problem, not just a slow one. The backend lands **first**, which is the
+  safe order, so keep API changes backward-compatible for one deploy cycle.
 - **Runbooks live at the repo root**, next to what they deploy: `DEPLOY.stage.md` (stage
   mainnet-lite: ON/OFF table, fee-payer funding, Helius webhook chores, smoke test) and
   `DEPLOY.md` (prod). Deployment is deliberately not a numbered doc.

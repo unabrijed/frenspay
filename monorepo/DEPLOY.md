@@ -41,6 +41,13 @@ per project" list in `DEPLOY.stage.md` with these substitutions:
   `sacred` push deploys nothing.
 - Same repo-root `Dockerfile` (`node:24-slim`) and start command everywhere: `envConfig` keys off
   `NODE_ENV` (stage→`STAGE_*` prefix, prod→bare names). No per-env scripts.
+- **Railway builds nothing** — the service pulls a prebuilt image that GitHub Actions pushes to
+  GHCR (`DEPLOY.stage.md` §Build model). Wiring prod means: a `sacred` branch trigger and a
+  `:prod`/`:<sha>` tag in `.github/workflows/backend-image.yml`, a **production**-scoped
+  `RAILWAY_TOKEN`, and the same image source + `/health` healthcheck + ON_FAILURE/3 restart policy
+  on the production service. The image is env-agnostic; only variables differ.
+- **The backend goes live before the frontends**, so keep API changes backward-compatible for one
+  deploy cycle. This matters more at prod than at stage: real money is moving through the window.
 - Migrations auto-apply at boot (`db:deploy` runs before `start`).
 
 ## Variables
