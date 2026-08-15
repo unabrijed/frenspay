@@ -75,9 +75,16 @@ export function isValidRecipientOwner(s: string): boolean {
   }
 }
 
-/** Fee-payer public address — exposed so the send path can refuse it as a recipient. */
+/** Fee-payer public address — exposed so the send path can refuse it as a recipient. Empty when no
+ *  fee-payer is configured: that check runs before any try/catch, and throwing there would turn a
+ *  tier with no fee-payer (local on mainnet) into a 500 on every send. '' matches no recipient, so
+ *  the request falls through to buildUsdcTransfer's existing "solana unavailable" 503. */
 export function feePayerAddress(): string {
-  return feePayer().publicKey.toBase58();
+  try {
+    return feePayer().publicKey.toBase58();
+  } catch {
+    return '';
+  }
 }
 
 /**
