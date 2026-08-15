@@ -85,7 +85,16 @@ async function diditFetch(path: string, init: RequestInit): Promise<Record<strin
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
-      throw new Error(`didit ${path} → ${res.status} ${detail}`);
+      // Fingerprint which credential produced this. Didit answers a 403 "no permission" to a
+      // revoked key, a key/workflow pair from two different applications, AND a key mangled by the
+      // host's variable panel — the body alone can't tell them apart, and the deployed values are
+      // not in front of you. Workflow id isn't secret; length + last 4 is enough to diff a
+      // deployment against a working local run without putting the key in a log.
+      const k = config.diditApiKey;
+      throw new Error(
+        `didit ${path} → ${res.status} ${detail} ` +
+          `[workflow=${config.diditWorkflowId} key=len${k.length}…${k.slice(-4)}]`,
+      );
     }
     return (await res.json()) as Record<string, unknown>;
   } finally {
