@@ -149,8 +149,16 @@ export const api = {
   me: () => req<MeResponse>('/me'),
   /** One-way: after this /me stops returning the invite strings. */
   acknowledgeInvites: () => req<{ ok: true }>('/me/invites/ack', { method: 'POST' }),
+  // The one call with its own deadline: it fronts a vendor round trip, and without it a stalled
+  // backend leaves the promise unsettled forever — the verify sheet then "loads" with no error and
+  // no way back. NOT made the default in `req()`: a blanket abort on a money submit would report
+  // failure for a transfer the server already accepted.
   kycVerify: (returnUrl?: string) =>
-    req<KycVerifyResponse>('/kyc/verify', { method: 'POST', body: JSON.stringify({ returnUrl }) }),
+    req<KycVerifyResponse>('/kyc/verify', {
+      method: 'POST',
+      body: JSON.stringify({ returnUrl }),
+      signal: AbortSignal.timeout(20_000),
+    }),
   // Dev-only: reset the caller's backend KYC tier to 1 so the verification flow can be re-tested on
   // the same account. Backed by /sim/kyc/:tier, which is gated to dev/stage (403 in prod).
   devResetKyc: () => req<{ ok: true; kycTier: number }>('/sim/kyc/1', { method: 'POST' }),
