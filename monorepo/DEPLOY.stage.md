@@ -152,6 +152,10 @@ STAGE_CORS_ORIGIN=https://admin.frenspay.xyz,https://frenspay.xyz,https://www.fr
 
 A missing origin breaks that frontend in prod only, silently.
 
+The admin origin appears in **both** environments' lists — stage's `STAGE_CORS_ORIGIN` above and
+prod's bare `CORS_ORIGIN`. There is one admin console and it calls whichever backend the operator
+selected, so each service has to allow that single origin independently.
+
 ## Helius — push confirmation
 
 The confirmer poller already confirms transfers; Helius makes it push. The vars are in step 3. On
@@ -219,7 +223,7 @@ Ship to prod by merging `stage` → `sacred` (PR).
 | project | Production Branch | Root Directory | config file |
 | ------- | ----------------- | -------------- | ----------- |
 | web (stage) | `stage` | **`monorepo`** | root `vercel.json` (builds `@fpay/web`, output `apps/web/.next`) |
-| admin (stage) | `stage` | `monorepo/apps/admin` | `apps/admin/vercel.json` |
+| admin (**one project, both envs**) | `stage` | `monorepo/apps/admin` | `apps/admin/vercel.json` |
 | lp (stage) | `stage` | `monorepo/apps/lp` | `apps/lp/vercel.json` |
 | landing (stage, optional) | `stage` | `monorepo/apps/landing` | `apps/landing/vercel.json` |
 
@@ -270,13 +274,18 @@ Ship to prod by merging `stage` → `sacred` (PR).
    NEXT_PUBLIC_STAGE_LANDING_URL=https://frenspay.xyz
    STAGE_ACCESS_KEY=<openssl rand -hex 32>                    # deploy access gate — see below
    ```
-   admin (stage):
+   admin (the only admin project — it serves both environments):
    ```
    NEXT_PUBLIC_APP_ENV=stage
-   NEXT_PUBLIC_STAGE_API_URL=<same as web>
+   NEXT_PUBLIC_STAGE_API_URL=<same as web>                    # the "stage" target
    NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<privy app id>
    NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<privy client id>
+   # NEXT_PUBLIC_API_URL=https://api.frenspay.xyz             # the "prod" target — LEAVE UNSET
    ```
+   Admin's two API hosts are **targets, not tiers**: both are inlined and the operator picks one in
+   the sidebar, which is why there is no admin twin project. Leave the prod one unset until the prod
+   backend exists — while it is unset the switch does not render and the console can only reach
+   stage. Full reasoning and the safety model: `apps/admin/README.md` §Deploy.
    landing (stage):
    ```
    NEXT_PUBLIC_APP_ENV=stage
@@ -301,7 +310,8 @@ Ship to prod by merging `stage` → `sacred` (PR).
      or poller) → `/sim/kyc` to tier 2 → a small P2P or external send, verified on Solscan. Network
      tab open throughout — every API call goes to the stage API origin, no CORS errors.
    - **admin**: loads (no gate configured), Privy login works, and a non-admin account is refused
-     by the backend (`role='admin'` is checked server-side).
+     by the backend (`role='admin'` is checked server-side). With `NEXT_PUBLIC_API_URL` unset there
+     must be **no stage/prod switch in the sidebar** — if one renders, a prod host got set early.
    - **landing**: static pages render; a waitlist signup round-trips (needs the Resend block
      above, otherwise it accepts silently without mail — that's the documented safe state).
 

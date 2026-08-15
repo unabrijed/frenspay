@@ -9,8 +9,13 @@ per project" list in `DEPLOY.stage.md` with these substitutions:
 | project | Production Branch | Root Directory | domain |
 | ------- | ----------------- | -------------- | ------ |
 | web (prod) | `sacred` | **`monorepo`** | app.frenspay.xyz (TBD) |
-| admin (prod) | `sacred` | `monorepo/apps/admin` | admin.frenspay.xyz |
 | landing (prod) | `sacred` | `monorepo/apps/landing` | frenspay.xyz |
+
+**Admin has no prod twin — on purpose.** There is one admin project (`DEPLOY.stage.md` §Frontends)
+and the operator switches it between backends in the sidebar. What prod needs from you is not a
+second project but two variables elsewhere: `NEXT_PUBLIC_API_URL=https://api.frenspay.xyz` on the
+one admin project (that alone is what makes prod selectable), and the admin origin added to this
+environment's bare `CORS_ORIGIN`. Details and the reasoning: `apps/admin/README.md` §Deploy.
 
 - **Branch pin**: nothing to set. The repo's `ignoreCommand` gate builds only when
   `VERCEL_ENV=production`, which a project sees only on its own Production Branch — so setting that
@@ -23,8 +28,8 @@ per project" list in `DEPLOY.stage.md` with these substitutions:
   (production is the build default), plus `NEXT_PUBLIC_API_URL=https://api.frenspay.xyz`,
   `NEXT_PUBLIC_SOLANA_RPC_URL=<mainnet RPC>` (drives web's `IS_MAINNET`; a deployed build fails
   CLOSED to mainnet if unset — envConfig.ts — so this var only picks WHICH mainnet RPC),
-  `NEXT_PUBLIC_PRIVY_APP_ID`, `NEXT_PUBLIC_PRIVY_CLIENT_ID`, `NEXT_PUBLIC_LANDING_URL` (web +
-  admin as applicable, landing gets `NEXT_PUBLIC_API_URL`), and web's **`ACCESS_KEY`** — the
+  `NEXT_PUBLIC_PRIVY_APP_ID`, `NEXT_PUBLIC_PRIVY_CLIENT_ID`, `NEXT_PUBLIC_LANDING_URL` (web only —
+  landing gets `NEXT_PUBLIC_API_URL`; admin reads neither, see above), and web's **`ACCESS_KEY`** — the
   deploy access gate, a fresh `openssl rand -hex 32`, **different from stage's key**. The prod
   project is gated from its first deploy, not just at mainnet; unsetting `ACCESS_KEY` later is the
   "open to the public" launch switch.

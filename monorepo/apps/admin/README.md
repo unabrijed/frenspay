@@ -52,21 +52,49 @@ is [`DEPLOY.stage.md` §Frontends](../../DEPLOY.stage.md#frontends--vercel-stage
 (prod: [`DEPLOY.md`](../../DEPLOY.md)). Everything *admin-specific* is below, in full, so this
 README doesn't lie by omission.
 
-### Two Vercel projects, one per environment
+### One Vercel project, two targets
 
-Vercel's **Production Branch** setting means "the branch whose deploys aren't previews" — it is not
-our production. Both admin projects have one; they just point at different branches.
+Web, lp and landing each ship a stage twin and a prod twin, hard-wired at build time to one backend.
+**Admin does not.** There is a single admin project, and which backend it drives is an *operator*
+choice made in the sidebar at runtime.
 
-| Vercel project | Production Branch | Root Directory | Variables | Domain |
-| -------------- | ----------------- | -------------- | --------- | ------ |
-| admin (stage) | `stage` | `monorepo/apps/admin` | `NEXT_PUBLIC_STAGE_*` | the stage admin domain |
-| admin (prod) | `sacred` | `monorepo/apps/admin` | bare names, no `APP_ENV` | admin.frenspay.xyz |
+| Vercel project | Production Branch | Root Directory | Domain |
+| -------------- | ----------------- | -------------- | ------ |
+| admin | `stage` | `monorepo/apps/admin` | admin.frenspay.xyz |
 
-Pushing `stage` builds the first, pushing `sacred` builds the second. Both share one
-`apps/admin/vercel.json`, and its `ignoreCommand` keeps them apart without naming a branch: the
-gate builds only when `VERCEL_ENV=production`, which a project sees only on its own Production
-Branch. The same gate skips documentation — editing this README deploys nothing
-(`scripts/vercel-ignore.mjs`, asserted by `yarn check:deploy`).
+Why one and not two: `src/services/api.ts` has exactly one `fetch`, so pointing the console
+elsewhere is a single expression — and the console never moves money client-side, so every action
+is still gated by `requireAdmin` and audited server-side no matter which host it lands on. A second
+project would double the deploys, domains and variable sets to re-express a choice the app can make
+for itself.
+
+`apps/admin/vercel.json`'s `ignoreCommand` builds only when `VERCEL_ENV=production`, which a project
+sees only on its own Production Branch — so the project follows `stage` and nothing else. The same
+gate skips documentation: editing this README deploys nothing (`scripts/vercel-ignore.mjs`, asserted
+by `yarn check:deploy`).
+
+> Moving the console to ship from `sacred` instead is a dashboard setting, not a code change.
+
+### The stage / prod switch
+
+`src/services/apiMode.ts` — the mode lives in `localStorage` and `req()` reads it per call.
+
+- **Stage is the default, always.** A fresh browser, cleared site data, or an unreadable value all
+  land on stage. Prod is an explicit, persisted opt-in.
+- **Prod is unavailable until `NEXT_PUBLIC_API_URL` is set.** No host, no switch: the control does
+  not render and the console can only reach stage. That is the state today — backend prod is unwired.
+- **Entering prod asks; leaving it doesn't.** Only the dangerous direction is modal. Making both
+  modal would train you to dismiss the dialog that matters.
+- **Switching reloads the page.** Every panel holds its rows in `useState`; carrying them across a
+  switch would show one environment's rows under the other's label and fire actions with ids the new
+  backend has never seen. The reload also drops the cached Privy token so the incoming backend
+  re-verifies from scratch.
+- **Prod mode is loud** — the nav rail turns red and the active segment is a red PROD pill.
+
+The trade this makes, stated plainly: a stage-only console *cannot* write to prod, and this one can.
+What replaces that hard guarantee is the safe default, the confirm, and the persistent red. Every
+write is still authorized and audited server-side; the risk is aiming a legitimate action at the
+wrong environment, not performing an illegitimate one.
 
 ### Settings
 
@@ -79,23 +107,30 @@ Branch. The same gate skips documentation — editing this README deploys nothin
 
 ### Variables
 
-Admin reads **exactly four keys** (`src/services/envConfig.ts`) and ignores everything else — in
+Admin reads **exactly five keys** (`src/services/envConfig.ts`) and ignores everything else — in
 particular it never reads `NEXT_PUBLIC_LANDING_URL`, which the prod runbook lists for the frontends
-collectively.
+collectively. The working copy of this list is `apps/admin/.env.deploy` (gitignored, paste-ready).
 
 ```bash
-# stage project
 NEXT_PUBLIC_APP_ENV=stage
-NEXT_PUBLIC_STAGE_API_URL=https://stage.api.frenspay.xyz
+NEXT_PUBLIC_STAGE_API_URL=https://stage.api.frenspay.xyz   # the "stage" target
+NEXT_PUBLIC_API_URL=https://api.frenspay.xyz               # the "prod" target — unset ⇒ no switch
 NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<privy app id>
 NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<optional — see below>
-
-# prod project
-NEXT_PUBLIC_API_URL=https://api.frenspay.xyz
-NEXT_PUBLIC_PRIVY_APP_ID=<privy app id>
-NEXT_PUBLIC_PRIVY_CLIENT_ID=<optional>
-# and NO NEXT_PUBLIC_APP_ENV — production is the build default (envConfig.ts)
 ```
+
+**The two API hosts are targets, not tiers.** Both are inlined; `apiMode.ts` picks between them.
+`APP_ENV=stage` still governs everything else — Privy and the dev shim resolve through the shared
+tier chain, unchanged.
+
+**One Privy app must serve both backends.** The browser holds a single session, and a token minted
+for one Privy app will not verify against a backend configured with another (`services/privy.ts`
+→ `verifyAuthToken`). If prod ever gets its own app, `Providers.tsx` needs a mode-keyed `appId` —
+cheap, because the switch already reloads.
+
+**Your account needs a row in both databases.** Privy DID is looked up per-database, so sign into
+web once per environment; `Providers.tsx` already has copy for the in-between state ("no profile on
+this environment yet"). Both `STAGE_ADMIN_EMAILS` and prod `ADMIN_EMAILS` must name you.
 
 `NEXT_PUBLIC_*` is inlined at build time, so a variable change does nothing until the next deploy:
 set variables **then** deploy.
@@ -110,11 +145,12 @@ adding the admin origin to the Privy app's **allowed origins**.
 
 This app is backend reads end to end; it has no other data source.
 
-- The matching backend must be up and its domain resolving. For prod that's the Railway
-  `production` environment behind `api.frenspay.xyz`, which is wired up only at mainnet time — until
-  then a prod admin deploy builds fine and every panel fails.
-- The admin origin must be in that backend's `CORS_ORIGIN` list (`STAGE_CORS_ORIGIN` on stage).
-  A missing origin breaks every panel **silently**.
+- Whichever backend the switch points at must be up and its domain resolving. Prod is the Railway
+  `production` environment behind `api.frenspay.xyz`, wired up only at mainnet time — which is
+  exactly why `NEXT_PUBLIC_API_URL` stays unset until then rather than offering a dead target.
+- The admin origin must be in **both** backends' CORS lists — `STAGE_CORS_ORIGIN` on stage and
+  `CORS_ORIGIN` on prod. One console, one origin, two services that each have to allow it. A
+  missing origin breaks every panel **silently**.
 - `ADMIN_EMAILS` (`STAGE_ADMIN_EMAILS` on stage) must be set before anyone signs in — it's the
   lockout recovery path for the `role='admin'` check.
 
@@ -144,7 +180,9 @@ by the backend on every panel.
 
 - Env mirrors the shared tier convention: `NEXT_PUBLIC_APP_ENV` selects the prefix
   (`src/services/envConfig.ts` — the one place this app reads env). `yarn check:env` asserts the
-  tier block stays identical to web's and landing's.
+  tier block stays identical to web's and landing's. The one departure is `API_HOSTS`, which reads
+  both hosts explicitly instead of through `pick()` — routed through the tier chain, a build with no
+  `APP_ENV` would resolve the production tier and quietly make the *stage* target the prod host.
 - Tailwind here, inline styles on web — deliberate. This is a dense desktop table UI on the same
   terracotta tokens, not the phone column.
 - Every mutating panel writes an `admin_actions` row; the Audit page is that table.
