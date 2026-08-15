@@ -37,10 +37,12 @@ const SCOPES = {
   // Landing consumes neither package, so a shared or UI change must not wake it.
   landing: [...COMMON, 'monorepo/apps/landing/'],
   // Not a Vercel project — this scope decides whether CI builds and ships the Railway image.
-  // The two build files are git-root-relative (no monorepo/ prefix) because that is where they
-  // live, and a change to either one changes the image without touching a line of backend source.
+  // The build files are git-root-relative (no monorepo/ prefix) because that is where they live,
+  // and a change to any of them changes the deploy without touching a line of backend source. The
+  // workflow belongs here for the same reason the Dockerfile does: editing it and having the gate
+  // answer "nothing changed" means the edit cannot be tested at all.
   // packages/ui is deliberately absent: the backend renders nothing.
-  backend: [...COMMON, SHARED, 'monorepo/apps/backend/', 'Dockerfile', '.dockerignore'],
+  backend: [...COMMON, SHARED, 'monorepo/apps/backend/', 'Dockerfile', '.dockerignore', '.github/workflows/'],
 };
 
 /** Files that cannot change what a build outputs, wherever they sit. */
@@ -110,12 +112,13 @@ if (!isMain) {
   // without touching backend source, and must reach nothing else.
   t(['Dockerfile'], { ...none, backend: true }, 'the image recipe wakes only the image');
   t(['.dockerignore'], { ...none, backend: true }, 'so does what the image excludes');
+  t(['.github/workflows/backend-image.yml'], { ...none, backend: true }, 'and so does the workflow that deploys it');
   // Mixed: docs are dropped first, then what remains decides.
   t(['monorepo/apps/web/README.md', 'monorepo/apps/web/src/app/page.tsx'], { ...none, web: true }, 'code beside docs');
   // A typo in the wiring must not silently mute a project.
   assert.equal(shouldBuild('addmin', ['monorepo/apps/admin/README.md']), true, 'unknown app builds');
 
-  console.log('vercel-ignore: OK — 13 cases across 5 targets, docs never deploy, unknowns always build');
+  console.log('vercel-ignore: OK — 14 cases across 5 targets, docs never deploy, unknowns always build');
 } else {
   process.exit(main(process.argv[2]));
 }
