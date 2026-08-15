@@ -40,7 +40,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # The gate diffs the whole pushed range, so the commit the branch was on before this push
           # has to be reachable. A shallow clone cannot guarantee that for a multi-commit push.
