@@ -1,0 +1,23 @@
+{
+  "name": "@fpay/ui",
+  "version": "1.0.0",
+  "private": true,
+  "_comment": "The design system, shared by every app that renders the product's own UI. Source-only like @fpay/shared — no build step, consumers list it in next.config's transpilePackages. Split out of apps/web so a second app can use it without a second copy; apps/web's src/components/ui/* are now one-line re-exports of these files.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  },
+  "dependencies": {
+    "@fpay/shared": "*"
+  },
+  "peerDependencies": {
+    "react": ">=19",
+    "react-dom": ">=19"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  }
+}

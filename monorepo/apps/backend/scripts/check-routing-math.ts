@@ -21,7 +21,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { MerchantRow } from '../src/db/queries';
-import { ACTIVITY_SLOTS, activitySlot, leverageFor, MIN_BOND } from '../src/services/merchantStats';
+import { ACTIVITY_SLOTS, activitySlot, leverageFor, MIN_BOND, TIER_RULES, tierProgress } from '../src/services/merchantStats';
 import { rankPool, WARM_WINDOW_MS } from '../src/services/routing';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -241,6 +241,45 @@ assert.ok(activitySlot(new Date('2026-08-13T23:00:00Z')) < ACTIVITY_SLOTS, 'slot
   // weight set that no longer sums to 1 silently relabels the route quality on every quote.
   assert.ok(Math.abs(sum - 1) < 1e-9, `WEIGHTS must sum to 1, got ${sum}`);
   assert.ok(nums.every((n) => n > 0), 'a zero weight is a signal that should have been deleted, not zeroed');
+}
+
+// --- the tier ladder, and what it promises an LP -------------------------------------------------
+//
+// The console puts "N more orders unlocks Tier 3" in front of a person. That is only honest if it
+// is computed from the SAME rules the router scores on, so these assert the two cannot drift.
+{
+  const TOP = Math.max(...TIER_RULES.map((r) => r.tier));
+
+  // Rules are highest-first — tierFor takes the first that passes, so a reordered table would
+  // silently hand out the wrong tier (and with it the wrong leverage).
+  const tiers = TIER_RULES.map((r) => r.tier);
+  assert.deepEqual(tiers, [...tiers].sort((a, b) => b - a), 'TIER_RULES must be highest tier first');
+
+  // A brand-new LP is tier 1 and is told what the next rung needs — not "you qualify".
+  const fresh = { settled: 0, successRate: 0.99, disputeRate: 0, avgCompletionSecs: 60 };
+  const p = tierProgress(fresh);
+  assert.ok(p, 'a new LP has somewhere to go');
+  assert.equal(p!.nextTier, 2);
+  assert.deepEqual(p!.needs.map((n) => n.key), ['settled'], 'volume is the only thing a perfect newcomer lacks');
+  assert.equal(p!.leverage, leverageFor(2), 'the promised multiplier is the real one');
+
+  // Every reported gap is a REAL gap — never a term already satisfied, which would read as
+  // "do something you have already done" and destroy trust in the whole number.
+  const mid = { settled: 12, successRate: 0.96, disputeRate: 0.05, avgCompletionSecs: 300 };
+  for (const n of tierProgress(mid)!.needs) {
+    const better = n.key === 'disputeRate' || n.key === 'avgCompletionSecs' ? n.have > n.need : n.have < n.need;
+    assert.ok(better, `${n.key} reported as unmet while already satisfied (have ${n.have}, need ${n.need})`);
+  }
+
+  // At the top there is nothing to promise, and saying so is better than inventing a rung.
+  const best = { settled: 999, successRate: 1, disputeRate: 0, avgCompletionSecs: 1 };
+  assert.equal(tierProgress(best), null, 'the top tier has no next rung');
+
+  // Meeting every listed need must actually produce the next tier — otherwise the console sends an
+  // LP chasing a target that does not pay out.
+  const climbed = { settled: 50, successRate: 0.98, disputeRate: 0.01, avgCompletionSecs: 120 };
+  assert.equal(tierProgress(climbed), null, 'exactly meeting the top rule reaches the top');
+  assert.ok(leverageFor(TOP) > leverageFor(1), 'the ladder has to be worth climbing');
 }
 
 // --- source drift: the filters that only a database can execute ----------------------------------

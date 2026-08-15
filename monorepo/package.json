@@ -3,24 +3,25 @@
   "version": "1.0.0",
   "private": true,
   "packageManager": "yarn@1.22.22",
-  "_comment_workspaces": "apps/mobile is deliberately excluded — its deps cost ~169MB and no mobile work is planned. Its source is untouched; add 'apps/mobile' back here and run yarn install to resume (then `npx expo prebuild -p android` to regenerate the native project).",
+  "_comment_workspaces": "apps/mobile is deliberately excluded \u2014 its deps cost ~169MB and no mobile work is planned. Its source is untouched; add 'apps/mobile' back here and run yarn install to resume (then `npx expo prebuild -p android` to regenerate the native project).",
   "workspaces": [
     "apps/admin",
     "apps/backend",
     "apps/landing",
+    "apps/lp",
     "apps/web",
     "packages/*"
   ],
   "scripts": {
-    "dev": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/web dev & yarn workspace @fpay/admin dev & yarn workspace @fpay/landing dev & wait",
+    "dev": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/web dev & yarn workspace @fpay/admin dev & yarn workspace @fpay/lp dev & yarn workspace @fpay/landing dev & wait",
     "dev:web": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/web dev & wait",
     "dev:fpay": "yarn dev:web",
     "dev:admin": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/admin dev & wait",
     "dev:landing": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/landing dev & wait",
     "dev:backend": "yarn workspace @fpay/backend dev",
     "brand": "node brand/generate.mjs",
-    "typecheck": "yarn workspace @fpay/shared tsc --noEmit && yarn workspace @fpay/backend tsc --noEmit && yarn workspace @fpay/web tsc --noEmit && yarn workspace @fpay/admin tsc --noEmit && yarn workspace @fpay/landing tsc --noEmit",
-    "_comment_tools": "Everything below is a one-line delegation so repo-level tools are typed the short way: `yarn db:seed`, not `yarn workspace @fpay/backend db:seed`. The whole db:* family is aliased rather than only the documented ones — `yarn db:migrate` working while `yarn db:new` does not is a worse trap than neither existing. Deliberately NOT aliased: per-app `build` / `start`, because the Vercel configs (root vercel.json for web, apps/{admin,landing}/vercel.json) and .githooks/pre-push run those exact strings, and a second way to say them is a second thing to drift.",
+    "typecheck": "yarn workspace @fpay/shared tsc --noEmit && yarn workspace @fpay/ui tsc --noEmit && yarn workspace @fpay/backend tsc --noEmit && yarn workspace @fpay/web tsc --noEmit && yarn workspace @fpay/admin tsc --noEmit && yarn workspace @fpay/lp tsc --noEmit && yarn workspace @fpay/landing tsc --noEmit",
+    "_comment_tools": "Everything below is a one-line delegation so repo-level tools are typed the short way: `yarn db:seed`, not `yarn workspace @fpay/backend db:seed`. The whole db:* family is aliased rather than only the documented ones \u2014 `yarn db:migrate` working while `yarn db:new` does not is a worse trap than neither existing. Deliberately NOT aliased: per-app `build` / `start`, because the Vercel configs (root vercel.json for web, apps/{admin,lp,landing}/vercel.json), the repo-root Dockerfile's CMD (`db:deploy && start` — that string moved there when railway.json's startCommand was removed) and .githooks/pre-push run those exact strings, and a second way to say them is a second thing to drift.",
     "db:migrate": "yarn workspace @fpay/backend db:migrate",
     "db:deploy": "yarn workspace @fpay/backend db:deploy",
     "db:status": "yarn workspace @fpay/backend db:status",
@@ -29,8 +30,8 @@
     "db:init": "yarn workspace @fpay/backend db:init",
     "db:seed": "yarn workspace @fpay/backend db:seed",
     "devnet:setup": "yarn workspace @fpay/backend devnet:setup",
-    "_comment_checks": "The self-checks: every one is plain node with no DB and no network, so check:all runs anywhere in about a second. It is `check:all` and not `check` because `yarn check` is a Yarn 1 BUILTIN (lockfile verifier) and builtins resolve ahead of scripts — a script named `check` would be silently shadowed.",
-    "check:all": "yarn check:deploy && yarn check:env && yarn check:money && yarn check:paytarget && yarn check:rails && yarn check:kyb && yarn check:routing && yarn check:fx && yarn check:waitlist && yarn check:invites && yarn check:scenes && yarn check:email && yarn check:api",
+    "_comment_checks": "The self-checks: every one is plain node with no DB and no network, so check:all runs anywhere in about a second. It is `check:all` and not `check` because `yarn check` is a Yarn 1 BUILTIN (lockfile verifier) and builtins resolve ahead of scripts \u2014 a script named `check` would be silently shadowed.",
+    "check:all": "yarn check:deploy && yarn check:env && yarn check:money && yarn check:paytarget && yarn check:rails && yarn check:kyb && yarn check:routing && yarn check:fx && yarn check:waitlist && yarn check:invites && yarn check:scenes && yarn check:email && yarn check:api && yarn check:api:lp",
     "check:api": "yarn workspace @fpay/web check:api",
     "check:fx": "yarn workspace @fpay/backend check:fx",
     "check:deploy": "node scripts/vercel-ignore.mjs --check",
@@ -43,6 +44,8 @@
     "check:scenes": "yarn workspace @fpay/landing check:scenes",
     "check:email": "yarn workspace @fpay/landing check:email",
     "check:routing": "yarn workspace @fpay/backend check:routing",
-    "check:kyb": "yarn workspace @fpay/shared check:kyb"
+    "check:kyb": "yarn workspace @fpay/shared check:kyb",
+    "dev:lp": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/lp dev & wait",
+    "check:api:lp": "yarn workspace @fpay/lp check:api"
   }
 }

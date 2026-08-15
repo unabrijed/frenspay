@@ -50,12 +50,31 @@ export interface Corridor {
   destinationRe?: RegExp;
 }
 
-/** A method absent here is registerable but not quotable (Pix: no corridor, no FX band) — the
- *  quote route answers 400, not a guess. 'bank' is an LP settlement method inside the India
- *  corridor, so it prices in INR. */
+/**
+ * Payout methods that exist in the enum but deliberately have NO corridor. A method absent from
+ * `CORRIDORS` is registerable as a value but **not quotable and not open to LPs** — the quote route
+ * answers `400 unsupported_payout_method` and `acceptsLps` refuses the application at the door.
+ *
+ * This list is what makes that absence a DECISION rather than an oversight: check-rails.ts requires
+ * every PAYOUT_METHOD to be either a corridor key or named here, so a corridor cannot be dropped by
+ * accident and cannot be "explained" by a passing mention in a comment.
+ *
+ *   Pix   — no FX band, no corridor, never built.
+ *   bank  — deferred (2026-08-14). It HAD a corridor and could not work with it: no
+ *           `destinationRe` means `!undefined?.test(x)` is always true, so any destination was an
+ *           unconditional 400, while a destination-less quote would have created a funded order
+ *           with nobody to pay the moment a bank LP existed. Meanwhile `acceptsLps` said yes, so a
+ *           person could stake 2,000 USDC against a rail that would never route them anything.
+ *
+ *           Unblocking it needs a STRUCTURED destination (account number + IFSC + beneficiary name
+ *           are three fields; `payout_destination` is one text column) and an answer to the
+ *           wrong-send question: a typed account has no independent name check the way a VPA does.
+ *           See docs/11-lp-console.md.
+ */
+export const NOT_QUOTABLE: readonly PayoutMethod[] = ['Pix', 'bank'];
+
 export const CORRIDORS: Partial<Record<PayoutMethod, Corridor>> = {
   UPI: { currency: 'INR', settle: ['provider', 'lp'], country: 'IN', destinationRe: VPA_RE },
-  bank: { currency: 'INR', settle: ['provider', 'lp'], country: 'IN' },
   QRIS: {
     currency: 'IDR',
     settle: ['provider', 'lp'],

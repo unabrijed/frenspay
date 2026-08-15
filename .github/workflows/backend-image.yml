@@ -1,0 +1,110 @@
+# Deploy the backend by uploading it to Railway and letting Railway build it.
+#
+# NOTHING IS PUBLISHED. That is the whole design constraint, and it is worth understanding before
+# changing anything here.
+#
+# This workflow used to build the image on GitHub and push it to GHCR, so Railway only had to pull —
+# tens of seconds instead of minutes. That model needs the registry package to be PUBLIC, because
+# Railway gates private-registry pulls behind the Pro plan and we are on Hobby. And a public image
+# is a published codebase: the bundle carries route paths, fee math and the literal string
+# "frens@frenspay.xyz", and dist/migrations/*.sql is the schema in plain SQL. Renaming the package
+# does not help — anyone who pulls it can read what it is in seconds.
+#
+# So Railway builds it. `railway up` uploads this checkout (honouring .gitignore, so no .env and no
+# node_modules) and builds the root Dockerfile on Railway's builder. Build compute is billed as
+# ordinary usage — roughly a cent per build, against the Hobby plan's $5 monthly credit.
+#
+# The cost is SKEW, and it is real: a Railway build takes 3-5 minutes while Vercel finishes the
+# frontends in 2-3, so the frontend can go live BEFORE the backend. That is the pairing that breaks.
+# Keeping backend API changes backward-compatible for one deploy cycle is therefore a rule, not a
+# nicety: add the new field or route first, switch the frontend to it on a later push, remove the
+# old one after that.
+name: backend deploy
+
+on:
+  push:
+    # stage -> Railway `stage`, sacred -> Railway `production`. The branch is the only thing that
+    # differs; the image is environment-agnostic because envConfig keys off NODE_ENV, which comes
+    # from the service's own variables.
+    branches: [stage, sacred]
+  # Ship the current commit without editing code — a redeploy, or a recovery after a failed run.
+  # Skips the path gate on purpose: asking for it by hand IS the decision.
+  workflow_dispatch:
+
+# One deploy at a time per branch — keyed on github.ref, so a sacred deploy never cancels a stage
+# one. A newer push to the same branch supersedes an older one rather than racing it onto the
+# same service.
+concurrency:
+  group: backend-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ship:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The gate diffs the whole pushed range, so the commit the branch was on before this push
+          # has to be reachable. A shallow clone cannot guarantee that for a multi-commit push.
+          fetch-depth: 0
+
+      # Same scopes, same self-test, as the Vercel gate — see monorepo/scripts/vercel-ignore.mjs.
+      # Exit codes are Vercel's and inverted: 0 = SKIP, 1 = BUILD. `if` is exempt from errexit,
+      # which is why the non-zero "build" answer doesn't fail the step.
+      - id: gate
+        name: Does this push touch the backend?
+        # The range this push actually moved — not just its tip commit. Empty on workflow_dispatch,
+        # where the gate is skipped anyway.
+        env:
+          DIFF_BASE: ${{ github.event.before }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo 'ship=true' >> "$GITHUB_OUTPUT"
+            echo '::notice::Manual run — path gate skipped.'
+          elif node monorepo/scripts/vercel-ignore.mjs backend; then
+            echo 'ship=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::Nothing in the backend scope changed — no build, no deploy.'
+          else
+            echo 'ship=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      # Uploads from the git root, because the Dockerfile reaches into monorepo/ for every COPY.
+      #
+      # --ci streams the Railway build log into this step and exits with its status, so a broken
+      # build is red here rather than silently stuck in the Railway dashboard.
+      #
+      # The service has NO GitHub connection — its source is this upload. That is what keeps CI and
+      # the gate above the only way anything reaches stage.
+      - if: steps.gate.outputs.ship == 'true'
+        name: Upload to Railway and build there
+        # RAILWAY_TOKEN is the name the CLI reads and cannot be renamed; the secret behind it is
+        # environment-specific, because a Railway project token IS the environment selector. Keeping
+        # the two pairs under distinct names is what makes "stage or mainnet?" readable right here,
+        # in a diff, instead of being a value hidden in a settings page.
+        env:
+          RAILWAY_TOKEN: ${{ github.ref_name == 'sacred' && secrets.RAILWAY_PROD_TOKEN || secrets.RAILWAY_STAGE_TOKEN }}
+          SERVICE: ${{ github.ref_name == 'sacred' && vars.RAILWAY_PROD_SERVICE || vars.RAILWAY_STAGE_SERVICE }}
+          RAILWAY_ENV: ${{ github.ref_name == 'sacred' && 'production' || 'stage' }}
+        run: |
+          npm install -g @railway/cli
+
+          # Preflight, because `railway up` reports every one of these as a bare
+          # "Failed to upload code with status code 404 Not Found" and that log tells you nothing.
+          # It cost a full debugging round the first time. Never echo RAILWAY_TOKEN.
+          # Named per branch so the error points at the variable that is actually missing. Failing
+          # here is deliberate on sacred: the prod frontends deploy from the same push, so a
+          # quietly-skipped backend would hide a version split behind a green run.
+          PAIR=$([ "$GITHUB_REF_NAME" = "sacred" ] && echo PROD || echo STAGE)
+          test -n "$SERVICE" || { echo "::error::RAILWAY_${PAIR}_SERVICE is empty. Set it under repo Settings -> Secrets and variables -> Actions -> VARIABLES (not Secrets)."; exit 1; }
+          test -n "$RAILWAY_TOKEN" || { echo "::error::RAILWAY_${PAIR}_TOKEN is empty. Set it under repo Settings -> Secrets and variables -> Actions -> Secrets."; exit 1; }
+          echo "branch=[$GITHUB_REF_NAME] environment=[$RAILWAY_ENV] service=[$SERVICE]"
+
+          # The decisive probe: `status` resolves a project only if RAILWAY_TOKEN is a PROJECT token
+          # (Railway -> the project -> Settings -> Tokens). An ACCOUNT token carries no project, is
+          # read via RAILWAY_API_TOKEN instead, and authenticates fine right up until the upload
+          # 404s with nothing to attach to.
+          railway status || echo "::warning::railway status could not resolve a project — RAILWAY_STAGE_TOKEN is probably an ACCOUNT token. Regenerate it inside the project (Settings -> Tokens), scoped to the stage environment."
+
+          railway up --ci --service "$SERVICE" --environment "$RAILWAY_ENV"

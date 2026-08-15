@@ -19,6 +19,7 @@ const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 const NEXT_APPS = [
   { name: 'web', path: 'apps/web/src/services/envConfig.ts', src: 'apps/web/src' },
   { name: 'admin', path: 'apps/admin/src/services/envConfig.ts', src: 'apps/admin/src' },
+  { name: 'lp', path: 'apps/lp/src/services/envConfig.ts', src: 'apps/lp/src' },
   { name: 'landing', path: 'apps/landing/src/lib/envConfig.ts', src: 'apps/landing/src' },
 ];
 const BACKEND = 'apps/backend/src/envConfig.ts';

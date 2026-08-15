@@ -168,7 +168,7 @@ flowchart TB
     P3 --> ADV
     H3 --> ADV["status=confirmed → onTransferConfirmedAndNotify"]
     ADV --> OM["orderMachine: advance linked order + notify recipient"]
-    P3 -.-> SM["same tick: runOrderWorkerOnce() (sim merchant + escalation timers)"]
+    P3 -.-> SM["same tick: runOrderWorkerOnce() (sim merchant, escalation timers, lock sweep)"]
 ```
 
 1. **Confirmer poller** (`apps/backend/src/services/confirmer.ts`) — every **8 seconds**
@@ -193,9 +193,12 @@ deposit that never touches the fee-payer — that's the gap called out above.
 
 **The poller does double duty.** Each 8s tick also calls `runOrderWorkerOnce()` (the simulated
 merchant + order-escalation clock, [06](06-offramp-and-settlement.md)), retires stale unsigned
-transfers (`expireStaleUnsignedTransfers`), and every 10th tick recomputes merchant stats
-(`recomputeMerchantStats`). The confirmer is both the chain-watcher and the heartbeat for everything
-else on a clock.
+transfers (`expireStaleUnsignedTransfers`), **reclaims lapsed order locks** (`sweepExpiredLocks` —
+an unpaid lock returns to the pool, the LP is told, and repeated abandonment earns a lock timeout),
+and every 10th tick recomputes merchant stats (`recomputeMerchantStats`). The confirmer is both the
+chain-watcher and the heartbeat for everything else on a clock — and the lock sweep rides it rather
+than adding a sixth timer *because* these loops are unguarded against a second replica
+([10](10-ops-and-roadmap.md)); one more timer is one more thing to make safe later.
 
 **Order + notification advancement.** `onTransferConfirmedAndNotify` (`orderMachine.ts:180-190`)
 calls `onTransferConfirmed` (advances any linked order: an `escrow_fund` confirmation →

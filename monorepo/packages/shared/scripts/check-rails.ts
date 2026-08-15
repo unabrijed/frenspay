@@ -58,7 +58,6 @@ for (const r of RAILS.filter((x) => x.live)) {
   const migration4 = readFileSync(join(ROOT, 'apps/backend/src/db/migrations/0004_corridor_currency.sql'), 'utf8');
   const migration5 = readFileSync(join(ROOT, 'apps/backend/src/db/migrations/0005_payout_providers.sql'), 'utf8');
   for (const m of PAYOUT_METHODS) {
-    assert.ok(corridors.includes(`'${m}'`), `backend lib/corridors.ts is missing payout method '${m}'`);
     assert.ok(migration4.includes(`'${m}'`), `migration 0004 CHECK is missing payout method '${m}'`);
     assert.ok(migration5.includes(`'${m}'`), `migration 0005 payout_providers CHECK is missing payout method '${m}'`);
   }
@@ -77,7 +76,32 @@ for (const r of RAILS.filter((x) => x.live)) {
   // field order — the previous regex hard-coded `currency` immediately followed by `model`, so a
   // field inserted between them silently matched nothing and every assert below passed vacuously.
   const entries = [...corridors.matchAll(/^ {2}(\w+): \{([\s\S]*?)\},$/gm)].map(([, key, body]) => ({ key, body }));
-  assert.ok(entries.length >= 3, 'corridor registry parsed empty — the entry regex drifted');
+  assert.ok(entries.length >= 2, 'corridor registry parsed empty — the entry regex drifted');
+
+  // Every payout method is either a corridor KEY or explicitly declared not-quotable. This replaced
+  // a `corridors.includes("'bank'")` text match over the WHOLE FILE, comments included — which
+  // 'Pix' had been passing for months purely because a comment mentioned it, and which 'bank' would
+  // have kept passing after its corridor was removed. A method vanishing from the registry has to
+  // be a decision someone wrote down, not a string that happens to appear somewhere.
+  const keys = new Set(entries.map((e) => e.key));
+  const notQuotable = new Set(
+    [...corridors.matchAll(/^export const NOT_QUOTABLE[^=]*=\s*\[([^\]]*)\]/gm)]
+      .flatMap((m) => [...m[1].matchAll(/'(\w+)'/g)].map((x) => x[1])),
+  );
+  assert.ok(notQuotable.size > 0, 'could not parse NOT_QUOTABLE out of corridors.ts');
+  for (const m of PAYOUT_METHODS) {
+    assert.ok(
+      keys.has(m) || notQuotable.has(m),
+      `payout method '${m}' has no corridor and is not declared in NOT_QUOTABLE — decide which`,
+    );
+    assert.ok(!(keys.has(m) && notQuotable.has(m)), `payout method '${m}' is both a corridor and not-quotable`);
+  }
+  for (const m of notQuotable) {
+    assert.ok(
+      (PAYOUT_METHODS as readonly string[]).includes(m),
+      `NOT_QUOTABLE names '${m}', which is not a payout method`,
+    );
+  }
 
   // A corridor whose ONLY settler is a provider needs its platform settlement row in the seed
   // (docs/23) — with no 'psp' merchant on that rail and no LP pool underneath it, it quotes

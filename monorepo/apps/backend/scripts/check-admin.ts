@@ -18,10 +18,12 @@ import {
   claimOrderPayout,
   deleteUser,
   expireStaleOrders,
+  findUserByEmail,
   findUserByHandle,
   findUserById,
   freezeOrderForDispute,
   getOrderAdmin,
+  getWalletForUser,
   insertMerchantApplication,
   listOrdersAdmin,
   resolveHandleToFriend,
@@ -29,6 +31,7 @@ import {
   setUserStatus,
   unfreezeOrderAfterDispute,
   updateUserProfileAdmin,
+  upsertUserByPrivyDid,
 } from '../src/db/queries';
 
 let failures = 0;
@@ -45,6 +48,10 @@ async function clean(pool: Pool) {
   await pool.query(`delete from orders where user_id in ${zza}`); // cascades events/attempts/disputes
   await pool.query(`delete from quotes where user_id in ${zza}`);
   await pool.query(`delete from merchants where name like 'ZZ-ADMIN%'`);
+  // invite_codes references users on BOTH columns and neither cascades. §6 is the only section that
+  // goes through upsertUserByPrivyDid, which mints three codes per account — the raw inserts the
+  // other sections use never made any, which is why this was not needed before.
+  await pool.query(`delete from invite_codes where owner_id in ${zza} or redeemed_by in ${zza}`);
   await pool.query(`delete from users where privy_did like 'zza:%'`);
 }
 
@@ -187,6 +194,40 @@ async function main() {
       return false;
     }
   })());
+
+  // 6) identity by EMAIL, not by DID (/auth/sync adoption). The DID is how a login addresses
+  // someone; the Privy-verified address is who they are. When those diverge — the same person
+  // returning under a new DID — a DID-keyed upsert sees a stranger, and the web client, which asks
+  // /me "do I have an account?", would be told no and march them through signup again. Adoption is
+  // what makes the two questions have one answer. Load-bearing: the alternative outcomes are a
+  // second account for one address, or a permanent 409 with no self-service way out.
+  const ADOPT_EMAIL = 'zza-adopt@example.test';
+  const first = await upsertUserByPrivyDid({
+    privyDid: 'zza:adopt-old',
+    handle: '@zza_adopt',
+    walletAddress: 'ZZAadoptwallet0000000000000000000000000A',
+    email: ADOPT_EMAIL,
+  });
+  const again = await upsertUserByPrivyDid({
+    privyDid: 'zza:adopt-new',
+    handle: '@zza_adopt_second_try', // what someone would type when asked to pick a name again
+    walletAddress: 'ZZAadoptwallet0000000000000000000000000B',
+    email: ADOPT_EMAIL,
+  });
+  check('same email under a NEW DID returns the SAME account', again.id === first.id);
+  check('adoption re-points privy_did to the new DID', again.privy_did === 'zza:adopt-new');
+  check('adoption keeps the original handle (a second signup cannot rename them)', again.handle === '@zza_adopt');
+  check(
+    'one email is still one row (no duplicate account)',
+    (await pool.query(`select count(*)::int c from users where email=$1`, [ADOPT_EMAIL])).rows[0].c === 1,
+  );
+  check('findUserByEmail finds it under the new DID', (await findUserByEmail(ADOPT_EMAIL))?.id === first.id);
+  // The new DID owns a DIFFERENT embedded wallet, and it is the only one they can sign with — an
+  // adopted account left pointing at the old address would be a dead deposit address.
+  check(
+    'adoption re-points the wallet to the new signing address',
+    (await getWalletForUser(first.id))?.address === 'ZZAadoptwallet0000000000000000000000000B',
+  );
 
   await clean(pool);
   await pool.end();

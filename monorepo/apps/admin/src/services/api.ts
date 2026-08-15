@@ -22,7 +22,8 @@ import type {
   MeResponse,
 } from '@fpay/shared';
 
-import { API_URL, DEV_USER_ID } from './envConfig';
+import { apiHost } from './apiMode';
+import { DEV_USER_ID } from './envConfig';
 
 let authToken: string | null = null;
 /** Set by Privy after login. Until then requests fall back to the dev header. */
@@ -44,7 +45,8 @@ export async function req<T>(path: string, init?: RequestInit, retried = false):
   if (authToken) headers.authorization = `Bearer ${authToken}`;
   else if (DEV_USER_ID) headers['x-dev-user-id'] = DEV_USER_ID;
 
-  const res = await fetch(`${API_URL}${path}`, { ...init, headers });
+  // Host is read per call, not captured at import: the operator can be pointed at either backend.
+  const res = await fetch(`${apiHost()}${path}`, { ...init, headers });
 
   // Expired Privy access token → refresh once and retry transparently.
   if (res.status === 401 && !retried && refreshToken) {

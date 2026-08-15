@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // tsconfig.base.json is framework-free because @fpay/shared is. This package is TSX and runs in
+    // a browser, so it declares both for itself.
+    //
+    // `react-jsx` is for TYPE-CHECKING here only — consumers compile these files from source under
+    // their own Next config (`jsx: preserve`), so this setting never reaches a bundle. `dom` is
+    // genuine: rn.tsx reads `navigator.vibrate` and primitives.tsx touches HTMLInputElement.value
+    // and HTMLImageElement.style.
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["src"]
+}

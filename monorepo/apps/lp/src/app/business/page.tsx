@@ -1,6 +1,6 @@
 'use client';
 
-// /merchant/verify — the business check: what the LP submits, and where it got to.
+// /business — the business check: what the LP submits, and where it got to.
 //
 // The person behind this account is already verified (tier-2 Didit, required to apply). This screen
 // is about the BUSINESS, and above all about which account the fiat will actually leave from — the
@@ -15,16 +15,16 @@ import { useMemo, useState } from 'react';
 
 import { KYB_FIELDS, kybAwaitingMerchant, validateKyb } from '@fpay/shared';
 
-import { BackButton } from '@/components/ui/BackButton';
-import { Btn } from '@/components/ui/Button';
-import { Hairline, List, Row, RowMeta, SearchBar, Spacer } from '@/components/ui/primitives';
-import { View } from '@/components/ui/rn';
-import { Screen } from '@/components/ui/Screen';
-import { Txt } from '@/components/ui/Txt';
+import { BackButton } from '@fpay/ui/BackButton';
+import { Btn } from '@fpay/ui/Button';
+import { Hairline, List, Row, RowMeta, SearchBar, Spacer } from '@fpay/ui/primitives';
+import { View } from '@fpay/ui/rn';
+import { Screen } from '@fpay/ui/Screen';
+import { Txt } from '@fpay/ui/Txt';
 import { friendlyError } from '@/lib/errors';
-import { colors, GUTTER, radii, type } from '@/lib/theme';
+import { colors, GUTTER, radii, type } from '@fpay/ui/theme';
 import { submitMerchantKyb } from '@/services/merchant';
-import { usePayStore } from '@/store/usePayStore';
+import { useLpStore } from '@/store/useLpStore';
 
 /** What the merchant is told their status means. Deliberately in their language, not the enum's. */
 const STATUS_COPY: Record<string, { title: string; body: string }> = {
@@ -40,8 +40,8 @@ const relTime = (iso: string) => new Date(iso).toLocaleString();
 
 export default function MerchantVerify() {
   const router = useRouter();
-  const merchant = usePayStore((s) => s.merchant);
-  const load = usePayStore((s) => s.load);
+  const merchant = useLpStore((s) => s.merchant);
+  const load = useLpStore((s) => s.load);
 
   const spec = useMemo(() => (merchant ? (KYB_FIELDS[merchant.country] ?? []) : []), [merchant?.country]);
   // Seeded from what they already sent, so a more-info request reopens the form filled in rather
@@ -55,7 +55,7 @@ export default function MerchantVerify() {
     return (
       <Screen edges={['top']} style={styles.safe}>
         <View style={styles.head}>
-          <BackButton onPress={() => router.push('/merchant')} />
+          <BackButton onPress={() => router.push('/')} />
         </View>
         <View style={styles.scroll}>
           <Txt style={type.lead}>You don’t have a merchant account.</Txt>
@@ -91,7 +91,7 @@ export default function MerchantVerify() {
   return (
     <Screen edges={['top']} style={styles.safe}>
       <View style={styles.head}>
-        <BackButton onPress={() => router.push('/merchant')} />
+        <BackButton onPress={() => router.push('/')} />
       </View>
       <View style={styles.scroll}>
         <Txt style={type.handle}>{copy.title}</Txt>

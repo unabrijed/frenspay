@@ -58,11 +58,16 @@ The step-by-step runbook — every dashboard setting, variable, domain step, and
 [`DEPLOY.stage.md`](../../DEPLOY.stage.md) (prod: [`DEPLOY.md`](../../DEPLOY.md)). The shape, so
 this README doesn't lie by omission:
 
-- Pushing **`stage`** deploys the stage environment; path isolation via `build.watchPatterns` in
-  the repo-root `railway.json`.
-- Build is the repo-root **`Dockerfile`** (`node:24-slim`) — NOT Nixpacks; if the build log shows
-  Nixpacks, the service's Root Directory got set (leave it **unset**). No dashboard start command:
-  the container CMD runs `db:deploy && start`, so migrations always precede the server.
+- **Nothing is published to a registry** — see [`DEPLOY.stage.md`](../../DEPLOY.stage.md) §How a
+  deploy happens for why. Pushing **`stage`** runs `.github/workflows/backend-image.yml`, which `railway up`s the
+  checkout; Railway builds the repo-root **`Dockerfile`** (`node:24-slim`) itself. The service has no
+  GitHub connection, so CI is the only path in. Path isolation is `scripts/vercel-ignore.mjs
+  backend` — the same gate the Vercel projects use.
+- No dashboard start command: the container CMD runs the migration bundle then the server bundle, so
+  migrations always precede the server.
+- **The frontends can go live before the backend** (Railway build 3–5 min, Vercel 2–3). Keep API
+  changes backward-compatible for one deploy cycle — a new frontend against an old backend is the
+  pairing that breaks.
 - DB is **Supabase Postgres** via `STAGE_DATABASE_URL` — always the **session** pooler (`:5432`),
   never the transaction pooler (it breaks the advisory locks).
 - Variables: `NODE_ENV=stage` + the `STAGE_*` list (KYC config is mandatory — boot throws without

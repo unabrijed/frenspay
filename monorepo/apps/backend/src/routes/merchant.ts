@@ -58,7 +58,7 @@ import { KYB_SUBMITTABLE, validateKybFields } from '../lib/kyb';
 import { formatAmount } from '../lib/units';
 import { KYC_APPROVED_TIER } from '../services/kyc';
 import { DISPUTE_WINDOW_MS, LOCK_TTL_MS } from '../services/orderMachine';
-import { leverageFor, MIN_BOND } from '../services/merchantStats';
+import { leverageFor, MIN_BOND, tierProgress } from '../services/merchantStats';
 import { buildUsdcTransfer } from '../services/solana';
 
 /** Cap on a single stake deposit — a typo shouldn't be able to move a merchant's whole balance. */
@@ -90,6 +90,7 @@ export function toMerchantProfile(
   m: MerchantRow,
   pending?: StakeWithdrawalRow,
   kybEvents?: KybEventRow[],
+  settled?: number,
 ): MerchantProfile {
   return {
     id: m.id,
@@ -120,6 +121,17 @@ export function toMerchantProfile(
     // stake, not a silent haircut — `floatUsdc` alone made the cap look like a bug.
     maxFloatUsdc: formatAmount(amt(Number(m.bond_usdc)).times(leverageFor(m.tier)), USDC_DECIMALS),
     tier: m.tier,
+    // Only computable with the settled count, which is one extra read — so callers that don't need
+    // the dashboard hero (and don't pass it) simply omit it rather than paying for it.
+    tierProgress:
+      settled == null
+        ? undefined
+        : (tierProgress({
+            settled,
+            successRate: Number(m.success_rate),
+            disputeRate: Number(m.dispute_rate),
+            avgCompletionSecs: m.avg_completion_secs,
+          }) ?? undefined),
     spreadBps: m.spread_bps,
     pendingWithdrawal: pending
       ? { id: pending.id, amountUsdc: pending.amount_usdc, requestedAt: pending.requested_at.toISOString() }

@@ -9,7 +9,9 @@ name or number, and (later) pay out to local rails — built on **stablecoins (U
 with the crypto deliberately hidden. **Both deployed environments (stage and prod) run mainnet**;
 devnet exists only in local dev.
 
-This set was rewritten **from scratch on 2026-08-13** around the locked base design (one user =
+This set was rewritten **from scratch on 2026-08-13** and extended on **2026-08-14** for the LP
+marketplace (the offer/lock mechanism, KYB evidence, tiering, the alert seam, and
+[11](11-lp-console.md), the LP console) around the locked base design (one user =
 one email = one handle; email-only entrance; admin moderation; USDC-only deposits; FREN invite
 codes; a flat $0.001 conversion fee folded into the rate; dual-currency balance display; minimal
 home). Superseded docs live in git history only — nothing stale stays in this folder to sway a
@@ -49,11 +51,12 @@ Flow docs follow the **same six-part shape**, so you always know where to look:
 | 03 | [Custody, money-in & confirmation](03-custody-money-in-and-confirmation.md) | self-custody (the key legal lever), fee-payer gas, USDC-only deposits, how the chain tells the app |
 | 04 | [P2P & contacts](04-p2p-and-contacts.md) | send by handle/phone/address, requests, contacts, the minimal Add/Send home |
 | 05 | [Fees, FX & display](05-fees-fx-and-display.md) | the flat $0.001 conversion fee folded into the rate, per-currency FX, dual-currency balance + flip + eye-hide |
-| 06 | [Offramp & settlement](06-offramp-and-settlement.md) | quote → escrow → route → payout as one machine; provider-direct (Xendit) vs merchant rails (`lp`); corridor economics |
+| 06 | [Offramp & settlement](06-offramp-and-settlement.md) | quote → escrow → route → payout as one machine; an ordered `settle` preference per corridor — provider-direct (Xendit) with the LP pool as fallback; corridor economics |
 | 07 | [Admin & moderation](07-admin-and-moderation.md) | roles, suspend/reinstate, admin renames, audit trail, soft-delete (decided), ban = suspend + denylist |
 | 08 | [Compliance & legalities](08-compliance-and-legalities.md) | the honest risk map: custody, KYC, MTL, FX, sanctions, retention |
 | 09 | [Data model](09-data-model.md) | the Postgres schema table-by-table, migration conventions |
 | 10 | [Ops & roadmap](10-ops-and-roadmap.md) | deploy model, infra hardening, KYC runbook, and everything gated or decided-but-unbuilt |
+| 11 | [The LP console](11-lp-console.md) | the app the people who settle our payouts use — notifier, scoreboard, stake. **No money moves through it** |
 
 **Deployment is not a numbered doc** — the runbooks live at the repo root, next to the code they
 deploy: [`DEPLOY.stage.md`](../DEPLOY.stage.md) and [`DEPLOY.md`](../DEPLOY.md). One architecture

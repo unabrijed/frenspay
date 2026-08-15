@@ -7,6 +7,9 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
+    "build": "esbuild src/server.ts --bundle --platform=node --format=esm --packages=external --minify --outfile=dist/server.mjs && esbuild src/db/migrate.ts --bundle --platform=node --format=esm --packages=external --minify --outfile=dist/migrate.mjs",
+    "start:dist": "node dist/server.mjs",
+    "db:deploy:dist": "node dist/migrate.mjs deploy",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:deploy": "tsx src/db/migrate.ts deploy",
     "db:status": "tsx src/db/migrate.ts status",
@@ -38,6 +41,7 @@
   "devDependencies": {
     "@types/node": "^22.10.5",
     "@types/pg": "^8.11.10",
+    "esbuild": "^0.25.0",
     "tsx": "^4.19.2",
     "typescript": "~6.0.3"
   }

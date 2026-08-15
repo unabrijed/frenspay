@@ -132,6 +132,15 @@ export async function findUserByPrivyDid(did: string): Promise<UserRow | null> {
   return rows[0] ?? null;
 }
 
+/** By the Privy-VERIFIED login address (uq_users_email, 0010). The durable identity, as opposed to
+ *  the DID that happens to be addressing it today — see upsertUserByPrivyDid's adoption path, whose
+ *  invite gate this is the pre-flight for. Never call it with a self-claimed address: nothing but
+ *  Privy may decide who owns a mailbox. Soft-deleted rows NULL their email, so they never match. */
+export async function findUserByEmail(email: string): Promise<UserRow | null> {
+  const { rows } = await getPool().query<UserRow>('select * from users where email = $1', [email]);
+  return rows[0] ?? null;
+}
+
 /** Who a freshly minted code belongs to. An account (`id`), an f-list member who has no account
  *  (`email`), or nobody at all — `null` is a house code minted from the admin console. */
 export type InviteOwner = { id: string } | { email: string } | null;
@@ -222,6 +231,36 @@ export async function upsertUserByPrivyDid(input: {
       // invited them.
       referredBy = codeRows[0].owner_id;
     }
+    // The Privy-verified address is the DURABLE identity; the DID is only how this login happens to
+    // address it. Those diverge in practice — a returning person under a new DID, whether from a
+    // Privy-side re-issue or a deleted-then-recreated Privy account — and the DID conflict key alone
+    // can't see it. That case used to end at 409 email_in_use with no self-service way out
+    // (queries.ts deleteUser documents the same failure from the soft-delete side).
+    //
+    // So adopt instead: re-point the existing row at the new DID and hand back the SAME account,
+    // with its handle, ledger and invite lineage intact. Safe because email OTP is the only way in
+    // (PrivyRoot loginMethods: ['email']) — proving the address IS the login, so this grants nothing
+    // a normal sign-in doesn't. Deleted rows can't be adopted: deleteUser NULLs their email.
+    //
+    // It also closes the only remaining way to get two rows for one address: `email` is undefined
+    // whenever getLinkedEmail hiccups (routes/auth.ts wraps it in .catch(() => null)), and
+    // uq_users_email is partial — NULL never collides, so the second row would land cleanly.
+    //
+    // `for update` so two concurrent syncs for one address serialize here rather than racing.
+    let adopted: UserRow | undefined;
+    if (input.email) {
+      const { rows: byEmail } = await client.query<{ id: string }>(
+        `select id from users where email = $1 and privy_did <> $2 for update`,
+        [input.email, input.privyDid],
+      );
+      if (byEmail[0]) {
+        const { rows } = await client.query<UserRow>(
+          `update users set privy_did = $2 where id = $1 returning *`,
+          [byEmail[0].id, input.privyDid],
+        );
+        adopted = rows[0];
+      }
+    }
     // Handle is user-IMMUTABLE after first sync (the onboarding UI promises "can't be changed
     // later"; only the admin console renames, and the freed handle is instantly re-claimable — an
     // accepted risk, docs/24). display_name is deliberately NOT in the conflict update either: the
@@ -230,24 +269,30 @@ export async function upsertUserByPrivyDid(input: {
     // NULL (verified-phone/manual picks overwrite via /me/country). email is the opposite: Privy is
     // authoritative, so a fresh value wins and a missing one leaves what's there. referred_by is
     // NOT in the conflict update: a re-sync must never rewrite lineage.
-    const { rows } = await client.query<UserRow>(
-      `insert into users (privy_did, handle, display_name, country, email, referred_by)
+    let user = adopted;
+    if (!user) {
+      const { rows } = await client.query<UserRow>(
+        `insert into users (privy_did, handle, display_name, country, email, referred_by)
        values ($1, $2, $3, $4, $5, $6)
        on conflict (privy_did) do update
          set country = coalesce(users.country, excluded.country),
              email = coalesce(excluded.email, users.email)
        returning *`,
-      [
-        input.privyDid,
-        input.handle,
-        input.displayName ?? null,
-        input.country ?? null,
-        input.email ?? null,
-        referredBy,
-      ],
-    );
-    const user = rows[0];
-    if (input.inviteCode) {
+        [
+          input.privyDid,
+          input.handle,
+          input.displayName ?? null,
+          input.country ?? null,
+          input.email ?? null,
+          referredBy,
+        ],
+      );
+      user = rows[0];
+    }
+    // Not on the adoption path: nobody invited a person who was already here, and burning their
+    // code to let them back into their own account would cost them one for nothing. The `for update`
+    // taken above simply releases unspent at commit.
+    if (input.inviteCode && !adopted) {
       // Burn it. Same transaction as the account it let in, so there is no window where a code is
       // spent but the account doesn't exist (or the reverse).
       await client.query(
@@ -1950,10 +1995,11 @@ export async function releaseStakeWithdrawal(withdrawalId: string, note: string)
  * window passes, only the LP routing actually picked can take it; after, anyone eligible can. That
  * is the entire reward for ranking first, and it costs nothing to give.
  *
- * Eligibility (rail, country, price, capacity) is NOT re-checked here — the caller resolves it from
- * the same pool query that offered the order, and re-deriving it inside the CAS would double the
- * statement's size to re-answer a question asked moments ago. The predicates that MUST be atomic
- * are the ones about this row's own state, and they all are.
+ * Eligibility (rail, country, price, capacity) IS re-checked here, inside the CAS. It used not to
+ * be — the pool query in the route was the only thing enforcing it, which made taking an order a
+ * check-then-act split across two HTTP requests: an LP could lock work on the wrong rail, in the
+ * wrong country, at a price that underpaid them, or past what their stake backs, and two concurrent
+ * locks could each pass the route's headroom check and together blow through it.
  *
  * Returns the payee on success, because a lock that doesn't reveal is a lock with no purpose — and
  * returning it here means the reveal and the claim are the same atomic act.
@@ -2101,6 +2147,18 @@ export async function getOrderAlertInfo(
   const r = rows[0];
   if (!r) return null;
   return { merchant: r.id ? (r as MerchantRow) : null, amountFiat: r.amount_inr, currency: r.currency };
+}
+
+/** Settled attempts (released + failed) for ONE merchant — the volume term in the tier ladder.
+ *  merchantOutcomeCounts() answers this for every merchant at once for the stats pass; this is the
+ *  single-row read the LP's own screen needs. */
+export async function merchantSettledCount(merchantId: string): Promise<number> {
+  const { rows } = await getPool().query<{ n: string }>(
+    `select count(*) as n from order_routing_attempts
+      where merchant_id = $1 and outcome in ('released','failed')`,
+    [merchantId],
+  );
+  return Number(rows[0].n);
 }
 
 export interface MerchantEarningsRow {

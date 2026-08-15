@@ -2,15 +2,16 @@ import pg from 'pg';
 
 import { config } from '../envConfig';
 
-// Railway provides DATABASE_URL. Pools are created lazily so the server can boot
-// (and serve /health + the stubbed routes) before a database is attached.
+// The host provides DATABASE_URL (Railway variables in the deployed envs; .env locally) and it
+// points at Supabase. Pools are created lazily so the server can boot (and serve /health + the
+// stubbed routes) before a database is attached.
 let pool: pg.Pool | null = null;
 let lockPool: pg.Pool | null = null;
 
 function makePool(max: number): pg.Pool {
   return new pg.Pool({
     connectionString: config.databaseUrl!,
-    // Railway Postgres typically requires SSL; relax verification for the managed cert.
+    // Supabase requires SSL; relax verification for the managed cert.
     ssl: config.pgSslDisable ? false : { rejectUnauthorized: false },
     max,
     // Fail fast on exhaustion instead of waiting forever (the default), so a bad state surfaces as a
@@ -21,7 +22,7 @@ function makePool(max: number): pg.Pool {
 
 export function getPool(): pg.Pool {
   if (!config.databaseUrl) {
-    throw new Error('DATABASE_URL is not set — attach a Railway Postgres plugin and set the env var.');
+    throw new Error('DATABASE_URL is not set — point it at the Supabase session pooler (:5432, never :6543).');
   }
   if (!pool) pool = makePool(12);
   return pool;
@@ -33,7 +34,7 @@ export function getPool(): pg.Pool {
 // (M6 audit H1). Sized for concurrent lock-holders; the section is short, so a small pool suffices.
 export function getLockPool(): pg.Pool {
   if (!config.databaseUrl) {
-    throw new Error('DATABASE_URL is not set — attach a Railway Postgres plugin and set the env var.');
+    throw new Error('DATABASE_URL is not set — point it at the Supabase session pooler (:5432, never :6543).');
   }
   if (!lockPool) lockPool = makePool(6);
   return lockPool;

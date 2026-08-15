@@ -59,18 +59,70 @@ function smooth(obsMean: number, n: number, prior: number): number {
   return (obsMean * n + prior * PRIOR_WEIGHT) / (n + PRIOR_WEIGHT);
 }
 
+/** The signals a tier is decided from. */
+export interface TierSignals {
+  settled: number;
+  successRate: number;
+  disputeRate: number;
+  avgCompletionSecs: number;
+}
+
 /**
- * Performance tier from signals that already exist — no new measurement, no new column to keep in
- * step. Volume gates each rung because the smoothed rates start at their priors: without it a
- * brand-new LP with one lucky order would read as tier 3 and be handed 8× leverage.
+ * The tier ladder, as DATA rather than a chain of ifs — because the LP console has to tell an LP
+ * what closes the gap to the next rung, and a number typed into a screen that drifts from the
+ * number the router uses is worse than showing nothing.
  *
- * Deliberately a step function over plain thresholds rather than a score. An LP has to be able to
- * read this and know what to fix; "your composite fell to 0.71" is not something anyone can act on.
+ * Volume gates each rung because the smoothed rates start at their priors: without it a brand-new
+ * LP with one lucky order would read as tier 3 and be handed 8× leverage.
+ *
+ * Deliberately thresholds rather than a composite score. An LP has to read this and know what to
+ * fix; "your composite fell to 0.71" is not something anyone can act on.
+ *
+ * Highest first — `tierFor` takes the first rule that passes.
  */
-function tierFor(m: { settled: number; successRate: number; disputeRate: number; avgCompletionSecs: number }): number {
-  if (m.settled >= 50 && m.successRate >= 0.98 && m.disputeRate <= 0.01 && m.avgCompletionSecs <= 120) return 3;
-  if (m.settled >= 10 && m.successRate >= 0.95 && m.disputeRate <= 0.03) return 2;
-  return 1;
+export const TIER_RULES: ReadonlyArray<{ tier: number } & Partial<TierSignals>> = [
+  { tier: 3, settled: 50, successRate: 0.98, disputeRate: 0.01, avgCompletionSecs: 120 },
+  { tier: 2, settled: 10, successRate: 0.95, disputeRate: 0.03 },
+];
+
+const meetsRule = (m: TierSignals, r: (typeof TIER_RULES)[number]): boolean =>
+  (r.settled == null || m.settled >= r.settled) &&
+  (r.successRate == null || m.successRate >= r.successRate) &&
+  (r.disputeRate == null || m.disputeRate <= r.disputeRate) &&
+  (r.avgCompletionSecs == null || m.avgCompletionSecs <= r.avgCompletionSecs);
+
+function tierFor(m: TierSignals): number {
+  return TIER_RULES.find((r) => meetsRule(m, r))?.tier ?? 1;
+}
+
+/**
+ * What stands between this LP and the next rung — the whole motivational point of the console.
+ *
+ * Returns only the terms they do NOT yet meet, computed against the same rules `tierFor` uses, so
+ * the screen can never promise a threshold the router disagrees with. Null at the top rung.
+ */
+export function tierProgress(
+  m: TierSignals,
+): { nextTier: number; leverage: number; needs: Array<{ key: string; have: number; need: number }> } | null {
+  const current = tierFor(m);
+  // The next rung up is the lowest rule above the current tier.
+  const next = [...TIER_RULES].reverse().find((r) => r.tier > current);
+  if (!next) return null;
+
+  const needs: Array<{ key: string; have: number; need: number }> = [];
+  if (next.settled != null && m.settled < next.settled) {
+    needs.push({ key: 'settled', have: m.settled, need: next.settled });
+  }
+  if (next.successRate != null && m.successRate < next.successRate) {
+    needs.push({ key: 'successRate', have: m.successRate, need: next.successRate });
+  }
+  if (next.disputeRate != null && m.disputeRate > next.disputeRate) {
+    needs.push({ key: 'disputeRate', have: m.disputeRate, need: next.disputeRate });
+  }
+  if (next.avgCompletionSecs != null && m.avgCompletionSecs > next.avgCompletionSecs) {
+    needs.push({ key: 'avgCompletionSecs', have: m.avgCompletionSecs, need: next.avgCompletionSecs });
+  }
+  return { nextTier: next.tier, leverage: leverageFor(next.tier), needs };
 }
 
 /** Recompute every merchant's live signals from history, and suspend any below the bond floor. */

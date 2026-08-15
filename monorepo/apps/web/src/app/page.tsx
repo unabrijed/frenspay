@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 
 import { Splash } from '@/components/ui/Splash';
 import { bootTrace } from '@/lib/boot';
+import { bootRoute } from '@/lib/bootRoute';
 import { usePayStore, useStoreHydrated } from '@/store/usePayStore';
 
 export default function Page() {
@@ -14,6 +15,8 @@ export default function Page() {
   const onboarded = usePayStore((s) => s.onboarded);
   const handle = usePayStore((s) => s.handle);
   const authStatus = usePayStore((s) => s.authStatus);
+  const authReady = usePayStore((s) => s.authReady);
+  const probed = usePayStore((s) => s.firstLoadDone);
 
   // The landing gate sends verified codes here as /?invite=FP-XXXX-XXXX. Stash it before the
   // redirect strips the query — localStorage (not session) so "got a code today, signed up next
@@ -30,27 +33,17 @@ export default function Page() {
     }
   }, []);
 
-  // Single source of routing truth — resumes a partially-onboarded user at the RIGHT step instead
-  // of restarting from welcome (Privy persists the session, so `authStatus` re-resolves to
-  // 'signedIn' on reload and `handle` is persisted once the handle step is done):
-  //   onboarded            → /home
-  //   signed in, has handle → /onboarding/fund     (verified + named; just needs first funds)
-  //   signed in, no handle  → /onboarding/handle    (verified; needs a handle)
-  //   otherwise             → /onboarding/welcome
-  // Re-runs when authStatus flips to 'signedIn' after the bridge finishes, correcting the
-  // welcome→handle case with at most a brief splash.
+  // Routing truth lives in lib/bootRoute — shared with the auth step, which used to decide the same
+  // thing separately. A null dest means "we don't know yet": Privy hasn't resolved, or /me hasn't
+  // answered. Holding the splash through that window is the fix for existing users being sent to
+  // pick a handle they already have — this page used to guess from localStorage and redirect away
+  // before the server could contradict it.
   useEffect(() => {
-    if (!hydrated) return;
-    const dest = onboarded
-      ? '/home'
-      : handle
-        ? '/onboarding/fund'
-        : authStatus === 'signedIn'
-          ? '/onboarding/handle'
-          : '/onboarding/welcome';
+    const dest = bootRoute({ hydrated, authReady, authStatus, probed, onboarded, handle });
+    if (!dest) return;
     bootTrace(`entry redirect → ${dest}`);
     router.replace(dest);
-  }, [hydrated, onboarded, handle, authStatus, router]);
+  }, [hydrated, authReady, authStatus, probed, onboarded, handle, router]);
 
   // Show the splash during the hydrate-then-redirect window instead of a blank frame.
   return <Splash />;

@@ -9,8 +9,13 @@ per project" list in `DEPLOY.stage.md` with these substitutions:
 | project | Production Branch | Root Directory | domain |
 | ------- | ----------------- | -------------- | ------ |
 | web (prod) | `sacred` | **`monorepo`** | app.frenspay.xyz (TBD) |
-| admin (prod) | `sacred` | `monorepo/apps/admin` | admin.frenspay.xyz |
 | landing (prod) | `sacred` | `monorepo/apps/landing` | frenspay.xyz |
+
+**Admin has no prod twin — on purpose.** There is one admin project (`DEPLOY.stage.md` §Frontends)
+and the operator switches it between backends in the sidebar. What prod needs from you is not a
+second project but two variables elsewhere: `NEXT_PUBLIC_API_URL=https://api.frenspay.xyz` on the
+one admin project (that alone is what makes prod selectable), and the admin origin added to this
+environment's bare `CORS_ORIGIN`. Details and the reasoning: `apps/admin/README.md` §Deploy.
 
 - **Branch pin**: nothing to set. The repo's `ignoreCommand` gate builds only when
   `VERCEL_ENV=production`, which a project sees only on its own Production Branch — so setting that
@@ -23,8 +28,8 @@ per project" list in `DEPLOY.stage.md` with these substitutions:
   (production is the build default), plus `NEXT_PUBLIC_API_URL=https://api.frenspay.xyz`,
   `NEXT_PUBLIC_SOLANA_RPC_URL=<mainnet RPC>` (drives web's `IS_MAINNET`; a deployed build fails
   CLOSED to mainnet if unset — envConfig.ts — so this var only picks WHICH mainnet RPC),
-  `NEXT_PUBLIC_PRIVY_APP_ID`, `NEXT_PUBLIC_PRIVY_CLIENT_ID`, `NEXT_PUBLIC_LANDING_URL` (web +
-  admin as applicable, landing gets `NEXT_PUBLIC_API_URL`), and web's **`ACCESS_KEY`** — the
+  `NEXT_PUBLIC_PRIVY_APP_ID`, `NEXT_PUBLIC_PRIVY_CLIENT_ID`, `NEXT_PUBLIC_LANDING_URL` (web only —
+  landing gets `NEXT_PUBLIC_API_URL`; admin reads neither, see above), and web's **`ACCESS_KEY`** — the
   deploy access gate, a fresh `openssl rand -hex 32`, **different from stage's key**. The prod
   project is gated from its first deploy, not just at mainnet; unsetting `ACCESS_KEY` later is the
   "open to the public" launch switch.
@@ -37,10 +42,55 @@ per project" list in `DEPLOY.stage.md` with these substitutions:
 ## Model
 
 - One Railway project, two environments: `stage` and `production`. Pushing **`sacred`** (the prod
-  branch) deploys the `production` environment — wired up only at mainnet time; until then a
-  `sacred` push deploys nothing.
+  branch) deploys the `production` environment, gated by the same `scripts/vercel-ignore.mjs backend`
+  scope as stage.
 - Same repo-root `Dockerfile` (`node:24-slim`) and start command everywhere: `envConfig` keys off
   `NODE_ENV` (stage→`STAGE_*` prefix, prod→bare names). No per-env scripts.
+- **CI is wired for prod; the service is not.** `.github/workflows/backend-image.yml` now triggers on
+  both `stage` and `sacred`, selecting the token, service and Railway environment from the branch.
+  So **a `sacred` push deploys the backend automatically — and runs migrations against the
+  production database before the server starts.** Everything below must exist first, or the deploy
+  fails loudly (deliberately: the prod frontends ship from the same push, and a quietly-skipped
+  backend would hide a version split behind a green run).
+
+  1. **A separate production database — not stage's.** `apps/backend/src/db/tier.ts` stamps every
+     database with the tier that owns it and refuses to serve another: *"refusing to run against the
+     wrong tier's database"*, fatal at boot. Create a new Supabase project, use the **session**
+     pooler (`:5432`, never the transaction pooler — advisory locks), and set it as the bare
+     `DATABASE_URL`.
+  2. **Railway service.** `production` environment → New → **Empty Service**. Healthcheck `/health`,
+     restart ON_FAILURE max 3. Never "Deploy from GitHub repo" — and check Settings → Source even on
+     a service you did not create that way; a repo connection means two deployments per push and a
+     bypassed path gate. Name it whatever you like; the stage twin is `frenspay-stage`.
+  3. **CI credentials.** GitHub → Settings → Secrets and variables → Actions: secret
+     **`RAILWAY_PROD_TOKEN`** (a Railway **project** token scoped to **production**; an *account*
+     token is read from `RAILWAY_API_TOKEN`, carries no project, and 404s) and variable
+     **`RAILWAY_PROD_SERVICE`** = that service's name, **read back from `railway status`** rather
+     than typed. A mismatch surfaces as `Failed to upload code with status code 404 Not Found`,
+     which reads like a broken token and is not.
+  4. **Variables, bare names, before the first deploy.** Three asserts run before the server accepts
+     traffic and every one of them is fatal:
+     - `assertKycConfig` (`services/kyc/index.ts`) — prod is meant to run **didit**, needing
+       `DIDIT_API_KEY`, `DIDIT_WORKFLOW_ID` and `DIDIT_WEBHOOK_SECRET`; placeholder-looking values
+       count as missing. Stage runs `sim` only because Didit isn't live, and prod on `sim` means no
+       real identity verification on real money — decide that deliberately.
+     - `assertPayoutConfig` (`services/payout/provider.ts`)
+     - `assertDatabaseTier` — item 1.
+
+  The image is environment-agnostic — `envConfig` keys off `NODE_ENV` — so nothing in the build
+  changes, only variables.
+- **Nothing is published to a registry**, at either tier: CI uploads the checkout and Railway builds
+  it. No image exists outside Railway, so the private repo stays private. The faster
+  build-here-and-pull design needs a **public** image (Railway gates private-registry pulls behind
+  **Pro**), and a public image is a readable codebase. Full reasoning: `DEPLOY.stage.md` §How a
+  deploy happens.
+- **The frontends can go live before the backend**, because a Railway build takes 3–5 minutes and
+  Vercel takes 2–3. Keep API changes backward-compatible for one deploy cycle — add the field or
+  route first, switch the frontend later, remove the old one after that. This matters more at prod
+  than at stage: real money is moving through the window.
+- **Rollback**: Railway → the prod service → Deployments → last good one → Redeploy (no image tags
+  exist to re-pin). Migrations do not roll back — write them additively. Frontends: Vercel →
+  Deployments → Promote a previous one.
 - Migrations auto-apply at boot (`db:deploy` runs before `start`).
 
 ## Variables

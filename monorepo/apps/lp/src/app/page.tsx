@@ -1,6 +1,6 @@
 'use client';
 
-// /merchant — the LP dashboard. Status, stake, and the queue of orders routed to this merchant.
+// / — the LP dashboard. Status, stake, and the queue of orders routed to this merchant.
 // A different job from the rest of the app: here the user is settling OTHER people's payouts, so
 // the screen leads with what they owe and what their stake is worth.
 import { useRouter } from 'next/navigation';
@@ -9,17 +9,17 @@ import { useCallback, useEffect, useState } from 'react';
 
 import type { MerchantOrder } from '@fpay/shared';
 
-import { Icons } from '@/components/icons';
-import { BackButton } from '@/components/ui/BackButton';
-import { Btn } from '@/components/ui/Button';
-import { List, Row, RowMeta, Spacer } from '@/components/ui/primitives';
-import { Pressable, View } from '@/components/ui/rn';
-import { Screen } from '@/components/ui/Screen';
-import { Txt } from '@/components/ui/Txt';
+import { Icons } from '@fpay/ui/icons';
+import { BackButton } from '@fpay/ui/BackButton';
+import { Btn } from '@fpay/ui/Button';
+import { List, Row, RowMeta, Spacer } from '@fpay/ui/primitives';
+import { Pressable, View } from '@fpay/ui/rn';
+import { Screen } from '@fpay/ui/Screen';
+import { Txt } from '@fpay/ui/Txt';
 import { friendlyError } from '@/lib/errors';
-import { fiatRaw, usd } from '@/lib/money';
-import { colors, fonts, GUTTER, radii, type } from '@/lib/theme';
-import type { MerchantLedgerResponse } from '@fpay/shared';
+import { fiatRaw, usd } from '@fpay/shared';
+import { colors, fonts, GUTTER, radii, type } from '@fpay/ui/theme';
+import type { MerchantLedgerResponse, MerchantProfile } from '@fpay/shared';
 
 import {
   cancelStakeWithdrawal,
@@ -30,7 +30,7 @@ import {
   setMerchantOnline,
   setMerchantSpread,
 } from '@/services/merchant';
-import { usePayStore } from '@/store/usePayStore';
+import { useLpStore } from '@/store/useLpStore';
 
 const clamp1: CSSProperties = { display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 
@@ -61,6 +61,77 @@ function OrderRow({ o, onPress }: { o: MerchantOrder; onPress: () => void }) {
   );
 }
 
+/**
+ * The hero. This is why an LP opens the app when nothing is waiting: what their score is, and what
+ * the next rung buys.
+ *
+ * Every number comes from the server's own tier rules — the same ones routing scores on — so this
+ * can never promise a threshold the router disagrees with. That is the only reason it is honest to
+ * put a target in front of someone.
+ */
+function ScoreCard({ m }: { m: MerchantProfile }) {
+  const p = m.tierProgress;
+  return (
+    <View style={styles.scoreCard}>
+      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10 }}>
+        <Txt style={[type.bigAmount, { fontSize: 30 }]}>{tierName(m.tier)}</Txt>
+        <Txt style={type.inst}>carries {usd(m.maxFloatUsdc)} at once</Txt>
+      </View>
+
+      <View style={styles.statRow}>
+        <Stat label="settled" v={`${(m.successRate * 100).toFixed(1)}%`} />
+        <Stat label="liked" v={`${(m.positiveRate * 100).toFixed(0)}%`} />
+        <Stat label="disputed" v={`${(m.disputeRate * 100).toFixed(1)}%`} />
+      </View>
+
+      {p && p.needs.length > 0 ? (
+        <View style={styles.nextTier}>
+          <Txt style={[type.rowName, { color: colors.accent }]}>
+            Reach {tierName(p.nextTier)} → {p.leverage}× your stake
+          </Txt>
+          {p.needs.map((n) => (
+            <Txt key={n.key} style={[type.rowTime, { marginTop: 2 }]}>
+              {needLabel(n)}
+            </Txt>
+          ))}
+        </View>
+      ) : (
+        <Txt style={[type.inst, { marginTop: 10 }]}>
+          {p ? 'Almost there — keep going.' : 'You’re at the top tier. Your stake works as hard as it can.'}
+        </Txt>
+      )}
+    </View>
+  );
+}
+
+function Stat({ label, v }: { label: string; v: string }) {
+  return (
+    <View>
+      <Txt style={type.rowAmount}>{v}</Txt>
+      <Txt style={type.rowTime}>{label}</Txt>
+    </View>
+  );
+}
+
+/** Plain English for one unmet threshold. Says the GAP, not the rule — "12 more orders" is
+ *  actionable in a way "settled >= 50" is not. */
+function needLabel(n: { key: string; have: number; need: number }): string {
+  switch (n.key) {
+    case 'settled':
+      return `${Math.max(0, Math.ceil(n.need - n.have))} more settled orders`;
+    case 'successRate':
+      return `settle ${(n.need * 100).toFixed(0)}% of what you take (you're at ${(n.have * 100).toFixed(1)}%)`;
+    case 'disputeRate':
+      return `keep disputes under ${(n.need * 100).toFixed(1)}% (you're at ${(n.have * 100).toFixed(1)}%)`;
+    case 'avgCompletionSecs':
+      return `pay within ${Math.round(n.need)}s on average (you're at ${Math.round(n.have)}s)`;
+    default:
+      return n.key;
+  }
+}
+
+const tierName = (t: number) => (t >= 3 ? 'Top tier' : `Tier ${t}`);
+
 function StatRow({ k, v, sub }: { k: string; v: string; sub?: string }) {
   return (
     <Row>
@@ -90,8 +161,8 @@ function statusColor(o: MerchantOrder): string {
 
 export default function MerchantHome() {
   const router = useRouter();
-  const merchant = usePayStore((s) => s.merchant);
-  const load = usePayStore((s) => s.load);
+  const merchant = useLpStore((s) => s.merchant);
+  const load = useLpStore((s) => s.load);
   const [orders, setOrders] = useState<MerchantOrder[] | null>(null);
   const [ledger, setLedger] = useState<MerchantLedgerResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -177,7 +248,7 @@ export default function MerchantHome() {
     return (
       <Screen edges={['top']} style={styles.safe}>
         <View style={styles.head}>
-          <BackButton onPress={() => router.push('/home')} />
+          <BackButton onPress={() => router.push('/')} />
         </View>
         <View style={styles.scroll}>
           <Txt style={type.handle}>Become a merchant</Txt>
@@ -186,7 +257,7 @@ export default function MerchantHome() {
             If you don’t pay someone, it covers them.
           </Txt>
           <Spacer />
-          <Btn label="Apply" variant="ink" onPress={() => router.push('/merchant/apply')} />
+          <Btn label="Apply" variant="ink" onPress={() => router.push('/apply')} />
         </View>
       </Screen>
     );
@@ -203,21 +274,11 @@ export default function MerchantHome() {
   return (
     <Screen edges={['top']} style={styles.safe}>
       <View style={styles.head}>
-        <BackButton onPress={() => router.push('/home')} />
+        <BackButton onPress={() => router.push('/')} />
       </View>
       <View style={styles.scroll}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Txt style={type.handle}>{merchant.name}</Txt>
-          {/* The tier is earned, not granted — recomputed from live signals. Shown because what it
-              buys (more capacity per dollar staked, first refusal on every order) is invisible
-              otherwise, and an incentive nobody can see is not an incentive. */}
-          {merchant.tier > 1 ? (
-            <Txt style={{ ...fonts.body500, fontSize: 13, color: colors.secondary }}>
-              {merchant.tier >= 3 ? 'Top tier' : 'Tier 2'}
-            </Txt>
-          ) : null}
-        </View>
-        <Pressable onPress={() => router.push('/merchant/verify')}>
+        <Txt style={type.handle}>{merchant.name}</Txt>
+        <Pressable onPress={() => router.push('/business')}>
           <Txt
             style={[
               type.profileSub,
@@ -233,9 +294,12 @@ export default function MerchantHome() {
           </Txt>
         </Pressable>
 
+        {/* The reason to open this app when nothing is waiting. */}
+        <ScoreCard m={merchant} />
+
         {/* The stake is the whole trust model — the most prominent number on the screen. */}
         <Pressable
-          onPress={() => router.push('/merchant/stake')}
+          onPress={() => router.push('/stake')}
           style={({ pressed }) => [styles.stakeCard, pressed ? { backgroundColor: colors.surfaceLow } : null]}
         >
           <Txt style={type.kvKey}>Your stake</Txt>
@@ -334,7 +398,7 @@ export default function MerchantHome() {
             <Txt style={[type.kvKey, styles.section]}>Disputes ({ledger.disputes.length})</Txt>
             <List>
               {ledger.disputes.map((d) => (
-                <Row key={d.id} onPress={() => router.push(`/merchant/orders/${d.orderId}`)}>
+                <Row key={d.id} onPress={() => router.push(`/orders/${d.orderId}`)}>
                   <RowMeta>
                     <Txt style={type.rowName}>{d.referenceCode}</Txt>
                     <Txt style={[type.rowTime, { marginTop: 2 }]}>
@@ -372,7 +436,10 @@ export default function MerchantHome() {
         {err ? <Txt style={[type.lead, { color: colors.danger, marginTop: 12 }]}>{err}</Txt> : null}
 
         {/* Two queues, and the split is the point. "To pay" is what this LP has committed to and
-            owes someone. "Up for grabs" is work anyone eligible can still take — first come. */}
+            owes someone. "Up for grabs" is work anyone eligible can still take — first come.
+            These sit ABOVE the score only when there is something in them: a five-minute lock is
+            time-critical and a score is not, but making someone scroll past their stats every time
+            they open the app to check on nothing is the other failure. */}
         <Txt style={[type.kvKey, styles.section]}>To pay ({held.length})</Txt>
         {orders === null ? (
           <Txt style={type.inst}>Loading…</Txt>
@@ -381,7 +448,7 @@ export default function MerchantHome() {
         ) : (
           <List>
             {held.map((o) => (
-              <OrderRow key={o.id} o={o} onPress={() => router.push(`/merchant/orders/${o.id}`)} />
+              <OrderRow key={o.id} o={o} onPress={() => router.push(`/orders/${o.id}`)} />
             ))}
           </List>
         )}
@@ -396,7 +463,7 @@ export default function MerchantHome() {
         ) : (
           <List>
             {takeable.map((o) => (
-              <OrderRow key={o.id} o={o} onPress={() => router.push(`/merchant/orders/${o.id}`)} />
+              <OrderRow key={o.id} o={o} onPress={() => router.push(`/orders/${o.id}`)} />
             ))}
           </List>
         )}
@@ -406,7 +473,7 @@ export default function MerchantHome() {
             <Txt style={[type.kvKey, styles.section]}>Recent</Txt>
             <List>
               {done.slice(0, 10).map((o) => (
-                <OrderRow key={o.id} o={o} onPress={() => router.push(`/merchant/orders/${o.id}`)} />
+                <OrderRow key={o.id} o={o} onPress={() => router.push(`/orders/${o.id}`)} />
               ))}
             </List>
           </>
@@ -445,6 +512,9 @@ const styles = {
     paddingRight: GUTTER,
     paddingBottom: 28,
   },
+  scoreCard: { marginTop: 16, padding: 18, borderRadius: radii.card, backgroundColor: colors.surface },
+  statRow: { flexDirection: 'row', gap: 28, marginTop: 14 },
+  nextTier: { marginTop: 14, paddingTop: 12, borderTop: `1px solid ${colors.hair}` },
   stakeCard: { marginTop: 16, marginBottom: 6, padding: 18, borderRadius: radii.card, backgroundColor: colors.surface },
   notice: { marginTop: 6, marginBottom: 10, padding: 14, borderRadius: radii.card, backgroundColor: colors.surfaceLow },
   value: { flexDirection: 'row', alignItems: 'center', gap: 6 },
