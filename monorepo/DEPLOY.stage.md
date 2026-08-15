@@ -130,8 +130,8 @@ Use it to redeploy the current commit, or to recover after a failed run.
    STAGE_DATABASE_URL=<Supabase session pooler URL — step 2>
    STAGE_KYC_PROVIDER=sim                               # stage boot THROWS without KYC config (assertKycConfig); sim until Didit is live
    STAGE_SOLANA_RPC_URL=https://mainnet.helius-rpc.com/?api-key=<KEY>   # mainnet RPC (Helius free tier)
-   STAGE_HELIUS_API_KEY=<KEY>                            # push confirmation — see §Helius
-   STAGE_HELIUS_WEBHOOK_SECRET=<openssl rand -hex 32>
+   STAGE_HELIUS_API_KEY=<KEY>                            # push confirmation — see §Helius. Same key as the RPC URL above
+   STAGE_HELIUS_WEBHOOK_SECRET=<openssl rand -hex 32>    # real values live in apps/backend/.env — NEVER paste one into this tracked file
    STAGE_FEE_PAYER_SECRET_KEY=[ ... ]                    # FRESH mainnet keypair — see below. JSON byte array ONLY (base58 is rejected)
    STAGE_USDC_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v   # Circle's MAINNET USDC — this is the real-money switch
    STAGE_PRIVY_APP_ID=<privy app id>
@@ -191,10 +191,19 @@ The confirmer poller already confirms transfers; Helius makes it push. The vars 
 boot the backend auto-registers a webhook to `${PUBLIC_BASE_URL}/webhooks/helius` watching the
 fee-payer (it signs every transfer). See `apps/backend/src/services/helius.ts`.
 
+- `HELIUS_API_KEY` is the dashboard key (dashboard.helius.dev → the same key that's inside
+  `SOLANA_RPC_URL`). It authenticates *us to Helius*, and is only ever sent by the backend.
+- `HELIUS_WEBHOOK_SECRET` is ours, not Helius': `openssl rand -hex 32`. It authenticates *Helius to
+  us*, and is registered as Helius' `authHeader`, so deliveries carry it as the `Authorization`
+  header — never in the callback URL, which proxies, access logs and error trackers all record in
+  plaintext. Unset ⇒ the route is open and logs a warning (dev only).
+- Rotating the secret needs nothing but a variable change: boot finds the existing webhook by its
+  callback path and PUTs the new config over it, so no stale duplicate is left delivering.
+
 Note: registration always used the `enhanced` (mainnet) webhook type, so on devnet it was
-effectively inert and the poller did the work — on mainnet it genuinely functions. If a stale
-devnet-era webhook exists at the same URL, delete it in the Helius dashboard first (registration
-is idempotent by URL and would report "already registered").
+effectively inert and the poller did the work — on mainnet it genuinely functions. A stale
+devnet-era webhook on a *different* base URL (e.g. an old `*.up.railway.app` host) is not matched
+by the path check above — delete that one in the Helius dashboard.
 
 ## Required before the console has its FIRST operator: root admins
 
@@ -305,16 +314,19 @@ Ship to prod by merging `stage` → `sacred` (PR).
    ```
    admin (the only admin project — it serves both environments):
    ```
-   NEXT_PUBLIC_APP_ENV=stage
-   NEXT_PUBLIC_STAGE_API_URL=<same as web>                    # the "stage" target
-   NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<privy app id>
-   NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<privy client id>
-   # NEXT_PUBLIC_API_URL=https://api.frenspay.xyz             # the "prod" target — LEAVE UNSET
+   # NEXT_PUBLIC_APP_ENV is deliberately UNSET here — nothing but the dev shim reads it
+   NEXT_PUBLIC_STAGE_API_URL=<same as web>                    # the "stage" target, host…
+   NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<stage privy app id>        # …and the app that backend verifies with
+   NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<stage privy client id>
+   NEXT_PUBLIC_API_URL=https://api.frenspay.xyz               # the "prod" target, host…
+   NEXT_PUBLIC_PRIVY_APP_ID=<prod privy app id>               # …and ITS app. Both halves or neither.
    ```
-   Admin's two API hosts are **targets, not tiers**: both are inlined and the operator picks one in
-   the sidebar, which is why there is no admin twin project. Leave the prod one unset until the prod
-   backend exists — while it is unset the switch does not render and the console can only reach
-   stage. Full reasoning and the safety model: `apps/admin/README.md` §Deploy.
+   Admin's API hosts **and Privy apps** are targets, not tiers: all four are inlined and the operator
+   picks a pair in the sidebar, which is why there is no admin twin project. A target needs both
+   halves — the switch hides prod unless it has a host and an app id, because a token minted by one
+   Privy app is refused by a backend configured with another, before any row is looked up. Setting
+   `APP_ENV` is what once made the tier chain hand the console the prod Privy app while it defaulted
+   to the stage API. Full reasoning: `apps/admin/README.md` §Deploy.
    landing (stage):
    ```
    NEXT_PUBLIC_APP_ENV=stage
@@ -339,8 +351,11 @@ Ship to prod by merging `stage` → `sacred` (PR).
      or poller) → `/sim/kyc` to tier 2 → a small P2P or external send, verified on Solscan. Network
      tab open throughout — every API call goes to the stage API origin, no CORS errors.
    - **admin**: loads (no gate configured), Privy login works, and a non-admin account is refused
-     by the backend (`role='admin'` is checked server-side). With `NEXT_PUBLIC_API_URL` unset there
-     must be **no stage/prod switch in the sidebar** — if one renders, a prod host got set early.
+     by the backend (`role='admin'` is checked server-side). The stage/prod switch renders only when
+     the prod target has **both** a host and a Privy app id — if it renders while prod is not ready,
+     one half got set early. Switch to prod and back: each side should land on Sign in with the
+     backend named on screen, never on "no profile on this environment", which now means only what
+     it says. Confirm the sign-in screen names the backend before you sign in.
    - **landing**: static pages render; a waitlist signup round-trips (needs the Resend block
      above, otherwise it accepts silently without mail — that's the documented safe state).
 
