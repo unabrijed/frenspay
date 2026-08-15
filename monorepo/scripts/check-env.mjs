@@ -125,6 +125,41 @@ if (!/isProduction\s*=\s*!isDevelopment/.test(backend)) {
   fail(`backend (${BACKEND}): isProduction is no longer the complement of isDevelopment`);
 }
 
+// 5) Every backend secret is laundered through clean() on the way out of env(). A value pasted into
+// a host's variable panel carries invisible baggage — a trailing newline, the quotes it was copied
+// inside — and an untrimmed one boots healthy then 403s at the vendor forever. Assert the routing
+// survives, then run the REAL function body (not a copy of the regex) against the cases that matter.
+if (!/return clean\(raw\) \|\| fallback/.test(backend)) {
+  fail(`backend (${BACKEND}): env() no longer routes its value through clean()`);
+}
+const cleanBody = backend.match(/function clean\([^)]*\)[^{]*\{([\s\S]*?)\n\}/)?.[1];
+if (!cleanBody) {
+  fail(`backend (${BACKEND}): could not locate clean() to exercise it`);
+} else {
+  const clean = new Function('v', cleanBody);
+  const cases = [
+    ['"abc"', 'abc'], // wrapping double quotes
+    ["'abc'", 'abc'], // wrapping single quotes
+    [' abc\n', 'abc'], // the Railway paste
+    ['"  abc  "', 'abc'], // both at once
+    ['ab"cd', 'ab"cd'], // an INNER quote is part of the secret — must survive
+    ['"abc', '"abc'], // unbalanced: leave it alone rather than corrupt it
+    [undefined, ''], // unset
+  ];
+  for (const [input, want] of cases) {
+    let got;
+    try {
+      got = clean(input);
+    } catch (err) {
+      fail(`backend clean(${JSON.stringify(input)}) threw: ${err.message}`);
+      continue;
+    }
+    if (got !== want) {
+      fail(`backend clean(${JSON.stringify(input)}) → ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
+    }
+  }
+}
+
 if (failures.length) {
   console.error(`check-env: ${failures.length} problem(s)\n`);
   for (const f of failures) console.error('  ✗ ' + f + '\n');

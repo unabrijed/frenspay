@@ -37,11 +37,27 @@ const isLocal = node_env === Environment.LOCAL || node_env === Environment.DEVEL
 const isDevelopment = isStage || isLocal;
 const isProduction = !isDevelopment;
 
+/** Strip whitespace and one layer of wrapping quotes. A value pasted into a host's variable panel
+ *  (Railway, Vercel) routinely carries a trailing newline or the quotes it was copied inside, and
+ *  neither is visible in the UI. Untrimmed, it passes every set-but-empty check, boots the server
+ *  "healthy", then ships a subtly wrong header to the vendor forever — a stage `x-api-key` with a
+ *  trailing newline is indistinguishable in our logs from a revoked key (Didit answers 403 to both).
+ *  Guard once here so every secret inherits it, not at each call site. */
+function clean(v: string | undefined): string {
+  return (v ?? '')
+    .trim()
+    .replace(/^(['"])(.*)\1$/s, '$2')
+    .trim();
+}
+
 /** Read an env var through the tier chain (see header). */
 function env(key: string, fallback = ''): string {
-  if (isLocal) return process.env[`LOCAL_${key}`] || process.env[`STAGE_${key}`] || fallback;
-  if (isStage) return process.env[`STAGE_${key}`] || fallback;
-  return process.env[key] || fallback;
+  const raw = isLocal
+    ? process.env[`LOCAL_${key}`] || process.env[`STAGE_${key}`]
+    : isStage
+      ? process.env[`STAGE_${key}`]
+      : process.env[key];
+  return clean(raw) || fallback;
 }
 
 /** Which concrete var name `env(key)` resolved from (for boot visibility only). */

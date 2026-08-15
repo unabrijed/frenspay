@@ -10,14 +10,19 @@
 // still the moment it becomes mandatory.
 import type { CSSProperties } from 'react';
 
+import type { KycStatus } from '@fpay/shared';
+
 import { Icons } from '@/components/icons';
 import { Btn } from '@/components/ui/Button';
 import { Pressable, View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { colors, radii, type } from '@/lib/theme';
 
-export function VerifyCard({ tier, onPress }: { tier: number; onPress: () => void }) {
+export function VerifyCard({ tier, status, onPress }: { tier: number; status?: KycStatus; onPress: () => void }) {
   const verified = tier >= 2;
+  // A check already running must not be advertised as one that hasn't started — the sheet behind this
+  // card says "Checking your result…", and an unqualified "Verify identity" out here contradicted it.
+  const waiting = !verified && (status === 'pending' || status === 'in_review');
   const head = (
     <View style={styles.kycHead}>
       {verified ? (
@@ -28,9 +33,15 @@ export function VerifyCard({ tier, onPress }: { tier: number; onPress: () => voi
         <View style={styles.badgeOff} />
       )}
       <View style={{ flex: 1 }}>
-        <Txt style={type.rowName}>{verified ? 'Identity verified' : 'Verify your identity'}</Txt>
+        <Txt style={type.rowName}>
+          {verified ? 'Identity verified' : waiting ? 'Verification in progress' : 'Verify your identity'}
+        </Txt>
         <Txt style={[type.rowTime, { marginTop: 2 }]}>
-          {verified ? `Tier ${tier} · merchant payments unlocked` : 'Unlock merchant payments and higher limits'}
+          {verified
+            ? `Tier ${tier} · merchant payments unlocked`
+            : waiting
+              ? 'We’re waiting on the result'
+              : 'Unlock merchant payments and higher limits'}
         </Txt>
       </View>
       {verified ? <Icons.Chevron size={16} color={colors.muted} /> : null}
@@ -46,7 +57,12 @@ export function VerifyCard({ tier, onPress }: { tier: number; onPress: () => voi
   return (
     <View style={styles.kyc}>
       {head}
-      <Btn label="Verify identity" onPress={onPress} style={{ marginTop: 14 }} />
+      <Btn
+        label={waiting ? 'See progress' : 'Verify identity'}
+        variant={waiting ? 'secondary' : 'primary'}
+        onPress={onPress}
+        style={{ marginTop: 14 }}
+      />
     </View>
   );
 }
