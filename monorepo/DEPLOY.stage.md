@@ -92,6 +92,11 @@ Use it to redeploy the current commit, or to recover after a failed run.
    from scratch: New → **Empty Service**, never "Deploy from GitHub repo", because a repo connection
    deploys every push regardless of the gate.
 
+   **Check Settings → Source even on an existing service.** A repo connection made at any point in
+   the past survives everything else and is not undone by anything CI does — the symptom is two
+   deployments per push, one CLI and one GitHub, and the cost is that the path gate stops meaning
+   anything. The only source here should be the CI upload.
+
    In its **Settings**, set healthcheck path **`/health`** and restart policy **ON_FAILURE, max 3**.
    The healthcheck is what turns a boot crash into a failed deploy instead of a live-but-broken API.
    (These used to live in a root `railway.json`; that file is gone, because Railway reads a repo
@@ -421,7 +426,7 @@ forward — which is why migrations must be written additively.
 
 | Symptom | Cause / fix |
 | --- | --- |
-| Railway deployed something CI didn't push | The service got connected to the GitHub repo (Settings → Source). Disconnect it — its only source should be the CI upload. |
+| **Two deployments per push** — one labelled CLI, one labelled GitHub | The service is connected to the GitHub repo *as well as* receiving CI's upload, so one push fires both paths. Railway → `frenspay-stage` → Settings → Source → disconnect the repo. Worth fixing immediately: Railway's own trigger knows nothing about the path gate, so while it is connected a **docs-only push still deploys** and every "docs deploy nothing" guarantee here is false. It also doubles build usage and races two builds of the same commit. |
 | Workflow never ran | The change was outside the backend scope. Check with `node scripts/vercel-ignore.mjs backend; echo $?`. Ship it anyway with Actions → Run workflow, which skips the gate deliberately. |
 | No **Run workflow** button on the Actions page | The workflow isn't on the repo's **default** branch — that is the only place GitHub looks for `workflow_dispatch`. `stage` must stay the default branch (Settings → General). |
 | `Failed to upload code with status code 404 Not Found` | `RAILWAY_STAGE_SERVICE` names a service that doesn't exist in this environment. The `railway status` output printed just above it lists the real names under `All resources` — copy one exactly. This is the most likely cause by far; the 404 is Railway's answer for "no such target", not for a bad token. |
