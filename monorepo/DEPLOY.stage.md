@@ -26,26 +26,35 @@ deposit-only: send USDC (Solana) to the address shown in Add money.
 is no GitHub connection on it, so no push can ever trigger a Railway build.
 
 - **Trigger**: pushing **`stage`** runs `.github/workflows/backend-image.yml`, which builds the
-  image on GitHub Actions and then tells Railway to pull it. Actions is free and unlimited on this
-  repo (it is public) and its runners are native x86_64. `workflow_dispatch` ships the current
-  commit by hand — a redeploy, or recovery after a failed run.
+  image on GitHub Actions and then tells Railway to pull it. The repo is private, so Actions
+  minutes are **metered** (2,000/month on the Free plan) — a warm build is about a minute, and the
+  path gate below is what keeps that number boring. Runners are native x86_64.
+  `workflow_dispatch` ships the current commit by hand — a redeploy, or recovery after a failed run.
 - **Path isolation**: `node scripts/vercel-ignore.mjs backend` — the same file, scopes and self-test
   the Vercel projects use. Backend scope = backend code, `packages/shared`, the workspace
   manifests/lockfile, and the git-root build files (`Dockerfile`, `.dockerignore`). Anything else
   builds no image and deploys nothing. (This replaced `build.watchPatterns`, which was a second copy
   of these rules in another syntax that nothing tested.)
-- **Build**: the repo-root **`Dockerfile`**, `node:24-slim` (web's `@solana-program/token@0.14`
-  needs node ≥24 and the image installs every workspace), `yarn install --frozen-lockfile` at
-  `monorepo/` (the workspace root), then `db:deploy && start` as the container CMD — migrations run
-  before the server, and the backend runs TS via `tsx` with no build step. The install layer is
-  cached in GitHub Actions and only busts when a manifest or the lockfile changes, so a
+- **Build**: the repo-root **`Dockerfile`**, two stages, `node:24-slim` (web's
+  `@solana-program/token@0.14` needs node ≥24 and the builder installs every workspace). The
+  builder runs `yarn install --frozen-lockfile` at `monorepo/` (the workspace root) then
+  `yarn workspace @fpay/backend build` — esbuild emits two flat, minified, sourcemap-less bundles,
+  `dist/server.mjs` and `dist/migrate.mjs`. The **runner stage carries only those bundles**, plus
+  `node_modules`, the `.sql` migrations and `idl/escrow.json`. No `src/`, no frontends. The install
+  layer is cached in GitHub Actions and only busts when a manifest or the lockfile changes, so a
   source-only change rebuilds in well under a minute. The root `.dockerignore` keeps secrets
   (`.env*`, `.devnet/`) and dead weight out of the image — keep it that way when adding files.
-- **Tags**: every build pushes `ghcr.io/unabrijed/fpay-backend:stage` **and** `:<git-sha>`. The
-  service is pinned to the SHA, so what is live is always traceable to a commit.
+- **Why two stages**: the GHCR package is **public** (see troubleshooting), so the runner stage is
+  world-readable. It used to be a single `COPY monorepo/ .` running TS through `tsx`, which would
+  have published the entire monorepo. A minified bundle is obscurity, not secrecy — but it is the
+  same bar `shoonyastore/oms` has run at on Hobby for months.
+- **Tags**: every build pushes `ghcr.io/unabrijed/fpay-backend:stage` **and** `:<short-sha>` (12
+  chars). The service tracks the moving `:stage` tag and `railway redeploy` re-pulls it; the
+  `:<short-sha>` tags exist so a rollback has something immutable to point at.
 - **Why**: Railway's build was a cold multi-minute install of every workspace's dependencies —
-  Next, Privy, wagmi, Solana — for a backend that has no build step, billed as usage, and finishing
-  at a time unrelated to Vercel's frontend builds. Pull + boot + healthcheck is tens of seconds, so
+  Next, Privy, wagmi, Solana — to produce a sub-second esbuild bundle, billed as usage, and
+  finishing at a time unrelated to Vercel's frontend builds. Pull + boot + healthcheck is tens of
+  seconds, so
   the API now lands *inside* the Vercel window instead of minutes away from it.
 
 > **Deploy ordering is load-bearing.** The backend goes live BEFORE the frontends, every time. Old
@@ -67,10 +76,15 @@ manifest was not copied; the backend never touches it and it broke anyway).
 > repo (Settings → Source). Reconnect the image:
 > `railway service source connect --image ghcr.io/unabrijed/fpay-backend:<sha> --service <svc> --environment stage`
 >
-> **Troubleshooting: Railway cannot pull the image.** The GHCR package is private. GitHub creates
-> container packages private even when the repo is public, and Railway gates *private* registry
-> deploys behind the **Pro plan**. Make the package public once (package → Settings → Danger Zone →
-> Change visibility); public GHCR images allow anonymous pull, which is what Railway does.
+> **Troubleshooting: Railway cannot pull the image.** The GHCR package went private. Railway gates
+> *private* registry deploys behind the **Pro plan** and we are on **Hobby**, so the package has to
+> be public — GitHub creates container packages private by default, and a package can silently
+> revert. Fix: package → Settings → Danger Zone → Change visibility → Public. Public GHCR images
+> allow anonymous pull, which is what Railway does.
+>
+> This is exactly why the Dockerfile is multi-stage. **Never ship source in the runner stage** —
+> public package + source in the image = the private repo published. `oms` hit the same Hobby
+> constraint and answered it the same way (`shoonyastore/oms/STAGE_DEPLOY.md` §6).
 
 ## Service setup
 
@@ -82,6 +96,10 @@ manifest was not copied; the backend never touches it and it broke anyway).
    railway service source connect --image ghcr.io/unabrijed/fpay-backend:stage \
      --service <svc> --environment stage
    ```
+   That pin is set **once and left alone** — CI never rewrites the service source, it only runs
+   `railway redeploy`, which re-pulls whatever `:stage` now points at. Changing the pin is how you
+   roll back, and nothing else should touch it.
+
    In service Settings, set **healthcheck path `/health`** and **restart policy ON_FAILURE, max 3**.
    These used to live in the root `railway.json`; that file is gone, because Railway reads a repo
    config only when it builds from a repo, and this service never will. The healthcheck is what
@@ -344,8 +362,9 @@ root above it) and WILL hit the same crash on its first deploy. Fix then: set ad
 
 `monorepo/.githooks/pre-push` builds EVERYTHING on every push — only successful builds leave the
 machine: `yarn install --frozen-lockfile`, then the landing/web/admin builds (each app's Vercel
-buildCommand verbatim), then `yarn workspace @fpay/backend tsc --noEmit` (Railway has no build
-step, so the typecheck is the only gate before a type error crashes the server at boot).
+buildCommand verbatim), then `yarn workspace @fpay/backend tsc --noEmit` and
+`yarn workspace @fpay/backend build` (Railway builds nothing, so these two are the only gate before
+a type error crashes the server at boot or a bundling failure kills the image).
 
 Enable once per clone (git config, not a committed setting):
 

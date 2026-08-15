@@ -48,9 +48,15 @@ environment's bare `CORS_ORIGIN`. Details and the reasoning: `apps/admin/README.
   `NODE_ENV` (stage→`STAGE_*` prefix, prod→bare names). No per-env scripts.
 - **Railway builds nothing** — the service pulls a prebuilt image that GitHub Actions pushes to
   GHCR (`DEPLOY.stage.md` §Build model). Wiring prod means: a `sacred` branch trigger and a
-  `:prod`/`:<sha>` tag in `.github/workflows/backend-image.yml`, a **production**-scoped
+  `:prod`/`:<short-sha>` tag in `.github/workflows/backend-image.yml`, a **production**-scoped
   `RAILWAY_TOKEN`, and the same image source + `/health` healthcheck + ON_FAILURE/3 restart policy
-  on the production service. The image is env-agnostic; only variables differ.
+  on the production service, pinned to `:prod` the way stage is pinned to `:stage`. The image is
+  env-agnostic; only variables differ.
+- **The GHCR package is public and the repo is not.** Railway's Hobby plan cannot pull a private
+  image (registry credentials are Pro-only), so the image is public and the Dockerfile's runner
+  stage exists to make that safe: minified bundles, no source. If prod ever justifies Railway Pro,
+  make the package private and add registry credentials per environment — but until then, anything
+  added to the runner stage is published. `oms` runs under the identical constraint.
 - **The backend goes live before the frontends**, so keep API changes backward-compatible for one
   deploy cycle. This matters more at prod than at stage: real money is moving through the window.
 - Migrations auto-apply at boot (`db:deploy` runs before `start`).
