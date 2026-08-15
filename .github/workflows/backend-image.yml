@@ -1,26 +1,25 @@
-# Build the backend image here, so Railway only ever pulls.
+# Deploy the backend by uploading it to Railway and letting Railway build it.
 #
-# Railway used to build the root Dockerfile itself on every matching push: a cold
-# `yarn install --frozen-lockfile` across every workspace — Next, Privy, wagmi, Solana — for a
-# backend that has no build step at all. That took minutes, was billed as usage, and finished at a
-# time unrelated to Vercel's frontend builds, so each push left a window where the app and the API
-# were on different commits and nobody could predict which was ahead.
+# NOTHING IS PUBLISHED. That is the whole design constraint, and it is worth understanding before
+# changing anything here.
 #
-# Now the image is built here (native x86_64, and the expensive install layer stays warm in the GHA
-# cache), and Railway's whole job is a pull + boot + healthcheck — some tens of seconds. It lands
-# inside Vercel's window instead of minutes from it.
+# This workflow used to build the image on GitHub and push it to GHCR, so Railway only had to pull —
+# tens of seconds instead of minutes. That model needs the registry package to be PUBLIC, because
+# Railway gates private-registry pulls behind the Pro plan and we are on Hobby. And a public image
+# is a published codebase: the bundle carries route paths, fee math and the literal string
+# "frens@frenspay.xyz", and dist/migrations/*.sql is the schema in plain SQL. Renaming the package
+# does not help — anyone who pulls it can read what it is in seconds.
 #
-# The repo is PRIVATE, which constrains both ends of this:
-#   - Actions minutes are metered (2,000/month on the Free plan), not unlimited. A warm build is
-#     about a minute, so the gate below is what keeps that number boring.
-#   - The GHCR package must be PUBLIC, because Railway gates private-registry pulls behind the Pro
-#     plan and we are on Hobby. That is only safe because the runner stage of the root Dockerfile
-#     carries a minified bundle and no source — read the header there before changing either file.
+# So Railway builds it. `railway up` uploads this checkout (honouring .gitignore, so no .env and no
+# node_modules) and builds the root Dockerfile on Railway's builder. Build compute is billed as
+# ordinary usage — roughly a cent per build, against the Hobby plan's $5 monthly credit.
 #
-# Ordering is deliberate: the backend goes live BEFORE the frontends. Old frontend against new
-# backend is the safe pairing; new frontend against old backend is the one that breaks. So keep
-# backend API changes backward-compatible for one deploy cycle.
-name: backend image
+# The cost is SKEW, and it is real: a Railway build takes 3-5 minutes while Vercel finishes the
+# frontends in 2-3, so the frontend can go live BEFORE the backend. That is the pairing that breaks.
+# Keeping backend API changes backward-compatible for one deploy cycle is therefore a rule, not a
+# nicety: add the new field or route first, switch the frontend to it on a later push, remove the
+# old one after that.
+name: backend deploy
 
 on:
   push:
@@ -32,18 +31,14 @@ on:
 # One deploy at a time per branch. A newer push supersedes an older one rather than racing it onto
 # the same service.
 concurrency:
-  group: backend-image-${{ github.ref }}
+  group: backend-deploy-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/fpay-backend
 
 jobs:
   ship:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,60 +49,33 @@ jobs:
       # Exit codes are Vercel's and inverted: 0 = SKIP, 1 = BUILD. `if` is exempt from errexit,
       # which is why the non-zero "build" answer doesn't fail the step.
       - id: gate
-        name: Does this commit touch the backend image?
+        name: Does this commit touch the backend?
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo 'ship=true' >> "$GITHUB_OUTPUT"
             echo '::notice::Manual run — path gate skipped.'
           elif node monorepo/scripts/vercel-ignore.mjs backend; then
             echo 'ship=false' >> "$GITHUB_OUTPUT"
-            echo '::notice::Nothing in the backend scope changed — no image, no deploy.'
+            echo '::notice::Nothing in the backend scope changed — no build, no deploy.'
           else
             echo 'ship=true' >> "$GITHUB_OUTPUT"
           fi
 
-      - if: steps.gate.outputs.ship == 'true'
-        id: meta
-        name: Short SHA for the immutable tag
-        run: echo "sha=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
-
-      - if: steps.gate.outputs.ship == 'true'
-        uses: docker/setup-buildx-action@v3
-
-      - if: steps.gate.outputs.ship == 'true'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # Context is the git root, because the Dockerfile reaches into monorepo/ for every COPY.
-      - if: steps.gate.outputs.ship == 'true'
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile
-          platforms: linux/amd64
-          push: true
-          # :stage is what the service tracks; :<short-sha> is the immutable rollback target.
-          tags: |
-            ${{ env.IMAGE }}:stage
-            ${{ env.IMAGE }}:${{ steps.meta.outputs.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # The service is pinned to :stage once, in the dashboard, and redeploy re-pulls it — so a
-      # deploy needs no source rewrite and CI needs no permission to change where the service points.
+      # Uploads from the git root, because the Dockerfile reaches into monorepo/ for every COPY.
       #
-      # Rollback is therefore deliberate rather than automatic, which is the point:
-      #   railway service source connect --image ghcr.io/unabrijed/fpay-backend:<short-sha> \
-      #     --service <svc> --environment stage
-      #   railway redeploy --service <svc> --environment stage --yes
+      # --ci streams the Railway build log into this step and exits with its status, so a broken
+      # build is red here rather than silently stuck in the Railway dashboard.
+      #
+      # The service has NO GitHub connection — its source is this upload. That is what keeps CI and
+      # the gate above the only way anything reaches stage.
       - if: steps.gate.outputs.ship == 'true'
-        name: Tell Railway to pull the new image
+        name: Upload to Railway and build there
+        # RAILWAY_TOKEN is the name the CLI reads and cannot be renamed; the secret behind it is
+        # environment-specific, because a Railway project token IS the environment selector. Prod
+        # gets RAILWAY_PROD_TOKEN / RAILWAY_PROD_SERVICE when it is wired.
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          SERVICE: ${{ vars.RAILWAY_SERVICE }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGE_TOKEN }}
+          SERVICE: ${{ vars.RAILWAY_STAGE_SERVICE }}
         run: |
           npm install -g @railway/cli
-          railway redeploy --service "$SERVICE" --environment stage --yes
+          railway up --ci --service "$SERVICE" --environment stage

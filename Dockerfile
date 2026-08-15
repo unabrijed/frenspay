@@ -1,12 +1,13 @@
-# Two stages, and the split is a privacy boundary, not an optimisation.
+# Two stages: the runner ships a minified bundle of the backend and nothing else — no src/, no web,
+# no admin, no lp, no landing. Smaller image, faster boot, faster healthcheck.
 #
-# The repo is private but the GHCR package is PUBLIC, because Railway's Hobby plan cannot pull a
-# private image (registry credentials are a Pro feature). So whatever lands in the final stage is
-# world-readable. This file used to be single-stage `COPY monorepo/ .` running TS through tsx —
-# publishing that image published the entire monorepo. The runner below carries a minified bundle
-# of the backend and nothing else: no src/, no web, no admin, no lp, no landing.
-#
-# Same shape as shoonyastore/oms, which has run this way on Hobby for months.
+# Railway builds this file from a `railway up` upload; the image is never pushed anywhere, so today
+# the split is an optimisation. It was written as a privacy boundary, and it becomes one again the
+# moment this image is pushed to a public registry — which is what the pull-based model needs, since
+# Railway gates private-registry pulls behind Pro. If that day comes, the rule returns with it:
+# NOTHING that reads as source may enter the runner stage. The bundle already leaks more than it
+# looks like it does (route paths, fee math, the literal "frens@frenspay.xyz"), and
+# dist/migrations/*.sql is the schema in plain SQL.
 
 # node >=24: apps/web's @solana-program/token@0.14 demands it, and this install covers every workspace.
 FROM node:24-slim AS builder
