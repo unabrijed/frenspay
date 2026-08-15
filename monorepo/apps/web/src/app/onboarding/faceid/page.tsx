@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { Screen } from '@/components/ui/Screen';
+import { bootRoute } from '@/lib/bootRoute';
 import { colors, type } from '@/lib/theme';
 import { usePayStore } from '@/store/usePayStore';
 
@@ -26,6 +27,7 @@ function EmailOtp() {
   const authError = usePayStore((s) => s.authError);
   const authEmail = usePayStore((s) => s.authEmail);
   const handle = usePayStore((s) => s.handle);
+  const onboarded = usePayStore((s) => s.onboarded);
   const loaded = usePayStore((s) => s.firstLoadDone);
   const requestOtp = usePayStore((s) => s.requestOtp);
   const verifyOtp = usePayStore((s) => s.verifyOtp);
@@ -35,11 +37,13 @@ function EmailOtp() {
   const sent = authStatus === 'codeSent';
   const signedIn = authStatus === 'signedIn';
 
-  // Signed in: once the embedded wallet + backend identity have loaded, route by whether a handle
-  // already exists — existing users skip straight to Home; brand-new users pick a handle.
+  // Signed in: once the /me probe has answered, route on what the SERVER said — existing users go
+  // straight to Home, brand-new ones pick a handle. Same decision as the entry router, so it is the
+  // same function (lib/bootRoute); the two copies used to be able to disagree.
   useEffect(() => {
-    if (signedIn && loaded) router.replace(handle ? '/home' : '/onboarding/handle');
-  }, [signedIn, loaded, handle, router]);
+    const dest = bootRoute({ hydrated: true, authReady: true, authStatus, probed: loaded, onboarded, handle });
+    if (signedIn && dest) router.replace(dest);
+  }, [signedIn, authStatus, loaded, onboarded, handle, router]);
 
   // Reset the in-flight guard once the request settles (status change or error) so a
   // double-tap can't fire concurrent sendCode/loginWithCode calls.

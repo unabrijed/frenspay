@@ -164,6 +164,11 @@ interface PayState {
   order: Order | null;
 
   // ---- auth (Privy email OTP; real mode) ----
+  /** Privy has finished restoring (or failing to restore) a session — published by the bridge from
+   *  its `ready`. Until then `authStatus: 'signedOut'` is a NOT-YET, not a no, and routing on it
+   *  dumped a signed-in returning user on the marketing welcome screen before the bridge could
+   *  correct it. Ephemeral by definition. */
+  authReady: boolean;
   authStatus: 'signedOut' | 'codeSent' | 'signedIn';
   authEmail: string;
   authError: string | null;
@@ -203,6 +208,8 @@ interface PayState {
 
   // ---- auth actions (delegate to the Privy bridge) ----
   setAuthBridge: (b: AuthBridge) => void;
+  /** Privy's `ready` — see `authReady`. Called by the bridge, never by a screen. */
+  setAuthReady: () => void;
   onSignedIn: (walletAddress: string) => void;
   requestOtp: (email: string) => Promise<void>;
   verifyOtp: (code: string) => Promise<void>;
@@ -337,6 +344,8 @@ export const usePayStore = create<PayState>()(
       quote: null,
       order: null,
 
+      // Dev mode (no Privy) has nothing to wait for — the x-dev-user-id header is always ready.
+      authReady: !USE_PRIVY,
       authStatus: 'signedOut',
       authEmail: '',
       authError: null,
@@ -396,19 +405,18 @@ export const usePayStore = create<PayState>()(
       toggleFlip: () => set((s) => ({ flipped: !s.flipped })),
       toggleHideAmounts: () => set((s) => ({ hideAmounts: !s.hideAmounts })),
 
-      // Pull identity + balance + activity from the backend.
+      // Pull identity + balance + activity from the backend. Also THE account probe: /me is the only
+      // thing that knows whether this Privy identity owns an account, so signing in always asks.
+      //
+      // This used to additionally require `provisioned || onboarded` — both localStorage-backed — so
+      // a returning user on a browser that had never seen them (signed out and back in, new device,
+      // incognito, cleared storage) never got to ask. `handle` stayed '' and the boot router sent
+      // them to "Choose your handle" for an account they already had. A browser cannot answer that
+      // question; only the server can. Same posture as apps/admin and apps/lp, which already probe
+      // unconditionally and treat 401/404 as "no account".
       load: async () => {
-        // Wait for the Privy bridge to sign in AND for the backend user to exist (synced this session,
-        // or a returning onboarded user). Without the provisioned/onboarded check, the post-sign-in
-        // load() during onboarding fires before /auth/sync and 401s. See `provisioned`.
-        if (USE_PRIVY && !(get().authStatus === 'signedIn' && (get().provisioned || get().onboarded))) {
-          // Signed in but not yet provisioned (mid-onboarding, pre /auth/sync): skip the fetch (it would
-          // 401) but still mark this session's first load "done" so screens gated on firstLoadDone — the
-          // faceid step routes to /onboarding/handle on `signedIn && firstLoadDone` — advance instead of
-          // hanging on the splash. (Pre-sign-in we leave it false so the splash stays.)
-          if (get().authStatus === 'signedIn') set({ firstLoadDone: true });
-          return;
-        }
+        // Pre-sign-in only. Leave firstLoadDone false so the splash stays until Privy resolves.
+        if (USE_PRIVY && get().authStatus !== 'signedIn') return;
         // First load of this session: drop any persisted prior-session financials so they can't flash
         // before the fresh fetch resolves. Skeletons (gated on firstLoadDone) cover the gap. Identity
         // (handle/kycTier) is left intact — load() repopulates it and losing it would break routing.
@@ -417,14 +425,16 @@ export const usePayStore = create<PayState>()(
         }
         set({ busy: true, error: null });
         try {
-          const [me, bal, txns, reqs, notifs] = await Promise.all([
-            api.me(),
-            wallet.getBalanceUsd(),
-            wallet.getTransactions(),
-            wallet.getRequests(),
-            // Non-critical: a failing /notifications must never blank the dashboard.
-            api.getNotifications().catch(() => ({ notifications: get().notifications, unread: get().unread })),
-          ]);
+          // The probe goes FIRST and ALONE. It used to ride in the Promise.all below, which meant
+          // the identity answer was decided by whichever call rejected first — so one flaky
+          // /balance on a returning user's cold load looked identical to "no account", and routed
+          // them to pick a handle they already had. /me is the only call that can answer this, so
+          // it is the only one allowed to. One extra round trip, on cold boot, behind skeletons.
+          const me = await api.me();
+          // Committed the moment identity is known, BEFORE the money calls — they are allowed to
+          // fail, and this is not. Landing `onboarded` in the same set() as the balance would have
+          // meant a 500 on /transactions leaves a real account still looking unregistered, which is
+          // the same dead end by a different route.
           set({
             walletAddress: me.walletAddress,
             handle: me.handle,
@@ -443,15 +453,13 @@ export const usePayStore = create<PayState>()(
             // Absent once acknowledged — the server stops sending them, so this goes back to [].
             invites: me.invites ?? [],
             role: me.role ?? 'user',
-            balanceUSD: bal,
-            transactions: txns,
-            requests: reqs,
-            notifications: notifs.notifications,
-            unread: notifs.unread,
-            busy: false,
-            firstLoadDone: true,
             suspended: false,
             deleted: false,
+            // /me answered, so the account exists — server truth, replacing whatever this browser
+            // did or didn't remember. Both flags are what every downstream guard reads (the tabs
+            // layout, the boot router, refresh()).
+            onboarded: true,
+            provisioned: true,
           });
           // AFTER the set above, because which rates we want depends on `country`, which arrives
           // with `me` and is not persisted. Not awaited: the balance paints at the seeded/persisted
@@ -459,7 +467,34 @@ export const usePayStore = create<PayState>()(
           // on FX.
           void get().syncRates();
           void get().resumePendingDeposit(); // lost-burn-hash recovery (docs/19 inbound)
+          const [bal, txns, reqs, notifs] = await Promise.all([
+            wallet.getBalanceUsd(),
+            wallet.getTransactions(),
+            wallet.getRequests(),
+            // Non-critical: a failing /notifications must never blank the dashboard.
+            api.getNotifications().catch(() => ({ notifications: get().notifications, unread: get().unread })),
+          ]);
+          set({
+            balanceUSD: bal,
+            transactions: txns,
+            requests: reqs,
+            notifications: notifs.notifications,
+            unread: notifs.unread,
+            busy: false,
+            firstLoadDone: true,
+          });
         } catch (e) {
+          // The probe's OTHER valid answer: this identity genuinely has no account yet (pre
+          // /auth/sync onboarding, or a signed-in session on an environment where the row doesn't
+          // exist). Not an error to show anyone — it's how a new user is recognised. firstLoadDone
+          // still flips so the boot router stops holding the splash and routes to the handle step.
+          if (e instanceof ApiError && e.code === 'no_account') {
+            // Drop any remembered handle with it: the server just said this identity owns nothing,
+            // so a persisted one is stale (a deleted account, or storage from a different
+            // environment) and would resume onboarding at the wrong step.
+            set({ busy: false, firstLoadDone: true, handle: '' });
+            return;
+          }
           // Mark firstLoadDone even on failure so skeletons resolve to the empty/error state
           // rather than spinning forever.
           set({ busy: false, firstLoadDone: true, error: e instanceof Error ? e.message : String(e) });
@@ -547,7 +582,9 @@ export const usePayStore = create<PayState>()(
 
       // ---- auth (delegates to the Privy bridge; signedIn is finalized by the bridge) ----
       setAuthBridge: (b) => set({ _authBridge: b }),
-      onSignedIn: (walletAddress) => set({ walletAddress, authStatus: 'signedIn', authError: null }),
+      setAuthReady: () => set({ authReady: true }),
+      onSignedIn: (walletAddress) =>
+        set({ walletAddress, authStatus: 'signedIn', authError: null, authReady: true }),
       requestOtp: async (email) => {
         set({ authError: null });
         try {

@@ -113,11 +113,19 @@ export async function req<T>(path: string, init?: RequestInit, retried = false):
     // The two answers that mean "this session has no account": `no_account` from requireUserId, and
     // `user_not_found` from GET /me. Read off `message` because the backend has no setErrorHandler,
     // so Fastify's default serializer puts our string there and a generic "Unauthorized" in `error`.
-    if (payload.message === 'no_account' || payload.error === 'user_not_found') onSessionRevoked?.();
+    // Normalized to ONE code because callers branch on it: the store's /me probe reads "does this
+    // Privy identity have an account?" off exactly this, and `error` would otherwise say
+    // "Unauthorized" for the 401 shape and 'user_not_found' for the 404 one.
+    const noAccount = payload.message === 'no_account' || payload.error === 'user_not_found';
+    if (noAccount) onSessionRevoked?.();
     // Sent via reply.send() in authPreHandler, so the code is in `error` (not Fastify's `message`).
     if (payload.error === 'account_suspended') onAccountSuspended?.();
     if (payload.error === 'account_deleted') onAccountDeleted?.();
-    throw new ApiError(res.status, typeof payload.error === 'string' ? payload.error : `http_${res.status}`, payload);
+    throw new ApiError(
+      res.status,
+      noAccount ? 'no_account' : typeof payload.error === 'string' ? payload.error : `http_${res.status}`,
+      payload,
+    );
   }
   return (await res.json()) as T;
 }

@@ -65,6 +65,26 @@ export function PrivyBridge(): null {
     });
   }, [sendCode, loginWithCode, logout, linkWithPasskey, sendPhoneCode, linkPhoneWithCode]);
 
+  // "Signed out" is only an ANSWER once Privy has resolved and found no session. PrivyGate already
+  // holds a splash until `ready`, but `ready` arriving with a user is not the end of it: authStatus
+  // stays 'signedOut' through the token/wallet chain below, which on a cold load is seconds. The
+  // entry router read that gap as a real no and sent returning users to the marketing screen — off
+  // which nothing routes them back. So publish readiness only when there is genuinely nobody;
+  // the signed-in half is published by onSignedIn once the chain lands.
+  useEffect(() => {
+    if (!ready) return undefined;
+    if (!user) {
+      usePayStore.getState().setAuthReady();
+      return undefined;
+    }
+    // There IS a session, so wait for the chain — but bounded. It can hang without throwing (the
+    // createWallet latch PrivyRoot documents), and an unbounded wait would hold the boot splash
+    // past the watchdog and reload in a loop. Falling through unready is just the old behaviour:
+    // the welcome screen, which they can tap out of. Under SPLASH_WATCHDOG_MS on purpose.
+    const t = setTimeout(() => usePayStore.getState().setAuthReady(), 5000);
+    return () => clearTimeout(t);
+  }, [ready, user]);
+
   // Inbound cross-chain (docs/19): the smart wallet IS the deposit address (same 0x on every
   // chain). Publish it to the backend once known, and register the sponsored-call sender.
   const smartAddress = smartClient?.account?.address;
@@ -140,7 +160,11 @@ export function PrivyBridge(): null {
       );
       usePayStore.getState().onSignedIn(wallet.address);
       void usePayStore.getState().load(); // returning users: pull balance/activity now the token is set
-    })().catch((e) => usePayStore.setState({ authError: e instanceof Error ? e.message : String(e) }));
+      // authReady rides along on the failure too: the chain above is what publishes it on success,
+      // so a throw here would otherwise leave the boot router holding the splash forever.
+    })().catch((e) =>
+      usePayStore.setState({ authError: e instanceof Error ? e.message : String(e), authReady: true }),
+    );
     return () => {
       cancelled = true;
     };
