@@ -54,6 +54,16 @@ schema. The `/health` healthcheck decides Active vs failed deploy.
 is implicit: the gate skips unless `VERCEL_ENV=production`, which a project only sees on its own
 Production Branch — `stage` here, `sacred` for the prod twins. Details in §Frontends.
 
+**Deploying on demand.** Actions → **backend deploy** → **Run workflow** → branch `stage`. That is
+`workflow_dispatch`, and it skips the path gate deliberately: asking for it by hand IS the decision.
+Use it to redeploy the current commit, or to recover after a failed run.
+
+> **Why `stage` is the repo's default branch.** GitHub only renders the **Run workflow** button when
+> the workflow exists on the **default** branch. `.github/` lives on `stage` and nothing merges to
+> `main`, so while `main` was the default the button silently did not exist — leaving a real
+> backend-scope commit as the only way to deploy anything. Nothing in the UI explains this; it just
+> isn't there. If the button ever disappears, check the default branch first.
+
 > ### Nothing is published, anywhere
 >
 > No registry, no Docker Hub, no GHCR package, no public image. The built image exists only inside
@@ -413,6 +423,7 @@ forward — which is why migrations must be written additively.
 | --- | --- |
 | Railway deployed something CI didn't push | The service got connected to the GitHub repo (Settings → Source). Disconnect it — its only source should be the CI upload. |
 | Workflow never ran | The change was outside the backend scope. Check with `node scripts/vercel-ignore.mjs backend; echo $?`. Ship it anyway with Actions → Run workflow, which skips the gate deliberately. |
+| No **Run workflow** button on the Actions page | The workflow isn't on the repo's **default** branch — that is the only place GitHub looks for `workflow_dispatch`. `stage` must stay the default branch (Settings → General). |
 | `Failed to upload code with status code 404 Not Found` | `RAILWAY_STAGE_SERVICE` names a service that doesn't exist in this environment. The `railway status` output printed just above it lists the real names under `All resources` — copy one exactly. This is the most likely cause by far; the 404 is Railway's answer for "no such target", not for a bad token. |
 | `railway up` fails: unauthorized | `RAILWAY_STAGE_TOKEN` missing, expired, or scoped to the wrong environment. It must be a **project** token for **stage**. An account token (from Account Settings) is read from `RAILWAY_API_TOKEN`, carries no project, and makes `railway status` fail to resolve one. |
 | Deploy stuck "waiting for healthcheck" | `PORT` was set by hand (never set it — Railway injects it), or the server crashed at boot. The deploy logs carry the real error. |
