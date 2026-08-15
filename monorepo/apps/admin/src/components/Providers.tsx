@@ -12,22 +12,22 @@
 // Without Privy configured (local dev), requests fall back to the x-dev-user-id shim in api.ts,
 // so children render directly.
 //
-// The Privy app is keyed to the SELECTED BACKEND, not baked in at build time — stage and prod are
-// separate Privy apps and neither backend accepts the other's tokens. See PRIVY_APP_IDS.
+// ONE Privy app for both targets (envConfig.PRIVY_APP_ID), so the session survives the env switch
+// and the provider never has to swap app ids under a live tree.
 import { PrivyProvider, usePrivy } from '@privy-io/react-auth';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { EnvSwitch } from '@/components/EnvSwitch';
 import { Denied } from '@/components/ui';
 import { api, ApiError, setAuthToken, setTokenRefresher } from '@/services/api';
-import { apiHost, getApiMode } from '@/services/apiMode';
-import { isProduction, PRIVY_APP_IDS, PRIVY_CLIENT_IDS, type ApiMode } from '@/services/envConfig';
+import { apiHost } from '@/services/apiMode';
+import { isProduction, PRIVY_APP_ID, PRIVY_CLIENT_ID } from '@/services/envConfig';
 
 /** What /me said about this account.
- *  'absent'    = the token verified, and this backend has no row for it.
- *  'wrong_env' = the token did not verify AT ALL, so no row was ever looked up. Almost always the
- *                console pointed at one backend with a session from the other one's Privy app. */
-type Access = 'checking' | 'admin' | 'denied' | 'absent' | 'wrong_env' | 'error';
+ *  'absent'   = the token verified, and this backend has no row for it.
+ *  'refused'  = the token did not verify AT ALL, so no row was ever looked up — an expired session,
+ *               or a backend configured with a different Privy app than this console signs into. */
+type Access = 'checking' | 'admin' | 'denied' | 'absent' | 'refused' | 'error';
 
 function AuthGate({ children }: { children: ReactNode }) {
   const { ready, authenticated, login, getAccessToken } = usePrivy();
@@ -70,7 +70,7 @@ function AuthGate({ children }: { children: ReactNode }) {
         if (!live) return;
         if (!(e instanceof ApiError)) return setAccess('error');
         if (e.code === 'no_account' || e.status === 404) return setAccess('absent');
-        if (e.status === 401) return setAccess('wrong_env');
+        if (e.status === 401) return setAccess('refused');
         setAccess('error');
       });
     return () => {
@@ -94,8 +94,8 @@ function AuthGate({ children }: { children: ReactNode }) {
         >
           Sign in
         </button>
-        {/* WHICH backend you are about to sign into, before you sign in — this decides which Privy
-            app mints the token, so getting it wrong here is what the wrong_env screen is for. */}
+        {/* WHICH backend you are about to sign into, before you sign in. One login now works against
+            either, so this only decides whose data you land in — which is the more dangerous half. */}
         <Target />
       </div>
     );
@@ -138,10 +138,10 @@ function NoAccess({ kind }: { kind: Exclude<Access, 'checking' | 'admin'> }) {
       copy: 'This account has no profile on this environment yet. Sign into the fpay app once with this address, then come back.',
     },
     // The token was refused outright, so nothing was ever looked up — say that, because the fix is
-    // the environment and not the account, and the two used to print the same sentence.
-    wrong_env: {
-      title: 'Wrong environment',
-      copy: 'This backend refused the session. It uses a different Privy app than the one you signed in with, so switch the target below — or sign out and back in to get a token it will accept.',
+    // the session and not the account, and the two used to print the same sentence.
+    refused: {
+      title: 'Session refused',
+      copy: 'This backend would not verify the session — usually an expired login. Sign out and back in. If it repeats, this backend is configured with a different Privy app than the console signs into.',
     },
     error: {
       title: 'Backend unreachable',
@@ -165,12 +165,9 @@ function NoAccess({ kind }: { kind: Exclude<Access, 'checking' | 'admin'> }) {
 
 /** Sidebar sign-out. Only meaningful under Privy; hidden in dev-shim mode — SignOutInner calls
  *  usePrivy(), which throws when no provider is above it, and the shim path renders children with no
- *  provider at all. The condition has to be the SAME one Providers used to decide that, which is now
- *  per-target, so read the mode the same way (on mount, never guessed server-side). */
+ *  provider at all. The condition has to be the SAME one Providers used to decide that. */
 export function SignOut() {
-  const [appId, setAppId] = useState('');
-  useEffect(() => setAppId(PRIVY_APP_IDS[getApiMode()]), []);
-  if (!appId) return null;
+  if (!PRIVY_APP_ID) return null;
   return <SignOutInner />;
 }
 
@@ -191,27 +188,22 @@ function SignOutInner() {
 }
 
 export function Providers({ children }: { children: ReactNode }) {
-  // Resolve the target BEFORE mounting Privy. The mode lives in localStorage, so a server render
-  // would guess 'stage', mount PrivyProvider with the stage app id, and rehydrate into a prod
-  // session — the provider would be holding one app's config and the other app's token. Same
-  // reasoning as the mode read in EnvSwitch, with more at stake. setApiMode reloads, so a switch
-  // re-enters here cleanly rather than trying to swap appId under a live provider.
-  const [mode, setMode] = useState<ApiMode | null>(null);
-  useEffect(() => setMode(getApiMode()), []);
-  if (!mode) return <div className="flex min-h-screen items-center justify-center text-[13px] text-muted">Loading…</div>;
-
-  const appId = PRIVY_APP_IDS[mode];
-  // No Privy app for this target. In dev that is the intended x-dev-user-id shim path and children
-  // render directly, exactly as before. In a BUILT bundle it is a missing variable, and this app's
-  // stated rule is that such a misconfiguration must never be silent (envConfig.ts) — silence here
-  // means the console renders, sends no credential, and 401s on every panel, which reads as a broken
-  // backend. The switch is offered because the other target may well be configured.
-  if (!appId) {
+  // The app id is a build constant now, not a per-target lookup, so there is nothing to wait for
+  // before mounting Privy: the provider renders identically on the server and the first client pass.
+  // It used to read the mode out of localStorage in an effect and hold a "Loading…" screen until it
+  // landed — one more screen with no control on it, for a value that no longer varies.
+  //
+  // No Privy app configured. In dev that is the intended x-dev-user-id shim path and children render
+  // directly, exactly as before. In a BUILT bundle it is a missing variable, and this app's stated
+  // rule is that such a misconfiguration must never be silent (envConfig.ts) — silence here means
+  // the console renders, sends no credential, and 401s on every panel, which reads as a broken
+  // backend.
+  if (!PRIVY_APP_ID) {
     if (!isProduction) return <>{children}</>;
     return (
       <Denied
         title="Not configured"
-        msg={`No Privy app is configured for the ${mode} target, so this console cannot sign anyone in against it. Set the ${mode === 'prod' ? 'NEXT_PUBLIC_PRIVY_APP_ID' : 'NEXT_PUBLIC_STAGE_PRIVY_APP_ID'} variable and redeploy — NEXT_PUBLIC_* is inlined at build time.`}
+        msg="No Privy app is configured, so this console cannot sign anyone in. Set NEXT_PUBLIC_PRIVY_APP_ID and redeploy — NEXT_PUBLIC_* is inlined at build time."
       >
         <Target />
       </Denied>
@@ -219,13 +211,15 @@ export function Providers({ children }: { children: ReactNode }) {
   }
   return (
     <PrivyProvider
-      appId={appId}
-      clientId={PRIVY_CLIENT_IDS[mode] || undefined}
+      appId={PRIVY_APP_ID}
+      clientId={PRIVY_CLIENT_ID || undefined}
       config={{
         // Email, and nothing else — the same policy web states at PrivyRoot.tsx. Without it this
         // console's login() modal renders whatever the Privy dashboard happens to allow, which made
         // it the one place in the repo a wallet login could start. Everything else here already
-        // said "no wallets"; this is the login door saying it too.
+        // said "no wallets"; this is the login door saying it too. Now that one app serves both
+        // targets, its dashboard is the only allowed-origins list to keep, and this line is the only
+        // thing holding that dashboard's method toggles to email.
         loginMethods: ['email'],
         embeddedWallets: {
           ethereum: { createOnLogin: 'off' },
