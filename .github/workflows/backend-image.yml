@@ -23,13 +23,17 @@ name: backend deploy
 
 on:
   push:
-    branches: [stage]
+    # stage -> Railway `stage`, sacred -> Railway `production`. The branch is the only thing that
+    # differs; the image is environment-agnostic because envConfig keys off NODE_ENV, which comes
+    # from the service's own variables.
+    branches: [stage, sacred]
   # Ship the current commit without editing code — a redeploy, or a recovery after a failed run.
   # Skips the path gate on purpose: asking for it by hand IS the decision.
   workflow_dispatch:
 
-# One deploy at a time per branch. A newer push supersedes an older one rather than racing it onto
-# the same service.
+# One deploy at a time per branch — keyed on github.ref, so a sacred deploy never cancels a stage
+# one. A newer push to the same branch supersedes an older one rather than racing it onto the
+# same service.
 concurrency:
   group: backend-deploy-${{ github.ref }}
   cancel-in-progress: true
@@ -76,20 +80,26 @@ jobs:
       - if: steps.gate.outputs.ship == 'true'
         name: Upload to Railway and build there
         # RAILWAY_TOKEN is the name the CLI reads and cannot be renamed; the secret behind it is
-        # environment-specific, because a Railway project token IS the environment selector. Prod
-        # gets RAILWAY_PROD_TOKEN / RAILWAY_PROD_SERVICE when it is wired.
+        # environment-specific, because a Railway project token IS the environment selector. Keeping
+        # the two pairs under distinct names is what makes "stage or mainnet?" readable right here,
+        # in a diff, instead of being a value hidden in a settings page.
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_STAGE_TOKEN }}
-          SERVICE: ${{ vars.RAILWAY_STAGE_SERVICE }}
+          RAILWAY_TOKEN: ${{ github.ref_name == 'sacred' && secrets.RAILWAY_PROD_TOKEN || secrets.RAILWAY_STAGE_TOKEN }}
+          SERVICE: ${{ github.ref_name == 'sacred' && vars.RAILWAY_PROD_SERVICE || vars.RAILWAY_STAGE_SERVICE }}
+          RAILWAY_ENV: ${{ github.ref_name == 'sacred' && 'production' || 'stage' }}
         run: |
           npm install -g @railway/cli
 
           # Preflight, because `railway up` reports every one of these as a bare
           # "Failed to upload code with status code 404 Not Found" and that log tells you nothing.
           # It cost a full debugging round the first time. Never echo RAILWAY_TOKEN.
-          test -n "$SERVICE" || { echo "::error::RAILWAY_STAGE_SERVICE is empty. Set it under repo Settings -> Secrets and variables -> Actions -> VARIABLES (not Secrets)."; exit 1; }
-          test -n "$RAILWAY_TOKEN" || { echo "::error::RAILWAY_STAGE_TOKEN is empty. Set it under repo Settings -> Secrets and variables -> Actions -> Secrets."; exit 1; }
-          echo "service=[$SERVICE]"
+          # Named per branch so the error points at the variable that is actually missing. Failing
+          # here is deliberate on sacred: the prod frontends deploy from the same push, so a
+          # quietly-skipped backend would hide a version split behind a green run.
+          PAIR=$([ "$GITHUB_REF_NAME" = "sacred" ] && echo PROD || echo STAGE)
+          test -n "$SERVICE" || { echo "::error::RAILWAY_${PAIR}_SERVICE is empty. Set it under repo Settings -> Secrets and variables -> Actions -> VARIABLES (not Secrets)."; exit 1; }
+          test -n "$RAILWAY_TOKEN" || { echo "::error::RAILWAY_${PAIR}_TOKEN is empty. Set it under repo Settings -> Secrets and variables -> Actions -> Secrets."; exit 1; }
+          echo "branch=[$GITHUB_REF_NAME] environment=[$RAILWAY_ENV] service=[$SERVICE]"
 
           # The decisive probe: `status` resolves a project only if RAILWAY_TOKEN is a PROJECT token
           # (Railway -> the project -> Settings -> Tokens). An ACCOUNT token carries no project, is
@@ -97,4 +107,4 @@ jobs:
           # 404s with nothing to attach to.
           railway status || echo "::warning::railway status could not resolve a project — RAILWAY_STAGE_TOKEN is probably an ACCOUNT token. Regenerate it inside the project (Settings -> Tokens), scoped to the stage environment."
 
-          railway up --ci --service "$SERVICE" --environment stage
+          railway up --ci --service "$SERVICE" --environment "$RAILWAY_ENV"
