@@ -128,7 +128,10 @@ Use it to redeploy the current commit, or to recover after a failed run.
    ```
    NODE_ENV=stage
    STAGE_DATABASE_URL=<Supabase session pooler URL — step 2>
-   STAGE_KYC_PROVIDER=sim                               # stage boot THROWS without KYC config (assertKycConfig); sim until Didit is live
+   STAGE_KYC_PROVIDER=didit                             # optional — stage/prod already default to didit. NEVER `sim` here: stage is mainnet, and sim promotes to tier 2 with no documents
+   STAGE_DIDIT_API_KEY=<Didit app API key>              # without these two, boot THROWS (assertKycConfig)
+   STAGE_DIDIT_WORKFLOW_ID=<workflow uuid from the SAME Didit application as the key above>
+   STAGE_DIDIT_WEBHOOK_SECRET=<optional — the 15s reconciler poller applies decisions without it>
    STAGE_SOLANA_RPC_URL=https://mainnet.helius-rpc.com/?api-key=<KEY>   # mainnet RPC (Helius free tier)
    STAGE_HELIUS_API_KEY=<KEY>                            # push confirmation — see §Helius. Same key as the RPC URL above
    STAGE_HELIUS_WEBHOOK_SECRET=<openssl rand -hex 32>    # real values live in apps/backend/.env — NEVER paste one into this tracked file
@@ -446,7 +449,8 @@ forward — which is why migrations must be written additively.
 | `Failed to upload code with status code 404 Not Found` | `RAILWAY_STAGE_SERVICE` names a service that doesn't exist in this environment. The `railway status` output printed just above it lists the real names under `All resources` — copy one exactly. This is the most likely cause by far; the 404 is Railway's answer for "no such target", not for a bad token. |
 | `railway up` fails: unauthorized | `RAILWAY_STAGE_TOKEN` missing, expired, or scoped to the wrong environment. It must be a **project** token for **stage**. An account token (from Account Settings) is read from `RAILWAY_API_TOKEN`, carries no project, and makes `railway status` fail to resolve one. |
 | Deploy stuck "waiting for healthcheck" | `PORT` was set by hand (never set it — Railway injects it), or the server crashed at boot. The deploy logs carry the real error. |
-| Boot throws on KYC config | `assertKycConfig` — stage refuses to start without it. Set `STAGE_KYC_PROVIDER` (§Service setup step 3). |
+| Boot throws on KYC config | `assertKycConfig` — stage refuses to start without real Didit credentials. Set `STAGE_DIDIT_API_KEY` + `STAGE_DIDIT_WORKFLOW_ID` (§Service setup step 3). Do **not** answer this by setting `STAGE_KYC_PROVIDER=sim` — stage is mainnet. |
+| `/kyc/verify` returns 503 `kyc_unavailable` | The service booted fine (so the vars are set) and the **call to Didit** was rejected. The only record is the `kyc provider start failed` line in the deploy logs, which carries `[workflow=… key=len…####]` — see the KYC runbook in `docs/10-ops-and-roadmap.md`. |
 | `prepared statement does not exist` / lock hangs | `STAGE_DATABASE_URL` points at the transaction pooler (`:6543`). It must be the **session** pooler (`:5432`). |
 | Build fails on an unpublished `@fpay/*` package | A new workspace's `package.json` isn't COPY'd before the install layer in the root `Dockerfile`. Its header explains why; add the line. |
 | `Cannot find package '@fpay/shared'` at runtime | A *value* import of `@fpay/shared` reached the bundle, where it is external. Make it `import type`. |
