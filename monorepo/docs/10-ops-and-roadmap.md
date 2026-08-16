@@ -66,8 +66,8 @@ Two providers behind one API (`POST /kyc/verify` in `routes/kyc.ts`), selected b
 
 | Provider | When | Behaviour |
 |---|---|---|
-| `sim` | local default (and currently forced on stage) | instant tier-2 promote, no documents |
-| `didit` | stage/prod default | hosted document+liveness; tier raised later by the 15s reconciler poller (webhook = fast-path ping only) |
+| `sim` | local only — **never** on a deployed tier, both of which are mainnet | instant tier-2 promote, no documents |
+| `didit` | live on stage **and** prod (also the default there, set or not) | hosted document+liveness; tier raised later by the 15s reconciler poller (webhook = fast-path ping only) |
 
 - **Sim:** onboard → Settings → *Verify identity* → instant tier 2. Re-test via dev-only
   *Reset for testing* (`POST /sim/kyc/1`) — the backend tier persists across logins otherwise.
@@ -79,6 +79,36 @@ Two providers behind one API (`POST /kyc/verify` in `routes/kyc.ts`), selected b
   correctness never depends on it.
 - Key files: `services/kyc/{index,didit,sim,poller}.ts`, `routes/kyc.ts`, `routes/webhooks.ts`,
   web `store/usePayStore.ts` (`verifyDone`, `pollKyc`, `resetForTesting`).
+
+### Debugging a 503 `kyc_unavailable`
+
+That code carries no diagnosis and is meant not to — it is emitted from one place (`routes/kyc.ts`)
+and means only *"the call to Didit threw"*. The reason exists **solely** in the server log line
+`kyc provider start failed`, which since the fingerprinting fix reads:
+
+```
+didit /v3/session/ → <status> <body> [workflow=<uuid> key=len<N>…<last4>]
+```
+
+Read it with `railway logs --service <service> --environment <env> | grep -i "kyc provider start failed" -A5`.
+Trigger **one** verify before reading — the route is rate-limited to 5/min (`services/rateLimit.ts`),
+and past that the error changes to `rate_limited`, which is noise rather than progress.
+
+| Log shows | Cause | Fix |
+|---|---|---|
+| `→ 403`, and `workflow=` lives in the same Didit app that issued the key | key revoked or regenerated | reissue it, update `DIDIT_API_KEY` |
+| `→ 403`, and `workflow=` belongs to a **different** app than the key | key + workflow crossed between two Didit applications — the classic first-setup failure | repoint both at one application |
+| `→ 403`/`402` with a plan or quota body | app not activated, or free-tier session quota spent | Didit dashboard; nothing in the repo |
+| `→ 404` | Didit moved `/v3/session/` or the base URL | update `diditBaseUrl` or the path in `services/kyc/didit.ts` |
+| `→ 400` naming `callback` | the deployed `returnUrl` origin is rejected | check `safeReturnUrl` against `CORS_ORIGIN` |
+| no `→` at all | the 10s `FETCH_TIMEOUT_MS` aborted — Didit slow or unreachable | retry; raise the timeout only if it recurs |
+
+Comparing the logged `key=len<N>…<last4>` against the dashboard key is what separates "wrong key" from
+"wrong workflow" from "right pair, dead app" — the body alone answers 403 to all three.
+
+Two things that are **not** the cause, both ruled out before reading anything: an unset
+`KYC_PROVIDER` (stage and prod default to `didit`), and missing credentials (`assertKycConfig` is
+fatal at boot, so a service answering `/health` has them).
 
 ## Owed, and known
 
