@@ -36,7 +36,7 @@ export function RateLock({ variant = 'A', payUsd, getR }: { variant?: RlcVariant
             <Icons.Request size={16} color={colors.muted} strokeWidth={1.6} />
           </View>
         </View>
-        <Txt style={[type.rlcMicro, { color: colors.accent }]}>Merchant gets</Txt>
+        <Txt style={[type.rlcMicro, { color: colors.accent }]}>They get</Txt>
         <Txt style={[type.rlcFigBg, { color: colors.accent, marginTop: 6 }]}>{inrRaw(getR)}</Txt>
         <Lock />
       </View>
@@ -45,7 +45,7 @@ export function RateLock({ variant = 'A', payUsd, getR }: { variant?: RlcVariant
   if (variant === 'C') {
     return (
       <View style={[s.card, s.padC]}>
-        <Txt style={[type.rlcMicro, { color: colors.accent }]}>Merchant gets</Txt>
+        <Txt style={[type.rlcMicro, { color: colors.accent }]}>They get</Txt>
         <Txt style={[type.rlcFigC, { color: colors.accent, marginTop: 6, marginBottom: 2 }]}>{inrRaw(getR)}</Txt>
         <Txt style={s.eq}>= {usd(payUsd)} from your balance</Txt>
         <Lock center />
@@ -64,7 +64,7 @@ export function RateLock({ variant = 'A', payUsd, getR }: { variant?: RlcVariant
           <Icons.Swap size={16} color={colors.muted} strokeWidth={1.5} />
         </View>
         <View style={{ alignItems: 'flex-end' }}>
-          <Txt style={[type.rlcMicro, { color: colors.accent }]}>Merchant gets</Txt>
+          <Txt style={[type.rlcMicro, { color: colors.accent }]}>They get</Txt>
           <Txt style={[type.rlcFigA, { color: colors.accent, marginTop: 7 }]}>{inrRaw(getR)}</Txt>
         </View>
       </View>
