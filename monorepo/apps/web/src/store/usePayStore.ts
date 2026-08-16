@@ -742,12 +742,12 @@ export const usePayStore = create<PayState>()(
           // Keep the VPA: it's WHO the merchant actually pays. Dropping it (as this used to) left the
           // order with a rail but no destination, so no merchant could have settled it.
           set({ error: null });
-          get().payPayee({ name: res.name ?? res.payee ?? 'Merchant', vpa: res.payee, rail: 'UPI', currency: 'INR' }, res.amountInr ?? 0);
+          get().payPayee({ name: res.name ?? res.payee ?? 'Recipient', vpa: res.payee, rail: 'UPI', currency: 'INR' }, res.amountInr ?? 0);
         } else if (res.kind === 'qris') {
           // Same lifecycle on the Indonesian rail — the NMID is the payout destination, IDR the
           // quote currency. The rail rides on the payee so every quote call names it.
           set({ error: null });
-          get().payPayee({ name: res.name ?? 'Merchant', vpa: res.payee, rail: 'QRIS', currency: 'IDR' }, res.amountIdr ?? 0);
+          get().payPayee({ name: res.name ?? 'Recipient', vpa: res.payee, rail: 'QRIS', currency: 'IDR' }, res.amountIdr ?? 0);
         } else if (res.kind === 'address') {
           set({ error: null });
           get().startExternalSend(res.address, res.network);

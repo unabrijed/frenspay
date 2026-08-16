@@ -38,10 +38,10 @@ export function VerifyCard({ tier, status, onPress }: { tier: number; status?: K
         </Txt>
         <Txt style={[type.rowTime, { marginTop: 2 }]}>
           {verified
-            ? `Tier ${tier} · merchant payments unlocked`
+            ? `Tier ${tier} · scan-to-pay and higher limits`
             : waiting
               ? 'We’re waiting on the result'
-              : 'Unlock merchant payments and higher limits'}
+              : 'Unlock scan-to-pay and higher limits'}
         </Txt>
       </View>
       {verified ? <Icons.Chevron size={16} color={colors.muted} /> : null}

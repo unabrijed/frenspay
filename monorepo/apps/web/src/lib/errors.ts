@@ -14,7 +14,7 @@ const BY_CODE: Record<string, string> = {
   crosschain_unavailable: 'Sends to other networks are briefly unavailable. Try again soon.',
   // limits / verification
   limit_exceeded: 'Verify your identity to raise your limits.',
-  kyc_required: 'Verify your identity first to pay shops.',
+  kyc_required: 'Verify your identity first to scan and pay.',
   // The vendor session couldn't be started (routes/kyc.ts). The real reason is server-side only,
   // so the copy promises nothing about the cause and points at the one useful action: wait, retry.
   kyc_unavailable: 'Verification is temporarily unavailable. Please try again shortly.',
