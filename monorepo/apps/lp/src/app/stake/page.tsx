@@ -88,7 +88,7 @@ export default function MerchantStake() {
 
         {err ? <Txt style={[type.lead, { color: colors.danger, marginBottom: 10 }]}>{err}</Txt> : null}
         <Txt style={[type.inst, { marginBottom: 12 }]}>
-          Held while you’re a merchant. If someone you were meant to pay doesn’t get their money, this
+          Held while you’re a partner. If someone you were meant to pay doesn’t get their money, this
           is what makes them whole.
         </Txt>
 

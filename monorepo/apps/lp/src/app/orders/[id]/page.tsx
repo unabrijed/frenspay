@@ -166,7 +166,7 @@ export default function MerchantOrder() {
             onPress={() => void navigator.clipboard?.writeText(vpa)}
             style={({ pressed }) => [styles.vpaCard, pressed ? { backgroundColor: colors.surfaceLow } : null]}
           >
-            <Txt style={type.kvKey}>{order.payoutMethod === 'QRIS' ? 'QRIS merchant ID, tap to copy' : 'UPI ID, tap to copy'}</Txt>
+            <Txt style={type.kvKey}>{order.payoutMethod === 'QRIS' ? 'QRIS ID, tap to copy' : 'UPI ID, tap to copy'}</Txt>
             <Txt style={[{ ...fonts.mono400, fontSize: 19, color: colors.ink }, styles.vpa]}>{vpa}</Txt>
             {order.payoutName ? <Txt style={type.inst}>{order.payoutName}</Txt> : null}
             {/* Which app/bank processes this VPA (@okaxis → Google Pay) — tells the merchant what

@@ -58,7 +58,7 @@ export default function MerchantVerify() {
           <BackButton onPress={() => router.push('/')} />
         </View>
         <View style={styles.scroll}>
-          <Txt style={type.lead}>You don’t have a merchant account.</Txt>
+          <Txt style={type.lead}>You don’t have a partner account.</Txt>
         </View>
       </Screen>
     );
