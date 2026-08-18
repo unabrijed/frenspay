@@ -4,16 +4,16 @@
 
 /* These :root vars mirror @fpay/shared brand tokens (CSS can't import the TS source).
    They only style the app-frame + body chrome; component styling is shared via lib/theme.ts.
-   Theme: fpay (warm Material-3). */
+   Theme: frenspay v2 — the palette sampled from the four scene paintings. */
 :root {
-  --canvas: #fff8f4;
-  --surface: #ffffff;
-  --ink: #1e1b19;
-  --muted: #58413d;
-  --hair: #e8e1dd;
-  --accent: #a6341f;
+  --canvas: #fce8cb; /* paper */
+  --surface: #fdf3dc; /* sun — cards sit lighter than the page */
+  --ink: #2b3131;
+  --muted: #6b6156;
+  --hair: rgba(43, 49, 49, 0.15);
+  --accent: #b94f2b; /* terracotta — the one rust event */
   /* warm neutral surround shown around the phone column on wide screens */
-  --backdrop: #ece4dd;
+  --backdrop: #dbb88b; /* sand */
 
   /* Motion. Same curve as apps/landing's --ease-soft: the two apps share the
      vocabulary, not the stylesheet — they are on different Tailwind majors and
@@ -40,7 +40,7 @@ body {
 body {
   background: var(--backdrop);
   color: var(--ink);
-  font-family: var(--font-sans), system-ui, sans-serif;
+  font-family: var(--font-spectral), Georgia, serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
