@@ -3,10 +3,14 @@
 **FrensPay** is the full name (landing header/footer, social card). **fpay** is the short name —
 the app icon, `@fpay/*` package names, the `fpay://` scheme, and all in-app copy.
 
+The written design system is [`design-reference/fpay/README.md`](../design-reference/fpay/README.md).
+This file is only about the mark.
+
 ## The mark
 
 Two frens: the dots are heads, and the curve rises at each end into a body beneath one of them, with
-the dip as the space between them. Flat `#a6341f` (`brand.terracotta`).
+the dip as the space between them. Flat `#b94f2b` (`brand.terracotta`) — the one rust event, and on
+most surfaces the only saturated thing in frame.
 
 **Two frens sitting either side — not a smiley.** Two dots over a curve is one bad reading away from
 a face, and the whole mark stops working the moment it lands there: it becomes decoration instead of
@@ -19,7 +23,7 @@ the picture of the product. Two rules keep it on the right side.
 2. **It never goes in a _user_ avatar slot.** A circular frame around two dots and a curve is a face
    by construction, and a person's avatar is the one place that misreading actually costs something —
    the mark stops being the product and starts being that person. User avatars stay initials. The
-   icon cut is for favicons, app icons and tiles.
+   icon cut is for favicons, app icons, tiles and the landing header — every slot except a person.
 
    The brand's own social accounts are the exception, and the only one: there the mark is *supposed*
    to be read as the mark, and a profile picture that is not the logo is just a worse logo. `yarn
@@ -29,48 +33,55 @@ the picture of the product. Two rules keep it on the right side.
 **The f mark is retired.** It is gone from the tree — recover from git history if it is ever wanted
 again — and nothing should reference `logo-mark.svg`.
 
-## Source of truth — two shapes, one idea
+## Source of truth — one shape
 
-| File | Ratio | Use |
-| --- | --- | --- |
-| `logo-lockup.svg` | 2.05:1 | headers and anything horizontal |
-| `logo-icon.svg` | 1:1 | every square slot — favicon, app icon, tile (never an avatar) |
+`brand/logo-icon.svg`, the square cut (1:1). It is the mark **everywhere**: favicons, app icons,
+tiles, the X avatar, and the landing header.
 
-**Never feed the lockup into a square output.** Measured: at 16px it renders 13×6 and turns to mush,
-and even at 96px it fills only 41% of a square tile. `generate.mjs` is arranged so square outputs can
-only draw from `logo-icon.svg`.
+**The wide lockup is retired** (`brand/logo-lockup.svg` is kept only as the drawing Bridge
+authored). It described a job nothing was doing: every app had already hand-inlined the icon cut,
+so the 2.05:1 shape only ever appeared in one header while claiming to be the horizontal mark. One
+mark is also what the system means by having no third face — the identity should not have two.
 
-The square is a *redraw, not a scale*, for a subtler reason worth keeping: in the lockup the curve's
-ends sit directly **under** the dots, which is what makes each dot read as a head with a body. Pull
-the dots together and the ends splay outward and the whole thing collapses into one heart-shaped
-blob. So the icon cut keeps the ends under the dots and spends the square's height on a deeper dip —
-two figures leaning together into a V. Legible to ~20px; soft but recognisable at 16px, which is
-inherent to any two-element mark and not a fixable flaw.
+Its geometry is worth keeping on record, because it is why the square is a *redraw and not a
+scale*: in the lockup the curve's ends sit directly **under** the dots, which is what makes each
+dot read as a head with a body. Pull the dots together and the ends splay outward and the whole
+thing collapses into one heart-shaped blob. So the icon cut keeps the ends under the dots and
+spends the square's height on a deeper dip — two figures leaning together into a V. Legible to
+~20px; soft but recognisable at 16px, which is inherent to any two-element mark and not a fixable
+flaw.
 
-**The wordmark is not a file.** It is live text — `frenspay`, Hanken Grotesk 700 — so it stays crisp
-and recolourable. Consequently `logo-stacked.svg` carries live `<text>`: sharp has no access to
-Hanken Grotesk, so no PNG output can typeset the wordmark, and outlining it would need the font file,
+**Sizing gotcha.** The icon's viewBox is 256×256 but its ink is only 184×173 of that, so a CSS
+`height` sizes the BOX and the drawing renders at 173/256 of it. The landing's header cap is 41px
+(`28 × 256/173`) for exactly that reason — carrying the lockup's old 28px through would have shrunk
+the visible mark to 19px. Every gesture distance in `apps/landing/src/app/globals.css` is rescaled
+to match: vertical by the ink height, horizontal by the ink width. Re-eyeball the cap and the
+distances together, never one alone.
+
+**The wordmark is not a file.** It is live text — `frenspay`, Spectral 300 — so it stays crisp and
+recolourable. Consequently `logo-stacked.svg` carries live `<text>`: sharp has no access to
+Spectral, so no PNG output can typeset the wordmark, and outlining it would need the font file,
 which is not in the repo. That is also why the social card is mark-only.
 
 ## Regenerating
 
 ```
-yarn brand        # from monorepo/ — rewrites all 23 derived assets
+yarn brand        # from monorepo/ — rewrites all 21 derived assets
 ```
 
-Everything it lists is generated. Edit the two source SVGs, re-run, commit the outputs. Nothing at
+Everything it lists is generated. Edit `logo-icon.svg`, re-run, commit the outputs. Nothing at
 build time depends on the script.
 
 | Output | Spec |
 | --- | --- |
 | `apps/{landing,web,admin}/src/app/icon.svg` | 64² cream squircle, icon cut at 66% |
 | `apps/{landing,web,admin}/src/app/apple-icon.png` | 180², full-bleed cream, icon cut |
-| `apps/landing/public/logo-{lockup,icon,stacked}.svg` | bare, terracotta |
-| `apps/landing/public/logo-{lockup,icon,stacked}-cream.svg` | for dark surfaces — the mobile foot is solid ink and the social card is terracotta, where the terracotta mark is nearly invisible |
+| `apps/landing/public/logo-{icon,stacked}.svg` | bare, terracotta |
+| `apps/landing/public/logo-{icon,stacked}-cream.svg` | for dark surfaces — the mobile foot is solid ink and the social card is terracotta, where the terracotta mark is nearly invisible |
 | `apps/landing/src/app/opengraph-image.png` | 1200×630, cream icon cut on terracotta |
 | `brand/social/x-avatar{,-cream}.png` | 400², full-bleed icon cut — X crops to a circle, so no squircle |
 | `brand/social/x-banner.png` | 1500×500, the `pay` scene bottom-cropped. Mark-free by design |
-| `apps/landing/src/components/frenspay/logo-geometry.ts` | the lockup's numbers, for the animated inline React logo |
+| `apps/landing/src/components/frenspay/logo-geometry.ts` | the icon cut's numbers (exported as `MARK`), for the animated inline React logo |
 | `apps/mobile/assets/images/*` | 1024² icon / adaptive layers / splash, 48² web favicon |
 
 66% leaves the mark comfortable in the squircle without crowding its corners. Android's adaptive
@@ -86,9 +97,10 @@ animate independently and an `<img>` is one opaque box. Emitting `logo-geometry.
 the only place the shape is authored — otherwise the React component becomes a second copy that
 silently diverges.
 
-`apps/web/src/components/ui/primitives.tsx` and `apps/mobile/src/components/ui/primitives.tsx` each
-inline the icon-cut geometry by hand, because the apps share no UI package. If the artwork changes,
-both need the same edit.
+`packages/ui/src/primitives.tsx` and `apps/mobile/src/components/ui/primitives.tsx` each inline the
+icon-cut geometry by hand, because web and mobile share no UI package. If the artwork changes, both
+need the same edit — and so does `apps/web/src/app/global-error.tsx`, which copies it again because
+it replaces the whole tree and cannot import a component.
 
 ## Removed: `src/`
 

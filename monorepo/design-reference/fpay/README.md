@@ -1,81 +1,167 @@
-# fpay — canonical design system (FINAL, no going back)
+# frenspay — the design system (v2)
 
-Source: Google Stitch export (project `9482248058262328332`), 5 screens — Dashboard, Settling,
-Transaction History, Payment Input, Choose Handle. This **replaces** the old violet "Direction 3" +
-Baloo 2 system. The values below are the single source of truth; they are encoded in
-`packages/shared/src/tokens.ts` (then rendered per-platform by each `lib/theme.ts`).
+**Source:** the four scene paintings in `apps/landing/public/scenes` — `play`, `stay`, `pay`,
+`relay` — and the art-direction document Bridge derived from them by sampling their pixels and
+measuring their horizons. Nothing below is invented; every value came out of a painting.
 
-## Aesthetic
-Warm Material-3 "Arrival" — cream surfaces, **terracotta** primary, **teal** secondary, soft **tactile**
-shadows (a drop shadow plus an inner white highlight), rounded-2xl cards, pill buttons, an 8px grid.
-Light mode. Brand wordmark: **fpay** (Hanken Grotesk, terracotta).
+This **replaces** the warm Material-3 system (terracotta `#a6341f`, cream `#fff8f4`, Hanken
+Grotesk), which replaced the violet / Baloo 2 one. The values here are the single source of
+truth and are encoded in `packages/shared/src/tokens.ts`, then rendered per-platform by each
+`lib/theme.ts`.
 
-## Color (Material 3 roles → our semantic tokens)
-| M3 role | hex | our token |
+## The idea
+
+The world comes first and the product reveals later. Two thirds of any frame is paper and sky,
+the weight is carried by water and shadow, and terracotta is the only saturated thing that
+exists — which is why it is always the subject.
+
+## Colour
+
+Thirteen values. Seed names in `brand`, roles in `colors` (`packages/shared/src/tokens.ts`).
+
+### paper & sky — 55–80% of any frame
+| hex | seed | role |
 |---|---|---|
-| primary | `#a6341f` | `accent` |
-| surface-tint / pressed | `#aa3621` | `accentDeep` |
-| primary-container | `#c84b34` | — |
-| primary-fixed (soft) | `#ffdad3` | `accentSoft` |
-| primary-fixed-dim | `#ffb4a5` | — |
-| on-primary | `#ffffff` | `white` |
-| secondary (teal) | `#416467` | `secondary` / `pos` (settled) |
-| secondary-container | `#c1e7ea` | `secondarySoft` |
-| on-secondary-container | `#294c4f` | `onSecondary` |
-| surface | `#fff8f4` | `canvas` |
-| surface-container-lowest | `#ffffff` | `surface` (cards) |
-| surface-container-low | `#faf2ee` | `surfaceLow` |
-| surface-container | `#f4ece8` | `surfaceContainer` / `inkSoft` |
-| surface-container-high | `#eee7e2` | `surfaceHigh` |
-| surface-variant | `#e8e1dd` | `surfaceVariant` / `hair` |
-| on-surface | `#1e1b19` | `ink` |
-| on-surface-variant | `#58413d` | `muted` |
-| tertiary | `#5e5c59` | `tertiary` |
-| outline | `#8c716c` | `outline` |
-| outline-variant | `#e0bfb9` | `outlineVariant` |
-| error | `#ba1a1a` | `danger` |
-| inverse-surface | `#33302d` | — |
+| `#fdf3dc` | `sun` | `surface` — cards, which sit lighter than the page |
+| `#fce8cb` | `paper` | `canvas` — the page |
+| `#fadba7` | `paperWarm` | `surfaceLow` |
+| `#f8cba0` | `cloud` | `surfaceContainer`, `inkSoft` |
+| `#f2b48c` | `cloudDeep` | `surfaceHigh`, `accentSoft` |
+| `#dbb88b` | `sand` | `surfaceVariant`, `grab` |
 
-Shadow bases: `rgba(74,70,67,a)` = `#4a4643` (`shadowBase`); warm `rgba(140,113,108,a)` = `#8c716c`
-(`shadowWarm`).
+### water & shadow
+| hex | seed | role |
+|---|---|---|
+| `#718479` | `sage` | — |
+| `#4e6d6a` | `water` | `secondary`, `secondarySoft`, `pos` |
+| `#3a6467` | `waterDeep` | — |
+| `#0e3d45` | `petrol` | display type over sky (landing) |
+| `#2b3131` | `ink` | `ink`, `scrim`, `shadowBase` — the silhouette colour |
 
-## Typography — Hanken Grotesk (one family, 400/500/600/700/800)
-Numbers use **tabular** figures. Scale:
-- display-lg `48/56` -0.02em 700 — big amounts / balance
-- display-lg-mobile `32/40` -0.01em 700 — screen titles / onboarding H1 / success figure
-- headline-md `24/32` 600 — section + sheet titles
-- body-lg `18/28` 400 — emphasis body / row names
-- body-md `16/24` 400 — body
-- tabular-num `20/24` 500 — money figures
-- label-sm `12/16` +0.05em 600 **UPPERCASE** — eyebrows / pills / tags
+### the one accent — under 2% of any frame
+| hex | seed | role |
+|---|---|---|
+| `#b94f2b` | `terracotta` | `accent` — fills and display type |
+| `#8f3a1e` | `terracottaDeep` | `accentDeep` — accent as body-sized text, and pressed |
+| `#e5813f` | `ember` | the accent's cut for dark surfaces |
 
-## Shape (radii)
-cards rounded-2xl `16` · hero `24` · fields/rows rounded-xl `12` · buttons rounded-2xl `~16` ·
-pills/chips/nav-active `full`. Tokens: `card 20, rlc 24, tile 16, field 12, row 12, chip 999, sheet 28`.
+**One rust event per frame: a kite, a scarf, a lit window, a route line, a button. Never two.**
 
-## Shadows (tactile)
-- card: `0 4px 20px rgba(74,70,67,0.05)` + inset `0 1px 0 rgba(255,255,255,1)`
-- hero/elevated card: `0 8px 30px rgba(140,113,108,0.15)`
-- primary button: `0 4px 14px rgba(166,52,31,0.2)` + inset `0 1px 0 rgba(255,255,255,0.2)`
-- bottom nav / sheet: `0 -4px 20px rgba(74,70,67,0.08)`
+### text neutrals and the two values that are not sampled
+`muted #6b6156` (5.1:1) · `tertiary #726859` (4.6:1) · `outline #8a7a63` (3.5:1) ·
+`outlineVariant #9c8a70` · `hair rgba(43,49,49,0.15)`.
 
-## Icons
-**Material Symbols Outlined** (axis FILL 0 default, FILL 1 for active/emphasis; weight 400–600).
+Two deliberate exceptions, both in `tokens.ts` with the reasoning inline:
+- `white #ffffff` is not a surface any more, but it is still the label on a terracotta fill —
+  measured, white on terracotta is 4.98:1 where `sun` is 4.51:1, and the primary action of a
+  money app is not where that margin gets spent on purity.
+- `danger #ba1a1a` is not in the palette. Ember is the nearest thing in this world and reads as
+  warmth, which is the opposite of what an error has to say.
 
-## Screen layouts (the 5 references)
-1. **Dashboard** — top app bar (avatar · "fpay" wordmark · notifications); hero: an "Active in India"
-   location pill, "Global Balance", a big tabular `$` amount; a primary CTA ("Pay Like a Local", scanner
-   icon); a **bento** of cards (large USD wallet card, smaller INR card, dashed "Add" card); Recent Activity
-   as rounded tactile rows (circular icon · name · time · amount).
-2. **Settling** — centered success: pulsing terracotta rings around a white circle with a filled
-   check_circle, "Merchant Paid" + "Settling in background" (sync icon), and a detail card (amount, rate
-   guaranteed pill). Reused for our P2P "Sent" confirmation.
-3. **Transaction History** — a trip-summary header card (big local figure + ≈USD + "Real-Rate" pill +
-   Add Funds / Download buttons + faded map motif); **date-grouped** list (Today / Yesterday) where each
-   row shows icon · merchant · **Settling / Settled** status · local amount + USD.
-4. **Payment Input** — a white "Send Payment" canvas: recipient header, a big centered amount input with a
-   currency chip, a real-rate "≈ $x USD" pill, a method row, and a primary Confirm button.
-5. **Choose Handle** — centered "Choose your handle" + subtitle, an `@` field with an animated "Available"
-   pill, "This cannot be changed later", primary Continue.
+### Contrast rules that changed a mapping
+Terracotta is **4.2:1 on paper** — fine as a fill under white, fine as display type, and *not*
+usable as body-sized text. Anywhere it is small text it is `accentDeep` instead.
 
-Map our P2P features into this language (we don't ship the merchant content — merchant stays dormant).
+The world contains **no pale teal**, and one is not invented: `secondarySoft` is the solid water
+with paper on top (4.7:1) rather than a light container with dark text.
+
+## Type — two faces, and no third
+
+**Spectral** — the voice. Light (300) and Light Italic. Lowercase. Tight tracking on display
+(`-0.018em` to `-0.022em`). Anything the brand says out loud.
+
+**JetBrains Mono** — the system. Uppercase, 9–15px, tracked `.2`–`.28em`. Labels, act names,
+counters, invite codes. It never speaks; it only marks.
+
+- Never set brand copy in the mono.
+- Never set a label in Spectral.
+- No third face.
+
+**ponytail:** body copy in the apps is Spectral **400**, not 300. The system specifies light
+only, which is right for a headline over open sky and unreadable at 13–16px on a dense screen.
+Display keeps 300. Revisit if the app's type ever gets bigger. The note lives in
+`packages/ui/src/theme.ts` next to the mapping.
+
+`FontRole` names (`disp700`, `body400`, `mono500`, …) are retained across re-skins so the adapter
+machinery is unchanged — only what they render changes.
+
+## Composition
+
+Measured across the four paintings. These govern the artwork, the film and the socials.
+
+- **Horizon 57–80%.** Never centred, never above half. It is the one line that must not move.
+- **Figures as silhouette.** No faces, no outlines, no interior detail. Distant figures read at
+  3% of frame height; the nearest, in `play`, at 15%.
+- **Flat shape plus grain.** No line work, no gradients inside objects. Form comes from
+  silhouette and value alone.
+- **Water mirrors.** Anything standing in water repeats below it, softened and broken into
+  horizontal dashes.
+
+The site deliberately does **not** adopt the per-scene horizons. All four scenes are cropped to
+one row (`--scene-hz: 75.97%` in the landing's `globals.css`) so the sea does not jump between
+slides, and `apps/landing/scripts/check-scenes.mjs` asserts it. That is the horizon-lock rule
+working, not a drift to correct.
+
+## Surface
+
+- **Paper grain** — uniform across the whole frame. Never localised, never animated.
+- **Drybrush water** — horizontal streaks only, density rising toward the viewer.
+- **Stippled cloud** — cloud edges break into dots; they never feather smoothly.
+- **Broken reflection** — longer than the object, fading as it descends, never a clean mirror.
+
+## Motion
+
+In a frame this empty every moving thing is a decision. The film holds a painting and moves the
+camera slowly inside it rather than cutting between shots.
+
+| may move | may not move |
+|---|---|
+| the water surface · cloud drift · the single rust object · light on water · one figure | the horizon · the grain · the edges of shapes |
+
+- Type enters **in the sky** — never over water, never on a scrim. The sky is already empty
+  enough to hold it.
+- Light is **painted, not lit**: warmth spreads as drybrush rings, never as a radial glow.
+- Film spec: 4s before a push reads · 6px max horizon drift · 1 rust event per shot · 0 hard cuts.
+
+## Voice
+
+- **frens, never friends.** The misspelling is the whole membership signal. It is never corrected.
+- **Short declaratives, full stops.** Three or four words, then a period. No exclamation marks,
+  no questions.
+- **Lowercase by default.** Capitals only where the existing copy already carries them.
+- **No product words on the invitation.** No balance, wallet, forex, exchange rate, QR — those
+  belong to the reveal. Enforced for `apps/landing` by `yarn check:copy`; inside the app those
+  words are the correct ones.
+- **No "merchant".** fpay is a software / IT service provider. Say "partner", or name the action
+  ("scan and pay"). Enforced across web, lp, mobile and landing by the same check.
+
+Reference lines: *things between frens* · *for people who know people — wherever they are.* ·
+*play. stay. pay. relay.* · *What happens between frens stays between frens. mostly.*
+
+## The invite
+
+Three codes per person, shown once, in the mono at the size of the codes themselves. No resend,
+no recovery, no reminder to screenshot — the mail carries them too, which is why the landing
+persists nothing. The scarcity is the message: being invited means someone chose you.
+
+## Shape, shadow, icons
+
+Unchanged from the previous system — they were never the thing that was wrong.
+
+- **Radii:** `card 20 · rlc 24 · tile 16 · field 12 · row 12 · sheet 28 · chip/pill 999`.
+- **Shadows (tactile):** card `0 4px 20px` at 5% + a `0 1px 0` inner highlight · elevated
+  `0 8px 30px` at 15% warm · primary button `0 4px 14px` at 20% terracotta. Bases are now `ink`
+  and `#6b6156` rather than the old neutral greys.
+- **Icons:** Material Symbols Outlined (FILL 0 default, FILL 1 for active).
+
+## Where it lives
+
+| File | What |
+|---|---|
+| `packages/shared/src/tokens.ts` | the source — seeds, roles, radii, shadows, type scale |
+| `packages/ui/src/theme.ts` | web adapter — tokens → CSS |
+| `apps/mobile/src/lib/theme.ts` | RN adapter — tokens → RN styles |
+| `apps/landing/src/app/globals.css` | the landing's own `@theme` (Tailwind 4; web/lp are on 3, so it cannot share) |
+| `apps/{web,lp}/src/app/globals.css` | a handful of `:root` vars mirrored by hand — CSS cannot import TS |
+| `apps/admin/tailwind.config.ts` | imports the tokens by relative path |
+| `brand/` | the mark, and `yarn brand` which emits every derived asset including the socials |

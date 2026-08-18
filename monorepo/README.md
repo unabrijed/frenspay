@@ -78,7 +78,7 @@ Ctrl-C stops the whole group; nothing is left holding a port.
 
 | Everything else | |
 |---|---|
-| `yarn brand` | Regenerate every app icon from `brand/logo-lockup.svg` + `brand/logo-icon.svg` |
+| `yarn brand` | Regenerate every derived asset — app icons, the social card, the X avatar — from `brand/logo-icon.svg` |
 | `yarn typecheck` | Type-check **every** workspace (shared + ui + backend + web + admin + lp + landing) |
 | `yarn check:all` | Every self-check below, in one go (~12s, no DB, no network) |
 | `yarn check:deploy` | The path gate that decides what a push deploys — see [Deploy](#deploy) |
