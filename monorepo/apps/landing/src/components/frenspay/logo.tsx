@@ -1,10 +1,12 @@
 import type { CSSProperties } from 'react';
 
-import { LOCKUP } from '@/components/frenspay/logo-geometry';
+import { MARK } from '@/components/frenspay/logo-geometry';
 
 // Inline SVG rather than <img src="…logo.svg">, because the dots and the curve
 // each have to move independently and an <img> is a single opaque box. Geometry
-// comes from brand/logo-lockup.svg via `yarn brand` — it is not authored here.
+// comes from brand/logo-icon.svg via `yarn brand` — it is not authored here. That is the
+// square cut, and under v2 it is the only cut: the wide lockup is retired, so the header wears
+// the same two frens as every favicon, app icon and the X avatar.
 //
 // Colour is `currentColor` throughout, so one component serves the terracotta
 // header and any cream-on-dark placement without a second copy.
@@ -20,7 +22,7 @@ export function FrensLogo({ state = 'idle', className }: { state?: LogoState; cl
     <svg
       className={`fp-logo${className ? ` ${className}` : ''}`}
       data-state={state}
-      viewBox={LOCKUP.viewBox}
+      viewBox={MARK.viewBox}
       fill="none"
       aria-hidden="true"
     >
@@ -28,14 +30,14 @@ export function FrensLogo({ state = 'idle', className }: { state?: LogoState; cl
           never have to know the curve's real length. */}
       <path
         className="fp-logo-link"
-        d={LOCKUP.link}
+        d={MARK.link}
         pathLength={1}
         stroke="currentColor"
-        strokeWidth={LOCKUP.strokeWidth}
+        strokeWidth={MARK.strokeWidth}
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      {LOCKUP.dots.map((dot, i) => (
+      {MARK.dots.map((dot, i) => (
         <circle
           key={dot.cx}
           className={`fp-logo-dot fp-logo-dot-${i === 0 ? 'l' : 'r'}`}
@@ -51,8 +53,8 @@ export function FrensLogo({ state = 'idle', className }: { state?: LogoState; cl
           so it reads as a highlight travelling along the link. */}
       <circle
         className="fp-logo-bead"
-        r={LOCKUP.strokeWidth * 0.4}
-        style={{ offsetPath: `path("${LOCKUP.link}")` } as CSSProperties}
+        r={MARK.strokeWidth * 0.4}
+        style={{ offsetPath: `path("${MARK.link}")` } as CSSProperties}
       />
     </svg>
   );
