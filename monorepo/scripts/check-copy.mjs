@@ -1,4 +1,4 @@
-// check-copy.mjs — the word "merchant" must never reach a screen.
+// check-copy.mjs — words that must never reach a screen. Two rules, different surfaces.
 //
 // fpay is maintained as a software / IT service provider, not a payment or merchant-acquiring
 // business, so the word cannot appear in anything a customer or a partner reads. It stays freely
@@ -12,9 +12,8 @@
 // breaks that pattern almost immediately: `s.merchant`, `merchant: MerchantProfile`, `!merchant`,
 // `getMerchantOrders(` are all one word or less by this measure.
 //
-// apps/admin is deliberately absent: an internal operator console, neither customer- nor
-// partner-facing. apps/mobile IS covered despite living outside the workspace — it cannot be
-// typechecked or built, so this is the only gate it has.
+// apps/mobile IS covered despite living outside the workspace — it cannot be typechecked or
+// built, so this is the only gate it has. See RULES below for which rule covers which surface.
 //
 // Run: yarn check:copy
 import { readdirSync, readFileSync } from 'node:fs';
@@ -22,14 +21,33 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const DIRS = ['apps/web/src', 'apps/lp/src', 'apps/mobile/src'];
 
 /** Whole words only. `MerchantOrder`, `merchant_confirms` and `getMerchantOrders` have no right
  *  boundary and never match; `merchant account` and `Merchants settle` do.
  *
  *  "shop" is banned alongside it because it is not a synonym problem, it is the same claim in
  *  plainer words: the copy this replaced read "a one-time check to pay shops across India". */
-const BANNED = /\b(merchants?|storefronts?|shops?)\b/i;
+const MERCHANT = /\b(merchants?|storefronts?|shops?)\b/i;
+
+/** The invitation surface only. The frenspay v2 system says the world comes first and the product
+ *  reveals later: "no balance, wallet, forex, exchange rate, QR — those belong to the reveal, not
+ *  the invitation." The landing is the invitation, so the mechanics of the app cannot appear on it.
+ *  Inside the app these words are not merely allowed, they are the correct ones. */
+const PRODUCT = /\b(balances?|wallets?|forex|exchange rates?|QR codes?|QR)\b/i;
+
+const or = (...rx) => new RegExp(rx.map((r) => r.source).join('|'), 'i');
+
+/** Which rule applies where. The landing carries BOTH: it is the invitation and it is also
+ *  customer-facing, so the merchant rule never stopped applying to it.
+ *  apps/admin is deliberately absent — an internal operator console, neither customer- nor
+ *  partner-facing. */
+const RULES = [
+  { dir: 'apps/web/src', banned: MERCHANT },
+  { dir: 'apps/lp/src', banned: MERCHANT },
+  { dir: 'apps/mobile/src', banned: MERCHANT },
+  { dir: 'apps/landing/src', banned: or(MERCHANT, PRODUCT) },
+];
+const DIRS = RULES.map((r) => r.dir);
 
 /** A word: letters, with an apostrophe inside and sentence punctuation allowed to trail. `:` and
  *  `;` are NOT trailing punctuation — that is the whole reason `merchant: MerchantProfile` reads
@@ -67,7 +85,7 @@ const lineOf = (src, i) => src.slice(0, i).split('\n').length;
 // the second line of a wrapped paragraph, can still slip past. Swap for an AST pass or a real i18n
 // catalog if copy ever moves out of JSX.
 const failures = [];
-for (const dir of DIRS) {
+for (const { dir, banned: BANNED } of RULES) {
   for (const file of walk(dir)) {
     const src = stripComments(readFileSync(join(ROOT, file), 'utf8'));
     const hit = (i, text) => failures.push(`${file}:${lineOf(src, i)}  ${text.trim()}`);
@@ -98,7 +116,10 @@ if (failures.length) {
   for (const f of failures) console.error('  ✗ ' + f);
   console.error('\n  fpay is a software/IT service provider. Say "partner" (the LP that settles),');
   console.error('  or name the action ("scan and pay"). The word is still fine in code,');
-  console.error('  comments, type names and API paths — this only reads prose.\n');
+  console.error('  comments, type names and API paths — this only reads prose.');
+  console.error('\n  On apps/landing the product words are banned too: the landing is the');
+  console.error('  invitation, and balance / wallet / forex / exchange rate / QR belong to the');
+  console.error('  reveal. Say what it is for, not how it works.\n');
   process.exit(1);
 }
 console.log(`check-copy: OK — no banned copy in ${DIRS.join(', ')}.`);
