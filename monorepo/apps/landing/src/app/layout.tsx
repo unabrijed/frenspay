@@ -1,14 +1,25 @@
 import { Analytics } from '@vercel/analytics/next';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import type { Metadata } from 'next';
-import { Hanken_Grotesk } from 'next/font/google';
+import { JetBrains_Mono, Spectral } from 'next/font/google';
 
 import './globals.css';
 
-const hanken = Hanken_Grotesk({
+// frenspay v2's two faces. The landing is the surface the system was written for, so it uses
+// exactly what the system specifies: Spectral Light and Light Italic for everything the brand
+// says, JetBrains Mono for everything that only marks. No third face.
+const voice = Spectral({
+  subsets: ['latin'],
+  weight: ['300'],
+  style: ['normal', 'italic'],
+  variable: '--font-spectral',
+  display: 'swap',
+});
+
+const mark = JetBrains_Mono({
   subsets: ['latin'],
   weight: 'variable',
-  variable: '--font-hanken',
+  variable: '--font-jetbrains',
   display: 'swap',
 });
 
@@ -33,7 +44,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={hanken.variable}>
+    <html lang="en" className={`${voice.variable} ${mark.variable}`}>
       <body className="antialiased">
         {children}
         <Analytics />

@@ -1,19 +1,21 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: var(--font-hanken), ui-sans-serif, system-ui, sans-serif;
-  /* Only what the page actually uses. Eight further colours from the app's
-     Material-3 set (muted, hair, terra-deep, teal, teal-soft and the three
-     container greys) were carried here and never referenced once.
-     Check usage across the whole app, not just this file — terra-ctr looks dead
-     here and has nine uses in things-objects.tsx. */
-  --color-canvas: #fff8f4;
-  --color-ink: #1e1b19;
-  --color-border: #e0bfb9;
-  --color-terra: #a6341f;
-  --color-terra-ctr: #c84b34;
-  --color-peach: #ffdad3;
-  --color-peach-dim: #ffb4a5;
+  /* frenspay v2 — two faces and no third. Spectral says, JetBrains Mono marks.
+     The mono NEVER carries brand copy and Spectral NEVER sets a label. */
+  --font-sans: var(--font-spectral), Georgia, serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, monospace;
+  /* Only what the page actually uses, sampled from the four scenes. Check usage
+     across the whole app, not just this file — --color-water looks dead here and
+     carries the insert-shot artwork in things-objects.tsx. */
+  --color-canvas: #fce8cb; /* paper */
+  --color-ink: #2b3131; /* the silhouette colour */
+  --color-muted: #6b6156; /* secondary copy — 5.1:1 on paper */
+  --color-border: #9c8a70;
+  --color-terra: #b94f2b; /* the one rust event */
+  --color-water: #4e6d6a; /* the insert shots' second value */
+  --color-petrol: #0e3d45; /* deepest water — display type over sky */
+  --color-ember: #e5813f; /* the accent's cream-side cut, for dark surfaces only */
   --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -48,7 +50,7 @@ button:not(:disabled),
 }
 
 ::selection {
-  background: var(--color-peach-dim);
+  background: var(--color-ember);
   color: var(--color-ink);
 }
 
@@ -144,10 +146,11 @@ button:not(:disabled),
      continues its sky and the illustration has no visible top edge. */
   --sky: #fce6c3;
 
-  /* Foot chrome sits over the scrim, where ink is 2.7:1. Solid cream only —
-     hierarchy down there comes from size and weight, never opacity. */
+  /* Foot chrome sits over the scrim, where ink is 2.7:1. Solid paper only —
+     hierarchy down there comes from size and weight, never opacity. Ember is the
+     accent's cream-side cut: terracotta is 2.2:1 down here and cannot be used. */
   --foot-fg: var(--color-canvas);
-  --foot-accent: var(--color-peach);
+  --foot-accent: var(--color-ember);
 
   position: relative;
   isolation: isolate;
@@ -263,17 +266,21 @@ button:not(:disabled),
    greyed out the whole lower half of every scene; the strength was never the
    problem, the height was. It holds 64% to the top of the text band and is gone
    by 30svh. apps/landing/scripts/check-scenes.mjs asserts the result, so change
-   these stops there too. */
+   these stops there too.
+   Strengthened for v2 and NOT made taller: paper (#fce8cb) is a darker foot colour
+   than the cream it replaced, which cost ~1 point of contrast and put play and relay
+   under AA. Height is what buries the illustration, strength is not — so the stops
+   went up and --scrim-h stayed at 20svh. Measured worst case is now relay at 5.1:1. */
 .things-scrim {
   position: absolute;
   inset: auto 0 0 0;
   height: var(--scrim-h);
   background: linear-gradient(
     to top,
-    rgb(30 27 25 / 80%) 0%,
-    rgb(30 27 25 / 64%) 65%,
-    rgb(30 27 25 / 26%) 88%,
-    rgb(30 27 25 / 0%) 100%
+    rgb(43 49 49 / 86%) 0%,
+    rgb(43 49 49 / 72%) 65%,
+    rgb(43 49 49 / 30%) 88%,
+    rgb(43 49 49 / 0%) 100%
   );
 }
 
@@ -296,41 +303,55 @@ button:not(:disabled),
 /* Scales with the viewport rather than sitting at 11px in the corners of a
    1440px canvas, where it read as lost. Deliberately not a bar: a navbar across
    the top would compete with the open sky the scenes depend on. */
+/* A label, so it is the mono — 9-15px, uppercase, tracked .2-.28em. It never
+   speaks; it only marks. */
 .things-eyebrow {
   margin: 0;
-  font-size: clamp(11px, 0.9vw, 13px);
-  font-weight: 600;
-  letter-spacing: 0.18em;
+  font-family: var(--font-mono);
+  font-size: clamp(10px, 0.85vw, 12px);
+  font-weight: 500;
+  letter-spacing: 0.26em;
   text-transform: uppercase;
 }
 
+/* Brand copy, so it is the voice — and no longer terracotta. The page gets ONE
+   rust event and the submit has it; a second here would make neither the subject. */
 .things-support {
-  margin: 4px 0 0;
-  color: var(--color-terra);
-  font-size: clamp(11px, 1.05vw, 15px);
-  letter-spacing: 0.02em;
+  margin: 5px 0 0;
+  color: var(--color-muted);
+  font-size: clamp(12px, 1.05vw, 15px);
+  font-weight: 300;
+  font-style: italic;
+  letter-spacing: 0;
 }
 
+/* `frenspay` is the brand saying its own name, so it is Spectral and never the mono.
+   Ink, not terracotta: the mark beside it already carries the colour. */
 .things-home {
   display: inline-flex;
   min-height: 44px;
   align-items: center;
   gap: clamp(9px, 0.8vw, 12px);
   color: var(--color-ink);
-  font-size: clamp(16px, 1.5vw, 22px);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-size: clamp(18px, 1.7vw, 26px);
+  font-weight: 300;
+  letter-spacing: -0.018em;
 }
 
 /* ===== the mark =====
-   Inline SVG so the dots and the curve can move independently. Sized by height;
-   the mark is wide (2.05:1) so it carries its weight against the wordmark at
-   less height than a portrait mark would. */
+   Inline SVG so the dots and the curve can move independently. This is the SQUARE
+   icon cut now (the wide lockup is retired), which changes one thing about sizing:
+   its viewBox is 256x256 but its ink is only 184x173 of that, so `height` maps the
+   BOX and the drawing renders at 173/256 of it. Carrying the old 28px cap through
+   would have shrunk the visible mark to 19px. 41 == 28 * 256/173 keeps the ink the
+   same height it was, and it is why every gesture distance below still reads as it
+   did: at 41px one viewBox unit is 0.160px against the lockup's 0.168.
+   Calibration knob — re-eyeball the cap and the distances together, never one alone. */
 .fp-logo {
   --fp-logo-bead: var(--sky, var(--color-canvas));
   display: block;
   width: auto;
-  height: clamp(20px, 1.9vw, 28px);
+  height: clamp(30px, 2.8vw, 41px);
   overflow: visible;
   color: var(--color-terra);
 }
@@ -391,10 +412,13 @@ button:not(:disabled),
   animation: fp-link-draw 620ms var(--ease-soft) 300ms both;
 }
 
+/* Distances are viewBox user units. Rescaled from the lockup's: vertical by the ink
+   height (173/167, so barely at all), horizontal by the ink width (184/342, roughly
+   half) — the square cut is far narrower than the wide one it replaces. */
 @keyframes fp-dot-in {
   from {
     opacity: 0;
-    translate: 0 -57px;
+    translate: 0 -59px;
   }
 }
 
@@ -424,11 +448,11 @@ button:not(:disabled),
    on touch and should not try to. */
 @media (hover: hover) {
   .things-home:hover .fp-logo-dot-l {
-    translate: 20px 0;
+    translate: 11px 0;
   }
 
   .things-home:hover .fp-logo-dot-r {
-    translate: -20px 0;
+    translate: -11px 0;
   }
 
   .things-home:hover .fp-logo-link {
@@ -443,21 +467,21 @@ button:not(:disabled),
    The far dot leans further than the near one, which is what turning toward
    something looks like.
    Calibration knob: these numbers aim at where the strip actually sits. Move the
-   strip and they want re-aiming — 24 units is ~4px at the mark's 28px cap.
+   strip and they want re-aiming — 25 units is ~4px at the mark's 41px cap.
    Scoped to .things-home, not to every .fp-logo in the hero: submitting with the
    caret still in the field leaves the input focused, and the in-form mark should
    be getting on with the bead rather than glancing at itself. Specificity (0,4,1)
    also keeps this ahead of the hover lean when a pointer is over the header too. */
 .things-hero:has(.tearoff-field input:focus) .things-home .fp-logo-dot-l {
-  translate: 6px 24px;
+  translate: 3px 25px;
 }
 
 .things-hero:has(.tearoff-field input:focus) .things-home .fp-logo-dot-r {
-  translate: 10px 24px;
+  translate: 5px 25px;
 }
 
 .things-hero:has(.tearoff-field input:focus) .things-home .fp-logo-link {
-  translate: 4px 8px;
+  translate: 2px 8px;
 }
 
 /* Joining: something passes from one fren to the other, on a loop. This is the
@@ -491,7 +515,7 @@ button:not(:disabled),
     translate: 0 0;
   }
   40% {
-    translate: 0 -43px;
+    translate: 0 -45px;
   }
 }
 
@@ -546,13 +570,16 @@ button:not(:disabled),
    blurred word reads as haze. Ink clears 15:1 on every scene's sky and 10:1
    even on the darkest peach cloud, so it is safe anywhere above the horizon —
    which is the whole reason for putting it there. */
+/* Display, so Spectral Light at the system's -0.022em. Petrol rather than ink: it is
+   the deepest water in the world and the artifact sets every display line in it, and
+   it clears 9.9:1 on every scene's sky. */
 .things-ghost span {
   grid-area: 1 / 1;
-  color: var(--color-ink);
+  color: var(--color-petrol);
   font-size: clamp(76px, 20vw, 260px);
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: -0.04em;
+  font-weight: 300;
+  line-height: 1.02;
+  letter-spacing: -0.022em;
   text-transform: lowercase;
   white-space: nowrap;
   opacity: 0;
@@ -829,10 +856,10 @@ button:not(:disabled),
 .things-phrase {
   display: grid;
   margin: 0;
-  color: var(--color-ink);
-  font-size: clamp(18px, 1.9vw, 26px);
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  color: var(--color-petrol);
+  font-size: clamp(19px, 2vw, 28px);
+  font-weight: 300;
+  letter-spacing: -0.018em;
   text-transform: lowercase;
 }
 
@@ -861,13 +888,15 @@ button:not(:disabled),
   transform: translateY(0);
 }
 
+/* Light italic — the system's second voice. Muted, not terracotta: see .things-support. */
 .things-whisper {
   display: grid;
   margin: 0;
-  color: var(--color-terra);
-  font-size: clamp(11px, 1vw, 14px);
-  font-weight: 500;
-  letter-spacing: 0.04em;
+  color: var(--color-muted);
+  font-size: clamp(13px, 1.15vw, 17px);
+  font-weight: 300;
+  font-style: italic;
+  letter-spacing: 0;
 }
 
 .things-foot-right {
@@ -894,12 +923,14 @@ button:not(:disabled),
   transform: translateY(1px);
 }
 
+/* A counter — `01 / 04` is the mono's own example in the system. */
 .things-index {
   color: var(--foot-fg);
+  font-family: var(--font-mono);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.28em;
 }
 
 .things-pause {
@@ -907,9 +938,10 @@ button:not(:disabled),
   border: 0;
   background: transparent;
   color: var(--foot-fg);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
   text-decoration: underline;
   text-underline-offset: 4px;
@@ -948,12 +980,14 @@ button:not(:disabled),
   gap: 5px;
 }
 
+/* Labels are the mono's whole job. */
 .things-hero .tearoff-field label {
   color: var(--foot-fg);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.11em;
-  text-transform: lowercase;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
 }
 
 .things-hero .tearoff-field input {
@@ -967,6 +1001,7 @@ button:not(:disabled),
   caret-color: var(--foot-fg);
   color: var(--foot-fg);
   font-size: clamp(18px, 2vw, 22px);
+  font-weight: 300;
   outline: none;
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
@@ -995,23 +1030,35 @@ button:not(:disabled),
   box-shadow: 0 2px 0 -1px var(--foot-accent);
 }
 
-/* The page's biggest type, and it is the submit. Scoped to [type='submit'] rather
-   than every button in the strip: the suggest, copy and (retired) switch links all
-   live in here too, and each was overriding this giant type back down by hand. */
+/* THE rust event. The page spends its one saturated colour here and nowhere else,
+   which is what makes joining the subject of the frame.
+   It used to be the page's biggest type — a 56px lowercase word — and that is now
+   wrong twice over: brand copy at that scale belongs to the stage, and a foot this
+   tall forced a scrim tall enough to bury the bottom third of every scene. This is
+   §07's control instead: a tracked mono mark on a terracotta fill. Scoped to
+   [type='submit'] because the suggest and copy links live in this strip too. */
 .things-hero .tearoff-strip button[type='submit'] {
   display: inline-flex;
-  min-height: 44px;
+  min-height: 48px;
   align-items: center;
-  gap: clamp(8px, 1.2vw, 18px);
+  justify-content: center;
+  gap: clamp(8px, 1vw, 14px);
+  padding: 0 clamp(20px, 2.4vw, 30px);
   border: 0;
-  background: transparent;
-  color: var(--foot-fg);
-  font-size: clamp(28px, 4vw, 56px);
-  font-weight: 800;
-  letter-spacing: -0.03em;
+  background: var(--color-terra);
+  color: var(--color-canvas);
+  font-family: var(--font-mono);
+  font-size: clamp(11px, 1vw, 13px);
+  font-weight: 500;
+  letter-spacing: 0.22em;
   line-height: 1;
-  text-transform: lowercase;
+  text-transform: uppercase;
   white-space: nowrap;
+  transition: background-color 160ms ease;
+}
+
+.things-hero .tearoff-strip button[type='submit']:hover:not(:disabled) {
+  background: #8f3a1e;
 }
 
 .things-hero .tearoff-strip button[type='submit']:focus-visible {
@@ -1037,12 +1084,28 @@ button:not(:disabled),
 }
 
 /* The mark used inline in running text — the submit's pending state and the
-   success line. Sized off the type it sits in, and cream because the foot is
+   success line. Sized off the type it sits in, and paper because the foot is
    dark, so the bead has to be the foot's own ink to read as a gap in the curve. */
 .things-hero .fp-logo-inline {
   --fp-logo-bead: var(--color-ink);
   height: 0.62em;
   color: var(--foot-fg);
+}
+
+/* Inside the submit both glyphs have to leave em behind. The button is a 13px mono
+   control now, so 0.62em is an 8px mark and 0.7em a 9px arrow — neither reads, and
+   the square cut spends a third of its box on air besides. Fixed px instead, and the
+   bead takes the button's own fill rather than the foot's, since that is the surface
+   it has to look like a gap in. */
+.things-hero .tearoff-strip button[type='submit'] .join-arrow {
+  width: 16px;
+  height: 16px;
+}
+
+.things-hero .tearoff-strip button[type='submit'] .fp-logo-inline {
+  --fp-logo-bead: var(--color-terra);
+  height: 26px;
+  color: var(--color-canvas);
 }
 
 /* A likely typo is an offer, not a failure — peach like the error line would
@@ -1075,10 +1138,10 @@ button:not(:disabled),
   font-weight: 600;
 }
 
-/* The success block. The headline still matches the submit's scale so swapping
-   states does not jump the foot height — but this state is now TALLER than the
-   form, because three codes have to fit. The scrim is sized off the foot at
-   runtime, so it follows; what must not happen is the headline itself resizing. */
+/* The success block. The headline no longer has to match the submit's scale — the
+   submit is a small mono control now — so it is free to be what it is: the brand
+   speaking, in Spectral. This state is TALLER than the form because three codes have
+   to fit; the scrim is sized off the foot at runtime, so it follows. */
 .things-hero .tearoff-success {
   margin: 0;
   color: var(--foot-fg);
@@ -1090,10 +1153,10 @@ button:not(:disabled),
   align-items: center;
   margin: 0;
   gap: 0.4em;
-  font-size: clamp(28px, 4vw, 56px);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1;
+  font-size: clamp(26px, 3.4vw, 44px);
+  font-weight: 300;
+  letter-spacing: -0.018em;
+  line-height: 1.05;
 }
 
 .things-hero .tearoff-invites {
@@ -1102,10 +1165,11 @@ button:not(:disabled),
 
 .things-hero .tearoff-invites-lead {
   margin: 0 0 10px;
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.11em;
-  text-transform: lowercase;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
 }
 
 /* The codes themselves, at the scale of an input's value rather than the
@@ -1120,11 +1184,12 @@ button:not(:disabled),
   list-style: none;
 }
 
+/* Invite codes are the mono's other named job, at the tracking the system sets. */
 .things-hero .tearoff-invites li {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: clamp(16px, 1.8vw, 21px);
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-family: var(--font-mono);
+  font-size: clamp(15px, 1.6vw, 19px);
+  font-weight: 400;
+  letter-spacing: 0.22em;
   /* Selectable by design — copy-all is the convenience, not the only way out. */
   user-select: all;
 }
@@ -1154,7 +1219,7 @@ button:not(:disabled),
   z-index: 40;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(ellipse at center, transparent 55%, rgb(30 27 25 / 8%) 100%);
+  background: radial-gradient(ellipse at center, transparent 55%, rgb(43 49 49 / 8%) 100%);
 }
 
 /* Grain, above everything, purely textural (desaturated: theme surfaces only) */
