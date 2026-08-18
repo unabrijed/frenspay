@@ -152,3 +152,23 @@ export const diditProvider: KycProvider = {
     });
   },
 };
+
+/** Boot self-check, non-fatal, one log line: does Didit accept the deployed key, and is
+ *  DIDIT_WORKFLOW_ID a PUBLISHED workflow on that key? `assertKycConfig` proves the vars are set;
+ *  nothing proved they work until a user clicked Verify and read a 503. A mangled Railway variable
+ *  now surfaces in the deploy log with the same len…last4 fingerprint diditFetch puts on errors,
+ *  so it can be diffed against a working local run without the key ever being logged. */
+export async function probeDidit(log: (m: string) => void): Promise<void> {
+  if (config.kycProvider !== 'didit') return;
+  const k = config.diditApiKey;
+  const fp = `[workflow=${config.diditWorkflowId} key=len${k.length}…${k.slice(-4)}]`;
+  try {
+    const data = await diditFetch('/v3/workflows/', { method: 'GET' });
+    // ponytail: first page only; paginate on data.next if an account ever holds >page-size workflows.
+    const rows = (Array.isArray(data.results) ? data.results : []) as Array<Record<string, unknown>>;
+    const mine = rows.filter((w) => w.workflow_id === config.diditWorkflowId).map((w) => String(w.status));
+    log(`didit probe: key OK; workflow ${mine.length ? mine.join('+') : 'MISSING on this key'} ${fp}`);
+  } catch (err) {
+    log(`didit probe FAILED: ${(err as Error).message}`); // a 4xx already carries the fingerprint
+  }
+}

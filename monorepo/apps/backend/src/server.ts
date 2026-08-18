@@ -11,6 +11,7 @@ import { startConfirmer } from './services/confirmer';
 import { startFxRefresher } from './services/fxRate';
 import { registerHeliusWebhook } from './services/helius';
 import { assertKycConfig } from './services/kyc';
+import { probeDidit } from './services/kyc/didit';
 import { startKycPoller } from './services/kyc/poller';
 import { metrics } from './services/metrics';
 import { assertPayoutConfig } from './services/payout/provider';
@@ -87,6 +88,8 @@ async function start() {
   // M7: reconcile real-vendor KYC decisions (no-op with the sim provider). Reliable path even when
   // the webhook can't reach us locally; the webhook just makes approval instant.
   startKycPoller(15_000, (m) => app.log.info(m));
+  // Boot self-check: a bad deployed Didit key/workflow shows up here, not on the first Verify click.
+  void probeDidit((m) => app.log.info(m));
 }
 
 start().catch((err) => {

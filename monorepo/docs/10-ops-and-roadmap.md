@@ -82,6 +82,12 @@ Two providers behind one API (`POST /kyc/verify` in `routes/kyc.ts`), selected b
 
 ### Debugging a 503 `kyc_unavailable`
 
+**Read the boot log first.** Every start with `didit` selected prints one `didit probe:` line
+(`services/kyc/didit.ts probeDidit`, non-fatal): `key OK; workflow published [workflow=… key=len43…xxxx]`
+is healthy; `FAILED: … → 403` is the key as Railway holds it (diff `len`/last4 against a working local
+run); `workflow draft` / `MISSING on this key` is a workflow id from the wrong state or the wrong Didit
+application. That line answers the table below before anyone clicks Verify.
+
 That code carries no diagnosis and is meant not to — it is emitted from one place (`routes/kyc.ts`)
 and means only *"the call to Didit threw"*. The reason exists **solely** in the server log line
 `kyc provider start failed`, which since the fingerprinting fix reads:
