@@ -42,9 +42,17 @@ function tokenAccountData(amount: bigint): string {
 
 // --- the fake RPC ------------------------------------------------------------------------------
 // `mode` is flipped between phases to simulate an RPC that fails and then recovers.
-type Mode = 'mint-fails' | 'healthy' | 'ata-missing' | 'ata-fails';
+// 'throttled' is the one that matters most: a throttled RPC answers 200 with a null VALUE for every
+// account, mint included — it does not fail the transport. That makes it indistinguishable from
+// "this account doesn't exist" unless something re-checks the mint at that moment.
+// 'flaky' fails the transport a bounded number of times and then recovers, which is what the retry
+// in connection() exists to absorb.
+type Mode = 'mint-fails' | 'healthy' | 'ata-missing' | 'ata-fails' | 'throttled' | 'flaky';
 let mode: Mode = 'mint-fails';
 const hits: Record<string, number> = {};
+/** How many times 'flaky' 5xxs a given pubkey before answering. Bounded so the retry can win. */
+const FLAKY_FAILURES = 2;
+const flakyHits: Record<string, number> = {};
 
 function start(): Promise<{ server: Server; url: string }> {
   const server = createServer((req, res) => {
@@ -72,6 +80,13 @@ function start(): Promise<{ server: Server; url: string }> {
       if (mode === 'ata-fails' && !isMint) {
         // A hard transport failure, distinct from "account not found".
         return res.writeHead(503).end('rpc down');
+      }
+      // Throttling nulls EVERY account, so the mint reads as absent too. Nothing about the response
+      // says "throttled" — that is exactly why the mint has to be re-read to tell the two apart.
+      if (mode === 'throttled') return nullAccount();
+      if (mode === 'flaky') {
+        flakyHits[pubkey] = (flakyHits[pubkey] ?? 0) + 1;
+        if (flakyHits[pubkey] <= FLAKY_FAILURES) return res.writeHead(502).end('bad gateway');
       }
       return isMint ? account(mintData()) : account(tokenAccountData(2_500_000n)); // 2.5 USDC
     });
@@ -127,6 +142,30 @@ async function main() {
 
   // 5. An invalid owner never reaches the network at all.
   check('garbage address → 0.000000 without an RPC call', (await getUsdcBalance('not-a-pubkey')) === '0.000000');
+
+  // 6. THE MONEY BUG. A throttled RPC nulls every account, so the ATA read raises the same
+  //    TokenAccountNotFoundError an unfunded wallet does. decimals() cannot referee it — by now it
+  //    has cached its resolved value and no longer touches the network, which is precisely the hole:
+  //    the canary described in solana.ts only ever fired on a process's FIRST read. Answering "0"
+  //    here tells a funded user their money is gone.
+  mode = 'throttled';
+  let throttleThrew = false;
+  await getUsdcBalance(OWNER).catch(() => (throttleThrew = true));
+  check('throttled RPC (null mint AND null ATA) throws rather than reporting $0', throttleThrew);
+
+  // 7. The zero path stays fast and correct when the RPC really is healthy — the liveness probe
+  //    above must not turn an unfunded wallet into an error.
+  mode = 'ata-missing';
+  check('healthy RPC + absent ATA → still 0.000000', (await getUsdcBalance(OWNER)) === '0.000000');
+
+  // 8. A bounded transport failure is absorbed by the retry in connection(), not surfaced. Without
+  //    it, one 502 mid-burst is a 503 on someone's dashboard.
+  mode = 'flaky';
+  let flakyResult = '';
+  await getUsdcBalance(OWNER)
+    .then((r) => (flakyResult = r))
+    .catch((e) => (flakyResult = `threw: ${String(e)}`));
+  check(`transient 5xx is retried, not surfaced (${FLAKY_FAILURES} failures)`, flakyResult === '2.500000', flakyResult);
 
   server.close();
   console.log(failures === 0 ? '\nALL CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`);
