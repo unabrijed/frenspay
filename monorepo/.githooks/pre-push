@@ -38,6 +38,18 @@ fail() {
 
 step() { printf '\n\033[1mpre-push: %s\033[0m\n' "$1"; }
 
+# A real key in a TRACKED file. DEPLOY.stage.md carries a "NEVER paste one into this
+# tracked file" comment on the very line a real Helius key was once pasted over — a
+# warning in prose is not a gate. Runs first because it costs milliseconds and the
+# builds below cost minutes. Two shapes only, both seen for real: a live api-key= in a
+# URL, and a NAME=<32 hex bytes> secret. Placeholders (<KEY>, <openssl rand -hex 32>),
+# Circle's mint and ADMIN_EMAILS do not match. Untracked .env files are never scanned —
+# git grep only reads what is tracked, which is exactly the blast radius.
+step "secret scan"
+if git grep -nIE '(api-key|apikey)=[0-9a-f]{8}-[0-9a-f]{4}-|[A-Z_]+(SECRET|TOKEN|API_KEY)=[0-9a-zA-Z_-]{20,}'; then
+	fail "secret scan (a real credential is in a tracked file — move it to apps/backend/.env)"
+fi
+
 # Vercel and the Docker build both install with --frozen-lockfile; it fails on a lockfile
 # that does not cover every declared dep, which a local node_modules happily masks.
 # (Railway itself installs nothing now — it pulls a prebuilt image.)

@@ -1,3 +1,8 @@
-.env
+# env — this app holds every real secret, so ignore the whole family and
+# re-admit only the two examples. A bare `.env` line left .env.stage,
+# .env.backup and friends tracked.
+.env*
+!.env.example
+!.env.production.example
 .devnet/
 node_modules/
