@@ -5,9 +5,10 @@
   "dependencies": {
     "@ethersproject/shims": "^5.8.0",
     "@expo-google-fonts/baloo-2": "^0.4.2",
-    "@expo-google-fonts/hanken-grotesk": "^0.4.3",
+    "@expo-google-fonts/jetbrains-mono": "^0.4.2",
     "@expo-google-fonts/inter": "^0.4.2",
     "@expo-google-fonts/schibsted-grotesk": "^0.4.2",
+    "@expo-google-fonts/spectral": "^0.4.2",
     "@expo-google-fonts/spline-sans-mono": "^0.4.2",
     "@expo/ui": "~56.0.17",
     "@fpay/shared": "*",

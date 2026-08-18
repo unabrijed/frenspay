@@ -1,6 +1,7 @@
 // theme.ts — MOBILE (React Native) adapter over the shared design tokens (@fpay/shared).
 // Single source of truth: packages/shared/src/tokens.ts. This renders those tokens as RN
 // styles (font-family names, RN shadow objects, numeric line-heights). Re-skin in @fpay/shared.
+// Theme: frenspay v2 — Spectral + JetBrains Mono over the painting palette.
 import { colors, radii, shadowSpec, spacing, tile, typeScale, type FontRole, type ShadowKey, type TypeSpec } from '@fpay/shared';
 import type { TextStyle, ViewStyle } from 'react-native';
 
@@ -10,16 +11,18 @@ export type { TileTone, TypeVariant } from '@fpay/shared';
 export const GUTTER = spacing.GUTTER;
 export const SHEET_GUTTER = spacing.SHEET_GUTTER;
 
-/* ---- fonts: role → RN family name (must match the keys loaded in lib/fonts.ts) ---- */
+/* ---- fonts: role → RN family name (must match the keys loaded in lib/fonts.ts).
+   Spectral is the voice, JetBrains Mono only marks. Same ponytail note as the web adapter:
+   body copy is Spectral 400, not the system's 300, which is unreadable at 13-16px. ---- */
 export const fonts = {
-  disp700: 'HankenGrotesk_700Bold',
-  disp800: 'HankenGrotesk_800ExtraBold',
-  body400: 'HankenGrotesk_400Regular',
-  body500: 'HankenGrotesk_500Medium',
-  body600: 'HankenGrotesk_600SemiBold',
-  mono400: 'HankenGrotesk_400Regular',
-  mono500: 'HankenGrotesk_500Medium',
-  mono600: 'HankenGrotesk_600SemiBold',
+  disp700: 'Spectral_300Light',
+  disp800: 'Spectral_300Light',
+  body400: 'Spectral_400Regular',
+  body500: 'Spectral_500Medium',
+  body600: 'Spectral_600SemiBold',
+  mono400: 'JetBrainsMono_400Regular',
+  mono500: 'JetBrainsMono_500Medium',
+  mono600: 'JetBrainsMono_600SemiBold',
 } satisfies Record<FontRole, string>;
 
 /* ---- shadows: abstract spec → RN shadow object (+ Android elevation) ---- */
