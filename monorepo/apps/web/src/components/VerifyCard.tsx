@@ -1,7 +1,7 @@
 'use client';
 
 // The verification surface, shared by Settings and Home. Tier < 2 shows a "Verify identity" CTA →
-// open('verify') (the existing Didit/sim flow); tier ≥ 2 shows the verified state.
+// open('verify') (the existing Persona/sim flow); tier ≥ 2 shows the verified state.
 //
 // It lives here rather than in settings/page.tsx because verification is not a settings chore:
 // nobody goes looking in Settings for a thing they don't know they need. Home renders the unverified

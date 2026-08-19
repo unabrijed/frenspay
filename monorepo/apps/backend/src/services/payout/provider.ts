@@ -9,7 +9,7 @@
 // is excluded from the map in production outright (the KYC "prod must never self-promote" rule).
 //
 // The worker drives the leg through here and completes into the SAME claimOrderPayout CAS a human
-// merchant uses. Webhooks are a fast hint; the worker poll is authoritative (the Helius/Didit
+// merchant uses. Webhooks are a fast hint; the worker poll is authoritative (the Helius/KYC
 // contract). Status semantics are vendor-agnostic but preserve the two distinctions the worker's
 // safety rules need (invariant 12): 'failed' = terminal, money never moved (failover-safe);
 // 'reversed' = money moved and came back (freeze, never fail over).

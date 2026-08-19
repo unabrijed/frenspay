@@ -1,5 +1,5 @@
 // kyc.ts — M5/M7 identity verification: the "Verify identity" flow (sim instant-promote in dev,
-// Didit hosted session with a real vendor) + the dev-only tier override.
+// Persona hosted inquiry with a real vendor) + the dev-only tier override.
 import type { FastifyInstance } from 'fastify';
 
 import type { KycSimVerifyResponse, KycStartResponse } from '@fpay/shared';
@@ -28,7 +28,7 @@ function safeReturnUrl(input: unknown): string {
 
 export async function registerKycRoutes(app: FastifyInstance) {
   // The "Verify identity" button calls this. With the sim provider (dev) it promotes instantly;
-  // with a real vendor (Didit) it starts a hosted session and returns a URL for the client to
+  // with a real vendor (Persona) it starts a hosted session and returns a URL for the client to
   // open — the tier is raised later via the webhook + reconciler (kyc/poller).
   app.post<{ Body: { returnUrl?: string } }>('/kyc/verify', async (req, reply) => {
     const userId = requireUserId(req);

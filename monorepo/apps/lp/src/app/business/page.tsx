@@ -2,7 +2,7 @@
 
 // /business — the business check: what the LP submits, and where it got to.
 //
-// The person behind this account is already verified (tier-2 Didit, required to apply). This screen
+// The person behind this account is already verified (tier-2 KYC, required to apply). This screen
 // is about the BUSINESS, and above all about which account the fiat will actually leave from — the
 // documented failure mode for this whole model is third-party money moving through a personal
 // account and that account being frozen.

@@ -1,4 +1,4 @@
-// KYC provider abstraction (M7). One small interface so a real vendor (Didit) or the dev sim plug
+// KYC provider abstraction (M7). One small interface so a real vendor (Persona) or the dev sim plug
 // in interchangeably — the routes never know which is active. Swap by config (KYC_PROVIDER).
 
 /** What `start` returns: the dev sim promotes instantly; a real vendor hands back a hosted URL. */

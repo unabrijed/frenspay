@@ -114,9 +114,11 @@ objects, not derived strings):
 `users.kyc_tier` (0–3) gates money movement server-side against rolling-24h ledger volume
 (structured `limit_exceeded` errors): tier 1 caps P2P (~$100/tx, $300/day), tier 2 unlocks
 merchant cash-out + external-address sends. The vendor seam is real — `services/kyc/`
-(`provider.ts` interface, `didit.ts` vendor, `sim.ts` simulator, `poller.ts` lifecycle) — with
-**Didit the active provider on both stage and prod**. `sim` is local-only: it promotes to tier 2 with
-no documents, and both deployed tiers are mainnet. Testing runbook:
+(`provider.ts` interface, `persona.ts` vendor, `sim.ts` simulator, `poller.ts` lifecycle) — with
+**Persona the active provider on both stage and prod** (stage on a sandbox key — force-pass, no real
+documents; prod only with a production key, which Persona issues after its compliance review / Startup
+Program approval). `sim` is local-only: it promotes to tier 2 with no documents, and both deployed tiers
+are mainnet. Testing runbook:
 [10-ops-and-roadmap](10-ops-and-roadmap.md).
 
 ## Legalities
@@ -134,8 +136,8 @@ no documents, and both deployed tiers are mainnet. Testing runbook:
 - ✅ Directory aliases (phone opt-in, country dialing default). 🟡 Privy-mode phone enrollment
   waits on the **parked OTP-channel decision** (Privy SMS = US/CA-only; WhatsApp = all regions;
   the dashboard choice is irreversible — nothing gets enabled without Bridge).
-- ✅ KYC tiers enforced; 🟡 Didit live on stage + prod, but session creation is currently failing
-  (503 `kyc_unavailable`) — diagnosis in the runbook.
+- ✅ KYC tiers enforced; 🟡 Persona replaces Didit (2026-08-19): stage runs the sandbox key, prod waits
+  on Persona's production approval — runbook in [10](10-ops-and-roadmap.md).
 - ✅ Invite codes as real minted objects (0007/0008). ✅ `FREN-` prefix + remint script (🟡 cutover run pending).
 - ✅ Email unique index + 409 collision policy (migration 0010; 🟡 until applied on stage).
 

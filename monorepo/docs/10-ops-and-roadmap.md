@@ -67,33 +67,42 @@ Two providers behind one API (`POST /kyc/verify` in `routes/kyc.ts`), selected b
 | Provider | When | Behaviour |
 |---|---|---|
 | `sim` | local only — **never** on a deployed tier, both of which are mainnet | instant tier-2 promote, no documents |
-| `didit` | live on stage **and** prod (also the default there, set or not) | hosted document+liveness; tier raised later by the 15s reconciler poller (webhook = fast-path ping only) |
+| `persona` | stage **and** prod (also the default there, set or not) | hosted government-ID + selfie inquiry; tier raised by the 15s reconciler poller reading the inquiry back from Persona |
 
 - **Sim:** onboard → Settings → *Verify identity* → instant tier 2. Re-test via dev-only
   *Reset for testing* (`POST /sim/kyc/1`) — the backend tier persists across logins otherwise.
-- **Didit:** set `STAGE_DIDIT_API_KEY` + `STAGE_DIDIT_WORKFLOW_ID` (missing values with `didit`
-  selected → the server **refuses to boot**, `assertKycConfig` — placeholder-looking values are
-  rejected too). Complete the hosted flow; the poller fetches the authoritative decision
-  (`approved` → tier 2 · `declined` → terminal · `expired`/`abandoned` → cleared so the user can
-  restart). `STAGE_DIDIT_WEBHOOK_SECRET` + a reachable `/webhooks/kyc` make it feel instant;
-  correctness never depends on it.
-- Key files: `services/kyc/{index,didit,sim,poller}.ts`, `routes/kyc.ts`, `routes/webhooks.ts`,
-  web `store/usePayStore.ts` (`verifyDone`, `pollKyc`, `resetForTesting`).
+- **Persona:** set `STAGE_PERSONA_API_KEY` + `STAGE_PERSONA_TEMPLATE_ID` (missing values with
+  `persona` selected → the server **refuses to boot**, `assertKycConfig` — placeholder-looking values
+  are rejected too). Complete the hosted flow; the poller fetches the authoritative inquiry
+  (`approved`/`completed` → tier 2 · `declined`/`failed` → terminal · `expired` → cleared so the user
+  can restart · `needs_review` → in review). No webhook is wired — the poller *is* the path; ≤15s.
+- **Sandbox vs production keys.** A `persona_sandbox_…` key (what self-serve signup gives) runs the
+  hosted flow with a force-pass/force-fail toggle and never sees a real document. It is the right key
+  for **stage**; on **prod** `assertKycConfig` refuses it at boot. `persona_production_…` keys exist
+  only after Persona's compliance review (or Startup Program approval) — until then prod has no
+  working real-verification provider and must not be switched to `sim` (mainnet).
+- **Allowed Domains** (Persona dashboard): if set, the web origin (`https://stage.frenspay.xyz`, …)
+  must be listed or the user finishes at Persona and is never redirected home. Leave it empty, or
+  list every origin that `safeReturnUrl` (`routes/kyc.ts`) already allows via `CORS_ORIGIN`.
+- Key files: `services/kyc/{index,persona,sim,poller}.ts`, `routes/kyc.ts`, `routes/webhooks.ts`
+  (401s everything for Persona — the seam stays, see the comment in `persona.ts`), web
+  `store/usePayStore.ts` (`verifyDone`, `pollKyc`, `resetForTesting`), `app/(tabs)/home/page.tsx`
+  (the `?inquiry-id=` return).
 
 ### Debugging a 503 `kyc_unavailable`
 
-**Read the boot log first.** Every start with `didit` selected prints one `didit probe:` line
-(`services/kyc/didit.ts probeDidit`, non-fatal): `key OK; workflow published [workflow=… key=len43…xxxx]`
-is healthy; `FAILED: … → 403` is the key as Railway holds it (diff `len`/last4 against a working local
-run); `workflow draft` / `MISSING on this key` is a workflow id from the wrong state or the wrong Didit
-application. That line answers the table below before anyone clicks Verify.
+**Read the boot log first.** Every start with `persona` selected prints one `persona probe:` line
+(`services/kyc/persona.ts probePersona`, non-fatal): `key OK (sandbox|production) [template=…
+key=len…xxxx]` is healthy; `FAILED: … → 401` is the key as Railway holds it (diff `len`/last4
+against a working local run). Templates aren't readable with a sandbox key, so a wrong template id
+shows up on the first Verify instead — with the same fingerprint.
 
 That code carries no diagnosis and is meant not to — it is emitted from one place (`routes/kyc.ts`)
-and means only *"the call to Didit threw"*. The reason exists **solely** in the server log line
-`kyc provider start failed`, which since the fingerprinting fix reads:
+and means only *"the call to Persona threw"*. The reason exists **solely** in the server log line
+`kyc provider start failed`, which reads:
 
 ```
-didit /v3/session/ → <status> <body> [workflow=<uuid> key=len<N>…<last4>]
+persona /api/v1/inquiries → <status> <body> [template=<itmpl_…> key=len<N>…<last4>]
 ```
 
 Read it with `railway logs --service <service> --environment <env> | grep -i "kyc provider start failed" -A5`.
@@ -102,18 +111,15 @@ and past that the error changes to `rate_limited`, which is noise rather than pr
 
 | Log shows | Cause | Fix |
 |---|---|---|
-| `→ 403`, and `workflow=` lives in the same Didit app that issued the key | key revoked or regenerated | reissue it, update `DIDIT_API_KEY` |
-| `→ 403`, and `workflow=` belongs to a **different** app than the key | key + workflow crossed between two Didit applications — the classic first-setup failure | repoint both at one application |
-| `→ 403`/`402` with a plan or quota body | app not activated, or free-tier session quota spent | Didit dashboard; nothing in the repo |
-| `→ 404` | Didit moved `/v3/session/` or the base URL | update `diditBaseUrl` or the path in `services/kyc/didit.ts` |
-| `→ 400` naming `callback` | the deployed `returnUrl` origin is rejected | check `safeReturnUrl` against `CORS_ORIGIN` |
-| no `→` at all | the 10s `FETCH_TIMEOUT_MS` aborted — Didit slow or unreachable | retry; raise the timeout only if it recurs |
-
-Comparing the logged `key=len<N>…<last4>` against the dashboard key is what separates "wrong key" from
-"wrong workflow" from "right pair, dead app" — the body alone answers 403 to all three.
+| `→ 401 Must be authenticated` | key missing, mangled in the host's variable panel, or revoked | diff `len`/last4 against the dashboard; re-paste `PERSONA_API_KEY` |
+| `→ 404`/`422` naming the template or `inquiry-template-id` | template id from another environment/organization, or a typo | copy `itmpl_…` from the dashboard's Inquiry Templates page |
+| `→ 400` naming `redirect-uri` | the deployed `returnUrl` origin is rejected | check `safeReturnUrl` against `CORS_ORIGIN`, and Allowed Domains in Persona |
+| `→ 429` | Persona rate limit | back off; the route itself is already capped at 5/min |
+| no `→` at all | the 10s `FETCH_TIMEOUT_MS` aborted — Persona slow or unreachable | retry; raise the timeout only if it recurs |
+| boot refuses with `sandbox key on a production tier` | a `persona_sandbox_…` key on prod | wait for the production key; do not switch prod to `sim` |
 
 Two things that are **not** the cause, both ruled out before reading anything: an unset
-`KYC_PROVIDER` (stage and prod default to `didit`), and missing credentials (`assertKycConfig` is
+`KYC_PROVIDER` (stage and prod default to `persona`), and missing credentials (`assertKycConfig` is
 fatal at boot, so a service answering `/health` has them).
 
 ## Owed, and known
