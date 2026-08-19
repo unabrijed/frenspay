@@ -42,13 +42,13 @@ export default function Home() {
   const { symbol, digits, secondary } = useBalanceDisplay();
   const initial = (handle.replace(/^@/, '')[0] ?? 'U').toUpperCase();
 
-  // Returning from the hosted KYC flow: Didit redirects to the callback (/home) with
-  // ?verificationSessionId=…&status=… appended. Poll until the tier lands, then drop the query so a
-  // refresh doesn't re-trigger it. Read from window (client-only effect) to avoid useSearchParams'
+  // Returning from the hosted KYC flow: Persona redirects to the redirect-uri (/home) with
+  // ?inquiry-id=…&reference-id=…&status=… appended. Poll until the tier lands, then drop the query so
+  // a refresh doesn't re-trigger it. Read from window (client-only effect) to avoid useSearchParams'
   // Suspense-boundary requirement at build time. (`kyc=done` kept as a harmless legacy fallback.)
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
-    if (!q.get('verificationSessionId') && q.get('kyc') !== 'done') return;
+    if (!q.get('inquiry-id') && q.get('kyc') !== 'done') return;
     void pollKyc();
     router.replace('/home');
   }, [pollKyc, router]);

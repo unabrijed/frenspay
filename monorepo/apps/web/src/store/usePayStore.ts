@@ -932,10 +932,10 @@ export const usePayStore = create<PayState>()(
       verifyDone: async () => {
         // Two providers behind one call (see backend /kyc/verify): the dev sim returns the new tier
         // instantly; a real vendor returns a hosted URL we navigate to (tier is raised later via the
-        // webhook/reconciler, picked up by pollKyc when Didit redirects back to /home with
-        // ?verificationSessionId=… appended). The callback carries NO query of our own, so Didit's
-        // appended params can't collide with one (…/home?kyc=done?verificationSessionId=… would
-        // otherwise mis-parse and skip the poll).
+        // reconciler poller, picked up by pollKyc when Persona redirects back to /home with
+        // ?inquiry-id=…&status=… appended). The callback carries NO query of our own, so the vendor's
+        // appended params can't collide with one (…/home?kyc=done?inquiry-id=… would otherwise
+        // mis-parse and skip the poll).
         // No `busy` here on purpose: that flag is global (load() writes it too), so the in-flight
         // state belongs to the caller — sheets/identity.tsx owns a local one.
         try {

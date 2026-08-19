@@ -41,7 +41,7 @@ const isProduction = !isDevelopment;
  *  (Railway, Vercel) routinely carries a trailing newline or the quotes it was copied inside, and
  *  neither is visible in the UI. Untrimmed, it passes every set-but-empty check, boots the server
  *  "healthy", then ships a subtly wrong header to the vendor forever — a stage `x-api-key` with a
- *  trailing newline is indistinguishable in our logs from a revoked key (Didit answers 403 to both).
+ *  trailing newline is indistinguishable in our logs from a revoked key (the vendor answers 401 to both).
  *  Guard once here so every secret inherits it, not at each call site. */
 function clean(v: string | undefined): string {
   return (v ?? '')
@@ -145,14 +145,14 @@ export const config = {
   // Optional: paste the verification key from the Privy dashboard to skip a network fetch per verify.
   privyVerificationKey: env('PRIVY_VERIFICATION_KEY'),
 
-  // M7: KYC vendor. 'sim' = the dev instant-promote (no documents); 'didit' = real document+liveness
-  // via Didit's hosted flow + signed webhook. NODE_ENV decides: local → sim, stage/prod → didit
-  // (prod must never self-promote). Override per tier via <PREFIX>_KYC_PROVIDER if needed.
-  kycProvider: env('KYC_PROVIDER', isLocal ? 'sim' : 'didit'),
-  diditApiKey: env('DIDIT_API_KEY'),
-  diditWorkflowId: env('DIDIT_WORKFLOW_ID'),
-  diditWebhookSecret: env('DIDIT_WEBHOOK_SECRET'),
-  diditBaseUrl: env('DIDIT_BASE_URL', 'https://verification.didit.me'),
+  // M7: KYC vendor. 'sim' = the dev instant-promote (no documents); 'persona' = real document+selfie
+  // via Persona's hosted flow, decisions read back by the reconciler poller. NODE_ENV decides:
+  // local → sim, stage/prod → persona (prod must never self-promote). Override per tier via
+  // <PREFIX>_KYC_PROVIDER if needed. A persona_sandbox_ key is refused outside dev/stage (assertKycConfig).
+  kycProvider: env('KYC_PROVIDER', isLocal ? 'sim' : 'persona'),
+  personaApiKey: env('PERSONA_API_KEY'),
+  personaTemplateId: env('PERSONA_TEMPLATE_ID'),
+  personaBaseUrl: env('PERSONA_BASE_URL', 'https://api.withpersona.com'),
 
   // v2 cross-chain (docs/19): per-EVM-chain RPCs (Sepolias on dev/stage, mainnets in prod).
   ethereumRpcUrl: env('ETHEREUM_RPC_URL'),

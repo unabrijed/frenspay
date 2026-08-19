@@ -2,7 +2,6 @@
 // applies vendor decisions, and the webhook just calls applyKycForSession() to make it instant. Both
 // upgrade tiers only from the vendor's authoritative `pollDecision`, so a forged webhook can't promote
 // anyone (it can at most trigger a re-check of a session we already issued).
-import { config } from '../../envConfig';
 import { hasDatabase } from '../../db/pool';
 import {
   getPendingKycSessions,
@@ -55,7 +54,7 @@ async function pollPendingOnce(log?: (m: string) => void): Promise<void> {
 /** Start the KYC reconciler. No-op without a DB, or when the sim provider is active (no async leg). */
 export function startKycPoller(intervalMs = 15_000, log?: (m: string) => void): void {
   if (timer || !hasDatabase()) return;
-  if (config.kycProvider !== 'didit') return; // sim resolves synchronously in the route
+  if (getKycProvider().name === 'sim') return; // sim resolves synchronously in the route
   timer = setInterval(() => {
     if (running) return;
     running = true;
