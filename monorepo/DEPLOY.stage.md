@@ -178,7 +178,7 @@ Use it to redeploy the current commit, or to recover after a failed run.
 comma-separated list of EVERY browser origin that calls the API:
 
 ```
-STAGE_CORS_ORIGIN=https://admin.frenspay.xyz,https://frenspay.xyz,https://www.frenspay.xyz,https://<web-domain>
+STAGE_CORS_ORIGIN=https://admin.frenspay.xyz,https://frenspay.xyz,https://www.frenspay.xyz,https://<web-domain>,https://<lp-domain>
 ```
 
 A missing origin breaks that frontend in prod only, silently.
@@ -337,6 +337,16 @@ Ship to prod by merging `stage` → `sacred` (PR).
    `NEXT_PUBLIC_STAGE_APP_URL` is no longer read and can be removed if it is already set. The landing
    page spends an invite code joining the f list rather than handing off to the app, so it links to
    the app in neither direction and needs no URL for it.
+   lp (stage) — the LP console; the backend calls it "merchants", `/merchants/*`:
+   ```
+   NEXT_PUBLIC_APP_ENV=stage
+   NEXT_PUBLIC_STAGE_API_URL=<same as web>
+   NEXT_PUBLIC_STAGE_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com   # deployed tiers fail closed to mainnet anyway; set it for parity
+   NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<same privy app id as web>              # staking signs a real USDC transfer, so it needs the embedded wallet
+   NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<privy client id>                    # optional
+   ```
+   Nothing else: there is no access gate (`STAGE_ACCESS_KEY`), no landing link, and the dev
+   identity (`*_DEV_USER_ID`) is only read when `NODE_ENV !== 'production'` — never in a build.
 6. **Deploy**: push `stage` (or Deployments → Redeploy). Watch the log: install and build must run
    the `vercel.json` commands verbatim, and web must get past the post-build step (the historical
    crash below) to READY.
