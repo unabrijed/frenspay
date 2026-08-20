@@ -75,7 +75,7 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
 
 ## Decision log
 
-- 2026-08-10 · **Indonesia corridor enabled** as currency-generalization keyed off the rails registry; sim LPs + key-gated Xendit test-mode payout seam; Philippines designated fast-follow; Singapore avoided → docs/22-indonesia-corridor-and-asia-research.md. Open questions tracked there (Didit workflow country config, Xendit schema verify-on-first-run, QRIS real-sample validation, docs/11 Indonesia section, poller.ts:31 vs docs/18).
+- 2026-08-10 · **Indonesia corridor enabled** as currency-generalization keyed off the rails registry; sim LPs + key-gated Xendit test-mode payout seam; Philippines designated fast-follow; Singapore avoided. Open questions: Xendit schema verify-on-first-run, QRIS real-sample validation, docs/11 Indonesia section.
 - 2026-08-11 · **Per-corridor settlement models adopted** (`lp` vs `provider`; the choice is an entity/licensing commitment) with a DB payout-provider registry (rows = routing metadata; creds = env; priority+failover with raw-status discipline) and the platform-settlement-row mechanism — `merchant_id NULL` rejected under adversarial verify (4 subsystem breaks incl. deleted payer recourse) → docs/23-settlement-models-and-provider-registry.md. Open: float model (prefund vs vendor-converts), charge-the-flat-fee, per-model order floor, THB timing, REVERSED auto-resolution, cross-account idempotency scope (unverified). All work on `stage` branch (stage→stage env, sacred→prod).
 - 2026-08-14 · **LP marketplace: offer → lock → pay → release** (plan:
   `~/.claude/plans/merchant-side-of-app-distributed-dahl.md`; 6 phases, P1–P3 shipped). Staged
