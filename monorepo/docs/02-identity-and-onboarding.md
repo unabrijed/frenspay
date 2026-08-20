@@ -136,7 +136,7 @@ are mainnet. Testing runbook:
 - ✅ Directory aliases (phone opt-in, country dialing default). 🟡 Privy-mode phone enrollment
   waits on the **parked OTP-channel decision** (Privy SMS = US/CA-only; WhatsApp = all regions;
   the dashboard choice is irreversible — nothing gets enabled without Bridge).
-- ✅ KYC tiers enforced; 🟡 Persona replaces Didit (2026-08-19): stage runs the sandbox key, prod waits
+- ✅ KYC tiers enforced; 🟡 Persona KYC (2026-08-19): stage runs the sandbox key, prod waits
   on Persona's production approval — runbook in [10](10-ops-and-roadmap.md).
 - ✅ Invite codes as real minted objects (0007/0008). ✅ `FREN-` prefix + remint script (🟡 cutover run pending).
 - ✅ Email unique index + 409 collision policy (migration 0010; 🟡 until applied on stage).

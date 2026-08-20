@@ -96,8 +96,8 @@ export const personaProvider: KycProvider = {
     return { sessionId, status: mapStatus(data?.attributes?.status), country: /^[A-Z]{2}$/.test(cc) ? cc : undefined };
   },
 
-  // ponytail: webhook not wired — the 15s poller is authoritative (same contract the Didit provider
-  // had). Persona signs `Persona-Signature: t=…,v1=…` = HMAC-SHA256(secret, `${t}.${rawBody}`) and this
+  // ponytail: webhook not wired — the 15s poller is authoritative (same contract as before).
+  // Persona signs `Persona-Signature: t=…,v1=…` = HMAC-SHA256(secret, `${t}.${rawBody}`) and this
   // Fastify parses JSON before any handler runs; add a `parseAs: 'string'` content-type parser scoped
   // to /webhooks/kyc, PERSONA_WEBHOOK_SECRET, and read body.data.attributes.payload.data.id if instant
   // approval ever matters more than ≤15s.
