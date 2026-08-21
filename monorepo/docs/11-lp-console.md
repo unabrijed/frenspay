@@ -116,8 +116,20 @@ An LP who has to keep a tab open is an LP who misses orders, so the console is a
 
 ## What an LP is asked to pay
 
-We hand over a destination; they pay it however they normally would. Today there is exactly one
-shape per live corridor, and the corridor registry is what decides:
+We hand over a destination; they pay it however they normally would. Two things about the work
+they are handed, both decided 2026-08-21 ([06](06-offramp-and-settlement.md) § Routing, § Legs):
+
+- **They will not be handed the same receiver twice in 90 days**, nor two live orders to one
+  receiver. This is routing's pair rule, not a score — a personal account paying the same handle
+  repeatedly is the account-freeze pattern — so it never shows in the queue as a refusal; the
+  order simply isn't offered to them and the lock would refuse it if it were.
+- **An order may be one part of a larger payment.** When no single LP can carry a payment it is
+  split across LPs, and each gets an ordinary order for their part: the amount on the screen and in
+  the UPI deep link is *their* part, the reference is theirs, the lock, the claim and the release
+  are theirs. The other parts are other people's orders; the console never shows them.
+
+Today there is exactly one destination shape per live corridor, and the corridor registry is what
+decides:
 
 - **UPI ID** (`name@bank`) — India. Gets a deep link into their UPI app and a "processed by" label
   derived from the handle's suffix.

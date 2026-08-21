@@ -125,6 +125,25 @@ quietly becomes a weight still routes the order.
   stake, so a minimum-bond LP could declare a million and be routed it. Their stake is what makes
   the trade trustable, so it is what bounds the trade. Platform settlement rows are **exempt** — the
   same reasoning `settleDispute` uses, their bond being a seeded fiction with no top-up path.
+  **"In-flight" has one definition** (`LIVE_ORDER_STATE_LIST`: `payment_detected`,
+  `merchant_confirms`, `funds_released`) shared by routing, the lock's capacity re-check, the LP
+  console's headroom and the stake-withdrawal gate. Routing used to also count the two pre-funding
+  states, which parked real capacity on abandoned, unsigned wallet pop-ups for 15 minutes. An LP's
+  obligation starts when the escrow is funded; that is where the count starts.
+- **The pair rule (0019) — the sixth hard filter.** A human LP must not pay the same receiver
+  (`quotes.payout_destination`) again within `PAYEE_COOLDOWN_DAYS` (90), and must never hold two
+  live orders to one receiver. A personal bank account paying the same handle over and over is the
+  account-freeze pattern [08](08-compliance-and-legalities.md) documents, so it is a filter, never a
+  score. The history it reads is the claim itself: `claimOrderPayout` is the sole writer of
+  `payout_claimed_at` and `merchant_id` is frozen after a claim, so `orders ⋈ quotes` is the
+  complete who-paid-whom-when ledger (the `payee_payments` view names it). One SQL fragment
+  (`payeePaidSql`) is applied at **all three places an LP gets attached to an order** — routing's
+  blocked set (quote, reroute, split planning), the lock's own CAS (the pool path never calls
+  `rankMerchants`), and the pool view (so an LP is never shown work the lock would refuse) —
+  because a rule that lives in two of the three leaks through the third. Provider (`psp`) and sim
+  rows are exempt: the rule is about a person, and the one Indonesia platform row pays every
+  warung in the country. When it leaves nobody eligible, the quote is **split first** (below) and
+  refused only if even a split cannot cover it.
 
 On the scoring side, `cost` inverts `spread_bps`, `liquidity` caps headroom at 5×, `rating` is the
 payer's 👍/👎, and the two availability terms are new: **`warm`** is `last_seen_at` inside
@@ -200,6 +219,45 @@ payment_detected
 Provider- and sim-settled orders are **born locked** at `payment_detected`: their merchant row *is*
 the settler and no pool was ever consulted. That uniformity is what lets the claim below require a
 lock with one predicate instead of carving out an exception.
+
+**4½ · Legs — a payment made in parts (0019).** Split **by necessity only**: the first LP who can
+carry the whole amount at their own rate gets it as one order, exactly as before. Only when nobody
+can does `routing.planLegs` size up to `MAX_LEGS` (3) legs across distinct LPs, best-first, each
+leg what that LP's headroom covers and none below `MIN_LEG_USDC` (5); if even that cannot cover it,
+the quote is refused (`no_merchant` → 503, the payer sees "not available right now").
+
+- **A leg is an ordinary `orders` row.** N legs share one quote, each with its own
+  `reference_code` → its own escrow PDA → its own lock, claim, release, refund, reroute and
+  dispute. Nothing downstream learned the word "leg": a leg points at the primary via `group_id`,
+  carries its own `amount_fiat`, and the LP console, the worker, the stats and the admin all see
+  an order. The pair rule's live arm is what keeps two legs of one payment on two LPs — no
+  leg-specific code.
+- **One signature, N deposits.** The platform fee is not a program argument — it is a plain SPL
+  transfer ahead of `deposit(amount, reference)` — so `buildDepositTx` emits one fee transfer and
+  one `deposit` per leg in one user-signed tx (~550 B for one leg, ~109 B per extra; three fit well
+  under the 1232 B cap). One `transfers` row carries the total; every leg points at it, and one
+  confirmation advances them all. **The fee rides the primary leg only**: its order is lp-owed +
+  fee, its deposit is net of the fee, and `getOrderPlatformFee` answers `'0'` for the others — a
+  leg answering with the quote's fee would have refunded it N times over.
+- **Money law for legs.** Fiat legs are whole minor units and sum to the amount exactly; each
+  leg's USDC is `divUp(fiat, lpRate)` on its own, so no LP is ever short and the payer pays at
+  most (n−1) µUSDC more than a single leg would have cost. The quote is struck at the **dearest**
+  leg's spread — one price per quote, or the lock's `m.spread_bps <= q.spread_bps` would refuse a
+  dearer leg's own provisional LP. The rate depends on the set and the sizes on the rate, so the
+  planner grows the set one LP at a time (spread only rises, so capacity only falls, so the n-th
+  leg is never empty).
+- **What the payer sees.** `GET /orders/:id` returns the primary with the aggregate
+  (`lib/legs.ts` `aggregateLegs`: the least-advanced live leg's state; `completed` once every leg
+  has settled and any part reached the receiver; `payoutClaimedAt` only when every part still in
+  play is claimed) and `legs[]`, each with its own reference and UTR. The Quote sheet says "Arrives
+  as 2 payments" **before** they commit — the shop sees two credits and the person at the counter
+  is who adds them up; nothing about who sends them. The receipt lists one reference per credit
+  and one "I didn't receive part N" per claimed leg; disputes are per leg (`uq_disputes_order`
+  stays). History stays one row per payment (`group_id is null`). One "you paid X" notification
+  per payment, when the last leg settles.
+- **The payer sees "Paid" at the claim, not at the release.** The receiver has the money at
+  `payoutClaimedAt`; the escrow settling to whoever paid it ~2½ minutes later is our business. The
+  dispute link stays under the receipt for the window and `completed` is what takes it away.
 
 **5 · Payout claim — three shapes on the same rails.** Once locked, who claims and pays the fiat leg
 depends on the winning row. Every path goes through `claimOrderPayout`, which now additionally
@@ -404,8 +462,12 @@ ships **disabled** — inert until its env key exists *and* an operator turns it
   spread-ceiling offer filter, tier/leverage, warmth + day×hour activity signals, the
   `services/alert` seam (Telegram; in-app inbox always fires), KYB evidence with a six-state
   lifecycle and a merchant-visible timeline, stake withdrawal, and the LP earnings/disputes ledger.
-  Guarded by `check-routing-math.ts` (no DB, in `check:all`) and `check-lock.ts` (29 assertions
+  Guarded by `check-routing-math.ts` (no DB, in `check:all`) and `check-lock.ts` (40 assertions
   against real Postgres — mutual exclusion can only be proven there; not in `check:all`).
+- ✅ **The pair rule and legs (0019, 2026-08-21)**: one in-flight definition; the LP→receiver
+  cooldown as a hard filter at all three attach points, with the claim as its history; split by
+  necessity into per-leg orders/escrows with one signature, the fee on the primary leg, and the
+  money law asserted without a DB (`planLegs`, `aggregateLegs`); "Paid" at the claim.
 - 🟡 The LP pool is still mostly seeded/simulated, though the human-LP path is now a full self-serve
   account (availability, pricing, capacity, stake in/out, alerts, KYB, ledger, disputes). No real
   payout vendor is live anywhere (Xendit sandbox-only, gated on licensing/counsel); interactive E2E
@@ -425,8 +487,10 @@ ships **disabled** — inert until its env key exists *and* an operator turns it
 - `apps/backend/src/lib/corridors.ts` (the `settle: ('provider'|'lp')[]` registry) and
   `apps/backend/src/lib/kyb.ts` (+ its source of truth `packages/shared/src/kyb.ts`)
 - `apps/backend/src/services/alert/{index,provider,telegram}.ts` — the LP alert seam
+- `apps/backend/src/lib/legs.ts` — `aggregateLegs`, a payment in parts as one order (pure)
 - Migrations `0014` (country, tier, bond floor, stake withdrawals) · `0015` (order lock, alerts,
-  `quotes.spread_bps`) · `0016` (KYB evidence + timeline) · `0017` (activity histogram)
+  `quotes.spread_bps`) · `0016` (KYB evidence + timeline) · `0017` (activity histogram) · `0019`
+  (legs: `orders.group_id`/`amount_fiat`, `quotes.legs`; the pair rule's indexes + `payee_payments`)
 - `apps/backend/scripts/{check-routing-math,check-lock}.ts`
 - `apps/backend/src/envConfig.ts` (`isMainnet` gate, `platformFeeBps`, `payoutSecretKeys`,
   `payoutCallbackTokens`, `platformTreasuryAddress`)
