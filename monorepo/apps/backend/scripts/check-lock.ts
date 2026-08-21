@@ -60,7 +60,7 @@ async function mkOrder(
   merchantId: string,
   ref: string,
   spreadBps: number,
-  opts: { payee?: string } = {},
+  opts: { payee?: string; groupId?: string } = {},
 ) {
   const { rows: q } = await pool.query<{ id: string }>(
     `insert into quotes (user_id, merchant_id, direction, currency, amount_inr, amount_usdc, rate,
@@ -72,10 +72,10 @@ async function mkOrder(
   );
   const { rows: o } = await pool.query<{ id: string }>(
     `insert into orders (user_id, quote_id, merchant_id, amount_usdc, reference_code, state,
-                         expires_at, offer_widens_at)
-     values ($1,$2,$3,12,$4,'payment_detected', now() + interval '10 minutes', now() - interval '1 second')
+                         expires_at, offer_widens_at, group_id)
+     values ($1,$2,$3,12,$4,'payment_detected', now() + interval '10 minutes', now() - interval '1 second', $5)
      returning id`,
-    [userId, q[0].id, merchantId, `ZZLOCK-${ref}`],
+    [userId, q[0].id, merchantId, `ZZLOCK-${ref}`, opts.groupId ?? null],
   );
   return o[0].id;
 }
@@ -298,6 +298,23 @@ async function main() {
     await claimOrderPayout({ orderId: id, merchantId: a, reference: 'UTRVIEW', windowMs: 120_000 });
     check('one history row after it — written by the claim itself', (await count()) === 1);
   }
+
+  // --- 14. Two legs of one payment never land on one LP ---
+  //
+  // No leg-specific code: a leg is an order to the same payee, so the live arm of the pair rule is
+  // what keeps the second leg away from whoever holds the first.
+  {
+    const P2 = 'shop-p2@zzlock';
+    const d = await mkMerchant(pool, 'ZZ-LOCK-D', null, 50);
+    const e = await mkMerchant(pool, 'ZZ-LOCK-E', null, 50);
+    const f = await mkMerchant(pool, 'ZZ-LOCK-F', null, 50);
+    const leg1 = await mkOrder(pool, payer, d, 'LEG1', 50, { payee: P2 });
+    const leg2 = await mkOrder(pool, payer, e, 'LEG2', 50, { payee: P2, groupId: leg1 });
+    check('the routed LP takes leg 1', (await lock(leg1, d)) !== null);
+    check('…and cannot take leg 2 of the same payment', (await lock(leg2, d)) === null);
+    check('…nor is it offered to them', !(await offers(d)).some((o) => o.id === leg2));
+    check('an uninvolved LP is offered leg 2', (await offers(f)).some((o) => o.id === leg2));
+    check('leg 2 goes to a different LP', (await lock(leg2, e)) !== null);
   }
 
   await clean(pool);

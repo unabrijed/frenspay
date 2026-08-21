@@ -568,6 +568,9 @@ export interface Quote {
   payoutDestination?: string;
   /** Payee name as printed on the QR — shown pre-pay so the user can catch a wrong-send. */
   payoutName?: string;
+  /** Set (≥ 2) when the payment will reach the payee as that many separate credits. Absent for the
+   *  normal single credit. Says nothing about who sends them — only that the shop will see N. */
+  parts?: number;
   quotedAt: number; // epoch ms
   expiresAt: number; // epoch ms (quotedAt + 45_000)
 }
@@ -605,6 +608,9 @@ export interface Order {
   direction: OrderDirection;
   referenceCode: string;
   amountUsdc: string;
+  /** This order's own fiat. Equals `quote.amountInr` except on one leg of a payment made in parts,
+   *  where it is that part's share; the aggregate order carries the whole. */
+  amountFiat?: string;
   quote: Quote;
   merchantName: string;
   payoutMethod: PayoutMethod;
@@ -621,6 +627,10 @@ export interface Order {
   updatedAt: string; // ISO 8601
   /** Append-only transition log powering the live timeline (present on GET /orders/:id). */
   events?: OrderEvent[];
+  /** Present on GET /orders/:id when the payment was made in parts: every leg, this one included,
+   *  each with its own `referenceCode`, `state`, `payoutClaimedAt` and `payoutUtr`. The top-level
+   *  fields are then the whole payment's aggregate; `payoutUtr` is per leg only. */
+  legs?: Order[];
 }
 
 /* ---- order API DTOs ---- */

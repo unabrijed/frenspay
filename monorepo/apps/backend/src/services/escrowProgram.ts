@@ -69,21 +69,18 @@ export function escrowAddress(reference: string): string {
  */
 export async function buildDepositTx(input: {
   userOwner: string;
-  amountUsd: number;
+  /** One escrow per entry. A payment split across LPs funds N vaults under this ONE signature —
+   *  each leg its own PDA, so each can release or refund on its own. The first entry is the
+   *  primary leg and is the one the platform fee comes off. */
+  deposits: { amountUsd: number; reference: string }[];
   /** Canonical decimal string (raw quotes.platform_fee_usdc) — subtracted in exact base units. */
   platformFeeUsd: string;
-  reference: string;
 }): Promise<{ unsignedTx: string; feePayer: string }> {
   const user = new PublicKey(input.userOwner);
   const mint = usdcMint();
   const fp = feePayer().publicKey;
-  const escrow = escrowPda(input.reference);
-  const vault = vaultPda(escrow);
   const userTokenAccount = await getAssociatedTokenAddress(mint, user);
   const feeBase = await toUsdcBaseUnits(input.platformFeeUsd);
-  const depositBase = (await toUsdcBaseUnits(input.amountUsd)) - feeBase;
-  if (depositBase <= 0n) throw new Error(`platform fee ${input.platformFeeUsd} swallows deposit ${input.amountUsd}`);
-  const amount = new BN(depositBase.toString());
 
   const pre: TransactionInstruction[] = [];
   if (feeBase > 0n) {
@@ -92,23 +89,33 @@ export async function buildDepositTx(input: {
     pre.push(createTransferCheckedInstruction(userTokenAccount, mint, feeAta, user, feeBase, await decimals()));
   }
 
-  const ix = await program()
-    .methods.deposit(amount, input.reference)
-    .accountsPartial({
-      user,
-      feePayer: fp,
-      authority: fp, // the platform authority recorded on the escrow
-      escrow,
-      vault,
-      userTokenAccount,
-      mint,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      systemProgram: SystemProgram.programId,
-      rent: SYSVAR_RENT_PUBKEY,
-    })
-    .instruction();
+  const ixs: TransactionInstruction[] = [];
+  for (const [i, d] of input.deposits.entries()) {
+    const escrow = escrowPda(d.reference);
+    const vault = vaultPda(escrow);
+    // One fee per conversion, however many vaults: only the primary leg's deposit is net of it.
+    const depositBase = (await toUsdcBaseUnits(d.amountUsd)) - (i === 0 ? feeBase : 0n);
+    if (depositBase <= 0n) throw new Error(`platform fee ${input.platformFeeUsd} swallows deposit ${d.amountUsd}`);
+    ixs.push(
+      await program()
+        .methods.deposit(new BN(depositBase.toString()), d.reference)
+        .accountsPartial({
+          user,
+          feePayer: fp,
+          authority: fp, // the platform authority recorded on the escrow
+          escrow,
+          vault,
+          userTokenAccount,
+          mint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .instruction(),
+    );
+  }
 
-  const tx = new Transaction().add(...pre, ix);
+  const tx = new Transaction().add(...pre, ...ixs);
   tx.feePayer = fp;
   tx.recentBlockhash = (await connection().getLatestBlockhash()).blockhash;
   tx.partialSign(feePayer());

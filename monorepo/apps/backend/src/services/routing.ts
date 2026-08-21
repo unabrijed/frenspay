@@ -6,7 +6,9 @@
 import type { PayoutMethod } from '@fpay/shared';
 
 import { blockedMerchantsForPayee, committedFloatByMerchant, listRoutableMerchants, type MerchantRow } from '../db/queries';
+import { amt, USDC_DECIMALS } from '../lib/amount';
 import { CORRIDORS } from '../lib/corridors';
+import { type Amount, BN, divUp, RATE_DECIMALS } from '../lib/units';
 
 import { ACTIVITY_SLOTS, activitySlot, leverageFor, MIN_BOND } from './merchantStats';
 
@@ -23,6 +25,15 @@ export interface RankedMerchant {
  * "Multiple months" — decided 2026-08-21.
  */
 export const PAYEE_COOLDOWN_DAYS = 90;
+
+/** Most LPs one payment may be split across. Bounds the deposit tx (each leg is one more escrow
+ *  PDA) and how many separate credits a receiver has to reconcile. */
+export const MAX_LEGS = 3;
+
+/** Smallest leg worth waking a human LP for, in USDC. Applies to splits only — a whole order below
+ *  this is bounded by MIN_ORDER_USD at the route, not here. */
+export const MIN_LEG_USDC = 5;
+
 /**
  * How recently an LP must have been seen for us to believe they'll act on an order now.
  *
@@ -115,6 +126,92 @@ export async function rankMerchants(input: {
     excludeIds: [...(input.excludeIds ?? []), ...blocked],
   });
 }
+
+/** The LP's rate at a spread: fiat per USDC off the live mid, rounded DOWN (less fiat per USDC, so
+ *  the USDC owed rounds up and the LP is never short — docs/01 money law). */
+export const lpRateAt = (mid: number, spreadBps: number): Amount =>
+  amt(mid)
+    .times(10_000 - spreadBps)
+    .div(10_000)
+    .dp(RATE_DECIMALS, BN.ROUND_DOWN);
+
+export interface Leg {
+  merchant: MerchantRow;
+  /** This leg's fiat, in whole minor units of the currency. */
+  amountFiat: Amount;
+  /** What this LP is owed for it — `divUp(amountFiat, lpRate)`, so no leg is ever short. */
+  amountUsdc: Amount;
+}
+
+export interface LegPlan {
+  legs: Leg[];
+  /** The spread the whole quote is struck at: the dearest leg's. One price per quote, or the lock's
+   *  `m.spread_bps <= q.spread_bps` would refuse a dearer leg's own provisional LP. */
+  spreadBps: number;
+  lpRate: Amount;
+}
+
+/**
+ * Split by necessity only. `ranked` is best-first; the first LP who can carry the whole amount at
+ * their own rate gets it as one leg. Only when nobody can does the payment become N legs on N
+ * distinct LPs, each sized to what that LP's headroom covers, N ≤ MAX_LEGS. Null = refuse the quote.
+ *
+ * Pure, so the money law below can be asserted with no database (check-routing-math.ts):
+ * - every leg's fiat is whole minor units and the legs sum to `amountFiat` exactly;
+ * - every leg's USDC is `divUp(fiat, lpRate)` — the LP is never short, the payer pays at most
+ *   (n−1) µUSDC more than a single leg would have cost;
+ * - every leg's USDC fits that LP's headroom (the cap is walked back one minor unit when rounding
+ *   up would not);
+ * - no split leg is below MIN_LEG_USDC — a sliver is moved off the largest leg, or the plan is refused.
+ *
+ * The rate depends on the set (the dearest spread) and the sizes depend on the rate, so the set is
+ * grown one LP at a time: spread only rises with n, so capacity only falls, so an LP who could not
+ * cover the rest at n−1 still cannot at n, and the n-th leg is always non-empty.
+ */
+export function planLegs(ranked: RankedMerchant[], amountFiat: Amount, mid: number, fdp: number): LegPlan | null {
+  const minor = amt(1).shiftedBy(-fdp);
+  for (let n = 1; n <= Math.min(MAX_LEGS, ranked.length); n++) {
+    // ponytail: best-first greedy. Fewest-legs packing only if MAX_LEGS refusals ever show up in metrics.
+    const set = ranked.slice(0, n);
+    const spreadBps = Math.max(...set.map((r) => r.merchant.spread_bps));
+    const lpRate = lpRateAt(mid, spreadBps);
+    const caps = set.map((r) => {
+      const headroom = amt(r.availableFloat);
+      let cap = headroom.times(lpRate).dp(fdp, BN.ROUND_DOWN);
+      if (divUp(cap, lpRate, USDC_DECIMALS).gt(headroom)) cap = cap.minus(minor);
+      return cap;
+    });
+    if (caps.reduce((s, c) => s.plus(c), amt(0)).lt(amountFiat)) continue;
+
+    const fiat: Amount[] = [];
+    let remaining = amountFiat;
+    for (const cap of caps) {
+      const f = BN.min(remaining, cap);
+      fiat.push(f);
+      remaining = remaining.minus(f);
+    }
+    if (n > 1) {
+      const last = n - 1;
+      const minFiat = amt(MIN_LEG_USDC).times(lpRate).dp(fdp, BN.ROUND_UP);
+      if (fiat[last].lt(minFiat)) {
+        const deficit = minFiat.minus(fiat[last]);
+        const j = fiat.slice(0, last).reduce((best, f, i, arr) => (f.gt(arr[best]) ? i : best), 0);
+        if (fiat[j].minus(deficit).lt(minFiat) || minFiat.gt(caps[last])) return null;
+        fiat[j] = fiat[j].minus(deficit);
+        fiat[last] = minFiat;
+      }
+    }
+    return {
+      legs: set.map((r, i) => ({
+        merchant: r.merchant,
+        amountFiat: fiat[i],
+        amountUsdc: divUp(fiat[i], lpRate, USDC_DECIMALS),
+      })),
+      spreadBps,
+      lpRate,
+    };
+  }
+  return null;
 }
 
 /**

@@ -26,6 +26,7 @@ import {
   getOrderForUser,
   getOrderSimRow,
   insertDispute,
+  listLegsForUser,
   listOrdersForUser,
   setMerchantKyb,
   setOrderFeedback,
@@ -38,6 +39,7 @@ import { checkCashOutLimit } from '../services/compliance';
 import { getMidRate } from '../services/fxRate';
 import { recomputeMerchantStats } from '../services/merchantStats';
 import { metrics } from '../services/metrics';
+import { aggregateLegs } from '../lib/legs';
 import {
   confirmOrderFromQuote,
   flagResolution,
@@ -171,7 +173,10 @@ export async function registerOrderRoutes(app: FastifyInstance) {
     const userId = requireUserId(req);
     const order = await getOrderForUser(req.params.id, userId);
     if (!order) return reply.code(404).send({ error: 'order_not_found' });
-    return { order };
+    // A payment made in parts reads as one order: the primary (with its events) carries the
+    // aggregate, and every leg rides along so the receipt can show each credit's reference.
+    const legs = await listLegsForUser(order.id, userId);
+    return { order: aggregateLegs(legs.length > 1 ? [order, ...legs.slice(1)] : [order]) };
   });
 
   app.get<{ Querystring: { limit?: string; cursor?: string } }>(

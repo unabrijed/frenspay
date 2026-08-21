@@ -934,10 +934,19 @@ export async function updatePayoutProvider(
   return rows[0] ?? null;
 }
 
+/** One leg of a split quote: which LP, how much fiat, and what that LP is owed for it (before the
+ *  platform's cut, which the primary leg's ORDER carries). Stored as `quotes.legs` jsonb. */
+export interface QuoteLeg {
+  merchantId: string;
+  amountFiat: string;
+  amountUsdc: string;
+}
+
 interface QuoteRow {
   id: string;
   user_id: string;
   merchant_id: string | null;
+  legs: QuoteLeg[] | null;
   direction: OrderDirection;
   currency: string;
   amount_inr: string;
@@ -973,6 +982,9 @@ function toQuote(r: QuoteRow): Quote {
     merchantName: 'Best route',
     payoutDestination: r.payout_destination ?? undefined,
     payoutName: r.payout_name ?? undefined,
+    // How many separate credits the receiver will see. Said before the payer commits — the LPs
+    // behind it stay invisible; the two credits on the shop's side do not.
+    parts: r.legs && r.legs.length > 1 ? r.legs.length : undefined,
     quotedAt: r.created_at.getTime(),
     expiresAt: r.expires_at.getTime(),
   };
@@ -1000,14 +1012,17 @@ export async function insertQuote(input: {
   routeQuality: RouteQuality;
   payoutDestination?: string | null;
   payoutName?: string | null;
+  /** The split plan, when routing had to split — null for a single-LP quote. */
+  legs?: QuoteLeg[] | null;
   expiresAt: Date;
 }): Promise<Quote> {
   const { rows } = await getPool().query<QuoteRow>(
     `with ins as (
        insert into quotes (user_id, merchant_id, direction, currency, amount_inr, amount_usdc, rate,
                            platform_fee_usdc, spread_bps, eta_min_secs, eta_max_secs,
-                           payout_method, route_quality, payout_destination, payout_name, expires_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+                           payout_method, route_quality, payout_destination, payout_name, expires_at,
+                           legs)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb)
        returning *
      )
      select ins.*, m.name as merchant_name
@@ -1029,6 +1044,8 @@ export async function insertQuote(input: {
       input.payoutDestination ?? null,
       input.payoutName ?? null,
       input.expiresAt,
+      // Stringified: pg would otherwise encode a JS array as a Postgres array literal, not JSON.
+      input.legs ? JSON.stringify(input.legs) : null,
     ],
   );
   return toQuote(rows[0]);
@@ -1045,6 +1062,8 @@ export async function getQuoteRowForUser(
   /** Raw numeric string, NOT a number — the deposit split subtracts it exactly (a float difference
    *  can exceed 6dp and parseAmount throws at the chain edge). */
   platformFeeUsdc: string;
+  /** The split plan; null = one LP, the existing columns. */
+  legs: QuoteLeg[] | null;
   expiresAt: Date;
 } | null> {
   const { rows } = await getPool().query<{
@@ -1052,9 +1071,10 @@ export async function getQuoteRowForUser(
     merchant_id: string | null;
     amount_usdc: string;
     platform_fee_usdc: string;
+    legs: QuoteLeg[] | null;
     expires_at: Date;
   }>(
-    'select id, merchant_id, amount_usdc, platform_fee_usdc, expires_at from quotes where id = $1 and user_id = $2',
+    'select id, merchant_id, amount_usdc, platform_fee_usdc, legs, expires_at from quotes where id = $1 and user_id = $2',
     [quoteId, userId],
   );
   const r = rows[0];
@@ -1064,15 +1084,22 @@ export async function getQuoteRowForUser(
         merchantId: r.merchant_id,
         amountUsdc: Number(r.amount_usdc),
         platformFeeUsdc: r.platform_fee_usdc,
+        legs: r.legs,
         expiresAt: r.expires_at,
       }
     : null;
 }
 
-/** The platform's in-rate cut for an order, as the raw numeric string ("0.000000" on pre-fee rows). */
+/**
+ * The platform's in-rate cut for an order, as the raw numeric string ("0.000000" on pre-fee rows).
+ * One fee per conversion, however many legs: it was split off at deposit from the PRIMARY leg's
+ * vault only, so only the primary's release under-records it and only the primary's refund returns
+ * it. A leg answering with the quote's fee would refund it N times over.
+ */
 export async function getOrderPlatformFee(orderId: string): Promise<string> {
   const { rows } = await getPool().query<{ platform_fee_usdc: string }>(
-    'select q.platform_fee_usdc from orders o join quotes q on q.id = o.quote_id where o.id = $1',
+    `select case when o.group_id is null then q.platform_fee_usdc else '0' end as platform_fee_usdc
+       from orders o join quotes q on q.id = o.quote_id where o.id = $1`,
     [orderId],
   );
   return rows[0]?.platform_fee_usdc ?? '0';
@@ -1084,6 +1111,8 @@ interface OrderJoinRow {
   state: OrderState;
   resolution: OrderResolution | null;
   amount_usdc: string;
+  /** This row's own fiat: its leg share, or the quote's whole amount. */
+  amount_fiat: string;
   reference_code: string;
   payout_claimed_at: Date | null;
   payout_utr: string | null;
@@ -1111,6 +1140,7 @@ interface OrderJoinRow {
 const ORDER_SELECT = `
   select o.id, o.user_id, o.state, o.resolution, o.amount_usdc, o.reference_code,
          o.payout_claimed_at, o.payout_utr, o.feedback_up, o.created_at, o.updated_at, o.quote_id,
+         coalesce(o.amount_fiat, q.amount_inr) as amount_fiat,
          q.direction as q_direction, q.currency as q_currency, q.amount_inr as q_amount_inr, q.amount_usdc as q_amount_usdc,
          q.rate as q_rate,
          q.eta_min_secs as q_eta_min_secs, q.eta_max_secs as q_eta_max_secs,
@@ -1151,6 +1181,7 @@ function toOrder(r: OrderJoinRow, events?: OrderEvent[]): Order {
     direction: r.q_direction,
     referenceCode: r.reference_code,
     amountUsdc: r.amount_usdc,
+    amountFiat: r.amount_fiat,
     quote,
     merchantName: quote.merchantName,
     payoutMethod: r.q_payout_method,
@@ -1175,10 +1206,15 @@ export async function insertOrder(input: {
   state: OrderState;
   escrowFundTransferId: string | null;
   note?: string;
+  /** Legs only: the primary leg's id. Null for the primary and for every single-LP order. */
+  groupId?: string | null;
+  /** Legs only: this leg's fiat, canonical string. Null = the quote's whole amount. */
+  amountFiat?: string | null;
 }): Promise<string> {
   const { rows } = await getPool().query<{ id: string }>(
-    `insert into orders (user_id, quote_id, merchant_id, amount_usdc, reference_code, state, escrow_fund_transfer_id, note)
-     values ($1,$2,$3,$4,$5,$6,$7,$8)
+    `insert into orders (user_id, quote_id, merchant_id, amount_usdc, reference_code, state, escrow_fund_transfer_id, note,
+                         group_id, amount_fiat)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      returning id`,
     [
       input.userId,
@@ -1189,9 +1225,53 @@ export async function insertOrder(input: {
       input.state,
       input.escrowFundTransferId,
       input.note ?? null,
+      input.groupId ?? null,
+      input.amountFiat ?? null,
     ],
   );
   return rows[0].id;
+}
+
+/** Every leg of the payment `orderId` belongs to, primary first — `(o.id = $1 or o.group_id = $1)`
+ *  is the whole definition of "the payment". One row for an ordinary single-LP order. */
+export async function listLegsForUser(primaryId: string, userId: string): Promise<Order[]> {
+  const { rows } = await getPool().query<OrderJoinRow>(
+    `${ORDER_SELECT}
+      where (o.id = $1 or o.group_id = $1) and o.user_id = $2
+      order by o.group_id nulls first, o.created_at, o.id`,
+    [primaryId, userId],
+  );
+  return rows.map((r) => toOrder(r));
+}
+
+/** Has every leg of this order's payment settled, and how much of it completed? Drives the one
+ *  "you paid X" notification per payment rather than one per leg. */
+export async function getGroupSettlement(
+  orderId: string,
+): Promise<{ userId: string; completedUsdc: number; allTerminal: boolean } | null> {
+  const { rows } = await getPool().query<{ user_id: string; completed_usdc: string; all_terminal: boolean }>(
+    `with g as (select coalesce(group_id, id) as gid, user_id from orders where id = $1)
+     select g.user_id,
+            coalesce(sum(x.amount_usdc) filter (where x.state = 'completed'), 0)::text as completed_usdc,
+            bool_and(x.state in ('completed','refunded','failed')) as all_terminal
+       from g join orders x on x.id = g.gid or x.group_id = g.gid
+      group by g.user_id`,
+    [orderId],
+  );
+  const r = rows[0];
+  return r ? { userId: r.user_id, completedUsdc: Number(r.completed_usdc), allTerminal: r.all_terminal } : null;
+}
+
+/** pay_instructions → waiting_payment for every leg of the payment: they all ride the one signature
+ *  the payer just broadcast. Returns the ids advanced (empty = nothing was pending). */
+export async function markGroupFundSubmitted(orderId: string, userId: string): Promise<string[]> {
+  const { rows } = await getPool().query<{ id: string }>(
+    `update orders set state = 'waiting_payment', updated_at = now()
+      where (id = $1 or group_id = $1) and user_id = $2 and state = 'pay_instructions'
+      returning id`,
+    [orderId, userId],
+  );
+  return rows.map((r) => r.id);
 }
 
 export async function appendOrderEvent(
@@ -1249,6 +1329,8 @@ export async function listOrdersForUser(
   const { rows } = await getPool().query<OrderJoinRow>(
     `${ORDER_SELECT}
       where o.user_id = $1
+        -- One row per PAYMENT: a split's legs hang off their primary and are not separate history.
+        and o.group_id is null
         and ($3::timestamptz is null or (o.created_at, o.id) < ($3::timestamptz, $4::uuid))
       order by o.created_at desc, o.id desc limit $2`,
     [userId, n + 1, c?.at ?? null, c?.id ?? null],
@@ -1353,7 +1435,7 @@ export async function listWorkerOrders(): Promise<WorkerOrderRow[]> {
             o.payout_provider_id, o.payout_providers_tried, o.payout_provider_ref,
             o.locked_at, o.lock_expires_at,
             m.treasury_address, m.sim_behavior, q.payout_method,
-            q.currency, q.amount_inr, q.payout_destination, q.payout_name,
+            q.currency, coalesce(o.amount_fiat, q.amount_inr) as amount_inr, q.payout_destination, q.payout_name,
             exists (select 1 from disputes d where d.order_id = o.id and d.status = 'open') as dispute_open
        from orders o
        left join merchants m on m.id = o.merchant_id
@@ -1391,17 +1473,19 @@ export async function getOrderByReference(reference: string): Promise<{
   return rows[0] ?? null;
 }
 
-/** Includes the merchant's sim_behavior so the caller can pick a human-sized SLA (NULL = real). */
-export async function getOrderByEscrowFundTransfer(
+/** Every order the one deposit signature funded — one, or every leg of a split payment. Includes the
+ *  merchant's sim_behavior so the caller can pick a human-sized SLA (NULL = real). */
+export async function listOrdersByEscrowFundTransfer(
   transferId: string,
-): Promise<{ id: string; state: OrderState; sim_behavior: string | null } | null> {
+): Promise<{ id: string; state: OrderState; sim_behavior: string | null }[]> {
   const { rows } = await getPool().query<{ id: string; state: OrderState; sim_behavior: string | null }>(
     `select o.id, o.state, m.sim_behavior
        from orders o left join merchants m on m.id = o.merchant_id
-      where o.escrow_fund_transfer_id = $1`,
+      where o.escrow_fund_transfer_id = $1
+      order by o.group_id nulls first, o.created_at`,
     [transferId],
   );
-  return rows[0] ?? null;
+  return rows;
 }
 
 export async function getOrderByEscrowReleaseTransfer(transferId: string): Promise<{ id: string; state: OrderState } | null> {
@@ -1479,16 +1563,18 @@ export async function casOrderState(
 export async function cancelOrder(orderId: string, userId: string): Promise<boolean> {
   // Never fail an order whose escrow deposit was already broadcast (signature set) — that would strand
   // funded USDC on-chain with no release/refund path. Only cancel orders that never funded.
-  const { rowCount } = await getPool().query(
+  // Every leg of the payment goes together: they share the one unsigned deposit being abandoned.
+  const { rows } = await getPool().query<{ id: string }>(
     `update orders set state = 'failed', updated_at = now()
-      where id = $1 and user_id = $2 and state in ('pay_instructions','waiting_payment')
+      where (id = $1 or group_id = $1) and user_id = $2 and state in ('pay_instructions','waiting_payment')
         and not exists (
           select 1 from transfers t where t.id = orders.escrow_fund_transfer_id and t.signature is not null
-        )`,
+        )
+      returning id`,
     [orderId, userId],
   );
-  if ((rowCount ?? 0) > 0) await appendOrderEvent(orderId, null, 'failed', 'canceled_by_user');
-  return (rowCount ?? 0) > 0;
+  for (const r of rows) await appendOrderEvent(r.id, null, 'failed', 'canceled_by_user');
+  return rows.length > 0;
 }
 
 /**
@@ -2213,7 +2299,7 @@ export async function getOrderAlertInfo(
   orderId: string,
 ): Promise<{ merchant: MerchantRow | null; amountFiat: string; currency: string } | null> {
   const { rows } = await getPool().query<MerchantRow & { amount_inr: string; currency: string }>(
-    `select m.*, q.amount_inr, q.currency
+    `select m.*, coalesce(o.amount_fiat, q.amount_inr) as amount_inr, q.currency
        from orders o
        join quotes q on q.id = o.quote_id
        left join merchants m on m.id = o.merchant_id
@@ -2262,7 +2348,7 @@ export async function merchantEarnings(merchantId: string, sinceDays: number): P
   const { rows } = await getPool().query<MerchantEarningsRow>(
     `select count(*)::int as settled,
             coalesce(sum(t.amount_usdc), 0)::text as usdc_in,
-            coalesce(sum(q.amount_inr), 0)::text as fiat_out,
+            coalesce(sum(coalesce(o.amount_fiat, q.amount_inr)), 0)::text as fiat_out,
             min(q.currency) as currency
        from orders o
        join quotes q on q.id = o.quote_id
@@ -2487,7 +2573,7 @@ export async function listMerchantOrders(merchantId: string, limit = 50): Promis
     `select o.id, o.reference_code, o.state, o.resolution, o.amount_usdc, o.payout_utr,
             o.payout_claimed_at, o.expires_at, o.created_at,
             o.locked_at, o.lock_expires_at, o.offer_widens_at, true as mine,
-            q.currency, q.amount_inr, q.payout_method,
+            q.currency, coalesce(o.amount_fiat, q.amount_inr) as amount_inr, q.payout_method,
             case when o.locked_at is not null or o.payout_claimed_at is not null
                  then q.payout_destination end as payout_destination,
             case when o.locked_at is not null or o.payout_claimed_at is not null
@@ -2532,7 +2618,7 @@ export async function listOpenOffers(
     `select o.id, o.reference_code, o.state, o.resolution, o.amount_usdc, o.payout_utr,
             o.payout_claimed_at, o.expires_at, o.created_at,
             o.locked_at, o.lock_expires_at, o.offer_widens_at, false as mine,
-            q.currency, q.amount_inr, q.payout_method,
+            q.currency, coalesce(o.amount_fiat, q.amount_inr) as amount_inr, q.payout_method,
             -- The whole point of the lock: nobody sees who to pay until they've committed to
             -- paying them. Redacted in SQL so no caller can forget.
             null::text as payout_destination, null::text as payout_name
