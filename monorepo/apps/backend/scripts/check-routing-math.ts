@@ -285,6 +285,17 @@ assert.ok(activitySlot(new Date('2026-08-13T23:00:00Z')) < ACTIVITY_SLOTS, 'slot
 // --- source drift: the filters that only a database can execute ----------------------------------
 {
   const queries = readFileSync(join(ROOT, 'src/db/queries.ts'), 'utf8');
+  const fnBody = (src: string, name: string) => {
+    const from = src.slice(src.indexOf(`export async function ${name}`));
+    return from.slice(0, from.indexOf('\nexport ', 1));
+  };
+
+  // --- one in-flight truth ---
+  for (const fn of ['committedFloatByMerchant', 'lockOrder', 'requestStakeWithdrawal']) {
+    assert.ok(fnBody(queries, fn).includes('${LIVE_ORDER_STATES}'), `${fn} must count in-flight with the ONE state set`);
+  }
+  assert.ok(merchantRoutes.includes('LIVE_ORDER_STATE_LIST'), 'the LP console headroom must use the same in-flight set');
+
   const routable = queries.slice(queries.indexOf('export async function listRoutableMerchants'));
   // To the next top-level declaration, not the first '\n}' — the signature's inline object type
   // closes with one, which silently truncated the body to above the SQL and made every gate below

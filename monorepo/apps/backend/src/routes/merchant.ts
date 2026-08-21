@@ -43,6 +43,7 @@ import {
   setMerchantAlertChannel,
   unlockOrder,
   listStakeWithdrawals,
+  LIVE_ORDER_STATE_LIST,
   requestStakeWithdrawal,
   setMerchantFloat,
   setMerchantOnlineSelf,
@@ -75,7 +76,7 @@ const MAX_SPREAD_BPS = 300;
 
 /** Order states that still tie up an LP's capacity — the same set committedFloatByMerchant counts,
  *  so the pool never offers an order the lock would immediately refuse for want of headroom. */
-const LIVE_FOR_CAPACITY = new Set(['payment_detected', 'merchant_confirms', 'funds_released']);
+const LIVE_FOR_CAPACITY = new Set<string>(LIVE_ORDER_STATE_LIST);
 
 /** Adapters services/alert knows how to reach. Validated here so an LP can't store an address for a
  *  channel that will never fire and then wonder why they hear nothing. */

@@ -1619,13 +1619,28 @@ export async function getOrderState(orderId: string): Promise<OrderState | null>
 
 /* ---- M4: merchant lifecycle, live float, performance stats, disputes ---- */
 
-/** Committed (in-flight) float per merchant: sum of amounts on non-terminal assigned orders. */
+/**
+ * Order states in which an LP still owes someone a fiat payout — THE one definition of "in flight".
+ *
+ * Routing, the lock's capacity re-check, the LP console's headroom and the stake-withdrawal gate
+ * all used to carry their own copy, and two of them disagreed: routing also counted
+ * `pay_instructions`/`waiting_payment`, which are a payer's unsigned intent (they expire unfunded
+ * after 15 min). Counting those parked real capacity on abandoned wallet pop-ups. An LP's obligation
+ * starts at `payment_detected` — the escrow is funded and somebody must now be paid — so that is
+ * where the count starts. The only cost: two orders funded inside one 45-s quote window can both be
+ * provisionally assigned to the same LP; the lock CAS refuses the second, which costs that payer the
+ * 20-s head start before the pool takes it, never money.
+ */
+export const LIVE_ORDER_STATE_LIST = ['payment_detected', 'merchant_confirms', 'funds_released'] as const;
+const LIVE_ORDER_STATES = `(${LIVE_ORDER_STATE_LIST.map((s) => `'${s}'`).join(',')})`;
+
+/** Committed (in-flight) float per merchant: sum of amounts on funded, unsettled orders. */
 export async function committedFloatByMerchant(): Promise<Record<string, number>> {
   const { rows } = await getPool().query<{ merchant_id: string; committed: string }>(
     `select merchant_id, coalesce(sum(amount_usdc), 0) as committed
        from orders
       where merchant_id is not null
-        and state in ('pay_instructions','waiting_payment','payment_detected','merchant_confirms','funds_released')
+        and state in ${LIVE_ORDER_STATES}
       group by merchant_id`,
   );
   const out: Record<string, number> = {};
@@ -1924,10 +1939,6 @@ export async function creditStakeOnConfirm(transferId: string, stakeTreasuryAddr
   return rows[0] ? Number(rows[0].amount_usdc) : 0;
 }
 
-/** Order states that mean an LP still owes someone a fiat payout — same set committedFloatByMerchant
- *  treats as in-flight. Money backing these is not the LP's to withdraw. */
-const LIVE_ORDER_STATES = `('pay_instructions','waiting_payment','payment_detected','merchant_confirms','funds_released')`;
-
 /**
  * Ask for stake back. ONE statement on purpose: the bond debit and the request row must land
  * together or not at all, and every precondition is a predicate rather than a read-then-write, so
@@ -2081,7 +2092,7 @@ export async function lockOrder(input: {
                      select sum(o2.amount_usdc) from orders o2
                       where o2.merchant_id = $2
                         and o2.id <> o.id
-                        and o2.state in ('payment_detected','merchant_confirms','funds_released')
+                        and o2.state in ${LIVE_ORDER_STATES}
                    ), 0)
                    <= least(m.float_usdc, m.bond_usdc * $5)
           )
