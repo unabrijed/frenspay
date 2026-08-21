@@ -2208,7 +2208,7 @@ export interface MerchantEarningsRow {
 export async function merchantEarnings(merchantId: string, sinceDays: number): Promise<MerchantEarningsRow> {
   const { rows } = await getPool().query<MerchantEarningsRow>(
     `select count(*)::int as settled,
-            coalesce(sum(t.amount_usd), 0)::text as usdc_in,
+            coalesce(sum(t.amount_usdc), 0)::text as usdc_in,
             coalesce(sum(q.amount_inr), 0)::text as fiat_out,
             min(q.currency) as currency
        from orders o
