@@ -240,7 +240,7 @@ export default function MerchantHome() {
   useEffect(() => {
     if (!merchant) return undefined;
     void reload();
-    const t = setInterval(() => void reload(), 8000);
+    const t = setInterval(() => void reload(), 3000);
     return () => clearInterval(t);
   }, [merchant, reload]);
 

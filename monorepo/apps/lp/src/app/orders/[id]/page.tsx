@@ -62,7 +62,7 @@ export default function MerchantOrder() {
 
   useEffect(() => {
     void reload();
-    const t = setInterval(() => void reload(), 8000);
+    const t = setInterval(() => void reload(), 3000);
     return () => clearInterval(t);
   }, [reload]);
 
