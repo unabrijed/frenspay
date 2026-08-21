@@ -289,7 +289,7 @@ interface PayState {
   /** Poll the in-flight order; refreshes balance once it reaches a terminal state. */
   refreshOrder: () => Promise<void>;
   /** Payer reports the money never arrived, while the merchant's release window is still open. */
-  disputeOrder: (reason?: string) => Promise<void>;
+  disputeOrder: (reason?: string, orderId?: string) => Promise<void>;
   feedbackOrder: (up: boolean) => Promise<void>;
   /** Discard the quote and go back to amount entry. */
   editQuote: () => void;
@@ -1314,12 +1314,13 @@ export const usePayStore = create<PayState>()(
        * until a human resolves it; an upheld dispute refunds the payer and slashes the merchant's
        * stake.
        */
-      disputeOrder: async (reason) => {
+      disputeOrder: async (reason, orderId) => {
         const current = get().order;
         if (!current) return;
         set({ busy: true, error: null });
         try {
-          await api.disputeOrder(current.id, reason);
+          // A payment made in parts is disputed per part — each leg is its own order server-side.
+          await api.disputeOrder(orderId ?? current.id, reason);
           set({ busy: false });
           get().notify("Reported. We'll review and get back to you.", 'success');
           await get().refreshOrder();

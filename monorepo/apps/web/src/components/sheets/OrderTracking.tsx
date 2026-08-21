@@ -114,23 +114,65 @@ export function OrderTracking() {
   }, [order?.id, terminal, refreshOrder]);
 
   if (!order) return null;
-  if (order.state === 'completed') {
+  // A payment made in parts arrives as `legs` (the primary included); each is its own credit with its
+  // own reference and its own recourse. A single payment is just one leg.
+  const legs = order.legs ?? [order];
+  const parts = legs.length > 1;
+  // Recourse, per credit, while its window runs: claimed, not escalating, not yet settled.
+  const disputable = legs.filter((l) => l.payoutClaimedAt && !l.resolution && l.state !== 'completed');
+  const disputeLinks = disputable.map((leg) => (
+    <TextLink
+      key={leg.id}
+      label={busy ? 'Reporting…' : parts ? `I didn't receive part ${legs.indexOf(leg) + 1}` : "I didn't receive this"}
+      onPress={() => void disputeOrder(undefined, leg.id)}
+    />
+  ));
+  // "Paid" the moment every credit is claimed, not when the escrow settles behind it ~2½ minutes
+  // later. The receiver has the money at the claim — that is the payer's outcome; what happens to
+  // the escrow afterwards is ours. The dispute link stays under the receipt for as long as the
+  // window runs, and `completed` is what takes it away.
+  const paid =
+    order.state === 'completed' ||
+    (!!order.payoutClaimedAt && !order.resolution && order.state !== 'refunded' && order.state !== 'failed');
+  if (paid) {
+    const reached = legs.filter((l) => l.state !== 'refunded' && l.state !== 'failed');
+    const returned = legs.filter((l) => l.state === 'refunded');
+    const paidFiat = returned.length
+      ? reached.reduce((s, l) => s + Number(l.amountFiat ?? 0), 0)
+      : order.quote.amountInr;
     return (
-      <Outcome title="Paid" headline={`${fiatRaw(order.quote.amountInr, order.quote.currency)} paid`} inst="Paid from your balance" onClose={close}>
+      <Outcome
+        title="Paid"
+        headline={`${fiatRaw(paidFiat, order.quote.currency)} paid`}
+        inst={parts ? `Paid from your balance, as ${legs.length} payments` : 'Paid from your balance'}
+        onClose={close}
+      >
         {/* The reference the payee's own bank shows against the credit. Standing at a counter, this
             is the thing that ends the conversation — the shopkeeper matches it and you leave. A UTR
             identifies the payment, not who sent it, so showing it keeps the LP invisible. */}
-        {order.payoutUtr ? (
-          <Pressable
-            onPress={() => void navigator.clipboard?.writeText(order.payoutUtr!)}
-            style={({ pressed }) => [styles.utr, pressed ? { opacity: 0.7 } : null]}
-          >
-            <Txt style={type.inst}>Reference for {order.quote.payoutName ?? 'them'}, tap to copy</Txt>
-            <Txt style={{ ...fonts.mono400, fontSize: 17, color: colors.ink, marginTop: 2 }}>{order.payoutUtr}</Txt>
-          </Pressable>
-        ) : null}
+        {reached.map((leg) =>
+          leg.payoutUtr ? (
+            <Pressable
+              key={leg.id}
+              onPress={() => void navigator.clipboard?.writeText(leg.payoutUtr!)}
+              style={({ pressed }) => [styles.utr, pressed ? { opacity: 0.7 } : null]}
+            >
+              <Txt style={type.inst}>
+                Reference for {order.quote.payoutName ?? 'them'}
+                {parts ? ` · ${fiatRaw(leg.amountFiat ?? '0', order.quote.currency)}` : ''}, tap to copy
+              </Txt>
+              <Txt style={{ ...fonts.mono400, fontSize: 17, color: colors.ink, marginTop: 2 }}>{leg.payoutUtr}</Txt>
+            </Pressable>
+          ) : null,
+        )}
+        {returned.map((leg) => (
+          <Txt key={leg.id} style={[type.inst, { textAlign: 'center', marginTop: 12 }]}>
+            {fiatRaw(leg.amountFiat ?? '0', order.quote.currency)} came back to your balance
+          </Txt>
+        ))}
+        {disputeLinks.length ? <View style={styles.recourse}>{disputeLinks}</View> : null}
         {/* One-tap feedback — never names the merchant (the LP stays invisible per "just pay"). */}
-        {order.feedbackUp === undefined ? (
+        {order.state !== 'completed' ? null : order.feedbackUp === undefined ? (
           <View style={styles.feedback}>
             <Txt style={type.inst}>Did everything go smoothly?</Txt>
             <View style={styles.thumbs}>
@@ -189,13 +231,9 @@ export function OrderTracking() {
         <View style={styles.cta}>
           {/* The payer's half of the trust model: while the recipient hasn't confirmed, they can
               say so. This freezes the release and puts a human on it — and it's what makes the
-              merchant's stake mean something. */}
-          {order.payoutClaimedAt && !order.resolution ? (
-            <TextLink
-              label={busy ? 'Reporting…' : "I didn't receive this"}
-              onPress={() => void disputeOrder()}
-            />
-          ) : null}
+              merchant's stake mean something. (A single payment that is claimed shows the Paid
+              card above instead; this is for a part that is claimed while another is still going.) */}
+          {disputeLinks}
           <TextLink label="Run in background" onPress={close} />
         </View>
       </SheetBody>
@@ -214,6 +252,7 @@ const styles = {
   steps: { marginTop: 8 },
   cta: { gap: 13, alignItems: 'center' },
   utr: { alignItems: 'center', marginTop: 14, padding: 12, borderRadius: radii.card, backgroundColor: colors.surfaceLow },
+  recourse: { alignItems: 'center', gap: 10, marginTop: 16 },
   feedback: { alignItems: 'center', gap: 10, marginTop: 14 },
   thumbs: { flexDirection: 'row', gap: 28 },
   thumb: { padding: 8 },

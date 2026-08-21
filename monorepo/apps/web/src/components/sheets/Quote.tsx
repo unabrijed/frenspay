@@ -79,6 +79,9 @@ export function QuoteSheet() {
           {quote.payoutDestination ? <Line k="Paying to" v={quote.payoutDestination} /> : null}
           <Line k="Today's rate" v={`$1 = ${fiatRaw(quote.rate, quote.currency)}`} />
           <Line k="Total time" v={fmtEta(quote.etaMinSecs, quote.etaMaxSecs)} />
+          {/* The shop will see N separate credits. Said here, before committing, because the person
+              at the counter is the one who has to add them up — nothing about who sends them. */}
+          {quote.parts ? <Line k="Arrives as" v={`${quote.parts} payments`} /> : null}
           {/* Name the operator behind the VPA suffix when known (@okaxis → Google Pay) — part of
               the same anti-wrong-send confirmation as the destination line above. */}
           <Line k="Payout method" v={operatorLabel(quote.payoutMethod, quote.payoutDestination)} />
