@@ -1634,6 +1634,39 @@ export async function getOrderState(orderId: string): Promise<OrderState | null>
 export const LIVE_ORDER_STATE_LIST = ['payment_detected', 'merchant_confirms', 'funds_released'] as const;
 const LIVE_ORDER_STATES = `(${LIVE_ORDER_STATE_LIST.map((s) => `'${s}'`).join(',')})`;
 
+/**
+ * The pair rule, as one SQL fragment (the body of an `exists`): has LP `lp` paid `payee` within
+ * `days`, or are they holding a live order to `payee` right now?
+ *
+ * The history it reads is the claim itself. `claimOrderPayout` is the only writer of
+ * `payout_claimed_at`, and after a claim `merchant_id` can never change (lock and reroute both
+ * require it null) — so `orders ⋈ quotes` IS the complete, atomic who-paid-whom-when ledger, and
+ * the `payee_payments` view (0019) is that same join with a name. The live arm is what keeps two
+ * legs of one payment on two different LPs without a line of extra code.
+ *
+ * One fragment, three attach points (routing's blocked set, the lock CAS, the pool view), because
+ * a rule that lives in two of the three leaks through the third.
+ */
+const payeePaidSql = (p: { lp: string; payee: string; days: string; exceptOrder?: string }) =>
+  `select 1 from orders o2 join quotes q2 on q2.id = o2.quote_id
+    where o2.merchant_id = ${p.lp} and q2.payout_destination = ${p.payee}
+      ${p.exceptOrder ? `and o2.id <> ${p.exceptOrder}` : ''}
+      and (o2.payout_claimed_at > now() - make_interval(days => ${p.days})
+           or o2.state in ${LIVE_ORDER_STATES})`;
+
+/** Human LPs the pair rule bars from `payee` today. Provider (`psp`) and sim rows are exempt: the
+ *  rule is about a personal bank account repeating a receiver, and the platform's one Indonesia row
+ *  pays every warung in the country. A null payee never matches anything — the rule is off for it. */
+export async function blockedMerchantsForPayee(payee: string, days: number): Promise<string[]> {
+  const { rows } = await getPool().query<{ id: string }>(
+    `select m.id from merchants m
+      where m.sim_behavior is null
+        and exists (${payeePaidSql({ lp: 'm.id', payee: '$1', days: '$2' })})`,
+    [payee, days],
+  );
+  return rows.map((r) => r.id);
+}
+
 /** Committed (in-flight) float per merchant: sum of amounts on funded, unsettled orders. */
 export async function committedFloatByMerchant(): Promise<Record<string, number>> {
   const { rows } = await getPool().query<{ merchant_id: string; committed: string }>(
@@ -2049,6 +2082,8 @@ export async function lockOrder(input: {
    *  here. Tier only moves on the ~80s stats tick; bond and float are the volatile halves and are
    *  read fresh inside the statement. */
   leverage: number;
+  /** How long after paying a receiver this LP is barred from paying them again (routing.PAYEE_COOLDOWN_DAYS). */
+  payeeCooldownDays: number;
 }): Promise<{ payoutDestination: string | null; payoutName: string | null } | null> {
   const { rows } = await getPool().query<{ payout_destination: string | null; payout_name: string | null }>(
     // EVERY eligibility rule is re-checked HERE, inside the CAS. It previously checked only the
@@ -2095,6 +2130,12 @@ export async function lockOrder(input: {
                         and o2.state in ${LIVE_ORDER_STATES}
                    ), 0)
                    <= least(m.float_usdc, m.bond_usdc * $5)
+               -- The pair rule. A personal account paying the same receiver again and again is the
+               -- documented account-freeze pattern, so it is a filter, not a score: this LP must not
+               -- have paid q.payout_destination inside the cooldown, and must not be holding another
+               -- live order to them (which is also what puts two legs of one payment on two LPs).
+               -- Re-checked here because the pool path never goes through rankMerchants.
+               and not exists (${payeePaidSql({ lp: '$2', payee: 'q.payout_destination', days: '$6', exceptOrder: 'o.id' })})
           )
        returning o.quote_id
      )
@@ -2105,6 +2146,7 @@ export async function lockOrder(input: {
       Math.round(input.ttlMs / 1000),
       input.country,
       input.leverage,
+      input.payeeCooldownDays,
     ],
   );
   if (!rows[0]) return null;
@@ -2476,7 +2518,14 @@ export async function listMerchantOrders(merchantId: string, limit = 50): Promis
  * field in a mapper — see the `null::text` columns.
  */
 export async function listOpenOffers(
-  filter: { merchantId: string; payoutRail: PayoutMethod; country: string; spreadBps: number; maxAmountUsdc: number },
+  filter: {
+    merchantId: string;
+    payoutRail: PayoutMethod;
+    country: string;
+    spreadBps: number;
+    maxAmountUsdc: number;
+    payeeCooldownDays: number;
+  },
   limit = 25,
 ): Promise<MerchantOrderRow[]> {
   const { rows } = await getPool().query<MerchantOrderRow>(
@@ -2506,9 +2555,20 @@ export async function listOpenOffers(
         and o.resolution is null
         and (o.expires_at is null or o.expires_at > now() + interval '60 seconds')
         and exists (select 1 from merchants m where m.id = $1 and m.country = $5)
+        -- The pair rule, so the pool never shows work the lock would refuse. A view only — the
+        -- lock re-checks it inside its own CAS.
+        and not exists (${payeePaidSql({ lp: '$1', payee: 'q.payout_destination', days: '$7', exceptOrder: 'o.id' })})
       order by o.created_at asc
       limit $6`,
-    [filter.merchantId, filter.spreadBps, filter.payoutRail, filter.maxAmountUsdc, filter.country, limit],
+    [
+      filter.merchantId,
+      filter.spreadBps,
+      filter.payoutRail,
+      filter.maxAmountUsdc,
+      filter.country,
+      limit,
+      filter.payeeCooldownDays,
+    ],
   );
   return rows;
 }

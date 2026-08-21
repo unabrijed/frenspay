@@ -5,7 +5,7 @@
 // invisible to the user, who just pays.
 import type { PayoutMethod } from '@fpay/shared';
 
-import { committedFloatByMerchant, listRoutableMerchants, type MerchantRow } from '../db/queries';
+import { blockedMerchantsForPayee, committedFloatByMerchant, listRoutableMerchants, type MerchantRow } from '../db/queries';
 import { CORRIDORS } from '../lib/corridors';
 
 import { ACTIVITY_SLOTS, activitySlot, leverageFor, MIN_BOND } from './merchantStats';
@@ -16,6 +16,13 @@ export interface RankedMerchant {
   availableFloat: number; // float − in-flight commitments
 }
 
+/**
+ * The pair rule's cooldown: how long after paying a receiver an LP is barred from paying that same
+ * receiver again. A personal account paying the same handle repeatedly is the documented
+ * account-freeze pattern (docs/08), so this is a hard filter at every attach point, never a score.
+ * "Multiple months" — decided 2026-08-21.
+ */
+export const PAYEE_COOLDOWN_DAYS = 90;
 /**
  * How recently an LP must have been seen for us to believe they'll act on an order now.
  *
@@ -80,6 +87,9 @@ export async function rankMerchants(input: {
   payoutMethod: PayoutMethod;
   amountUsdc: number;
   excludeIds?: string[];
+  /** Who the fiat is for. When set, every LP the pair rule bars from this receiver is excluded —
+   *  same rule the lock re-checks in SQL, so a quote can never promise an LP the lock would refuse. */
+  payee?: string | null;
 }): Promise<RankedMerchant[]> {
   // Country comes from the corridor, which mirrors rails.ts — the only country list (invariant 1).
   // Today this is implied by the rail (UPI is India, QRIS is Indonesia), so the filter is nearly a
@@ -99,7 +109,12 @@ export async function rankMerchants(input: {
     country: corridor.country,
     minBondUsdc: MIN_BOND,
   });
-  return rankPool(eligible, await committedFloatByMerchant(), input);
+  const blocked = input.payee ? await blockedMerchantsForPayee(input.payee, PAYEE_COOLDOWN_DAYS) : [];
+  return rankPool(eligible, await committedFloatByMerchant(), {
+    amountUsdc: input.amountUsdc,
+    excludeIds: [...(input.excludeIds ?? []), ...blocked],
+  });
+}
 }
 
 /**

@@ -290,6 +290,21 @@ assert.ok(activitySlot(new Date('2026-08-13T23:00:00Z')) < ACTIVITY_SLOTS, 'slot
     return from.slice(0, from.indexOf('\nexport ', 1));
   };
 
+  // --- the pair rule (0019): one fragment, three attach points ---
+  //
+  // A rule that lives in two of the three leaks through the third. Routing's blocked set covers
+  // quote, reroute and split planning; the lock re-checks it inside its own CAS because the pool
+  // path never calls rankMerchants; the pool view carries it so an LP is never shown work the lock
+  // would refuse.
+  for (const fn of ['lockOrder', 'listOpenOffers', 'blockedMerchantsForPayee']) {
+    assert.ok(fnBody(queries, fn).includes('payeePaidSql('), `${fn} lost the pair rule`);
+  }
+  assert.ok(fnBody(queries, 'blockedMerchantsForPayee').includes('sim_behavior is null'), 'the pair rule is about a PERSON — provider/sim rows are exempt');
+  const routingSrc = readFileSync(join(ROOT, 'src/services/routing.ts'), 'utf8');
+  assert.ok(routingSrc.includes('blockedMerchantsForPayee(input.payee'), 'rankMerchants must fold the blocked set into its exclusions');
+  const merchantRoutes = readFileSync(join(ROOT, 'src/routes/merchant.ts'), 'utf8');
+  assert.ok(merchantRoutes.includes('payeeCooldownDays: PAYEE_COOLDOWN_DAYS'), 'the lock and pool routes must pass the one cooldown constant');
+
   // --- one in-flight truth ---
   for (const fn of ['committedFloatByMerchant', 'lockOrder', 'requestStakeWithdrawal']) {
     assert.ok(fnBody(queries, fn).includes('${LIVE_ORDER_STATES}'), `${fn} must count in-flight with the ONE state set`);

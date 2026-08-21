@@ -50,7 +50,7 @@ export async function createQuote(
   // money:number — the ranking float-filter only. rankMerchants compares available LP capacity and
   // scores it; it never moves money, so a sub-ulp difference can only shift an exact-boundary tie.
   const provisionalUsdc = input.amountInr / mid;
-  const ranked = await rankMerchants({ payoutMethod: input.payoutMethod, amountUsdc: provisionalUsdc });
+  const ranked = await rankMerchants({ payoutMethod: input.payoutMethod, amountUsdc: provisionalUsdc, payee: input.payoutDestination ?? null });
   const top = ranked[0];
   if (!top) return { error: 'no_merchant' };
   const merchant = top.merchant;

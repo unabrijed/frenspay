@@ -60,6 +60,7 @@ import { formatAmount } from '../lib/units';
 import { KYC_APPROVED_TIER } from '../services/kyc';
 import { DISPUTE_WINDOW_MS, LOCK_TTL_MS } from '../services/orderMachine';
 import { leverageFor, MIN_BOND, tierProgress } from '../services/merchantStats';
+import { PAYEE_COOLDOWN_DAYS } from '../services/routing';
 import { buildUsdcTransfer } from '../services/solana';
 
 /** Cap on a single stake deposit — a typo shouldn't be able to move a merchant's whole balance. */
@@ -244,6 +245,7 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
           country: merchant.country,
           spreadBps: merchant.spread_bps,
           maxAmountUsdc: headroom,
+          payeeCooldownDays: PAYEE_COOLDOWN_DAYS,
         });
       }
     }
@@ -271,6 +273,7 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
       ttlMs: LOCK_TTL_MS,
       country: merchant.country,
       leverage: leverageFor(merchant.tier),
+      payeeCooldownDays: PAYEE_COOLDOWN_DAYS,
     });
     // 409, not 404: the order exists — someone else got there first, or it moved on.
     if (!taken) return reply.code(409).send({ error: 'order_already_taken' });

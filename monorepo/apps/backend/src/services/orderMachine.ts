@@ -469,6 +469,9 @@ export async function rerouteOrder(input: {
    *  below matched zero rows, rerouteOrder returned false, and the worker REFUNDED the payer while
    *  the locking LP was still holding a live lock and paying the fiat leg. */
   currentMerchantId: string | null;
+  /** Who the fiat is for — the pair rule excludes any LP who has paid them recently or holds a
+   *  sibling leg to them, so a failover can't land where routing would never have gone. */
+  payee: string | null;
 }): Promise<boolean> {
   const attempts = await listRoutingAttempts(input.orderId);
   const sequence = attempts.length ? Math.max(...attempts.map((a) => a.sequence)) : 0;
@@ -476,7 +479,12 @@ export async function rerouteOrder(input: {
   if (sequence >= MAX_ROUTING_ATTEMPTS || !currentMerchantId) return false; // give up → refund
 
   const tried = attempts.map((a) => a.merchantId);
-  const ranked = await rankMerchants({ payoutMethod: input.payoutMethod, amountUsdc: input.amountUsdc, excludeIds: tried });
+  const ranked = await rankMerchants({
+    payoutMethod: input.payoutMethod,
+    amountUsdc: input.amountUsdc,
+    excludeIds: tried,
+    payee: input.payee,
+  });
   const next = ranked[0]?.merchant;
   if (!next) return false; // no fresh LP that can cover the order → refund
 
