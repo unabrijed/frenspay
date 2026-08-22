@@ -29,7 +29,7 @@ const SOLANA_CHAIN = IS_MAINNET ? ('solana:mainnet' as const) : ('solana:devnet'
 export function PrivyBridge(): null {
   const { user, ready, getAccessToken, logout } = usePrivy();
   const { sendCode, loginWithCode } = useLoginWithEmail();
-  const { wallets } = useWallets();
+  const { wallets, ready: walletsReady } = useWallets();
   const { createWallet } = useCreateWallet();
   const { signAndSendTransaction } = useSignAndSendTransaction();
   const { linkWithPasskey } = useLinkWithPasskey();
@@ -109,15 +109,21 @@ export function PrivyBridge(): null {
   }, [user]);
 
   // Once authenticated: ensure an embedded Solana wallet, then publish token + signer + address.
+  // Gated on the wallet list being READY, not just `ready`+`user`: on a cold return Privy resolves
+  // the session before it has listed the wallets, so `wallets` is briefly [] for a user who has
+  // one. Without the gate that read as "no wallet" → createWallet → "User already has an embedded
+  // wallet" → the catch below published authReady with authStatus still signedOut → the entry
+  // router sent a signed-in user to the marketing screen.
   const wallet = wallets?.[0];
   const creatingRef = useRef(false);
   useEffect(() => {
-    if (!ready || !user) return undefined;
+    if (!ready || !user || !walletsReady) return undefined;
     let cancelled = false;
     (async () => {
       if (!wallet) {
-        // Create the embedded Solana wallet at most once — Privy errors on a second call
-        // (or if one already exists). Reset only on failure so a later run can retry.
+        // Privy has confirmed the list is empty (brand-new signup). Create the embedded Solana
+        // wallet at most once — Privy errors on a second call. Reset only on failure so a later
+        // run can retry.
         if (!creatingRef.current) {
           creatingRef.current = true;
           try {
@@ -162,7 +168,7 @@ export function PrivyBridge(): null {
     return () => {
       cancelled = true;
     };
-  }, [ready, user, wallet, createWallet, getAccessToken, signAndSendTransaction]);
+  }, [ready, user, walletsReady, wallet, createWallet, getAccessToken, signAndSendTransaction]);
 
   return null;
 }
