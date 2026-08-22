@@ -2,13 +2,13 @@
 import type { ReactNode } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { type St, sx } from './rn';
+import { rnStyle, type St } from './rn';
 
 type Edge = 'top' | 'bottom' | 'left' | 'right';
 
 export function Screen({ children, edges = ['top'], style }: { children: ReactNode; edges?: Edge[]; style?: St | St[] }) {
   return (
-    <SafeAreaView edges={edges} style={[{ flex: 1 }, sx(style as St[])]}>
+    <SafeAreaView edges={edges} style={[{ flex: 1 }, rnStyle(style as St[])]}>
       {children}
     </SafeAreaView>
   );

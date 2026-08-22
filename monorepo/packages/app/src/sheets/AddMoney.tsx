@@ -5,16 +5,11 @@
 // smart-wallet address (identical on each), so choosing Base/Arbitrum/Ethereum shows the same
 // address (we say so); Solana has its own.
 import { useState } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
 
-import { Icons } from '@/components/icons';
-import { Btn, TextLink } from '@/components/ui/Button';
-import { Chip, Chips, Eyebrow, Field, Grab, List, Row, RowIcon, RowMeta, SheetBody, SheetHeader } from '@/components/ui/primitives';
-import { haptic, Pressable, sx, View } from '@/components/ui/rn';
-import { Txt } from '@/components/ui/Txt';
-import { colors, fonts, type } from '@/lib/theme';
-import { IS_MAINNET } from '@/services/envConfig';
-import { usePayStore } from '@/store/usePayStore';
+import { Btn, Chip, Chips, colors, Eyebrow, Field, fonts, Grab, haptic, Icons, Input, List, Pressable, Row, RowIcon, RowMeta, SheetBody, SheetHeader, sx, TextLink, Txt, type, View } from '@fpay/ui';
+import { platform } from '../platform';
+import { QrCode } from '../components/QrCode';
+import { usePayStore } from '../store';
 
 const CHIPS = [50, 100, 250];
 
@@ -26,7 +21,7 @@ const ALL_NETWORKS: Array<{ id: string; name: string; chain: 'evm' | 'solana' }>
 ];
 // ponytail: on mainnet the EVM chips hide entirely — the smart-wallet bridge (CCTP) is off there,
 // so USDC sent to the EVM address would strand. Restore the chips when cross-chain ships on mainnet.
-const NETWORKS = IS_MAINNET ? ALL_NETWORKS.filter((n) => n.chain === 'solana') : ALL_NETWORKS;
+const networks = () => (platform().env.isMainnet ? ALL_NETWORKS.filter((n) => n.chain === 'solana') : ALL_NETWORKS);
 
 function DepositFromWallet() {
   const evmAddress = usePayStore((s) => s.evmDepositAddress);
@@ -36,29 +31,29 @@ function DepositFromWallet() {
   const checkDeposits = usePayStore((s) => s.checkDeposits);
   const doMoveToBalance = usePayStore((s) => s.doMoveToBalance);
   const error = usePayStore((s) => s.error);
-  const [net, setNet] = useState(IS_MAINNET ? 'solana' : 'base');
+  const [net, setNet] = useState(platform().env.isMainnet ? 'solana' : 'base');
   const [copied, setCopied] = useState(false);
   const [showQr, setShowQr] = useState(false);
 
   if (!evmAddress && !solAddress) return null; // no wallet yet (dev mode / first login still provisioning)
 
-  const sel = NETWORKS.find((n) => n.id === net) ?? NETWORKS[0];
+  const sel = networks().find((n) => n.id === net) ?? networks()[0];
   const address = sel.chain === 'evm' ? evmAddress : solAddress;
   const copy = async () => {
     if (!address) return;
     haptic();
-    await navigator.clipboard.writeText(address).catch(() => {});
+    await platform().copy(address).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
   // EVM deposits are detected then bridged to balance (CCTP); Solana lands directly, so no "move".
-  const found = NETWORKS.filter((n) => n.chain === 'evm' && (balances?.[n.id] ?? 0) >= 1);
+  const found = networks().filter((n) => n.chain === 'evm' && (balances?.[n.id] ?? 0) >= 1);
 
   return (
     <>
       <Eyebrow style={{ marginTop: 22, marginBottom: 10 }}>Deposit USDC from another wallet</Eyebrow>
       <Chips>
-        {NETWORKS.map((n) => (
+        {networks().map((n) => (
           <Chip
             key={n.id}
             label={n.name}
@@ -109,7 +104,7 @@ function DepositFromWallet() {
                 alignItems: 'center',
                 justifyContent: 'center',
               }}>
-              <QRCodeSVG value={address} size={176} bgColor="#FFFFFF" fgColor={colors.ink} level="M" />
+              <QrCode value={address} size={176} />
             </View>
           ) : null}
           {/* On-ramp is an allowed chain-surface context, and the warning prevents wrong-network
@@ -158,7 +153,7 @@ export function AddMoney() {
       <SheetHeader title="Add money" onClose={close} />
       <SheetBody>
         {/* The faucet is test money — it never exists on mainnet, where deposits are the only way in. */}
-        {IS_MAINNET ? null : (
+        {platform().env.isMainnet ? null : (
           <>
             <Txt style={type.lead}>Top up your dollar balance.</Txt>
             <View style={{ marginTop: 16 }}>
@@ -170,15 +165,15 @@ export function AddMoney() {
             </View>
             <Field style={{ marginTop: 12 }}>
               <Txt style={[type.fieldText, { color: colors.muted }]}>$</Txt>
-              <input
+              <Input
                 value={amt ? String(amt) : ''}
-                onChange={(e) => {
-                  const n = parseInt(e.target.value.replace(/[^0-9]/g, ''), 10);
+                onChangeText={(v) => {
+                  const n = parseInt(v.replace(/[^0-9]/g, ''), 10);
                   setAmt(Number.isNaN(n) ? 0 : Math.min(n, 100000));
                 }}
-                inputMode="decimal"
+                keyboardType="decimal"
                 placeholder="0"
-                style={sx(type.fieldText, { flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', padding: 0, color: colors.ink })}
+                style={[type.fieldText, { flex: 1, minWidth: 0 }]}
               />
             </Field>
             <Btn label={busy ? 'Adding…' : `Add $${amt}`} disabled={amt <= 0 || busy} onPress={() => doAdd(amt)} style={{ marginTop: 16 }} />

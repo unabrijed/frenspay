@@ -5,15 +5,11 @@
 // lets me invite someone who isn't on Pay yet.
 import type { CSSProperties } from 'react';
 import { useState } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
 
-import { Icons } from '@/components/icons';
-import { Btn } from '@/components/ui/Button';
-import { Grab, SheetBody, SheetHeader } from '@/components/ui/primitives';
-import { Txt } from '@/components/ui/Txt';
-import { View } from '@/components/ui/rn';
-import { colors, type } from '@/lib/theme';
-import { usePayStore } from '@/store/usePayStore';
+import { Btn, colors, Grab, Icons, SheetBody, SheetHeader, Txt, type, View } from '@fpay/ui';
+import { QrCode } from '../components/QrCode';
+import { platform } from '../platform';
+import { usePayStore } from '../store';
 
 export function Receive() {
   const close = usePayStore((s) => s.close);
@@ -22,14 +18,11 @@ export function Receive() {
   const [copied, setCopied] = useState(false);
 
   const onShare = async () => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const origin = platform().origin();
     const text = `Pay me on fpay. My handle is ${handle}`;
-    const message = origin ? `${text}\n${origin}` : text;
     try {
-      if (typeof navigator !== 'undefined' && navigator.share) {
-        await navigator.share({ title: 'Pay me on fpay', text, url: origin || undefined });
-      } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(message);
+      const how = await platform().share({ title: 'Pay me on fpay', text, url: origin || undefined });
+      if (how === 'copied') {
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
       }
@@ -46,7 +39,7 @@ export function Receive() {
         <Txt style={[type.lead, { textAlign: 'center', marginBottom: 18 }]}>Scan this to pay me on fpay.</Txt>
         <View style={styles.qrCard}>
           {value ? (
-            <QRCodeSVG value={value} size={208} bgColor="#FFFFFF" fgColor={colors.ink} level="M" />
+            <QrCode value={value} size={208} />
           ) : (
             <Icons.QrBig size={64} color={colors.muted} />
           )}

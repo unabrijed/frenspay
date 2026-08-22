@@ -5,14 +5,10 @@
 // deliberately offers EVERY display currency, not just the country's own: the pin exists exactly
 // to override the country derivation (an expat in Indonesia who thinks in rupees). 'Automatic'
 // (null server-side) returns to the derived behavior.
-import { currencyForCountry } from '@fpay/shared';
+import { currencyForCountry, DISPLAY_CURRENCIES, fiatSymbol } from '@fpay/shared';
 
-import { Icons } from '@/components/icons';
-import { Grab, List, Row, RowMeta, SheetBody, SheetHeader } from '@/components/ui/primitives';
-import { Txt } from '@/components/ui/Txt';
-import { DISPLAY_CURRENCIES, fiatSymbol } from '@/lib/money';
-import { colors, type } from '@/lib/theme';
-import { usePayStore } from '@/store/usePayStore';
+import { colors, Grab, Icons, List, Row, RowMeta, SheetBody, SheetHeader, Txt, type } from '@fpay/ui';
+import { usePayStore } from '../store';
 
 const displayName = (kind: 'currency' | 'region', code: string): string => {
   try {

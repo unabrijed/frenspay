@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Same shape as @fpay/ui: TSX, type-checked as react-jsx here, compiled from source by each
+    // consumer. `dom` because the web leaves (Scanner, platform-facing code) touch window/navigator.
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["src"],
+  // The *.native.* twins import react-native + expo modules this package does not depend on:
+  // apps/mobile typechecks them (moduleSuffixes [".native", ""]).
+  "exclude": ["src/**/*.native.*"]
+}

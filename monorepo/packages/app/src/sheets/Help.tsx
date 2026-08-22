@@ -2,19 +2,14 @@
 
 // Help.tsx — Help & support bottom sheet. Contact + problem report via email (no fake external
 // links), plus the app version. TODO: point SUPPORT_EMAIL at the real inbox before launch.
-import { Icons } from '@/components/icons';
-import { Grab, List, Row, RowIcon, RowMeta, SheetBody, SheetHeader } from '@/components/ui/primitives';
-import { View } from '@/components/ui/rn';
-import { Txt } from '@/components/ui/Txt';
-import { colors, type } from '@/lib/theme';
-import { usePayStore } from '@/store/usePayStore';
+import { colors, Grab, Icons, List, Row, RowIcon, RowMeta, SheetBody, SheetHeader, Txt, type, View } from '@fpay/ui';
+import { platform } from '../platform';
+import { usePayStore } from '../store';
 
 const SUPPORT_EMAIL = 'support@fpay.app'; // TODO: replace with the real support inbox before launch
 
 function email(subject: string) {
-  if (typeof window !== 'undefined') {
-    window.location.href = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}`;
-  }
+  platform().openMail(SUPPORT_EMAIL, subject);
 }
 
 export function Help() {

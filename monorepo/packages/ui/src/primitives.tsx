@@ -9,7 +9,7 @@ import { Txt } from './Txt';
 import { Pressable, type St, sx, View } from './rn';
 import { colors, radii, shadows, type } from './theme';
 
-export { Flag, Mark } from './leaf';
+export { Flag, Input, Mark } from './leaf';
 export type { LogoState } from './leaf';
 
 /* ---- generic ---- */

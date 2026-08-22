@@ -1,22 +1,10 @@
 // real.ts — RealWalletProvider: the WalletProvider backed by the Railway API + active Signer.
 // transfer() = prepare (server builds + fee-payer-signs) → signAndSend (client) → submit (record).
-import type { ApiPaymentRequest, CreateRequestRequest, Txn, WalletProvider } from '@fpay/shared';
-import { truncateAddress } from '@fpay/shared';
+import { type ApiPaymentRequest, type CreateRequestRequest, truncateAddress, type Txn, type WalletProvider } from '@fpay/shared';
 
 import { api } from './api';
-import { DEV_SECRET_KEY, SOLANA_RPC_URL } from './envConfig';
 import { apiTxnToTxn } from './mappers';
-import { DevKeypairSigner, getActiveSigner, setActiveSigner } from './signer';
-
-// Register the dev keypair as the default signer when a secret is provided. The Privy bridge
-// overrides this via setActiveSigner() once the user logs in.
-if (DEV_SECRET_KEY) {
-  try {
-    setActiveSigner(new DevKeypairSigner(JSON.parse(DEV_SECRET_KEY) as number[], SOLANA_RPC_URL));
-  } catch {
-    // malformed EXPO_PUBLIC_DEV_SECRET_KEY — leave unset; transfer() will surface a clear error
-  }
-}
+import { getActiveSigner } from './signer';
 
 export class RealWalletProvider implements WalletProvider {
   // The other parse boundary (see mappers.ts): the wire carries a decimal string, the store holds

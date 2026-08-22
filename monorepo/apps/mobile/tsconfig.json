@@ -21,6 +21,12 @@
       ],
       "@fpay/ui/*": [
         "../../packages/ui/src/*"
+      ],
+      "@fpay/app": [
+        "../../packages/app/src/index.ts"
+      ],
+      "@fpay/app/*": [
+        "../../packages/app/src/*"
       ]
     },
     "moduleSuffixes": [

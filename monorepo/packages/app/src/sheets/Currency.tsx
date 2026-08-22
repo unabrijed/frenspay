@@ -6,15 +6,10 @@
 // The list is derived, not written down: dollars (what the balance actually is) plus whatever the
 // user's own country spends. It used to be a hardcoded INR/USD pair, which offered rupees to
 // someone in Indonesia and never offered them rupiah.
-import { currencyForCountry } from '@fpay/shared';
+import { currencyForCountry, type DisplayCurrency, fiatSymbol, isDisplayCurrency } from '@fpay/shared';
 
-import { Icons } from '@/components/icons';
-import { Grab, List, Row, RowMeta, SheetBody, SheetHeader } from '@/components/ui/primitives';
-import { Txt } from '@/components/ui/Txt';
-import type { DisplayCurrency } from '@/lib/money';
-import { fiatSymbol, isDisplayCurrency } from '@/lib/money';
-import { colors, type } from '@/lib/theme';
-import { usePayStore } from '@/store/usePayStore';
+import { colors, Grab, Icons, List, Row, RowMeta, SheetBody, SheetHeader, Txt, type } from '@fpay/ui';
+import { usePayStore } from '../store';
 
 /** Intl ships everywhere we run and already knows every currency and country name; a hand-kept
  *  table of them would only be a second thing to update when a corridor lands. */

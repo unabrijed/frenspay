@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Image, TextInput, type KeyboardTypeOptions } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
-import { type St, sx } from './rn';
+import { rnStyle, type St } from './rn';
 import { colors } from './theme';
 import { type InputProps, type KeyboardType, MARK_LINK, type MarkProps, flagUrl } from './leaf.types';
 
@@ -34,7 +34,7 @@ export function Input({ value, onChangeText, placeholder, autoFocus, keyboardTyp
       autoCapitalize="none"
       autoCorrect={false}
       allowFontScaling={false}
-      style={[{ padding: 0, color: colors.ink }, sx(style as St[])]}
+      style={[{ padding: 0, color: colors.ink }, rnStyle(style as St[])]}
     />
   );
 }

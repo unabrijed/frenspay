@@ -8,15 +8,10 @@
 import type { CSSProperties } from 'react';
 import { useEffect } from 'react';
 
-import { Btn, TextLink } from '@/components/ui/Button';
-import { Grab, List, SheetBody, SheetHeader, Spacer } from '@/components/ui/primitives';
-import { View } from '@/components/ui/rn';
-import { Txt } from '@/components/ui/Txt';
-import { vpaOperator } from '@fpay/shared';
+import { Btn, colors, Grab, List, SheetBody, SheetHeader, Spacer, TextLink, Txt, type, View } from '@fpay/ui';
+import { fiatRaw, usd, vpaOperator } from '@fpay/shared';
 
-import { fiatRaw, usd } from '@/lib/money';
-import { colors, type } from '@/lib/theme';
-import { usePayStore } from '@/store/usePayStore';
+import { usePayStore } from '../store';
 
 const operatorLabel = (method: string, destination?: string): string => {
   const op = destination ? vpaOperator(destination) : undefined;

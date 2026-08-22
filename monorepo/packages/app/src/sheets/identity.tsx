@@ -4,13 +4,8 @@
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 
-import { Icons } from '@/components/icons';
-import { Btn, TextLink } from '@/components/ui/Button';
-import { Grab, List, Row, RowIcon, RowMeta, SheetBody, SheetHeader, Spacer } from '@/components/ui/primitives';
-import { Txt } from '@/components/ui/Txt';
-import { View } from '@/components/ui/rn';
-import { colors, fonts, radii, type } from '@/lib/theme';
-import { usePayStore } from '@/store/usePayStore';
+import { Btn, colors, fonts, Grab, Icons, List, radii, Row, RowIcon, RowMeta, SheetBody, SheetHeader, Spacer, TextLink, Txt, type, View } from '@fpay/ui';
+import { usePayStore } from '../store';
 
 // The wait on the vendor's decision, made visible. Rings breathing out of a dot — the `Sent` hero's
 // settling motion (sheets/friends.tsx) at card scale, and the same shape as OrderTracking's active

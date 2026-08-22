@@ -19,7 +19,9 @@
       "@fpay/shared": ["../../packages/shared/src/index.ts"],
       "@fpay/shared/*": ["../../packages/shared/src/*"],
       "@fpay/ui": ["../../packages/ui/src/index.ts"],
-      "@fpay/ui/*": ["../../packages/ui/src/*"]
+      "@fpay/ui/*": ["../../packages/ui/src/*"],
+      "@fpay/app": ["../../packages/app/src/index.ts"],
+      "@fpay/app/*": ["../../packages/app/src/*"]
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],

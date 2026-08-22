@@ -4,45 +4,13 @@
 // (getQuote → Quote sheet → confirmOrder/escrow → OrderTracking); there is no client-side settlement.
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
-import dynamic from 'next/dynamic';
 
-import { Icons } from '@/components/icons';
-import { Btn } from '@/components/ui/Button';
-import { Keypad } from '@/components/ui/Keypad';
-import { Grab, SearchBar, SheetBody, SheetHeader } from '@/components/ui/primitives';
-import { Pressable, View } from '@/components/ui/rn';
-import { Txt } from '@/components/ui/Txt';
-import { fiatDecimals } from '@fpay/shared';
+import { Btn, colors, fonts, Grab, Icons, Keypad, Pressable, SearchBar, SheetBody, SheetHeader, Txt, type, View } from '@fpay/ui';
+import { fiatDecimals, fiatRaw, usd } from '@fpay/shared';
 
-import { fiatRaw, usd } from '@/lib/money';
-import { colors, fonts, type } from '@/lib/theme';
-import { usePayStore } from '@/store/usePayStore';
+import { usePayStore } from '../store';
 
-// Camera QR scanner — browser-only (getUserMedia + wasm decode), so load it client-side only.
-const Scanner = dynamic(() => import('@yudiel/react-qr-scanner').then((m) => m.Scanner), { ssr: false });
-
-// Why a camera request can fail, normalized from the scanner lib's error (which may expose `kind`)
-// or a raw getUserMedia DOMException (`name`). Drives an accurate fallback message + Try-again.
-type CamErr = 'blocked' | 'no-camera' | 'insecure' | 'other';
-
-function classifyCamError(e: unknown): CamErr {
-  // A non-secure origin (e.g. testing on a phone over http://<LAN-ip>) disables getUserMedia entirely.
-  if (typeof window !== 'undefined' && window.isSecureContext === false) return 'insecure';
-  const kind = (e as { kind?: string } | null)?.kind;
-  const name = (e as { name?: string } | null)?.name;
-  if (kind === 'insecure-context') return 'insecure';
-  if (kind === 'no-camera' || name === 'NotFoundError' || name === 'OverconstrainedError') return 'no-camera';
-  if (kind === 'permission-denied' || name === 'NotAllowedError' || name === 'SecurityError') return 'blocked';
-  return 'other';
-}
-
-const CAM_MESSAGES: Record<CamErr, string> = {
-  // A hard "Block" can't be re-prompted from JS — the browser only re-asks after the user re-allows.
-  blocked: 'Camera is blocked. Allow it from the camera icon in your address bar, then tap Try again.',
-  'no-camera': 'No camera found. Use Send and enter a @handle to pay a friend.',
-  insecure: 'The camera needs a secure connection. Open the app over localhost or an https link.',
-  other: "Couldn't start the camera. Tap Try again, or use Send to enter a @handle.",
-};
+import { CAM_MESSAGES, type CamErr, Scanner } from '../components/Scanner';
 
 export function Scan() {
   const close = usePayStore((s) => s.close);
@@ -62,10 +30,8 @@ export function Scan() {
   }, []);
 
   // The scanner fires repeatedly; gate to one dispatch, then re-arm so a different QR can be tried.
-  const onScan = (codes: Array<{ rawValue: string }>) => {
-    if (handled) return;
-    const raw = codes[0]?.rawValue;
-    if (!raw) return;
+  const onScan = (raw: string) => {
+    if (handled || !raw) return;
     setHandled(true);
     void handleScan(raw);
     setTimeout(() => setHandled(false), 1500);
@@ -87,17 +53,7 @@ export function Scan() {
               <Icons.QrBig size={44} color="rgba(255,255,255,0.5)" />
             </View>
           ) : (
-            <Scanner
-              key={attempt}
-              onScan={onScan}
-              onError={(e) => setCamErr(classifyCamError(e))}
-              formats={['qr_code']}
-              constraints={{ facingMode: 'environment' }}
-              scanDelay={400}
-              paused={handled}
-              components={{ finder: false }}
-              styles={{ container: { width: '100%', height: '100%' }, video: { width: '100%', height: '100%', objectFit: 'cover' } }}
-            />
+            <Scanner key={attempt} onScan={onScan} onError={setCamErr} paused={handled} />
           )}
           {CORNER_GUIDES}
         </View>

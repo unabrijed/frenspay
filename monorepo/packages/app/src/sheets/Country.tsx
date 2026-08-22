@@ -7,12 +7,9 @@ import { useMemo, useState } from 'react';
 
 import { ISO_TO_DIAL } from '@fpay/shared';
 
-import { Icons } from '@/components/icons';
-import { Empty, Flag, Grab, List, Row, RowMeta, SearchBar, SheetBody, SheetHeader } from '@/components/ui/primitives';
-import { View } from '@/components/ui/rn';
-import { Txt } from '@/components/ui/Txt';
-import { colors, type } from '@/lib/theme';
-import { usePayStore } from '@/store/usePayStore';
+import { colors, Empty, Flag, Grab, Icons, List, Row, RowMeta, SearchBar, SheetBody, SheetHeader, Txt, type, View } from '@fpay/ui';
+import { platform } from '../platform';
+import { usePayStore } from '../store';
 
 export function Country() {
   const close = usePayStore((s) => s.close);
@@ -23,7 +20,7 @@ export function Country() {
   const all = useMemo(() => {
     let dn: Intl.DisplayNames | undefined;
     try {
-      dn = new Intl.DisplayNames([navigator.language], { type: 'region' });
+      dn = new Intl.DisplayNames([platform().locale().language], { type: 'region' }); // Hermes may lack it → ISO codes
     } catch {
       /* fall back to ISO codes */
     }

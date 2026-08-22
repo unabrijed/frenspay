@@ -6,17 +6,12 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { useEffect } from 'react';
 
-import type { OrderResolution, OrderState } from '@fpay/shared';
+import { fiatRaw, type OrderResolution, type OrderState } from '@fpay/shared';
 
-import { Icons } from '@/components/icons';
-import { ResultBlock } from '@/components/ResultBlock';
-import { Btn, TextLink } from '@/components/ui/Button';
-import { Grab, SheetBody, SheetHeader, Spacer } from '@/components/ui/primitives';
-import { Pressable, View } from '@/components/ui/rn';
-import { Txt } from '@/components/ui/Txt';
-import { fiatRaw } from '@/lib/money';
-import { colors, fonts, radii, type } from '@/lib/theme';
-import { usePayStore } from '@/store/usePayStore';
+import { Btn, colors, fonts, Grab, Icons, Pressable, radii, SheetBody, SheetHeader, Spacer, TextLink, Txt, type, View } from '@fpay/ui';
+import { ResultBlock } from '../components/ResultBlock';
+import { platform } from '../platform';
+import { usePayStore } from '../store';
 
 const STEPS: { state: OrderState; label: string; sub: string }[] = [
   { state: 'quote_locked', label: 'Quote locked', sub: 'Rate & fee locked in' },
@@ -154,7 +149,7 @@ export function OrderTracking() {
           leg.payoutUtr ? (
             <Pressable
               key={leg.id}
-              onPress={() => void navigator.clipboard?.writeText(leg.payoutUtr!)}
+              onPress={() => void platform().copy(leg.payoutUtr!)}
               style={({ pressed }) => [styles.utr, pressed ? { opacity: 0.7 } : null]}
             >
               <Txt style={type.inst}>

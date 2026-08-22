@@ -9,6 +9,9 @@ import { useState } from 'react';
 
 export type St = CSSProperties | false | null | undefined;
 
+/** Native-only alias (see rn.native.tsx); on web it is simply sx. */
+export const rnStyle = (...parts: (St | St[])[]): CSSProperties => sx(...parts);
+
 /** Flatten an RN-style value (object | array | nested) into one CSSProperties. */
 export function sx(...parts: (St | St[])[]): CSSProperties {
   const out: CSSProperties = {};
@@ -62,7 +65,12 @@ export function Pressable({
       role="button"
       aria-disabled={disabled || undefined}
       tabIndex={disabled ? -1 : 0}
-      onClick={() => !disabled && onPress?.()}
+      // RN semantics: the innermost Pressable with a handler takes the tap; it never reaches an outer one.
+      onClick={(e) => {
+        if (disabled || !onPress) return;
+        e.stopPropagation();
+        onPress();
+      }}
       onKeyDown={(e) => {
         if (!disabled && (e.key === 'Enter' || e.key === ' ')) {
           e.preventDefault();

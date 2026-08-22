@@ -4,20 +4,13 @@
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 
-import { canonicalHandle, classifyAddress, looksLikePhone, phoneCandidates, truncateAddress } from '@fpay/shared';
+import { canonicalHandle, classifyAddress, inr, looksLikePhone, phoneCandidates, truncateAddress } from '@fpay/shared';
 
-import { Icons } from '@/components/icons';
-import { ResultBlock } from '@/components/ResultBlock';
-import { Btn, TextLink } from '@/components/ui/Button';
-import { Keypad } from '@/components/ui/Keypad';
-import { Fav, Grab, List, Mark, Row, RowMeta, SearchBar, SheetBody, SheetHeader, Spacer } from '@/components/ui/primitives';
-import { Txt } from '@/components/ui/Txt';
-import { Pressable, View } from '@/components/ui/rn';
-import { contactsSupported, pickContact } from '@/lib/contacts';
-import { inr } from '@/lib/money';
-import { colors, fonts, type } from '@/lib/theme';
-import { wallet, type Friend } from '@/services/wallet';
-import { usePayStore } from '@/store/usePayStore';
+import { Btn, colors, Fav, fonts, Grab, Icons, Keypad, List, Mark, Pressable, Row, RowMeta, SearchBar, SheetBody, SheetHeader, Spacer, TextLink, Txt, type, View } from '@fpay/ui';
+import { ResultBlock } from '../components/ResultBlock';
+import { platform } from '../platform';
+import { wallet, type Friend } from '../services/wallet';
+import { usePayStore } from '../store';
 
 export function Send() {
   const close = usePayStore((s) => s.close);
@@ -329,7 +322,7 @@ function PeopleSearch({
   const rows: Friend[] = resolved ? [resolved] : [];
 
   const allowContacts = async () => {
-    const c = await pickContact();
+    const c = await platform().pickContact?.();
     // Prefer the number (it resolves through the directory, UPI-style); fall back to name prefill.
     if (c?.tel) setQuery(c.tel);
     else if (c?.name) setQuery(c.name);
@@ -339,7 +332,7 @@ function PeopleSearch({
     <>
       {/* Contacts lead when the device has them (docs/04: "Send to Contacts" is THE send entry);
           elsewhere the search box stays the sole — and therefore still leading — element. */}
-      {contactsSupported() ? <ContactsPrompt onAllow={allowContacts} /> : null}
+      {platform().capabilities.contacts ? <ContactsPrompt onAllow={allowContacts} /> : null}
       <SearchBar
         placeholder={onPickAddress ? '@handle, phone, or wallet address' : '@handle or phone'}
         value={query}

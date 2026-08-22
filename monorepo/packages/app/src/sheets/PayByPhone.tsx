@@ -6,13 +6,9 @@ import { useState } from 'react';
 
 import { normalizePhoneInput } from '@fpay/shared';
 
-import { Btn, TextLink } from '@/components/ui/Button';
-import { Field, Grab, SheetBody, SheetHeader } from '@/components/ui/primitives';
-import { sx, View } from '@/components/ui/rn';
-import { Txt } from '@/components/ui/Txt';
-import { colors, fonts, type } from '@/lib/theme';
-import { ApiError } from '@/services/api';
-import { usePayStore } from '@/store/usePayStore';
+import { Btn, colors, Field, fonts, Grab, Input, SheetBody, SheetHeader, sx, TextLink, Txt, type, View } from '@fpay/ui';
+import { ApiError } from '../services/api';
+import { usePayStore } from '../store';
 
 // A code that is gone for good (locked out, expired, never sent) — the only fix is a new one.
 const CODE_GONE = ['too_many_attempts', 'code_expired', 'no_pending'];
@@ -117,14 +113,7 @@ export function PayByPhone() {
           <>
             <Txt style={type.lead}>Let friends pay you with just your phone number.</Txt>
             <Field style={{ marginTop: 16 }}>
-              <input
-                value={number}
-                onChange={(e) => setNumber(e.target.value)}
-                inputMode="tel"
-                autoComplete="tel"
-                placeholder="+91 98765 43210"
-                style={inputStyle}
-              />
+              <Input value={number} onChangeText={setNumber} keyboardType="tel" autoComplete="tel" placeholder="+91 98765 43210" style={inputStyle} />
             </Field>
             {/* Channel-neutral on purpose: the provider decides SMS vs WhatsApp (services/phoneOtp.ts). */}
             <Txt style={[type.sub, { color: colors.muted, marginTop: 12 }]}>
@@ -142,10 +131,10 @@ export function PayByPhone() {
           <>
             <Txt style={type.lead}>Enter the code we sent to {normalized}.</Txt>
             <Field style={{ marginTop: 16 }}>
-              <input
+              <Input
                 value={code}
-                onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, ''))}
-                inputMode="numeric"
+                onChangeText={(v) => setCode(v.replace(/[^0-9]/g, ''))}
+                keyboardType="numeric"
                 autoComplete="one-time-code"
                 placeholder="123456"
                 style={inputStyle}

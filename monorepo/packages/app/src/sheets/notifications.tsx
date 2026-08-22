@@ -5,13 +5,9 @@
 import type { CSSProperties } from 'react';
 import { useEffect } from 'react';
 
-import { Icons } from '@/components/icons';
-import { Grab, SheetBody, SheetHeader } from '@/components/ui/primitives';
-import { Skeleton } from '@/components/ui/Skeleton';
-import { Txt } from '@/components/ui/Txt';
-import { View } from '@/components/ui/rn';
-import { colors, radii, type } from '@/lib/theme';
-import { usePayStore } from '@/store/usePayStore';
+import { colors, Grab, Icons, radii, SheetBody, SheetHeader, Txt, type, View } from '@fpay/ui';
+import { Skeleton } from '../components/Skeleton';
+import { usePayStore } from '../store';
 
 const ICON: Record<string, keyof typeof Icons> = {
   received: 'Wallet',

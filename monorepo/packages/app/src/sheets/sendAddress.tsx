@@ -7,17 +7,10 @@
 import type { CSSProperties } from 'react';
 import { useState } from 'react';
 
-import { SUPPORTED_NETWORKS, truncateAddress } from '@fpay/shared';
+import { inr, SUPPORTED_NETWORKS, truncateAddress } from '@fpay/shared';
 
-import { Icons } from '@/components/icons';
-import { Btn, TextLink } from '@/components/ui/Button';
-import { Keypad } from '@/components/ui/Keypad';
-import { Grab, List, Row, RowMeta, SheetBody, SheetHeader, Spacer } from '@/components/ui/primitives';
-import { Txt } from '@/components/ui/Txt';
-import { View } from '@/components/ui/rn';
-import { inr } from '@/lib/money';
-import { colors, type } from '@/lib/theme';
-import { usePayStore } from '@/store/usePayStore';
+import { Btn, colors, Grab, Icons, Keypad, List, Row, RowMeta, SheetBody, SheetHeader, Spacer, TextLink, Txt, type, View } from '@fpay/ui';
+import { usePayStore } from '../store';
 
 function WalletBadge() {
   return (

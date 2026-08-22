@@ -29,8 +29,9 @@ const WEB_ONLY = new Set([
 ]);
 const PX = /^(-?\d+(?:\.\d+)?)px$/;
 
-/** Flatten an RN-style value (object | array | nested) into one RN style object. */
-export function sx(...parts: (St | St[])[]): ViewStyle & TextStyle {
+/** Flatten an RN-style value (object | array | nested) into one RN style object — the real type.
+ *  For native-only code (a StyleSheet.create, an RN component prop). */
+export function rnStyle(...parts: (St | St[])[]): ViewStyle & TextStyle {
   const out: Record<string, unknown> = {};
   for (const p of parts.flat(2 as 1)) {
     if (!p) continue;
@@ -55,6 +56,12 @@ export function sx(...parts: (St | St[])[]): ViewStyle & TextStyle {
   return out as ViewStyle & TextStyle;
 }
 
+/** The shared-code flattener. Same runtime as rnStyle, typed as the web's CSSProperties so a shared
+ *  component's `style={sx(...)}` typechecks once; RN receives the real object underneath. */
+export function sx(...parts: (St | St[])[]): CSSProperties {
+  return rnStyle(...parts) as unknown as CSSProperties;
+}
+
 type AnyProps = Record<string, unknown>;
 /** RN accepts `role` and `aria-*` (0.72+); the rest of a div's props have no native meaning. */
 function a11y(rest: AnyProps): AnyProps {
@@ -65,7 +72,7 @@ function a11y(rest: AnyProps): AnyProps {
 
 export function View({ style, children, ...rest }: { style?: St | St[]; children?: ReactNode } & AnyProps) {
   return (
-    <RNView style={sx(style as St[])} {...a11y(rest)}>
+    <RNView style={rnStyle(style as St[])} {...a11y(rest)}>
       {children}
     </RNView>
   );
@@ -73,7 +80,7 @@ export function View({ style, children, ...rest }: { style?: St | St[]; children
 
 export function Txt({ style, children, ...rest }: { style?: St | St[]; children?: ReactNode } & AnyProps) {
   return (
-    <Text allowFontScaling={false} style={sx(style as St[])} {...a11y(rest)}>
+    <Text allowFontScaling={false} style={rnStyle(style as St[])} {...a11y(rest)}>
       {children}
     </Text>
   );
@@ -100,7 +107,7 @@ export function Pressable({
       onPress={onPress}
       disabled={disabled}
       hitSlop={hitSlop}
-      style={(s) => sx((typeof style === 'function' ? style(s) : style) as St[])}
+      style={(s) => rnStyle((typeof style === 'function' ? style(s) : style) as St[])}
       {...a11y(rest)}
     >
       {children}
