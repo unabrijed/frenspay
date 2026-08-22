@@ -15,8 +15,18 @@
       ],
       "@fpay/shared/*": [
         "../../packages/shared/src/*"
+      ],
+      "@fpay/ui": [
+        "../../packages/ui/src/index.ts"
+      ],
+      "@fpay/ui/*": [
+        "../../packages/ui/src/*"
       ]
-    }
+    },
+    "moduleSuffixes": [
+      ".native",
+      ""
+    ]
   },
   "include": [
     "**/*.ts",
