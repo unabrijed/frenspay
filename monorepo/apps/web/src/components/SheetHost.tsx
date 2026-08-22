@@ -156,7 +156,7 @@ const styles = {
     backgroundColor: colors.surface,
     borderTopLeftRadius: radii.sheet,
     borderTopRightRadius: radii.sheet,
-    boxShadow: shadows.sheet,
+    ...shadows.sheet,
     transition: 'opacity 280ms ease, transform 280ms ease',
   },
 } satisfies Record<string, CSSProperties>;

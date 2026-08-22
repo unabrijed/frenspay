@@ -88,7 +88,7 @@ const s = {
     borderStyle: 'solid',
     borderColor: colors.hair,
     borderRadius: radii.rlc,
-    boxShadow: shadows.rlc,
+    ...shadows.rlc,
   },
   padA: { paddingTop: 20, paddingLeft: 20, paddingRight: 20, paddingBottom: 16 },
   padB: { paddingTop: 18, paddingLeft: 20, paddingRight: 20, paddingBottom: 15 },

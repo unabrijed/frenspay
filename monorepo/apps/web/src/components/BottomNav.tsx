@@ -46,7 +46,7 @@ const styles = {
     backgroundColor: colors.surface,
     borderTopLeftRadius: 22,
     borderTopRightRadius: 22,
-    boxShadow: shadows.sheet,
+    ...shadows.sheet,
     minHeight: 86,
     paddingTop: 14,
     paddingLeft: 46,
@@ -64,6 +64,6 @@ const styles = {
     backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: shadows.payBtn,
+    ...shadows.payBtn,
   },
 } satisfies Record<string, CSSProperties>;

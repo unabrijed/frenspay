@@ -66,7 +66,7 @@ const styles = {
     paddingRight: 16,
     backgroundColor: colors.ink,
     borderRadius: radii.card,
-    boxShadow: shadows.sheet,
+    ...shadows.sheet,
     transition: 'opacity 240ms ease, transform 240ms ease',
     pointerEvents: 'auto',
     cursor: 'pointer',

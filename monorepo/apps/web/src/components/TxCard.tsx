@@ -68,7 +68,7 @@ const cardBase: CSSProperties = {
   borderWidth: 1,
   borderStyle: 'solid',
   borderColor: colors.outlineVariant,
-  boxShadow: shadows.card,
+  ...shadows.card,
 };
 
 const styles = {

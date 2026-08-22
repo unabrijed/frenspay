@@ -53,7 +53,7 @@ const rowStyle: CSSProperties = {
   backgroundColor: colors.surface,
   borderRadius: radii.card,
   border: `1px solid ${colors.outlineVariant}`,
-  boxShadow: shadows.card,
+  ...shadows.card,
   paddingTop: 14,
   paddingBottom: 14,
   paddingLeft: 14,

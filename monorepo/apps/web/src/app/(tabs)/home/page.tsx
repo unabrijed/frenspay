@@ -171,7 +171,7 @@ const styles = {
     backgroundColor: colors.accentSoft,
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: shadows.card,
+    ...shadows.card,
   },
 
   // The card carries its own marginBottom (14), so `recent` below tightens from 30 to 16 when it's

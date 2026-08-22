@@ -206,7 +206,7 @@ const styles = {
   reqHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginRight: 2 },
   txList: { gap: 10, marginBottom: 6 },
   reqAction: { paddingLeft: 16, paddingRight: 16, paddingBottom: 13, paddingTop: 2 },
-  summary: { backgroundColor: colors.surfaceContainer, borderRadius: radii.rlc, padding: 18, marginBottom: 16, boxShadow: shadows.card },
+  summary: { backgroundColor: colors.surfaceContainer, borderRadius: radii.rlc, padding: 18, marginBottom: 16, ...shadows.card },
   realRate: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
   ratePill: {
     flexDirection: 'row',
@@ -234,6 +234,6 @@ const styles = {
     paddingRight: 16,
     paddingTop: 8,
     paddingBottom: 8,
-    boxShadow: shadows.primaryBtn,
+    ...shadows.primaryBtn,
   },
 } satisfies Record<string, CSSProperties>;

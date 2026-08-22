@@ -6,6 +6,7 @@
     "@ethersproject/shims": "^5.8.0",
     "@expo-google-fonts/jetbrains-mono": "^0.4.1",
     "@expo-google-fonts/spectral": "^0.4.1",
+    "@expo/vector-icons": "^15.0.2",
     "@fpay/shared": "*",
     "@fpay/ui": "*",
     "@privy-io/expo": "^0.70.11",
