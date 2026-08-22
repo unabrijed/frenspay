@@ -30,8 +30,10 @@ export const RATE_LIMIT_RULES: Rule[] = [
   // Cross-chain money movement shares the send bucket; deposit reports get their own modest cap.
   { method: 'POST', path: '/crosschain/prepare', bucket: 'send', limit: 20, windowMs: 60_000 },
   { method: 'POST', path: '/crosschain/deposit', bucket: 'send', limit: 20, windowMs: 60_000 },
-  // Each enroll round-trips to the Privy API — keep it capped.
-  { method: 'POST', path: '/me/phone', bucket: 'auth', limit: 10, windowMs: 60_000 },
+  // Each start spends a paid OTP; confirm is already capped at 5 attempts per code.
+  // ponytail: per-minute cap only; add a per-day start cap if Message Central credit burn shows up.
+  { method: 'POST', path: '/me/phone/start', bucket: 'auth', limit: 5, windowMs: 60_000 },
+  { method: 'POST', path: '/me/phone/confirm', bucket: 'auth', limit: 10, windowMs: 60_000 },
   { method: 'POST', path: '/me/country', bucket: 'auth', limit: 10, windowMs: 60_000 },
   // Merchant/LP writes. `apply` inserts a row that the stats recompute pass walks on the same tick
   // as the order worker, so unbounded inserts would starve settlement — cap it hard.

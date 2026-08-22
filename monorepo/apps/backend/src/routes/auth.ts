@@ -6,7 +6,6 @@ import type { FastifyInstance } from 'fastify';
 import type { AuthSyncRequest, MeResponse, ResolveHandleResponse } from '@fpay/shared';
 
 import { effectiveRole, isRootAdminEmail, requirePrivyDid, requireUserId } from '../auth';
-import { config } from '../envConfig';
 import {
   canonicalHandle,
   ensureInviteCodes,
@@ -35,7 +34,8 @@ import {
 } from '../db/queries';
 import { screenHandle } from '../services/compliance';
 import { canonicalInviteCode, inviteRequired } from '../services/invites';
-import { getLinkedEmail, getLinkedPhone, privyConfigured } from '../services/privy';
+import { confirmPhoneEnrollment, PhoneOtpProviderError, startPhoneEnrollment } from '../services/phoneOtp';
+import { getLinkedEmail, privyConfigured } from '../services/privy';
 
 import { toMerchantProfile } from './merchant';
 
@@ -226,30 +226,31 @@ export async function registerAuthRoutes(app: FastifyInstance) {
   );
 
   // --- pay-by-phone enrollment (the UPI-mapper consent model: enrolling IS the consent) ---
-  // The number always comes from the caller's own Privy-verified account, never the request —
-  // own-number-only for free. Dev shim (no Privy configured): accept { phone } in the body.
-  app.post<{ Body: { phone?: string } }>('/me/phone', async (req, reply) => {
-    const userId = requireUserId(req);
-    let raw: string | null;
-    if (privyConfigured()) {
-      raw = await getLinkedPhone(requirePrivyDid(req));
-    } else if (config.isDevelopment) {
-      raw = req.body?.phone ?? null;
-    } else {
-      raw = null;
-    }
-    const phone = raw ? normalizePhone(raw) : null;
-    if (!phone) return reply.code(400).send({ error: 'no_phone_linked' });
-    try {
-      await setUserPhone(userId, phone);
-    } catch (e) {
-      // Unique index: the number is enrolled by another account (possible via the dev shim;
-      // Privy itself enforces one-account-per-phone).
-      if ((e as { code?: string }).code === '23505') return reply.code(409).send({ error: 'phone_taken' });
-      throw e;
-    }
-    return { phone };
-  });
+  // Our own OTP (services/phoneOtp.ts): the only number that can be enrolled is one that just
+  // received our code — own-number-only, the guarantee Privy's link gave, without its US/CA-only
+  // plan wall. The state machine and every verdict live in the service; these are status mappers.
+  const PHONE_STATUS: Record<string, number> = { phone_taken: 409, too_many_attempts: 429 };
+  const phoneRoute =
+    <B>(run: (userId: string, body: B) => Promise<object>) =>
+    async (req: { body?: B } & Parameters<typeof requireUserId>[0], reply: { code: (n: number) => { send: (b: object) => unknown } }) => {
+      const userId = requireUserId(req);
+      try {
+        const r = await run(userId, (req.body ?? {}) as B);
+        return 'error' in r ? reply.code(PHONE_STATUS[String(r.error)] ?? 400).send(r) : r;
+      } catch (e) {
+        if (!(e instanceof PhoneOtpProviderError)) throw e;
+        console.warn('[phone-otp]', e.message);
+        return reply.code(502).send({ error: 'otp_unavailable' });
+      }
+    };
+  app.post<{ Body: { phone?: string } }>(
+    '/me/phone/start',
+    phoneRoute<{ phone?: string }>((userId, b) => startPhoneEnrollment(userId, b.phone ?? '')),
+  );
+  app.post<{ Body: { code?: string } }>(
+    '/me/phone/confirm',
+    phoneRoute<{ code?: string }>((userId, b) => confirmPhoneEnrollment(userId, String(b.code ?? '').trim())),
+  );
 
   app.delete('/me/phone', async (req) => {
     const userId = requireUserId(req);

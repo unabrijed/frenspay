@@ -15,6 +15,7 @@ import { probePersona } from './services/kyc/persona';
 import { startKycPoller } from './services/kyc/poller';
 import { metrics } from './services/metrics';
 import { assertPayoutConfig } from './services/payout/provider';
+import { assertPhoneOtpConfig } from './services/phoneOtp';
 import { startRateLimitSweeper } from './services/rateLimit';
 
 async function start() {
@@ -22,6 +23,8 @@ async function start() {
   assertKycConfig();
   // Same for payouts: a typo'd platform treasury must not wait for the first escrow release.
   assertPayoutConfig();
+  // Phone OTP: fatal only for console-on-prod; a missing SMS key just warns (enrollment is optional).
+  assertPhoneOtpConfig();
 
   // Serving another tier's data is worse than not serving at all, so this one IS fatal (0013).
   // Verify only — claiming an unstamped database belongs to db:deploy, never to a booting server.

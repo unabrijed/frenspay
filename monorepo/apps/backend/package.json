@@ -25,6 +25,7 @@
     "check:fx": "tsx scripts/check-fx.ts",
     "check:routing": "tsx scripts/check-routing-math.ts",
     "check:lock": "tsx scripts/check-lock.ts",
+    "check:phone": "tsx scripts/check-phone-otp.ts",
     "check:balance": "tsx scripts/check-balance.ts"
   },
   "dependencies": {

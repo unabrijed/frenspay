@@ -154,6 +154,13 @@ export const config = {
   personaTemplateId: env('PERSONA_TEMPLATE_ID'),
   personaBaseUrl: env('PERSONA_BASE_URL', 'https://api.withpersona.com'),
 
+  // Pay-by-phone OTP (services/phoneOtp.ts). 'console' = the code goes to the server log (local
+  // only; refused on production); 'messagecentral' = Message Central VerifyNow. Stage/prod default
+  // to messagecentral and merely warn when the key is unset — enrollment 502s, nothing else does.
+  phoneOtpProvider: env('PHONE_OTP_PROVIDER', isLocal ? 'console' : 'messagecentral'),
+  messageCentralCustomerId: env('MESSAGECENTRAL_CUSTOMER_ID'),
+  messageCentralKey: env('MESSAGECENTRAL_KEY'),
+
   // v2 cross-chain (docs/19): per-EVM-chain RPCs (Sepolias on dev/stage, mainnets in prod).
   ethereumRpcUrl: env('ETHEREUM_RPC_URL'),
   baseRpcUrl: env('BASE_RPC_URL'),

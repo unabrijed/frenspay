@@ -371,9 +371,65 @@ export async function findUserByPhone(phone: string): Promise<Friend | null> {
   return rows[0] ? toFriend(rows[0]) : null;
 }
 
-/** Enroll (E.164) or de-enroll (null) the user in pay-by-phone. 23505 = number already enrolled. */
+/** De-enroll (null) the user from pay-by-phone. Enrolling goes through enrollPendingPhone. */
 export async function setUserPhone(userId: string, phone: string | null): Promise<void> {
   await getPool().query('update users set phone = $2 where id = $1', [userId, phone]);
+}
+
+// --- pay-by-phone OTP state (0020): one in-flight verification per user, on the users row ---
+
+export interface PhoneOtpPending {
+  phone: string;
+  ref: string;
+  expiresAt: Date;
+  attempts: number;
+}
+
+/** Start/replace — or, with nulls, clear — the in-flight verification. Always resets attempts. */
+export async function setPhoneOtp(
+  userId: string,
+  phone: string | null,
+  ref: string | null,
+  expiresAt: Date | null,
+): Promise<void> {
+  await getPool().query(
+    `update users set phone_pending = $2, phone_otp_ref = $3, phone_otp_expires_at = $4, phone_otp_attempts = 0
+      where id = $1`,
+    [userId, phone, ref, expiresAt],
+  );
+}
+
+/** Count one confirm attempt and return what's pending (null = nothing). Increment-then-judge, so
+ *  two concurrent confirms cannot both read "4 attempts" and both slip under the cap. */
+export async function bumpPhoneOtp(userId: string): Promise<PhoneOtpPending | null> {
+  const { rows } = await getPool().query<{
+    phone_pending: string;
+    phone_otp_ref: string;
+    phone_otp_expires_at: Date;
+    phone_otp_attempts: number;
+  }>(
+    `update users set phone_otp_attempts = phone_otp_attempts + 1
+      where id = $1 and phone_pending is not null
+      returning phone_pending, phone_otp_ref, phone_otp_expires_at, phone_otp_attempts`,
+    [userId],
+  );
+  const r = rows[0];
+  return r
+    ? { phone: r.phone_pending, ref: r.phone_otp_ref, expiresAt: r.phone_otp_expires_at, attempts: r.phone_otp_attempts }
+    : null;
+}
+
+/** Promote the verified pending number to the enrolled alias and clear the verification, in one
+ *  statement. 23505 (uq_users_phone) = enrolled by another account meanwhile. Null = nothing pending. */
+export async function enrollPendingPhone(userId: string): Promise<string | null> {
+  const { rows } = await getPool().query<{ phone: string | null }>(
+    `update users set phone = phone_pending, phone_pending = null, phone_otp_ref = null,
+        phone_otp_expires_at = null, phone_otp_attempts = 0
+      where id = $1 and phone_pending is not null
+      returning phone`,
+    [userId],
+  );
+  return rows[0]?.phone ?? null;
 }
 
 /** Set the dialing-default country (validated ISO alpha-2). Strong sources last-write-wins. */
