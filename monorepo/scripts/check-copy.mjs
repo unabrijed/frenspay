@@ -45,6 +45,8 @@ const RULES = [
   { dir: 'apps/web/src', banned: MERCHANT },
   { dir: 'apps/lp/src', banned: MERCHANT },
   { dir: 'apps/mobile/src', banned: MERCHANT },
+  // The sheets and product components live here now (shared by web + mobile): the gate follows them.
+  { dir: 'packages/app/src', banned: MERCHANT },
   { dir: 'apps/landing/src', banned: or(MERCHANT, PRODUCT) },
 ];
 const DIRS = RULES.map((r) => r.dir);
