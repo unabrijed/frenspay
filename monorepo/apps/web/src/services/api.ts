@@ -168,10 +168,13 @@ export const api = {
     req<ResolveHandleResponse>(`/users/resolve?handle=${encodeURIComponent(handle)}`),
   resolvePhone: (phone: string) =>
     req<ResolveHandleResponse>(`/users/resolve?phone=${encodeURIComponent(phone)}`),
-  // Pay-by-phone enrollment. The number comes from the caller's Privy account server-side;
-  // the body phone is only honored by the dev shim (no Privy configured).
-  registerPhone: (phone?: string) =>
-    req<{ phone: string }>('/me/phone', { method: 'POST', body: JSON.stringify(phone ? { phone } : {}) }),
+  // Pay-by-phone enrollment: our own OTP (backend services/phoneOtp.ts). start sends the code to the
+  // number; confirm enrolls the number that received it. Errors arrive as ApiError codes:
+  // invalid_phone · phone_taken (409) · bad_code · code_expired · too_many_attempts (429) · otp_unavailable (502).
+  startPhone: (phone: string) =>
+    req<{ ok: true }>('/me/phone/start', { method: 'POST', body: JSON.stringify({ phone }) }),
+  confirmPhone: (code: string) =>
+    req<{ phone: string }>('/me/phone/confirm', { method: 'POST', body: JSON.stringify({ code }) }),
   deregisterPhone: () => req<{ ok: true }>('/me/phone', { method: 'DELETE' }),
   // Dialing-default country (ISO alpha-2) — tunes local-format phone lookups only.
   setCountry: (country: string) =>

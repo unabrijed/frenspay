@@ -1,7 +1,7 @@
 'use client';
 
 // PayByPhone.tsx — enroll/unenroll the pay-by-phone alias (UPI-mapper consent model: turning it
-// on IS the consent). Privy owns the SMS code; the server stores only the verified number.
+// on IS the consent). The server sends and checks the code and stores only the verified number.
 import { useState } from 'react';
 
 import { normalizePhoneInput } from '@fpay/shared';
@@ -11,7 +11,19 @@ import { Field, Grab, SheetBody, SheetHeader } from '@/components/ui/primitives'
 import { sx, View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { colors, fonts, type } from '@/lib/theme';
+import { ApiError } from '@/services/api';
 import { usePayStore } from '@/store/usePayStore';
+
+// A code that is gone for good (locked out, expired, never sent) — the only fix is a new one.
+const CODE_GONE = ['too_many_attempts', 'code_expired', 'no_pending'];
+
+function phoneError(e: unknown, fallback: string): string {
+  const code = e instanceof ApiError ? e.code : '';
+  if (code === 'phone_taken') return 'That number is already on another account.';
+  if (code === 'rate_limited') return 'Too many tries — wait a minute.';
+  if (CODE_GONE.includes(code)) return 'That code expired. Send a new one.';
+  return fallback;
+}
 
 const inputStyle = sx(type.fieldText, {
   flex: 1,
@@ -43,10 +55,11 @@ export function PayByPhone() {
     setBusy(true);
     setError(null);
     try {
-      const result = await startPhoneLink(normalized);
-      if (result === 'code_sent') setStep('code');
-    } catch {
-      setError("Couldn't send the code. Check the number and try again.");
+      await startPhoneLink(normalized);
+      setCode('');
+      setStep('code');
+    } catch (e) {
+      setError(phoneError(e, "Couldn't send the code. Check the number and try again."));
     } finally {
       setBusy(false);
     }
@@ -57,8 +70,9 @@ export function PayByPhone() {
     setError(null);
     try {
       await confirmPhoneLink(code.trim());
-    } catch {
-      setError("That code didn't match. Try again.");
+    } catch (e) {
+      setError(phoneError(e, "That code didn't match. Try again."));
+      if (e instanceof ApiError && CODE_GONE.includes(e.code)) setStep('number');
     } finally {
       setBusy(false);
     }
@@ -112,8 +126,7 @@ export function PayByPhone() {
                 style={inputStyle}
               />
             </Field>
-            {/* Channel-neutral on purpose: the Privy OTP channel (SMS = US/CA-only vs WhatsApp =
-                global) is an irreversible dashboard choice that's deliberately still undecided. */}
+            {/* Channel-neutral on purpose: the provider decides SMS vs WhatsApp (services/phoneOtp.ts). */}
             <Txt style={[type.sub, { color: colors.muted, marginTop: 12 }]}>
               We’ll send a code to confirm it’s yours. Your number is never shown to anyone.
             </Txt>

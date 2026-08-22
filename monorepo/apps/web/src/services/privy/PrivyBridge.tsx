@@ -3,7 +3,7 @@
 // PrivyBridge — the ONE place Privy hooks are called. Bridges Privy's hook state into the
 // imperative zustand store (so screens never import Privy) and registers the PrivySigner.
 // Web SDK: @privy-io/react-auth (+ /solana for the embedded Solana wallet).
-import { useLinkPhone, useLinkWithPasskey, useLoginWithEmail, usePrivy } from '@privy-io/react-auth';
+import { useLinkWithPasskey, useLoginWithEmail, usePrivy } from '@privy-io/react-auth';
 import { useSmartWallets } from '@privy-io/react-auth/smart-wallets';
 import { useCreateWallet, useSignAndSendTransaction, useWallets } from '@privy-io/react-auth/solana';
 import { useEffect, useRef } from 'react';
@@ -33,7 +33,6 @@ export function PrivyBridge(): null {
   const { createWallet } = useCreateWallet();
   const { signAndSendTransaction } = useSignAndSendTransaction();
   const { linkWithPasskey } = useLinkWithPasskey();
-  const { sendCode: sendPhoneCode, linkWithCode: linkPhoneWithCode } = useLinkPhone();
   const { client: smartClient, getClientForChain } = useSmartWallets();
 
   // Register imperative auth actions into the store (screens call these, not Privy hooks).
@@ -55,15 +54,10 @@ export function PrivyBridge(): null {
       linkPasskey: async () => {
         await linkWithPasskey();
       },
-      // Pay-by-phone: Privy owns the SMS OTP; the backend then reads the linked number.
-      sendPhoneCode: async (phoneNumber) => {
-        await sendPhoneCode({ phoneNumber });
-      },
-      linkPhoneCode: async (code) => {
-        await linkPhoneWithCode({ code });
-      },
+      // Pay-by-phone is NOT linked through Privy (its free plan only reaches US/CA numbers) — the
+      // backend runs its own OTP; see store.startPhoneLink / services/phoneOtp.ts.
     });
-  }, [sendCode, loginWithCode, logout, linkWithPasskey, sendPhoneCode, linkPhoneWithCode]);
+  }, [sendCode, loginWithCode, logout, linkWithPasskey]);
 
   // "Signed out" is only an ANSWER once Privy has resolved and found no session. PrivyGate already
   // holds a splash until `ready`, but `ready` arriving with a user is not the end of it: authStatus

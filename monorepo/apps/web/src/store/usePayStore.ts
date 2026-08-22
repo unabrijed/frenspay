@@ -73,9 +73,6 @@ interface AuthBridge {
   logout: () => Promise<void>;
   /** Link a passkey to the Privy user — a cross-device recovery factor. */
   linkPasskey: () => Promise<void>;
-  /** Pay-by-phone: Privy sends the SMS OTP to link the number to the account. */
-  sendPhoneCode: (phoneNumber: string) => Promise<void>;
-  linkPhoneCode: (code: string) => Promise<void>;
 }
 
 interface PayState {
@@ -244,7 +241,7 @@ interface PayState {
   setRecoveryStatus: (s: { email: string; passkey: boolean }) => void;
   // ---- pay-by-phone (UPI-mapper consent model: enrolling IS the consent) ----
   /** Step 1: send the SMS code via Privy. Dev mode (no Privy) enrolls directly. */
-  startPhoneLink: (phoneNumber: string) => Promise<'code_sent' | 'enrolled'>;
+  startPhoneLink: (phoneNumber: string) => Promise<void>;
   /** Step 2: confirm the SMS code, then enroll server-side (number read from Privy). */
   confirmPhoneLink: (code: string) => Promise<void>;
   /** Opt out: remove the number from the directory. */
@@ -1018,22 +1015,12 @@ export const usePayStore = create<PayState>()(
       },
       setRecoveryStatus: ({ email, passkey }) => set({ recoveryEmail: email, recoveryPasskey: passkey }),
 
-      // ---- pay-by-phone (enrolling IS the consent; the server reads the number from Privy) ----
+      // ---- pay-by-phone (enrolling IS the consent; the server sends and checks the code) ----
       startPhoneLink: async (phoneNumber) => {
-        if (USE_PRIVY) {
-          await get()._authBridge?.sendPhoneCode(phoneNumber);
-          return 'code_sent';
-        }
-        // Dev mode (no Privy): the backend dev shim accepts the number directly.
-        const { phone } = await api.registerPhone(phoneNumber);
-        set({ phone });
-        const iso = isoFromE164(phone);
-        if (iso) void get().setCountry(iso); // verified own number → authoritative dialing default
-        return 'enrolled';
+        await api.startPhone(phoneNumber);
       },
       confirmPhoneLink: async (code) => {
-        await get()._authBridge?.linkPhoneCode(code);
-        const { phone } = await api.registerPhone(); // server pulls the now-linked number from Privy
+        const { phone } = await api.confirmPhone(code); // the server enrolls the number that got the code
         set({ phone });
         const iso = isoFromE164(phone);
         if (iso) void get().setCountry(iso);
