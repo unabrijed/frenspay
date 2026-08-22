@@ -64,7 +64,10 @@ points at the old handle (self-corrects within one 12s refresh —
 
 ## Contacts — "Send to Contacts"
 
-The pieces exist; the home-action wiring is the gap:
+On web this is complete, and the picker is the honest maximum — the Contact Picker API is a
+one-shot, gesture-gated pick with no persistent access, shipped only on Android (Chrome, Samsung
+Internet); iOS Safari keeps it behind a flag and no desktop browser has it. A real address-book
+*sync* (match everyone, keep it fresh) is a native-app capability — mobile-phase.
 
 - ✅ **Directory resolve** — `GET /users/resolve?handle=|phone=` (authed, rate-limited), consent
   model in [02-identity-and-onboarding](02-identity-and-onboarding.md).
@@ -72,9 +75,9 @@ The pieces exist; the home-action wiring is the gap:
   name / `@handle` / phone / pasted address, debounce-resolving with the verified name shown.
 - ✅ **Device contact picker** (`apps/web/src/lib/contacts.ts`) — Web Contact Picker API,
   Android-Chrome only, graceful no-op elsewhere; a picked contact's number prefills the search.
-- ⬜ **"Send to Contacts" as THE home action** (decided 2026-08-13) — the Send entry leads with
-  contacts/directory rather than a bare search box. Native contact-list sync is a mobile-phase
-  item; on web the picker + directory is the honest maximum.
+- ✅ **Contacts lead the Send sheet** (decided 2026-08-13) — where the device has a picker,
+  "Pay your contacts" sits above the search box; elsewhere the search box is the sole, and so
+  still leading, element. A picked number that isn't on fpay gets the invite answer above.
 
 ## The home screen ⬜ decided 2026-08-13, gap to close
 

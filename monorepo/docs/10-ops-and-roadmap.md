@@ -170,8 +170,10 @@ cutover) → the DB-backed checks (`check:admin`, `check-fees`). All Bridge-run.
 - **Fiat receiving** (someone outside pays you) — collections via provider rails; after payouts.
 - **CCTP cross-chain** (coded end-to-end, Sepolia-staged) — mainnet contracts + treasury funding +
   Privy smart-wallet/paymaster dashboard work.
-- **Phone-OTP channel** — parked decision (Privy SMS = US/CA-only; WhatsApp = all regions; the
-  dashboard choice is irreversible). Nothing gets enabled without an explicit call.
+- **Phone OTP at volume** — decided 2026-08-22: our own OTP, Message Central first (1,000 free
+  credits, then ₹0.20/SMS). When volume arrives, swap the provider in `services/phoneOtp.ts` to
+  Meta's WhatsApp Cloud API (₹0.115/OTP, needs Meta Business verification) or Telegram Gateway
+  ($0.01). Stage needs `STAGE_MESSAGECENTRAL_*` set first.
 - **External-deposit history ingestion** — on-chain deposits credit the balance but write no
   `transfers` row today ([03](03-custody-money-in-and-confirmation.md)); needs an inbound indexer.
 - **Multi-instance infra** — Redis locks/shared rate-limit store, real push delivery, a metrics

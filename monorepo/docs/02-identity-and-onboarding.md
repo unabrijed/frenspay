@@ -30,9 +30,11 @@ Three identities are tracked per person:
 Two optional directory aliases (UPI-mapper style):
 
 - **Phone (E.164)** — strict opt-in: enrolling IS the consent (`users.phone IS NOT NULL` is the
-  flag). The number always comes from the caller's own Privy-verified account (`POST /me/phone`);
-  resolution never returns the phone (reverse lookup structurally impossible); `?phone=` lookups
-  are authed + rate-limited against enumeration.
+  flag). The only number that can be enrolled is one that just received our OTP
+  (`POST /me/phone/start` → `/me/phone/confirm`, `services/phoneOtp.ts`: hashed code or provider
+  ref on the users row, 10-minute expiry, five attempts, 0020) — own-number-only, like UPI's
+  mapper; resolution never returns the phone (reverse lookup structurally impossible); `?phone=`
+  lookups are authed + rate-limited against enumeration.
 - **Country (ISO-2)** — a *dialing default only*: browser locale fills-if-null at sync → verified
   phone's code overwrites on enroll → manual Settings pick overwrites (`POST /me/country`). KYC
   document country is deliberately NOT a source (expats). Also seeds the local display currency —
@@ -133,9 +135,11 @@ are mainnet. Testing runbook:
 
 - ✅ Privy email-OTP + embedded wallet, `@handle` selection, `/auth/sync` (burn-in-txn invite
   gate), bearer verification, suspension gate, dev fallback.
-- ✅ Directory aliases (phone opt-in, country dialing default). 🟡 Privy-mode phone enrollment
-  waits on the **parked OTP-channel decision** (Privy SMS = US/CA-only; WhatsApp = all regions;
-  the dashboard choice is irreversible — nothing gets enabled without Bridge).
+- ✅ Directory aliases (phone opt-in, country dialing default). ✅ Phone enrollment runs on **our
+  own OTP** (0020, `services/phoneOtp.ts`; `console` locally, Message Central on stage/prod —
+  decided 2026-08-22). Privy's phone link is gone: its free plan reaches US/CA only, and WhatsApp
+  or bring-your-own-Twilio both need the $299/mo Scale plan. 🟡 Stage needs the Message Central
+  key set before a real code goes out.
 - ✅ KYC tiers enforced; 🟡 Persona KYC (2026-08-19): stage runs the sandbox key, prod waits
   on Persona's production approval — runbook in [10](10-ops-and-roadmap.md).
 - ✅ Invite codes as real minted objects (0007/0008). ✅ `FREN-` prefix + remint script (🟡 cutover run pending).
@@ -145,7 +149,8 @@ are mainnet. Testing runbook:
 
 - Backend: `apps/backend/src/auth.ts`, `services/privy.ts` (`getLinkedEmail`),
   `services/invites.ts` (`mintCode`, `canonicalInviteCode`), `routes/auth.ts` (`/auth/sync`, `/me`,
-  `/me/invites/ack`, `/users/resolve`, `/me/phone`, `/me/country`), `routes/waitlist.ts` (the
+  `/me/invites/ack`, `/users/resolve`, `/me/phone/start|confirm`, `/me/country`),
+  `services/phoneOtp.ts` (the OTP state machine + providers), `routes/waitlist.ts` (the
   f-list door), `db/queries.ts` (`upsertUserByPrivyDid`, `joinWaitlistWithCode`, `mintCodesFor`,
   `canonicalHandle`, `normalizePhone`), `services/kyc/*`.
 - Web: `src/services/privy/PrivyBridge.tsx`, `app/onboarding/{faceid,handle}/page.tsx`,
