@@ -1,0 +1,96 @@
+// envConfig.ts — the ONE place mobile env is read. Expo inlines `process.env.EXPO_PUBLIC_*` as STATIC
+// literals + forces NODE_ENV (development under `expo start`, production in a release build), so
+// NODE_ENV can never carry 'stage'. The tier therefore comes from EXPO_PUBLIC_APP_ENV:
+//   local (default under expo start)       → EXPO_PUBLIC_LOCAL_<KEY> → EXPO_PUBLIC_STAGE_<KEY>
+//   stage (a stage build sets APP_ENV)     → EXPO_PUBLIC_STAGE_<KEY>
+//   production (default in a release)      → EXPO_PUBLIC_<KEY>
+// Bare EXPO_PUBLIC_* names exist ONLY in release builds — dev tiers never read them.
+//
+// The tier block below is byte-for-byte the web's (apps/web/src/services/envConfig.ts) with the
+// prefix swapped, asserted by `yarn check:env`. It cannot live in a package: Expo, like Next, only
+// inlines LITERAL process.env references appearing in the app's own source.
+import Constants from 'expo-constants';
+
+const isProduction = process.env.NODE_ENV === 'production';
+const APP_ENV = process.env.EXPO_PUBLIC_APP_ENV || (isProduction ? 'production' : 'local');
+const isProdEnv = APP_ENV === 'production';
+const isStageEnv = APP_ENV === 'stage';
+
+/** Tier chain. Args must be literal process.env.EXPO_PUBLIC_* references (Expo inlines). */
+function pick(local?: string, stage?: string, prod?: string): string | undefined {
+  if (isProdEnv) return prod;
+  if (isStageEnv) return stage;
+  return local || stage;
+}
+
+const E = {
+  apiUrl: pick(
+    process.env.EXPO_PUBLIC_LOCAL_API_URL,
+    process.env.EXPO_PUBLIC_STAGE_API_URL,
+    process.env.EXPO_PUBLIC_API_URL,
+  ),
+  solanaRpcUrl: pick(
+    process.env.EXPO_PUBLIC_LOCAL_SOLANA_RPC_URL,
+    process.env.EXPO_PUBLIC_STAGE_SOLANA_RPC_URL,
+    process.env.EXPO_PUBLIC_SOLANA_RPC_URL,
+  ),
+  privyAppId: pick(
+    process.env.EXPO_PUBLIC_LOCAL_PRIVY_APP_ID,
+    process.env.EXPO_PUBLIC_STAGE_PRIVY_APP_ID,
+    process.env.EXPO_PUBLIC_PRIVY_APP_ID,
+  ),
+  privyClientId: pick(
+    process.env.EXPO_PUBLIC_LOCAL_PRIVY_CLIENT_ID,
+    process.env.EXPO_PUBLIC_STAGE_PRIVY_CLIENT_ID,
+    process.env.EXPO_PUBLIC_PRIVY_CLIENT_ID,
+  ),
+  landingUrl: pick(
+    process.env.EXPO_PUBLIC_LOCAL_LANDING_URL,
+    process.env.EXPO_PUBLIC_STAGE_LANDING_URL,
+    process.env.EXPO_PUBLIC_LANDING_URL,
+  ),
+};
+
+const API_PORT = 3001; // matches the backend (apps/backend/.env PORT)
+
+// No *_API_URL → the dev machine's LAN IP that Metro served the bundle from, so a physical device
+// reaches a local backend without hardcoding an IP DHCP keeps reassigning. Only a LAN IPv4 is
+// trusted (rejects tunnel domains + a localhost host); then localhost.
+function lanApiUrl(): string {
+  const hostUri = Constants.expoConfig?.hostUri;
+  const host = hostUri?.split(':')[0];
+  if (host && /^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return `http://${host}:${API_PORT}`;
+  return `http://localhost:${API_PORT}`;
+}
+
+export const API_URL = E.apiUrl || lanApiUrl();
+// Deployed tiers fail CLOSED to mainnet: a missing RPC var must never resurrect devnet affordances
+// in a release. Only the local tier defaults to devnet.
+export const SOLANA_RPC_URL =
+  E.solanaRpcUrl ||
+  (isProdEnv || isStageEnv ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com');
+// Cluster derives from the RPC URL — the twin of the backend's mint-derived isMainnet.
+export const IS_MAINNET = !SOLANA_RPC_URL.includes('devnet');
+
+// Dev signing path (no Privy): a seeded user id + secret key from apps/backend/.devnet/keys.json.
+// SECURITY: `DEV_SECRET_KEY` is a RAW SOLANA PRIVATE KEY and every EXPO_PUBLIC_* read is inlined into
+// the bundle. The reads live INSIDE the `isProduction` ternary so a release build strips them, and
+// the bare (production) names are never read — same two rules as the web, asserted by check:env.
+export const DEV_USER_ID = isProduction
+  ? ''
+  : process.env.EXPO_PUBLIC_LOCAL_DEV_USER_ID || process.env.EXPO_PUBLIC_STAGE_DEV_USER_ID || '';
+export const DEV_SECRET_KEY = isProduction
+  ? ''
+  : process.env.EXPO_PUBLIC_LOCAL_DEV_SECRET_KEY || process.env.EXPO_PUBLIC_STAGE_DEV_SECRET_KEY || '';
+
+// Privy. When the app id is set the app mounts Privy and uses email-OTP + the embedded Solana wallet.
+// A native build ALSO needs the client id (the dashboard's app client for com.bridge.fpay).
+export const PRIVY_APP_ID = E.privyAppId ?? '';
+export const PRIVY_CLIENT_ID = E.privyClientId ?? '';
+export const USE_PRIVY = PRIVY_APP_ID.length > 0;
+
+// The marketing site: share/invite links point here, and it is the passkey relying party.
+export const LANDING_URL = (E.landingUrl || 'https://frenspay.xyz').replace(/\/$/, '');
+
+export const IS_LOCAL_ENV = APP_ENV === 'local';
+export const IS_DEV = !isProduction;
