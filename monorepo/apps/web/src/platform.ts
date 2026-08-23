@@ -54,6 +54,7 @@ export const webPlatform: Platform = {
   storage: inBrowser ? webStorage(() => window.localStorage) : noop,
   session: inBrowser ? webStorage(() => window.sessionStorage) : noop,
   origin: () => (inBrowser ? window.location.origin : ''),
+  returnUrl: (path) => `${inBrowser ? window.location.origin : ''}${path}`,
   // The page is leaving; control returns via the callback URL. Never resolves on purpose.
   openKyc: (url) => {
     window.location.assign(url);

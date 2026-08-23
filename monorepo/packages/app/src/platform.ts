@@ -26,8 +26,10 @@ export interface Platform {
   storage: StateStorage;
   /** Survives only the KYC round-trip: sessionStorage on web, in-memory on native. */
   session: StateStorage;
-  /** Where share/return links point. Web: the app origin; native: the landing site. */
+  /** Where share links point. Web: the app origin; native: the landing site. */
   origin(): string;
+  /** Where a hosted flow (KYC) sends the user back. Web: `${origin}${path}`; native: `fpay://…`. */
+  returnUrl(path: string): string;
   /** Hand the user to the hosted KYC flow. Web never resolves (the page is leaving); native
    *  resolves when the in-app browser closes, and the caller polls from there. */
   openKyc(url: string): Promise<void>;

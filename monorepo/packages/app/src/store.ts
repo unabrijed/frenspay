@@ -924,7 +924,7 @@ export const usePayStore = create<PayState>()(
         // state belongs to the caller — sheets/identity.tsx owns a local one.
         try {
           set({ error: null });
-          const r = await api.kycVerify(`${platform().origin()}/home`);
+          const r = await api.kycVerify(platform().returnUrl('/home'));
           if ('url' in r) {
             set({ kycStatus: 'pending' });
             // The redirect destroys in-memory state; stash the merchant-pay intent so we can resume

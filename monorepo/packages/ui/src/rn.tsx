@@ -33,9 +33,11 @@ export function View({ style, children, ...rest }: { style?: St | St[]; children
   );
 }
 
-export function Txt({ style, children, ...rest }: { style?: St | St[]; children?: ReactNode } & SpanProps) {
+const CLAMP1: CSSProperties = { display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+
+export function Txt({ style, children, numberOfLines, ...rest }: { style?: St | St[]; children?: ReactNode; numberOfLines?: number } & SpanProps) {
   return (
-    <span style={sx(style as St[])} {...rest}>
+    <span style={sx(style as St[], numberOfLines === 1 && CLAMP1)} {...rest}>
       {children}
     </span>
   );

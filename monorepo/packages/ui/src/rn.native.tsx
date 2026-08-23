@@ -78,9 +78,9 @@ export function View({ style, children, ...rest }: { style?: St | St[]; children
   );
 }
 
-export function Txt({ style, children, ...rest }: { style?: St | St[]; children?: ReactNode } & AnyProps) {
+export function Txt({ style, children, numberOfLines, ...rest }: { style?: St | St[]; children?: ReactNode; numberOfLines?: number } & AnyProps) {
   return (
-    <Text allowFontScaling={false} style={rnStyle(style as St[])} {...a11y(rest)}>
+    <Text allowFontScaling={false} numberOfLines={numberOfLines} style={rnStyle(style as St[])} {...a11y(rest)}>
       {children}
     </Text>
   );
