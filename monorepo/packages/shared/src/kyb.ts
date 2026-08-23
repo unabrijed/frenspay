@@ -25,6 +25,9 @@ export interface KybField {
    *  registry lookup does that, and we don't have one — which is why a human still reads these. */
   pattern?: string;
   maxLen?: number;
+  /** Fixed choices. Renders as a one-tap pick; validated on BOTH sides as exact membership. The
+   *  stored value is the label itself — what the applicant tapped is what the reviewer reads. */
+  options?: string[];
 }
 
 /**
@@ -72,12 +75,63 @@ const INDONESIA: KybField[] = [
   },
 ];
 
+/**
+ * Country-agnostic screening, asked in the same submission as the business identifiers — modelled
+ * on what peer platforms ask before letting anyone in. Nothing here is verifiable and nothing
+ * gates on it by itself; it exists so the human reviewing is judging a person with a stated
+ * intent, not a PAN in a vacuum. Appended after each country's fields so `accountDedicated`
+ * lands right under the `payoutAccount` it is asking about.
+ */
+const SCREENING: KybField[] = [
+  {
+    key: 'cryptoExperience',
+    label: 'Your experience with digital money',
+    hint: 'USDC, wallets, moving value on-chain — how familiar is this world to you?',
+    options: ['Just starting', 'Some experience', 'Active user', 'Professional'],
+  },
+  {
+    key: 'profession',
+    label: 'What you do today',
+    options: ['Student', 'Freelancer', 'Full-time employee', 'Business owner', 'Homemaker'],
+  },
+  {
+    // The dollar figure mirrors MIN_BOND (apps/backend/src/services/merchantStats.ts) — update
+    // this copy if that number ever moves.
+    key: 'plannedStake',
+    label: 'How much you plan to stake',
+    hint: 'Your stake sits idle, bounds how much you can carry, and comes back when you leave.',
+    options: ['$2,000 — the minimum', '$2,000–5,000', 'Over $5,000', 'Not sure yet'],
+  },
+  {
+    key: 'commitment',
+    label: 'How long you plan to stay active',
+    options: ['Under 3 months', '3–6 months', '6–12 months', 'A year or more', 'Not sure yet'],
+  },
+  {
+    // The load-bearing one, for the same reason payoutAccount exists: the documented failure mode
+    // is third-party money moving through a personal account (docs/08). Dedicated is what we
+    // want; an honest "shared" is a review conversation, not an auto-reject.
+    key: 'accountDedicated',
+    label: 'Is that account only for this work?',
+    hint: 'A dedicated account, separate from your personal spending, is far less likely to be frozen.',
+    options: ['Yes, dedicated to this', 'No, I also use it personally', 'I’ll open one before starting'],
+  },
+  {
+    key: 'otherPlatforms',
+    label: 'Where else you do this',
+    hint: 'Binance P2P, p2p.me, anywhere you settle payouts — leave blank if nowhere',
+    optional: true,
+    maxLen: 200,
+  },
+  { key: 'heardAbout', label: 'How you found us', optional: true, maxLen: 120 },
+];
+
 /** ISO 3166-1 alpha-2 → the fields that country's LPs must supply. Countries come from rails.ts,
  *  which is the only country list (invariant 1); this says nothing about which countries exist,
  *  only what we ask the ones that do. */
 export const KYB_FIELDS: Record<string, KybField[]> = {
-  IN: INDIA,
-  ID: INDONESIA,
+  IN: [...INDIA, ...SCREENING],
+  ID: [...INDONESIA, ...SCREENING],
 };
 
 /** Lifecycle of a business check. `more_info` is the one that matters: without it the only replies
@@ -115,6 +169,7 @@ export function validateKyb(country: string, fields: Record<string, unknown>): s
     }
     if (f.maxLen && v.length > f.maxLen) bad.push(f.key);
     else if (f.pattern && !new RegExp(f.pattern).test(v)) bad.push(f.key);
+    else if (f.options && !f.options.includes(v)) bad.push(f.key);
   }
   return bad;
 }

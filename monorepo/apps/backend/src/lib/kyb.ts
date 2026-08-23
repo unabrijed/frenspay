@@ -15,6 +15,8 @@ export interface KybFieldSpec {
   optional?: boolean;
   pattern?: RegExp;
   maxLen?: number;
+  /** Fixed choices — validated as exact membership. The stored value is the label itself. */
+  options?: string[];
 }
 
 const INDIA: KybFieldSpec[] = [
@@ -37,7 +39,22 @@ const INDONESIA: KybFieldSpec[] = [
   { key: 'payoutAccount', maxLen: 120 },
 ];
 
-export const KYB_FIELDS: Record<string, KybFieldSpec[]> = { IN: INDIA, ID: INDONESIA };
+/** Country-agnostic screening — mirrors SCREENING in shared/kyb.ts. One line per field: check-kyb
+ *  compares each entry's options/optional/maxLen against the shared spec line by line. */
+const SCREENING: KybFieldSpec[] = [
+  { key: 'cryptoExperience', options: ['Just starting', 'Some experience', 'Active user', 'Professional'] },
+  { key: 'profession', options: ['Student', 'Freelancer', 'Full-time employee', 'Business owner', 'Homemaker'] },
+  { key: 'plannedStake', options: ['$2,000 — the minimum', '$2,000–5,000', 'Over $5,000', 'Not sure yet'] },
+  { key: 'commitment', options: ['Under 3 months', '3–6 months', '6–12 months', 'A year or more', 'Not sure yet'] },
+  { key: 'accountDedicated', options: ['Yes, dedicated to this', 'No, I also use it personally', 'I’ll open one before starting'] },
+  { key: 'otherPlatforms', optional: true, maxLen: 200 },
+  { key: 'heardAbout', optional: true, maxLen: 120 },
+];
+
+export const KYB_FIELDS: Record<string, KybFieldSpec[]> = {
+  IN: [...INDIA, ...SCREENING],
+  ID: [...INDONESIA, ...SCREENING],
+};
 
 /** Statuses in which the MERCHANT is the one who has to act, so a submission is accepted. */
 export const KYB_SUBMITTABLE: readonly string[] = ['pending', 'more_info'];
@@ -75,6 +92,7 @@ export function validateKybFields(
     }
     if (f.maxLen && v.length > f.maxLen) invalid.push(f.key);
     else if (f.pattern && !f.pattern.test(v)) invalid.push(f.key);
+    else if (f.options && !f.options.includes(v)) invalid.push(f.key);
     else fields[f.key] = v;
   }
   return invalid.length ? { ok: false, invalid } : { ok: true, fields };
