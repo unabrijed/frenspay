@@ -18,7 +18,7 @@ import { KYB_FIELDS, kybAwaitingMerchant, validateKyb } from '@fpay/shared';
 import { BackButton } from '@fpay/ui/BackButton';
 import { Btn } from '@fpay/ui/Button';
 import { Hairline, List, Row, RowMeta, SearchBar, Spacer } from '@fpay/ui/primitives';
-import { View } from '@fpay/ui/rn';
+import { Pressable, View } from '@fpay/ui/rn';
 import { Screen } from '@fpay/ui/Screen';
 import { Txt } from '@fpay/ui/Txt';
 import { friendlyError } from '@/lib/errors';
@@ -115,13 +115,31 @@ export default function MerchantVerify() {
                   {f.label}
                   {f.optional ? ' (optional)' : ''}
                 </Txt>
-                <View style={{ marginTop: 6 }}>
-                  <SearchBar
-                    placeholder={f.label}
-                    value={values[f.key] ?? ''}
-                    onChangeText={(v: string) => setValues((prev) => ({ ...prev, [f.key]: v }))}
-                  />
-                </View>
+                {f.options ? (
+                  // A fixed choice is a tap, not a text box — the stored answer is the label itself.
+                  <View style={styles.pills}>
+                    {f.options.map((o) => {
+                      const on = values[f.key] === o;
+                      return (
+                        <Pressable
+                          key={o}
+                          onPress={() => setValues((prev) => ({ ...prev, [f.key]: o }))}
+                          style={({ pressed }) => [styles.pill, on && styles.pillOn, pressed && { opacity: 0.7 }]}
+                        >
+                          <Txt style={[type.inst, { color: on ? colors.white : colors.ink }]}>{o}</Txt>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <View style={{ marginTop: 6 }}>
+                    <SearchBar
+                      placeholder={f.label}
+                      value={values[f.key] ?? ''}
+                      onChangeText={(v: string) => setValues((prev) => ({ ...prev, [f.key]: v }))}
+                    />
+                  </View>
+                )}
                 {f.hint ? <Txt style={[type.inst, { marginTop: 4 }]}>{f.hint}</Txt> : null}
                 {invalid.includes(f.key) ? (
                   <Txt style={[type.inst, { marginTop: 4, color: colors.danger }]}>
@@ -199,5 +217,8 @@ const styles = {
     paddingBottom: 28,
   },
   note: { marginTop: 16, padding: 14, borderRadius: radii.card, backgroundColor: colors.surfaceLow },
+  pills: { marginTop: 6, display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  pill: { paddingLeft: 14, paddingRight: 14, paddingTop: 8, paddingBottom: 8, borderRadius: 999, backgroundColor: colors.surfaceLow },
+  pillOn: { backgroundColor: colors.ink },
   section: { marginTop: 22, marginBottom: 8 },
 } satisfies Record<string, CSSProperties>;
