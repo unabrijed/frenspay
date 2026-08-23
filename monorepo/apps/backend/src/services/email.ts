@@ -39,15 +39,23 @@ export async function sendEmail(to: string, subject: string, html: string): Prom
   }
 }
 
-// Palette mirrored from packages/shared/src/tokens.ts (terracotta Material-3). Inline styles only:
-// every mail client strips <style>, and Gmail strips <head> entirely. No images, so nothing depends
-// on the recipient enabling remote content.
-const INK = '#1e1b19';
-const MUTED = '#58413d';
-const TERRA = '#a6341f';
-const CANVAS = '#fff8f4';
-const HAIR = '#e8e1dd';
-const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
+// Palette mirrored from packages/shared/src/tokens.ts (frenspay v2 — the painting palette).
+// Copied rather than imported on purpose: the backend may only `import type` from @fpay/shared,
+// because a runtime value import fails under tsx. Change these when the tokens change.
+// Inline styles only: every mail client strips <style>, and Gmail strips <head> entirely. No
+// images, so nothing depends on the recipient enabling remote content.
+const INK = '#2b3131';
+const MUTED = '#6b6156';
+const TERRA = '#b94f2b';
+const TERRA_DEEP = '#8f3a1e'; // terracotta as small text — 6.3:1 on paper, where TERRA is 4.2:1
+const CANVAS = '#fce8cb';
+const HAIR = '#dbb88b';
+// Spectral is the voice, but a webfont cannot be relied on in mail — Gmail strips @font-face and
+// Outlook ignores it. Georgia is the closest thing every client already has, so the mail lands in
+// the right register even where the real face never arrives.
+const FONT = "Spectral, Georgia, 'Times New Roman', serif";
+// The mono only marks: invite codes, and nothing else in the mail.
+const MONO = "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
 
 /** The one f-list email. Carries the share link AND the member's three invite codes as well as the
  *  confirm button, so both survive the tab being closed — that inbox copy is why the landing page
@@ -64,19 +72,19 @@ export function waitlistConfirmEmail(
     subject: "Confirm you're a fren",
     html: `<div style="margin:0;padding:32px 16px;background:${CANVAS};font-family:${FONT}">
   <div style="max-width:480px;margin:0 auto">
-    <p style="margin:0 0 28px;font-size:20px;font-weight:800;letter-spacing:-0.02em;color:${TERRA}">fpay</p>
-    <h1 style="margin:0 0 12px;font-size:24px;line-height:1.2;font-weight:800;letter-spacing:-0.02em;color:${INK}">
-      You're on the f list.
+    <p style="margin:0 0 28px;font-size:20px;font-weight:400;letter-spacing:-0.018em;color:${TERRA_DEEP}">frenspay</p>
+    <h1 style="margin:0 0 12px;font-size:26px;line-height:1.2;font-weight:400;letter-spacing:-0.018em;color:${INK}">
+      you're on the f list.
     </h1>
     <p style="margin:0 0 24px;font-size:15px;line-height:1.55;color:${MUTED}">
       One tap to confirm this address, and we'll write when it's your turn.
     </p>
-    <a href="${verifyUrl}" style="display:inline-block;padding:14px 28px;border-radius:999px;background:${TERRA};color:#ffffff;font-size:15px;font-weight:600;text-decoration:none">
-      Confirm my email
+    <a href="${verifyUrl}" style="display:inline-block;padding:14px 28px;border-radius:999px;background:${TERRA};color:#ffffff;font-size:12px;font-weight:500;letter-spacing:0.2em;text-transform:uppercase;font-family:${MONO};text-decoration:none">
+      confirm my email
     </a>
     <div style="margin:32px 0;border-top:1px solid ${HAIR}"></div>
-    <p style="margin:0 0 8px;font-size:15px;line-height:1.55;color:${INK};font-weight:600">
-      Three codes. Yours to give.
+    <p style="margin:0 0 8px;font-size:11px;line-height:1.6;letter-spacing:0.22em;text-transform:uppercase;font-family:${MONO};color:${MUTED}">
+      three codes. yours to give.
     </p>
     <p style="margin:0 0 16px;font-size:15px;line-height:1.55;color:${MUTED}">
       Nobody gets on this list without one. Each works exactly once, and every fren who joins on
@@ -85,12 +93,12 @@ export function waitlistConfirmEmail(
     ${invites
       .map(
         (c) =>
-          `<p style="margin:0 0 8px;font-size:19px;line-height:1.4;font-weight:700;letter-spacing:0.06em;color:${INK}">${c}</p>`,
+          `<p style="margin:0 0 8px;font-size:18px;line-height:1.4;font-family:${MONO};font-weight:500;letter-spacing:0.22em;color:${INK}">${c}</p>`,
       )
       .join('\n    ')}
     <p style="margin:16px 0 32px;font-size:15px;line-height:1.55">
       Send them here:
-      <a href="${shareUrl}" style="color:${TERRA};text-decoration:none;font-weight:600">${shareUrl}</a>
+      <a href="${shareUrl}" style="color:${TERRA_DEEP};text-decoration:none;font-weight:600">${shareUrl}</a>
     </p>
     <p style="margin:0;font-size:13px;line-height:1.5;color:${MUTED}">
       Didn't sign up? Ignore this — we won't write again.

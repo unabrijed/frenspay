@@ -29,14 +29,16 @@ const HORIZON_ROW_FRAC = 0.7597;
 // globals.css for why overlaying cannot work on a phone.
 const SCENE_W = 1.3; // multiples of 100vw
 const VIEWPORT = { w: 1440, h: 900 };
-const CREAM = [255, 248, 244]; // --color-canvas
-const INK = [30, 27, 25]; // --color-ink
+// Mirrors the landing's own @theme block — the check measures the colours the page
+// actually paints, so these move with the tokens or it measures nothing.
+const CREAM = [252, 232, 203]; // --color-canvas (paper #fce8cb)
+const INK = [43, 49, 49]; // --color-ink (#2b3131)
 // .things-scrim: height --scrim-h, stops as fractions of that height going up.
 const SCRIM_H = 0.2;
 const SCRIM_STOPS = [
-  [0.0, 0.8],
-  [0.65, 0.64],
-  [0.88, 0.26],
+  [0.0, 0.86],
+  [0.65, 0.72],
+  [0.88, 0.3],
   [1.0, 0.0],
 ];
 // Where foot text actually sits, as viewport fractions from the bottom. The

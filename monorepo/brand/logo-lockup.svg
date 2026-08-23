@@ -7,7 +7,7 @@
      mush, and even at 96px it fills only 41% of a square tile. Square slots use
      logo-icon.svg. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="85 30 342 167" fill="none">
-  <circle cx="150" cy="60" r="24" fill="#A6341F"/>
-  <circle cx="362" cy="60" r="24" fill="#A6341F"/>
-  <path d="M112 126 C148 118 175 130 207 153 C238 176 274 176 305 153 C337 130 364 118 400 126" stroke="#A6341F" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="150" cy="60" r="24" fill="#B94F2B"/>
+  <circle cx="362" cy="60" r="24" fill="#B94F2B"/>
+  <path d="M112 126 C148 118 175 130 207 153 C238 176 274 176 305 153 C337 130 364 118 400 126" stroke="#B94F2B" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

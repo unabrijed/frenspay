@@ -72,11 +72,11 @@ export function Verify() {
   return (
     <>
       <Grab />
-      <SheetHeader title={payCtx ? 'Verify to pay merchants' : 'Verification'} onClose={close} />
+      <SheetHeader title={payCtx ? 'Verify to scan and pay' : 'Verification'} onClose={close} />
       <SheetBody>
         {payCtx ? (
           <Txt style={[type.lead, { marginBottom: 14 }]}>
-            A one-time check to pay shops across India. Your balance stays safe and untouched.
+            A one-time check before you scan and pay. Your balance stays safe and untouched.
           </Txt>
         ) : null}
 
@@ -107,7 +107,7 @@ export function Verify() {
               {tier >= 2 ? 'Active' : (waiting?.tag ?? (declined ? 'Not verified' : 'Verify to unlock'))}
             </Txt>
           </View>
-          <Txt style={styles.desc}>Pay merchants across India. Passport + visa, about 2 minutes.</Txt>
+          <Txt style={styles.desc}>Scan and pay across India. Passport + visa, about 2 minutes.</Txt>
           {tier < 2 ? (
             <>
               {/* One note slot, in priority order: a live failure, then a vendor decline, then the

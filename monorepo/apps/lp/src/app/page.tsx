@@ -251,9 +251,9 @@ export default function MerchantHome() {
           <BackButton onPress={() => router.push('/')} />
         </View>
         <View style={styles.scroll}>
-          <Txt style={type.handle}>Become a merchant</Txt>
+          <Txt style={type.handle}>Become a partner</Txt>
           <Txt style={[type.lead, { marginTop: 10 }]}>
-            Merchants settle other people’s payouts and earn a spread. You put up a stake up front.
+            Partners settle other people’s payouts and earn a spread. You put up a stake up front.
             If you don’t pay someone, it covers them.
           </Txt>
           <Spacer />

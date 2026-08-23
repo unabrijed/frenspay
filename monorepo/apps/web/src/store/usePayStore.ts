@@ -493,11 +493,20 @@ export const usePayStore = create<PayState>()(
           // identity had just resolved fine. The comment above is only true if they fail alone.
           // Balance holds its previous figure rather than falling to 0: this is the number people
           // read as "my money", and inventing a zero for it is worse than showing a stale one.
-          // ponytail: on a COLD load there is no previous figure (the reset above zeroed it), so a
-          // failed first balance read still paints $0 for one poll cycle. Fixing that properly means
-          // a nullable balanceUSD threaded through every consumer — do it if the 503 is ever common.
+          // ponytail: on a COLD load there is no previous figure (the reset above zeroed it), so the
+          // fallback below still paints $0 for one poll cycle — a toast now says so rather than
+          // letting that zero read as fact. Removing the zero entirely means a nullable balanceUSD
+          // threaded through every consumer; do that if "stale" and "unknown" ever need to look
+          // different on screen.
           const [bal, txns, reqs, notifs] = await Promise.all([
-            wallet.getBalanceUsd().catch(() => get().balanceUSD),
+            wallet.getBalanceUsd().catch((e) => {
+              // A warm refresh holds the last figure silently — it's real, just stale. A cold load
+              // has no last figure, so the same fallback would present a made-up $0 as this
+              // account's money. firstLoadDone is still false here (set below, after this await),
+              // which is exactly the cold-load signal.
+              if (!get().firstLoadDone) get().notify(friendlyError(e));
+              return get().balanceUSD;
+            }),
             wallet.getTransactions().catch(() => get().transactions),
             wallet.getRequests().catch(() => get().requests),
             // Non-critical: a failing /notifications must never blank the dashboard.
@@ -742,12 +751,12 @@ export const usePayStore = create<PayState>()(
           // Keep the VPA: it's WHO the merchant actually pays. Dropping it (as this used to) left the
           // order with a rail but no destination, so no merchant could have settled it.
           set({ error: null });
-          get().payPayee({ name: res.name ?? res.payee ?? 'Merchant', vpa: res.payee, rail: 'UPI', currency: 'INR' }, res.amountInr ?? 0);
+          get().payPayee({ name: res.name ?? res.payee ?? 'Recipient', vpa: res.payee, rail: 'UPI', currency: 'INR' }, res.amountInr ?? 0);
         } else if (res.kind === 'qris') {
           // Same lifecycle on the Indonesian rail — the NMID is the payout destination, IDR the
           // quote currency. The rail rides on the payee so every quote call names it.
           set({ error: null });
-          get().payPayee({ name: res.name ?? 'Merchant', vpa: res.payee, rail: 'QRIS', currency: 'IDR' }, res.amountIdr ?? 0);
+          get().payPayee({ name: res.name ?? 'Recipient', vpa: res.payee, rail: 'QRIS', currency: 'IDR' }, res.amountIdr ?? 0);
         } else if (res.kind === 'address') {
           set({ error: null });
           get().startExternalSend(res.address, res.network);

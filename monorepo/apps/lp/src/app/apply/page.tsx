@@ -47,7 +47,7 @@ export default function MerchantApply() {
         <BackButton onPress={() => router.push('/')} />
       </View>
       <View style={styles.scroll}>
-        <Txt style={type.handle}>Apply as a merchant</Txt>
+        <Txt style={type.handle}>Apply as a partner</Txt>
         <Txt style={[type.lead, { marginTop: 10, marginBottom: 22 }]}>
           You’ll pay people in rupees from your own account and get paid back here, plus a spread. You
           put up a stake first. If you don’t pay someone, it covers them.
@@ -61,7 +61,7 @@ export default function MerchantApply() {
         {kycTier < 2 ? (
           <>
             <Txt style={type.inst}>
-              Merchants handle other people’s money, so we verify who you are first. It is the same quick
+              Partners handle other people’s money, so we verify who you are first. It is the same quick
               identity check that unlocks higher limits.
             </Txt>
             <Spacer />

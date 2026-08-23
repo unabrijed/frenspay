@@ -26,18 +26,18 @@ export function gateHtml(err: boolean): string {
 <title>frenspay</title>
 <link rel="icon" href="/icon.svg">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Spectral:wght@300;400&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; }
   :root { --ease: cubic-bezier(0.22, 1, 0.36, 1); }
   body {
     min-height: 100dvh; display: grid; place-items: center;
     background: ${colors.canvas}; color: ${colors.ink};
-    font-family: 'Hanken Grotesk', system-ui, sans-serif; padding: 24px;
+    font-family: Spectral, Georgia, serif; padding: 24px;
   }
   main { width: 100%; max-width: 380px; text-align: center; }
   .veil, .grain { position: fixed; inset: 0; pointer-events: none; }
-  .veil { background: radial-gradient(ellipse at center, transparent 55%, rgb(30 27 25 / 8%) 100%); }
+  .veil { background: radial-gradient(ellipse at center, transparent 55%, rgb(43 49 49 / 8%) 100%); }
   .grain { opacity: 0.05; background-image: ${GRAIN}; background-size: 200px 200px; }
 
   .mark { overflow: visible; margin-bottom: 16px; }

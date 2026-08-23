@@ -5,6 +5,10 @@ next-env.d.ts
 *.tsbuildinfo
 .DS_Store
 
+# env
+.env*
+!.env.example
+
 # Full-resolution scene sources (~2.2MB each). Only scripts/scenes.mjs reads
 # them, and its cropped WebP output in public/scenes/ is committed — so the
 # shipped art survives without these. Keep them locally to re-crop.

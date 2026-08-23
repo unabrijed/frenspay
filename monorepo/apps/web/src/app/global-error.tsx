@@ -9,10 +9,10 @@
 import { useEffect } from 'react';
 
 // Brand literals (mirror globals.css): --canvas / --ink / --muted / --accent.
-const CANVAS = '#fff8f4';
-const INK = '#1e1b19';
-const MUTED = '#58413d';
-const ACCENT = '#a6341f';
+const CANVAS = '#fce8cb';
+const INK = '#2b3131';
+const MUTED = '#6b6156';
+const ACCENT = '#b94f2b';
 
 export default function GlobalError({ error }: { error: Error & { digest?: string }; reset: () => void }) {
   useEffect(() => {

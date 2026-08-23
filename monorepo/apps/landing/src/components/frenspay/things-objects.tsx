@@ -1,3 +1,9 @@
+// The insert shots — the close-up of what the two figures in each scene are doing.
+//
+// Two values and one rust event, which is the whole v2 colour rule at the scale of a drawing:
+// ink is the silhouette, water is every secondary mark (pins, rings, ropes, lanes), and
+// terracotta appears ONLY on the thing that travels — relay's note and pay's returning bead.
+// play and stay carry no rust at all: the scene painting behind each already spends its one.
 // Four string-and-paper objects, hand-authored constants on an 800x600 viewBox.
 //
 // These are insert shots now, not the centrepiece: the scenes are the
@@ -32,7 +38,7 @@ export function PlayCradle() {
   return (
     <svg viewBox="0 0 800 600" fill="none" aria-hidden="true">
       {PINS.map(([cx, cy]) => (
-        <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="9" fill="var(--color-terra-ctr)" />
+        <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="9" fill="var(--color-water)" />
       ))}
       <path
         className="obj-cradle-top"
@@ -44,7 +50,7 @@ export function PlayCradle() {
       <path
         className="obj-cradle-bottom"
         d={CRADLE_BOTTOM_0}
-        stroke="var(--color-terra)"
+        stroke="var(--color-water)"
         strokeWidth="8"
         strokeLinecap="round"
       />
@@ -70,7 +76,7 @@ export function StayKnot() {
       <path
         className="obj-knot-right"
         d={KNOT_RIGHT_0}
-        stroke="var(--color-terra)"
+        stroke="var(--color-water)"
         strokeWidth="8"
         strokeLinecap="round"
       />
@@ -95,9 +101,9 @@ const RELAY_ARC = 'M80 440 C220 200 580 200 720 440';
 export function RelayNote() {
   return (
     <svg viewBox="0 0 800 600" fill="none" aria-hidden="true">
-      <circle cx="80" cy="440" r="9" fill="var(--color-terra-ctr)" />
-      <circle cx="720" cy="440" r="9" fill="var(--color-terra-ctr)" />
-      <circle cx="720" cy="440" r="18" stroke="var(--color-terra-ctr)" strokeWidth="3" />
+      <circle cx="80" cy="440" r="9" fill="var(--color-water)" />
+      <circle cx="720" cy="440" r="9" fill="var(--color-water)" />
+      <circle cx="720" cy="440" r="18" stroke="var(--color-water)" strokeWidth="3" />
       <path
         d={RELAY_ARC}
         stroke="var(--color-ink)"
@@ -109,7 +115,7 @@ export function RelayNote() {
         <rect x="-32" y="-22" width="64" height="44" rx="4" stroke="var(--color-ink)" strokeWidth="5" />
         <path d="M12 -22 L32 -22 L32 -2 Z" fill="var(--color-terra)" />
         <path d="M12 -22 L32 -2" stroke="var(--color-ink)" strokeWidth="4" strokeLinejoin="round" />
-        <path d="M-20 4 L10 4" stroke="var(--color-terra-ctr)" strokeWidth="4" strokeLinecap="round" />
+        <path d="M-20 4 L10 4" stroke="var(--color-water)" strokeWidth="4" strokeLinecap="round" />
       </g>
     </svg>
   );
@@ -132,7 +138,7 @@ export function PaySwap() {
   return (
     <svg viewBox="0 0 800 600" fill="none" aria-hidden="true">
       {[120, 680].map((cx) => (
-        <circle key={cx} cx={cx} cy="300" r="30" stroke="var(--color-terra-ctr)" strokeWidth="7" />
+        <circle key={cx} cx={cx} cy="300" r="30" stroke="var(--color-water)" strokeWidth="7" />
       ))}
       {[PAY_LANE_TOP, PAY_LANE_BOTTOM].map((d) => (
         <path

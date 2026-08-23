@@ -15,7 +15,7 @@ import { fontVars } from '@/lib/fonts';
 // available (document.fonts.check), never on a timer, so the words can never reappear. If the font
 // can't load, icons stay blank — preferable to showing their names.
 //
-// This and the --font-sans variable below are the two things @fpay/ui assumes of whatever app hosts
+// This and the --font-spectral / --font-mono variables below are the two things @fpay/ui assumes of whatever app hosts
 // it, and neither is expressible inside the package: one is a <head> script, the other is a
 // next/font call that has to happen in the consuming app.
 const FONTS_READY_SCRIPT = `(function(){var F="24px 'Material Symbols Outlined'",e=document.documentElement;function r(){e.classList.add('fonts-ready')}try{if(document.fonts&&document.fonts.load){var c=function(){try{if(document.fonts.check(F))r()}catch(_){r()}};document.fonts.load(F).then(c).catch(function(){});document.fonts.ready.then(c)}else{r()}}catch(_){r()}})();`;
@@ -34,7 +34,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: 'cover',
-  themeColor: '#fff8f4',
+  themeColor: '#fce8cb',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

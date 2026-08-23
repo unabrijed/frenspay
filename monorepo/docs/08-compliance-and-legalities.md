@@ -32,7 +32,7 @@ flowchart TB
       C5["Account deletion — soft-delete revokes<br/>app access, never custody"]
     end
     subgraph gray["🟡 Gray (exists but simulated/partial)"]
-      G1["KYC vendor — sim active on stage<br/>(tiers enforced, Didit config-flip away)"]
+      G1["KYC vendor — Didit live on stage + prod<br/>(tiers enforced; session creation failing today)"]
       G2["FX — live per-currency rate;<br/>no regulated provider SLA"]
       G3["Escrow release authority —<br/>platform-held (operationally trusted)"]
       G4["PII/data — minimal, NO<br/>retention policy exists today"]
@@ -60,9 +60,9 @@ real funds move at scale.)* See [03-custody-money-in-and-confirmation](03-custod
 The tiered model is **enforced**: `users.kyc_tier` gates money movement (tier 1 ≈ $100/tx, $300/day
 P2P; tier 2 unlocks merchant cash-out + external-address sends), checked server-side against
 rolling-24h volume. The vendor seam is real (`services/kyc/` — `provider.ts` interface, `didit.ts`
-vendor, `sim.ts` simulator) with **sim as the active provider on stage**; flipping to Didit (real
-document collection) is a config change, not a rebuild. See
-[02-identity-and-onboarding](02-identity-and-onboarding.md).
+vendor, `sim.ts` simulator) and **Didit — real document collection — is the active provider on both
+stage and prod**. `sim` runs locally only: it promotes to tier 2 without seeing a document, and both
+deployed tiers are mainnet. See [02-identity-and-onboarding](02-identity-and-onboarding.md).
 
 ### 3. Escrow release authority — 🟡 *platform-held*
 The escrow is trust-minimized (funds can only go to the intended merchant or back to the user), but
@@ -201,7 +201,7 @@ routing happened to pick saw every payee assigned to them whether or not they ev
 | Custody / money transmission | non-custodial (lighter class) | ✅ by design | revisit with counsel before real scale |
 | Gas sponsorship | product cost | ✅ | rate-limited by design |
 | Escrow conditional settlement | trust-minimized | ✅ structure / 🟡 authority | hardening later (multisig / proof-conditioned release) |
-| KYC tiers | enforced per-tier caps (sim vendor) | ✅ tiers / 🟡 vendor | Didit config-flip |
+| KYC tiers | enforced per-tier caps (Didit vendor, live on both deployed tiers) | ✅ tiers / 🟡 vendor | session creation failing today — see runbook |
 | AML / sanctions / monitoring | screening + fraud score built (seeded lists) | 🟡 | real lists + monitoring vendor |
 | FX & disclosure | live per-currency rate, single all-in number, no fee line | ✅ | regulated provider SLA later |
 | On-ramp / payout (fiat) | seam built (`payout_providers`), simulated fiat leg | ⬜ | licensed partner per corridor |

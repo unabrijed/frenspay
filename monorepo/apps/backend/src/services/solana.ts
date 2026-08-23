@@ -16,9 +16,39 @@ import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
 import { config } from '../envConfig';
 import { BN, formatAmount, fromBaseUnits, parseAmount, toBaseUnits as toBase } from '../lib/units';
 
+// web3.js already retries HTTP 429 itself (5 attempts, 500ms doubling), so this deliberately does
+// NOT — retrying it here too would multiply the two into 25 attempts. What it leaves uncovered is
+// everything else transient: 5xx from the provider, and transport errors (ECONNRESET, DNS, socket
+// hangup) which it hands straight to the caller. Those arrived as a 503 on someone's dashboard.
+// Budget stays small on purpose: this sits inside user-facing requests (routes/money.ts), so the
+// worst case has to be sub-second. Jitter keeps a burst of concurrent reads from retrying in step.
+const RETRY_DELAYS_MS = [150, 400];
+async function retryingFetch(input: unknown, init?: unknown): Promise<Response> {
+  let lastErr: unknown;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(input as string, init as RequestInit);
+      // 5xx only. A 4xx is the request's own fault and will fail identically however often it is
+      // repeated; 429 belongs to web3.js's own loop.
+      if (res.status < 500 || attempt >= RETRY_DELAYS_MS.length) return res;
+      lastErr = new Error(`${res.status} ${res.statusText}`);
+    } catch (e) {
+      lastErr = e;
+      if (attempt >= RETRY_DELAYS_MS.length) throw lastErr;
+    }
+    const base = RETRY_DELAYS_MS[attempt] ?? 0;
+    await new Promise((r) => setTimeout(r, base + Math.random() * base * 0.25));
+  }
+}
+
 let _connection: Connection | null = null;
 export function connection(): Connection {
-  if (!_connection) _connection = new Connection(config.solanaRpcUrl, 'confirmed');
+  if (!_connection) {
+    _connection = new Connection(config.solanaRpcUrl, {
+      commitment: 'confirmed',
+      fetch: retryingFetch,
+    });
+  }
   return _connection;
 }
 
@@ -57,6 +87,32 @@ export async function decimals(): Promise<number> {
       });
   }
   return _decimals;
+}
+
+/**
+ * Is the RPC answering RIGHT NOW? Reads the mint, which always exists — so a failure here indicts
+ * the RPC, never the wallet being asked about.
+ *
+ * This exists because a throttled RPC does not fail: it answers 200 with a null account, and
+ * spl-token reports that as TokenAccountNotFoundError — the exact error an unfunded wallet raises.
+ * decimals() was meant to be the referee (it reads the mint over the same connection), but it caches
+ * its RESOLVED value for the life of the process, so after the first successful read it stops
+ * touching the network and stops discriminating. The canary only ever fired once. Everything after
+ * that was free to report a funded wallet as empty.
+ *
+ * Concurrent probes coalesce so a burst costs one round trip, but the result is deliberately never
+ * cached — a liveness answer that outlives the moment it describes is not a liveness answer.
+ */
+let _liveProbe: Promise<void> | null = null;
+function assertRpcLive(): Promise<void> {
+  if (!_liveProbe) {
+    _liveProbe = getMint(connection(), usdcMint())
+      .then(() => undefined)
+      .finally(() => {
+        _liveProbe = null;
+      });
+  }
+  return _liveProbe;
 }
 
 /** Base units (e.g. 6dp) for a UI USDC amount. Exported for the escrow program ix builders. */
@@ -118,17 +174,23 @@ export async function getUsdcBalance(owner: string): Promise<string> {
   if (!config.usdcMint || !isValidPubkey(owner)) return formatAmount(new BN(0), await decimals());
   const ownerPk = new PublicKey(owner);
   const ata = await getAssociatedTokenAddress(usdcMint(), ownerPk);
-  // decimals() reads the MINT over the same RPC, so it fails whenever getAccount would — and its
-  // TokenAccountNotFoundError is a different event from the one below: a missing mint means the RPC
-  // is throttling or on the wrong cluster, while a missing ATA is a real, meaningful zero. Only the
-  // second may answer "0"; reporting the first as an empty wallet is how a funded user sees $0.
-  // Both reach the caller as a throw — /balance turns that into 503, never a fabricated balance.
+  // A missing ATA is a real, meaningful zero; a throttled or wrong-cluster RPC is not. Both arrive
+  // here as the SAME TokenAccountNotFoundError, so the two are told apart by asking whether the RPC
+  // is alive at the moment we are about to answer — see assertRpcLive. Only a genuine absence may
+  // answer "0"; reporting the other as an empty wallet is how a funded user sees $0. An unhealthy
+  // RPC reaches the caller as a throw, which /balance turns into a 503, never a fabricated balance.
+  //
+  // Note decimals() cannot serve as that check: it caches its resolved value and stops hitting the
+  // network after the first success, which is why this used to be wrong for every read but the first.
   const dec = await decimals();
   try {
     const acct = await getAccount(connection(), ata);
     return formatAmount(fromBaseUnits(acct.amount, dec), dec);
   } catch (err) {
-    if (err instanceof TokenAccountNotFoundError) return formatAmount(new BN(0), dec);
+    if (err instanceof TokenAccountNotFoundError) {
+      await assertRpcLive();
+      return formatAmount(new BN(0), dec);
+    }
     throw err;
   }
 }

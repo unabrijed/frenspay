@@ -115,8 +115,9 @@ objects, not derived strings):
 (structured `limit_exceeded` errors): tier 1 caps P2P (~$100/tx, $300/day), tier 2 unlocks
 merchant cash-out + external-address sends. The vendor seam is real — `services/kyc/`
 (`provider.ts` interface, `didit.ts` vendor, `sim.ts` simulator, `poller.ts` lifecycle) — with
-**sim as the active provider on stage** (`STAGE_KYC_PROVIDER=sim`); flipping to Didit is config,
-not code. Testing runbook: [10-ops-and-roadmap](10-ops-and-roadmap.md).
+**Didit the active provider on both stage and prod**. `sim` is local-only: it promotes to tier 2 with
+no documents, and both deployed tiers are mainnet. Testing runbook:
+[10-ops-and-roadmap](10-ops-and-roadmap.md).
 
 ## Legalities
 
@@ -133,7 +134,8 @@ not code. Testing runbook: [10-ops-and-roadmap](10-ops-and-roadmap.md).
 - ✅ Directory aliases (phone opt-in, country dialing default). 🟡 Privy-mode phone enrollment
   waits on the **parked OTP-channel decision** (Privy SMS = US/CA-only; WhatsApp = all regions;
   the dashboard choice is irreversible — nothing gets enabled without Bridge).
-- ✅ KYC tiers enforced; 🟡 sim provider active (Didit wired, config-flip away).
+- ✅ KYC tiers enforced; 🟡 Didit live on stage + prod, but session creation is currently failing
+  (503 `kyc_unavailable`) — diagnosis in the runbook.
 - ✅ Invite codes as real minted objects (0007/0008). ✅ `FREN-` prefix + remint script (🟡 cutover run pending).
 - ✅ Email unique index + 409 collision policy (migration 0010; 🟡 until applied on stage).
 

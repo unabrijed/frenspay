@@ -12,9 +12,13 @@ const BY_CODE: Record<string, string> = {
   too_many_new_recipients: 'You’ve reached today’s limit for new wallets. Try tomorrow.',
   duplicate_request: 'That send is already in progress.',
   crosschain_unavailable: 'Sends to other networks are briefly unavailable. Try again soon.',
+  // Every Solana-backed call collapses into this one code — /balance as well as the send paths, so
+  // the copy can't promise anything about which. Same sentence as the LP console's catalog, because
+  // it is the same backend code and the two apps saying different things is how copy drifts.
+  solana_unavailable: 'Couldn’t reach the network. Try again in a moment.',
   // limits / verification
   limit_exceeded: 'Verify your identity to raise your limits.',
-  kyc_required: 'Verify your identity first to pay shops.',
+  kyc_required: 'Verify your identity first to scan and pay.',
   // The vendor session couldn't be started (routes/kyc.ts). The real reason is server-side only,
   // so the copy promises nothing about the cause and points at the one useful action: wait, retry.
   kyc_unavailable: 'Verification is temporarily unavailable. Please try again shortly.',
