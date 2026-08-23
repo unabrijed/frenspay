@@ -23,6 +23,7 @@ const FILES = [
   '09-data-model.md',
   '10-ops-and-roadmap.md',
   '11-lp-console.md',
+  '12-mobile-app.md',
 ];
 
 const docs = FILES.map((f) => readFileSync(join(here, f), 'utf8'));

@@ -176,9 +176,12 @@ cutover) → the DB-backed checks (`check:admin`, `check-fees`). All Bridge-run.
   ($0.01). Stage needs `STAGE_MESSAGECENTRAL_*` set first.
 - **External-deposit history ingestion** — on-chain deposits credit the balance but write no
   `transfers` row today ([03](03-custody-money-in-and-confirmation.md)); needs an inbound indexer.
-- **Multi-instance infra** — Redis locks/shared rate-limit store, real push delivery, a metrics
-  scrape target.
-- **Mobile (Expo)** — parked out of the workspace; P2P-only parity when revived.
+- **Multi-instance infra** — Redis locks/shared rate-limit store, a metrics scrape target.
+- **Push delivery (phone)** — built ([12](12-mobile-app.md)): `notify()` fans out through Expo's
+  push service, no SDK or server credential. Gated on ops: a free Expo project id in
+  `apps/mobile/app.json` (`extra.eas.projectId`) and the Firebase FCM V1 service-account key
+  uploaded to that project — until then token registration no-ops and the inbox still works.
+- **Mobile (Expo)** — revived 2026-08-22 on `@fpay/app`; first device pass pending ([12](12-mobile-app.md)).
 
 ## Key files
 

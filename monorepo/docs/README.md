@@ -57,6 +57,7 @@ Flow docs follow the **same six-part shape**, so you always know where to look:
 | 09 | [Data model](09-data-model.md) | the Postgres schema table-by-table, migration conventions |
 | 10 | [Ops & roadmap](10-ops-and-roadmap.md) | deploy model, infra hardening, KYC runbook, and everything gated or decided-but-unbuilt |
 | 11 | [The LP console](11-lp-console.md) | the app the people who settle our payouts use — notifier, scoreboard, stake. **No money moves through it** |
+| 12 | [The mobile app](12-mobile-app.md) | Expo/React Native rendering the same `@fpay/app` the web does — the platform seam, the `.native` twins, Privy Expo, Persona in-app, push; what is not yet device-verified |
 
 **Deployment is not a numbered doc** — the runbooks live at the repo root, next to the code they
 deploy: [`DEPLOY.stage.md`](../DEPLOY.stage.md) and [`DEPLOY.md`](../DEPLOY.md). One architecture

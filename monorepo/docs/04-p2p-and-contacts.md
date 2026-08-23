@@ -67,7 +67,8 @@ points at the old handle (self-corrects within one 12s refresh —
 On web this is complete, and the picker is the honest maximum — the Contact Picker API is a
 one-shot, gesture-gated pick with no persistent access, shipped only on Android (Chrome, Samsung
 Internet); iOS Safari keeps it behind a flag and no desktop browser has it. A real address-book
-*sync* (match everyone, keep it fresh) is a native-app capability — mobile-phase.
+*sync* (match everyone, keep it fresh) is a native-app capability — deliberately NOT built: the
+phone app uses the system picker too (one contact the user chose, [12](12-mobile-app.md)).
 
 - ✅ **Directory resolve** — `GET /users/resolve?handle=|phone=` (authed, rate-limited), consent
   model in [02-identity-and-onboarding](02-identity-and-onboarding.md).
@@ -118,7 +119,8 @@ balance hero above the grid follows the dual-currency + eye-hide spec in
   via poller/webhook.
 - ✅ Contacts building blocks (directory, PeopleSearch, Android-Chrome picker).
 - ⬜ Home grid → Add · Send (decided 2026-08-13). ⬜ "Send to Contacts" as the leading Send entry.
-- 🟡 Mobile (Expo) parks with P2P-only parity and lags web.
+- ✅ Mobile renders the same send/request sheets from `@fpay/app`; contacts = the system picker
+  (one contact, no sync) — device verification pending ([12](12-mobile-app.md)).
 
 ## Key files
 
