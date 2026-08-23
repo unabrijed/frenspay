@@ -791,6 +791,11 @@ export interface AdminMerchant {
   name: string;
   status: 'online' | 'offline' | 'suspended';
   kybStatus: KybStatus;
+  /** ISO 3166-1 alpha-2 — which country's KYB_FIELDS spec labels kybFields. */
+  country: string;
+  /** What they submitted for review (0016), screening answers included — a reviewer deciding
+   *  without these is deciding blind. */
+  kybFields?: Record<string, string>;
   payoutRail: string;
   bondUsdc: string;
   floatUsdc: string;

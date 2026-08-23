@@ -3,10 +3,10 @@
 // Merchants — every LP (real + sim) with the reputation signals routing ranks on, plus the
 // admin actions: KYB approve/reject (pending only) and suspend/reinstate. Every action confirms
 // first and lands in the audit trail server-side.
-import { useCallback, useState } from 'react';
+import { Fragment, useCallback, useState } from 'react';
 
 import type { AdminMerchant } from '@fpay/shared';
-import { KYB_DECIDABLE } from '@fpay/shared';
+import { KYB_DECIDABLE, KYB_FIELDS } from '@fpay/shared';
 import { api } from '@/services/api';
 import {
   Badge,
@@ -126,7 +126,8 @@ export default function Merchants() {
       ) : (
         <Table head={['Merchant', 'Rail', 'Status', 'KYB', 'Bond', 'Float', 'Success', 'Disputes', '👍', 'Actions']}>
           {data.merchants.map((m) => (
-            <tr key={m.id} className="hover:bg-surface-low">
+            <Fragment key={m.id}>
+            <tr className="hover:bg-surface-low">
               <Td>
                 <span className="font-medium">{m.name}</span>
                 {!m.real ? <span className="ml-1.5 text-[11px] text-muted">sim</span> : null}
@@ -161,6 +162,25 @@ export default function Merchants() {
                 </div>
               </Td>
             </tr>
+            {/* The submission itself, shown exactly while a decision is open — approving a business
+                nobody can read is the bug this row exists to prevent. Labels come from the same
+                shared spec the form rendered, so reviewer and applicant read identical words. */}
+            {m.kybFields && KYB_DECIDABLE.includes(m.kybStatus) ? (
+              <tr className="bg-surface-low/40">
+                <td colSpan={10} className="px-3 pb-2 pt-0">
+                  <div className="flex flex-wrap gap-x-6 gap-y-0.5 text-[12px] text-muted">
+                    {(KYB_FIELDS[m.country] ?? [])
+                      .filter((f) => m.kybFields?.[f.key])
+                      .map((f) => (
+                        <span key={f.key}>
+                          {f.label}: <span className="text-ink">{m.kybFields![f.key]}</span>
+                        </span>
+                      ))}
+                  </div>
+                </td>
+              </tr>
+            ) : null}
+            </Fragment>
           ))}
         </Table>
       )}

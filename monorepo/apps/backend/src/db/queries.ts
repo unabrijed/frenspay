@@ -3877,6 +3877,8 @@ export async function listMerchantsAdmin(): Promise<AdminMerchant[]> {
     name: m.name,
     status: m.status,
     kybStatus: m.kyb_status,
+    country: m.country,
+    kybFields: m.kyb_fields ?? undefined,
     payoutRail: m.payout_rail,
     bondUsdc: m.bond_usdc,
     floatUsdc: m.float_usdc,
