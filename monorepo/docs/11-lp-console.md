@@ -47,6 +47,15 @@ flowchart TB
 Every step is refusable and every step is reversible except the last. An LP can hand an order back
 free of penalty, go offline, or ask for their stake back.
 
+The KYB submission asks more than business identity. Alongside the PAN and the payout account go
+screening questions — experience, profession, intended stake, commitment, and whether the payout
+account is dedicated or shared — the same signal peer platforms collect before letting anyone in.
+Nothing in them is verifiable and nothing gates on them; they exist so the human deciding is reading
+a person with a stated intent, and the dedicated-account question aims straight at the frozen-account
+pattern ([08](08-compliance-and-legalities.md)). One spec drives all of it
+(`packages/shared/src/kyb.ts`): the form renders it, both sides validate it, and the admin review
+shows the answers under the same labels the applicant saw.
+
 ## The score, and what it buys
 
 This is the centre of the product. An LP's pitch is not "settle payouts"; it is **keep your score up
