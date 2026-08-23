@@ -115,8 +115,8 @@ async function emit(relPath, buf) {
 
 const png = (svg) => sharp(svg).png({ compressionLevel: 9 }).toBuffer();
 
-// ---- web: landing / web / admin --------------------------------------------------------------
-for (const app of ['landing', 'web', 'admin']) {
+// ---- web: landing / web / admin / lp -----------------------------------------------------------
+for (const app of ['landing', 'web', 'admin', 'lp']) {
   await emit(`apps/${app}/src/app/icon.svg`, square(64, { bg: CREAM, radius: TILE_RADIUS }));
   await emit(`apps/${app}/src/app/apple-icon.png`, await png(square(180, { bg: CREAM })));
 }

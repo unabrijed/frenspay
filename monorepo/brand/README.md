@@ -74,8 +74,8 @@ build time depends on the script.
 
 | Output | Spec |
 | --- | --- |
-| `apps/{landing,web,admin}/src/app/icon.svg` | 64² cream squircle, icon cut at 66% |
-| `apps/{landing,web,admin}/src/app/apple-icon.png` | 180², full-bleed cream, icon cut |
+| `apps/{landing,web,admin,lp}/src/app/icon.svg` | 64² cream squircle, icon cut at 66% |
+| `apps/{landing,web,admin,lp}/src/app/apple-icon.png` | 180², full-bleed cream, icon cut |
 | `apps/landing/public/logo-{icon,stacked}.svg` | bare, terracotta |
 | `apps/landing/public/logo-{icon,stacked}-cream.svg` | for dark surfaces — the mobile foot is solid ink and the social card is terracotta, where the terracotta mark is nearly invisible |
 | `apps/landing/src/app/opengraph-image.png` | 1200×630, cream icon cut on terracotta |
