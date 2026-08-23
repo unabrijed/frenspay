@@ -307,6 +307,12 @@ export interface NotificationsResponse {
   nextCursor?: string;
 }
 
+/** POST /me/push-token body — the phone app's Expo push token (0021). */
+export interface PushTokenRequest {
+  token: string;
+  platform: 'android' | 'ios';
+}
+
 /** POST /auth/sync body — token in the Authorization header identifies the Privy user. */
 export interface AuthSyncRequest {
   handle: string;

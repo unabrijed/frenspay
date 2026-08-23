@@ -15,6 +15,7 @@ import { useEmbeddedSolanaWallet, useLoginWithEmail, usePrivy } from '@privy-io/
 import { useLinkWithPasskey } from '@privy-io/expo/passkey';
 import { useEffect, useRef } from 'react';
 
+import { unregisterPush } from '@/push';
 import { LANDING_URL, SOLANA_RPC_URL } from '@/services/envConfig';
 
 import { PrivySigner } from './signer';
@@ -41,6 +42,7 @@ export function PrivyBridge(): null {
         await loginWithCode({ code, email: usePayStore.getState().authEmail });
       },
       logout: async () => {
+        await unregisterPush(); // while the token still authenticates
         await logout();
         setAuthToken(null);
         setTokenRefresher(null);

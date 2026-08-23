@@ -1,7 +1,10 @@
 // notify.ts — M6 in-app notifications. Thin, best-effort helpers over insertNotification for the
 // lifecycle events a user cares about (everyday-app inbox: "Neha sent you $5", "Payment sent"). Never
-// throws — a notification must not fail a money-movement path. Real push/webhooks deferred to M7.
+// throws — a notification must not fail a money-movement path. The same call fans out to the
+// phone app as a push (services/push.ts), fire-and-forget for the same reason.
 import { insertNotification } from '../db/queries';
+
+import { sendPush } from './push';
 
 // A deliberate mirror of the `usd()` display formatter in packages/shared/src/money.ts — the
 // backend may only `import type` from the workspace, so it copies rather than imports. Display
@@ -14,6 +17,7 @@ async function notify(userId: string, kind: string, title: string, body?: string
   } catch {
     /* best-effort */
   }
+  void sendPush(userId, title, body, { kind }).catch(() => {});
 }
 
 export const notifyReceived = (userId: string, amountUsd: number, fromHandle: string) =>

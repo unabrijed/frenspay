@@ -3266,6 +3266,26 @@ export async function insertNotification(input: {
   );
 }
 
+/* ---- push tokens (0021): the phone app's device tokens, one user per token ---- */
+
+export async function upsertPushToken(userId: string, token: string, platform: string): Promise<void> {
+  await getPool().query(
+    `insert into push_tokens (token, user_id, platform) values ($1, $2, $3)
+     on conflict (token) do update set user_id = excluded.user_id, platform = excluded.platform, last_seen_at = now()`,
+    [token, userId, platform],
+  );
+}
+
+export async function deletePushTokens(tokens: string[]): Promise<void> {
+  if (tokens.length === 0) return;
+  await getPool().query(`delete from push_tokens where token = any($1::text[])`, [tokens]);
+}
+
+export async function listPushTokens(userId: string): Promise<string[]> {
+  const { rows } = await getPool().query<{ token: string }>(`select token from push_tokens where user_id = $1`, [userId]);
+  return rows.map((r) => r.token);
+}
+
 export async function listNotifications(
   userId: string,
   limit = 30,

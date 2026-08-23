@@ -14,6 +14,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { fontMap } from '@/lib/fonts';
 import { nativePlatform } from '@/platform';
+import { usePush } from '@/push';
 import { USE_PRIVY } from '@/services/envConfig';
 
 // Before any render: this module is the router's root, so it evaluates ahead of every route.
@@ -27,6 +28,7 @@ export default function RootLayout() {
   const [fontsLoaded] = useFonts(fontMap);
   const hydrated = useStoreHydrated();
   const ready = fontsLoaded && hydrated;
+  usePush();
 
   useEffect(() => {
     if (ready) SplashScreen.hideAsync().catch(() => {});

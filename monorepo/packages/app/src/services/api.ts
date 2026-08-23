@@ -1,5 +1,5 @@
 // api.ts — typed fetch client for the Railway backend. Same @fpay/shared DTOs as the server.
-import { type ApiPaymentRequest, type AuthSyncRequest, type BalanceResponse, type CreateOrderRequest, type CreateOrderResponse, type CreateRequestRequest, type CrosschainQuoteResponse, type DepositBalancesResponse, type DepositInfoResponse, type DepositPrepareRequest, type DepositPrepareResponse, type FaucetRequest, type FaucetResponse, type FundSubmitRequest, type KycVerifyResponse, type MeResponse, type NotificationsResponse, type OrderResponse, type OrdersResponse, type PrepareCrosschainRequest, type PrepareCrosschainResponse, type PrepareTransferRequest, type PrepareTransferResponse, type QuoteRequest, type QuoteResponse, type ReportDepositRequest, type ReportDepositResponse, type RequestsResponse, type ResolveHandleResponse, type SubmitCrosschainRequest, type SubmitTransferRequest, type SubmitTransferResponse, type TransactionsResponse } from '@fpay/shared';
+import { type ApiPaymentRequest, type AuthSyncRequest, type BalanceResponse, type CreateOrderRequest, type CreateOrderResponse, type CreateRequestRequest, type CrosschainQuoteResponse, type DepositBalancesResponse, type DepositInfoResponse, type DepositPrepareRequest, type DepositPrepareResponse, type FaucetRequest, type FaucetResponse, type FundSubmitRequest, type KycVerifyResponse, type MeResponse, type NotificationsResponse, type OrderResponse, type OrdersResponse, type PrepareCrosschainRequest, type PrepareCrosschainResponse, type PrepareTransferRequest, type PrepareTransferResponse, type PushTokenRequest, type QuoteRequest, type QuoteResponse, type ReportDepositRequest, type ReportDepositResponse, type RequestsResponse, type ResolveHandleResponse, type SubmitCrosschainRequest, type SubmitTransferRequest, type SubmitTransferResponse, type TransactionsResponse } from '@fpay/shared';
 
 import { platform } from '../platform';
 
@@ -183,6 +183,9 @@ export const api = {
   // M6: notifications inbox
   getNotifications: () => req<NotificationsResponse>('/notifications'),
   readAllNotifications: () => req<{ ok: true }>('/notifications/read-all', { method: 'POST' }),
+  // Push (phone app): register after sign-in, unregister on sign-out.
+  registerPushToken: (body: PushTokenRequest) => req<{ ok: true }>('/me/push-token', { method: 'POST', body: JSON.stringify(body) }),
+  unregisterPushToken: (token: string) => req<{ ok: true }>('/me/push-token', { method: 'DELETE', body: JSON.stringify({ token }) }),
   // M7: live FX mid rate (INR per USD) for standalone display; quotes carry their own locked rate.
   fxRate: (currency = 'INR') =>
     req<{ currency: string; rate: number; asOf: string | null }>(`/fx/rate?currency=${currency}`),
