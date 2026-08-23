@@ -362,13 +362,23 @@ export async function resolveHandleToFriend(handle: string): Promise<Friend | nu
 }
 
 /** Pay-by-phone mapper lookup. Input must already be normalized E.164. Never returns the phone
- *  itself — reverse lookup (alias → number) is structurally impossible, like UPI's mapper. */
+ *  itself — reverse lookup (alias → number) is structurally impossible, like UPI's mapper.
+ *  status filter for the same reason as resolveHandleToFriend: a suspended or deleted account is
+ *  unresolvable, so money stops at resolve. Existence checks that must count every holder of the
+ *  number (the unique index does) go through phoneInUse instead. */
 export async function findUserByPhone(phone: string): Promise<Friend | null> {
   const { rows } = await getPool().query<{ handle: string; display_name: string | null }>(
-    'select handle, display_name from users where phone = $1',
+    `select handle, display_name from users where phone = $1 and status = 'active'`,
     [phone],
   );
   return rows[0] ? toFriend(rows[0]) : null;
+}
+
+/** Does ANY row hold this phone, whatever its status — the pre-check twin of uq_users_phone.
+ *  A suspended user's number is still taken; only deletion releases it (deleteUser nulls phone). */
+export async function phoneInUse(phone: string): Promise<boolean> {
+  const { rows } = await getPool().query('select 1 from users where phone = $1', [phone]);
+  return rows.length > 0;
 }
 
 /** De-enroll (null) the user from pay-by-phone. Enrolling goes through enrollPendingPhone. */
@@ -1999,10 +2009,13 @@ export async function setUserStatus(id: string, status: 'active' | 'suspended'):
  * sharing the prefix, astronomically unlikely at this userbase; widen to the full id if it matters.
  */
 export async function deleteUser(id: string): Promise<void> {
+  // phone released for the email's reason: uq_users_phone is partial (`where phone is not null`),
+  // and a retained number kept the deleted account resolvable by phone — payable, even.
   await getPool().query(
     `update users set status = 'deleted',
                       handle = '@deleted_' || left(replace(id::text, '-', ''), 12),
-                      email  = null
+                      email  = null,
+                      phone  = null
       where id = $1`,
     [id],
   );

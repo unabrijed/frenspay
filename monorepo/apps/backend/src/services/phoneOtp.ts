@@ -15,7 +15,7 @@
 // that can be enrolled is one that just received our code (UPI's own-number-only mapper rule).
 import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
 
-import { bumpPhoneOtp, enrollPendingPhone, findUserByPhone, normalizePhone, setPhoneOtp } from '../db/queries';
+import { bumpPhoneOtp, enrollPendingPhone, normalizePhone, phoneInUse, setPhoneOtp } from '../db/queries';
 import { config } from '../envConfig';
 
 const OTP_TTL_MS = 10 * 60_000;
@@ -60,7 +60,9 @@ export async function startPhoneEnrollment(userId: string, raw: string): Promise
   if (!phone) return { error: 'invalid_phone' };
   // Pre-check before spending a paid OTP. Leaks nothing: GET /users/resolve?phone= already answers
   // "is this number enrolled" to any signed-in user — that is the directory's whole purpose.
-  if (await findUserByPhone(phone)) return { error: 'phone_taken' };
+  // phoneInUse, not findUserByPhone: the resolve lookup hides suspended holders, but their number
+  // is still taken — the unique index says so, and this check exists to predict that index.
+  if (await phoneInUse(phone)) return { error: 'phone_taken' };
   const ref = await sendOtp(phone);
   await setPhoneOtp(userId, phone, ref, new Date(Date.now() + OTP_TTL_MS));
   return { ok: true };
