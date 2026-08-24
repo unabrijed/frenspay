@@ -61,8 +61,11 @@ shows the answers under the same labels the applicant saw.
 This is the centre of the product. An LP's pitch is not "settle payouts"; it is **keep your score up
 and you can earn more**, and the console has to make that legible or the incentive doesn't exist.
 
-Four signals, recomputed from real order outcomes and smoothed toward a prior so a low-volume LP
+Four signals, recomputed from real order outcomes over the **last 90 days** (payer 👍/👎 is
+lifetime until it carries its own timestamp) and smoothed toward a prior so a low-volume LP
 isn't volatile: **success rate**, **average completion time**, **dispute rate**, and **payer 👍/👎**.
+The settled *count* behind the tier's volume gate stays lifetime — a rung earned by volume doesn't
+dissolve in a quiet quarter.
 They feed the routing score directly ([06](06-offramp-and-settlement.md) § Routing), so what the
 screen shows and what the router does cannot drift — they read the same columns.
 

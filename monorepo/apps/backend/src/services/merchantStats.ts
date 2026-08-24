@@ -148,9 +148,18 @@ export async function recomputeMerchantStats(log?: (m: string) => void): Promise
   ]);
 
   for (const m of merchants) {
-    const oc = outcomes[m.id] ?? { released: 0, failed: 0 };
+    const oc = outcomes[m.id] ?? { released: 0, failed: 0, releasedRecent: 0, failedRecent: 0 };
+    // Two windows on purpose (2026-08-24): `settled` stays LIFETIME because it is the tier VOLUME
+    // gate — a rung earned by volume must not dissolve in a quiet quarter, which would cut
+    // leverage under an LP's already-committed float. The RATE is 90-day, so what routing trusts
+    // is what they've done lately, decaying toward the seed prior as old orders age out.
     const settled = oc.released + oc.failed;
-    const successRate = smooth(settled > 0 ? oc.released / settled : 0, settled, Number(m.base_success_rate));
+    const settledRecent = oc.releasedRecent + oc.failedRecent;
+    const successRate = smooth(
+      settledRecent > 0 ? oc.releasedRecent / settledRecent : 0,
+      settledRecent,
+      Number(m.base_success_rate),
+    );
 
     const cs = completion[m.id] ?? { avgSecs: 0, n: 0 };
     const avgCompletionSecs = smooth(cs.avgSecs, cs.n, m.base_avg_completion_secs);

@@ -157,7 +157,13 @@ quality gap, and that asymmetry is safe: ranking first only buys 5 seconds of ex
 
 Signals aren't static seed numbers. `merchantStats.recomputeMerchantStats` derives `success_rate` /
 `avg_completion_secs` / `dispute_rate` / `positive_rate` from real outcomes, each smoothed toward
-the seed `base_*` prior (`k=10`) so a low-volume LP isn't volatile; it also computes **`tier`** (a
+the seed `base_*` prior (`k=10`) so a low-volume LP isn't volatile. The **rates observe the last
+90 days** (2026-08-24) — what routing trusts is what an LP has done lately, decaying toward the
+seed prior as orders age out — with two deliberate exceptions: `positive_rate` stays lifetime
+(`feedback_up` has no timestamp of its own, and windowing on the wrong clock is worse than not
+windowing), and the **settled COUNT stays lifetime** because it is the tier's volume gate — a rung
+earned by volume must not dissolve in a quiet quarter, which would cut leverage under an LP's
+already-committed float. It also computes **`tier`** (a
 step function on settled volume and those rates) and rebuilds `active_hours`. The tier is also the
 **price envelope**: the platform sets how much may be added on the live mid per tier
 (`TIER_MAX_SPREAD_BPS`, decided 2026-08-24) — `setSpread` refuses a margin above the caller's cap,

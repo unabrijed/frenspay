@@ -1876,19 +1876,30 @@ export async function updateMerchantActivity(id: string, hours: number[]): Promi
   await getPool().query(`update merchants set active_hours = $2::smallint[] where id = $1`, [id, hours]);
 }
 
-/** Released/failed attempt counts per merchant from the routing audit log (drives success_rate). */
-export async function merchantOutcomeCounts(): Promise<Record<string, { released: number; failed: number }>> {
-  const { rows } = await getPool().query<{ merchant_id: string; outcome: string; n: string }>(
-    `select merchant_id, outcome, count(*) as n
+/** Released/failed attempt counts per merchant from the routing audit log. Lifetime AND 90-day
+ *  counts in one pass: the lifetime pair is the tier volume gate (a rung earned by volume must not
+ *  dissolve in a quiet quarter — that would silently cut leverage and strand in-flight capacity),
+ *  while the recent pair drives success_rate, so performance is what you've done lately. */
+export async function merchantOutcomeCounts(): Promise<
+  Record<string, { released: number; failed: number; releasedRecent: number; failedRecent: number }>
+> {
+  const { rows } = await getPool().query<{ merchant_id: string; outcome: string; n: string; n_recent: string }>(
+    `select merchant_id, outcome, count(*) as n,
+            count(*) filter (where created_at > now() - interval '90 days') as n_recent
        from order_routing_attempts
       where outcome in ('released','failed')
       group by merchant_id, outcome`,
   );
-  const out: Record<string, { released: number; failed: number }> = {};
+  const out: Record<string, { released: number; failed: number; releasedRecent: number; failedRecent: number }> = {};
   for (const r of rows) {
-    const e = (out[r.merchant_id] ??= { released: 0, failed: 0 });
-    if (r.outcome === 'released') e.released = Number(r.n);
-    else e.failed = Number(r.n);
+    const e = (out[r.merchant_id] ??= { released: 0, failed: 0, releasedRecent: 0, failedRecent: 0 });
+    if (r.outcome === 'released') {
+      e.released = Number(r.n);
+      e.releasedRecent = Number(r.n_recent);
+    } else {
+      e.failed = Number(r.n);
+      e.failedRecent = Number(r.n_recent);
+    }
   }
   return out;
 }
@@ -1911,6 +1922,9 @@ export async function merchantCompletionStats(): Promise<Record<string, { avgSec
           where a.order_id = o.id order by sequence desc limit 1
        ) att on true
       where o.state = 'completed' and o.merchant_id is not null
+        -- 90-day window on the RELEASE, the event being averaged — an LP who got faster
+        -- should shed their old average within a season, not carry it forever.
+        and rel.created_at > now() - interval '90 days'
       group by o.merchant_id`,
   );
   const out: Record<string, { avgSecs: number; n: number }> = {};
@@ -1918,12 +1932,17 @@ export async function merchantCompletionStats(): Promise<Record<string, { avgSec
   return out;
 }
 
-/** Upheld-dispute + completed-order counts per merchant (drives dispute_rate). */
+/** Upheld-dispute + completed-order counts per merchant (drives dispute_rate). The 90-day bounds
+ *  live INSIDE the filter clauses, each on its own table's timestamp (`resolved_at` for the
+ *  dispute, `updated_at` — the terminal write — for the completed order): a shared bound in the
+ *  WHERE would turn both left joins inner and drop every zero-history merchant from the result. */
 export async function merchantDisputeStats(): Promise<Record<string, { upheld: number; completed: number }>> {
   const { rows } = await getPool().query<{ merchant_id: string; upheld: string; completed: string }>(
     `select m.id as merchant_id,
-            count(distinct d.id) filter (where d.resolution = 'upheld') as upheld,
-            count(distinct o.id) filter (where o.state = 'completed') as completed
+            count(distinct d.id) filter (where d.resolution = 'upheld'
+                                           and d.resolved_at > now() - interval '90 days') as upheld,
+            count(distinct o.id) filter (where o.state = 'completed'
+                                           and o.updated_at > now() - interval '90 days') as completed
        from merchants m
        left join orders o on o.merchant_id = m.id
        left join disputes d on d.merchant_id = m.id
@@ -1935,7 +1954,10 @@ export async function merchantDisputeStats(): Promise<Record<string, { upheld: n
 }
 
 /** 👍/👎 counts per merchant (drives positive_rate). Groups by orders.merchant_id, which reroute
- *  rewrites — so feedback lands on the FINAL merchant, same convention as merchantDisputeStats. */
+ *  rewrites — so feedback lands on the FINAL merchant, same convention as merchantDisputeStats.
+ *  Deliberately LIFETIME while the other rates are 90-day: `feedback_up` is a bare boolean with no
+ *  timestamp of its own, and `orders.created_at` is when the order was born, not when the 👍
+ *  landed — windowing on the wrong clock is worse than not windowing. Needs a column to change. */
 export async function merchantFeedbackStats(): Promise<Record<string, { up: number; n: number }>> {
   const { rows } = await getPool().query<{ merchant_id: string; up: string; n: string }>(
     `select merchant_id, count(*) filter (where feedback_up) as up, count(*) as n
