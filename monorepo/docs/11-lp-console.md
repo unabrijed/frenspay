@@ -71,7 +71,7 @@ Those signals roll into a **tier**, and the tier is what pays:
 | | buys | costs the platform |
 |---|---|---|
 | **More capacity per dollar staked** | effective float is `bond × leverage`, and leverage rises with tier | more exposure per bond |
-| **First refusal on every order** | the routed LP holds it exclusively for 20s before the pool sees it | nothing |
+| **First refusal on every order** | the routed LP holds it exclusively for 5s before the pool sees it — pushed a deep link the moment the clock starts, while rivals can't even see the order | nothing |
 | **The spread surplus** | an order is offered only to LPs at or below the quoted spread, so a cheaper LP who is faster keeps the difference | nothing |
 | **A wider price envelope** | the platform sets a per-tier ceiling on the margin (`TIER_MAX_SPREAD_BPS`); a higher tier may charge more, and a downgrade clamps a stored margin to the new cap in the same stats write | nothing — the payer-facing quote is still struck competitively |
 

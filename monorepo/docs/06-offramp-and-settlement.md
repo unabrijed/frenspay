@@ -153,7 +153,7 @@ payer's 👍/👎, and the two availability terms are new: **`warm`** is `last_s
 **`activity`** indexes a 168-slot day×hour histogram at the current UTC slot. Warmth carries 0.12
 because it is a fact about *now*; activity carries 0.04, the smallest of the eight, because it is a
 prediction and with a handful of LPs per corridor those counts are noise. Neither outranks a real
-quality gap, and that asymmetry is safe: ranking first only buys 20 seconds of exclusivity (below).
+quality gap, and that asymmetry is safe: ranking first only buys 5 seconds of exclusivity (below).
 
 Signals aren't static seed numbers. `merchantStats.recomputeMerchantStats` derives `success_rate` /
 `avg_completion_secs` / `dispute_rate` / `positive_rate` from real outcomes, each smoothed toward
@@ -201,8 +201,9 @@ payment_detected
 - **The lock is a CAS that transfers `merchant_id`.** `locked_at is null` is what makes exactly one
   of N concurrent callers win. No offers table, no reservation service, no advisory lock — and
   `merchant_id` is never NULL, so committed float, the routing trail and the worker are untouched.
-- **The head start is the reputation reward.** Ranking first buys `HEAD_START_MS` (20s) of
-  exclusivity and nothing else. It costs the platform nothing and is worth more to a good LP than a
+- **The head start is the reputation reward.** Ranking first buys `HEAD_START_MS` (5s — cut from
+  20s on 2026-08-24; the preferred LP is pushed a deep link the moment the clock starts while
+  rivals cannot even see the order, so the window is real at 5s) of exclusivity and nothing else. It costs the platform nothing and is worth more to a good LP than a
   badge.
 - **The eligible pool is derived, never stored.** It is the same question routing asks, evaluated
   fresh: same rail, same country, online, approved, capacity clear, and `spread_bps` at or below

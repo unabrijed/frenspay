@@ -83,9 +83,12 @@ export const MAX_ROUTING_ATTEMPTS = 3;
  * platform nothing and is worth more to a good LP than any badge.
  *
  * Short on purpose. The payer is standing somewhere waiting, and a head start long enough to matter
- * to a sleeping LP is long enough to hurt them.
+ * to a sleeping LP is long enough to hurt them. 5s is still a real window (2026-08-24): the
+ * preferred LP is pushed a deep link in the same pass this clock starts, while rivals can't even
+ * SEE the order until it widens and then only on their next poll — exclusivity plus a push beat
+ * a blind 3s poller every time. What 5s no longer forgives is not being reachable.
  */
-export const HEAD_START_MS = 20_000;
+export const HEAD_START_MS = 5_000;
 
 /**
  * How long a lock is held before it lapses and the order returns to the pool. Generous because the
@@ -537,5 +540,8 @@ export async function rerouteOrder(input: {
   await markLatestAttemptOutcome(input.orderId, 'failed'); // the LP we just left
   await insertRoutingAttempt({ orderId: input.orderId, merchantId: next.id, sequence: sequence + 1, outcome: 'rerouted', reason: 'failover' });
   await appendOrderEvent(input.orderId, 'payment_detected', 'payment_detected', 'rerouted', { toMerchant: next.name });
+  // The new LP gets the same push the original got at fund-confirm — without it their fresh head
+  // start ticked away against a merchant who could only find the order by polling.
+  await alertMerchantOrderReady(input.orderId).catch(() => {});
   return true;
 }
