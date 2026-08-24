@@ -59,21 +59,24 @@ export const isWarm = (m: MerchantRow): boolean =>
 // Reliability-weighted, matching the architecture's "expose certainty". Weights sum to 1. (M4 folded the
 // M3 queue-depth signal into liquidity, since available float already reflects an LP's live load;
 // `rating` is the payer-👍 positive_rate — human-reported, so it gets its own modest term.)
-// Two signals about AVAILABILITY joined the six about quality (0014/0017), and every existing
-// weight shrank proportionally to pay for them rather than one being singled out.
+// Two signals about AVAILABILITY joined the six about quality (0014/0017); the 2026-08-24
+// rebalance then pushed further toward certainty: reliability leads harder and speed matters more.
 //
-// The reasoning: the best LP in the pool is worth nothing to a payer standing in a shop if they are
-// asleep. `warm` (seen in the last two minutes) is the strong one — it is a fact about right now.
-// `activity` (this hour, historically) is the weak one, a prediction, and it is the smallest weight
-// of the eight on purpose: with a handful of LPs per corridor those counts are noise, and it should
-// have to earn any more than that from real data.
+// `cost` was trimmed, not floored. The payer's rate is a pure function of the struck spread — no
+// repricing, no rebate, and a cheaper LP locking under the ceiling keeps the difference — so cost
+// is the ONLY signal in this table that protects the payer's price, and it has to stay big enough
+// to matter. `warm` was deliberately NOT raised: it is written by any authenticated console
+// request, so it measures a polling client, not a willingness to pay — and the head start already
+// rewards ranking first. `activity` (this hour, historically) stays the smallest of the eight:
+// with a handful of LPs per corridor those counts are noise, and it should have to earn any more
+// than that from real data.
 const WEIGHTS = {
-  reliability: 0.26,
-  cost: 0.18,
-  speed: 0.12,
+  reliability: 0.3,
+  cost: 0.14,
+  speed: 0.14,
   dispute: 0.08,
   rating: 0.08,
-  liquidity: 0.12,
+  liquidity: 0.1,
   warm: 0.12,
   activity: 0.04,
 };
@@ -266,7 +269,13 @@ export function rankPool(
   // where nobody is warm ranks on quality alone rather than collapsing to a tie at zero.
   const warm = normalize(pool.map((m) => (isWarm(m) ? 1 : 0)), false);
   const slot = activitySlot();
-  const activity = normalize(pool.map((m) => m.active_hours?.[slot] ?? 0), false);
+  // No history is not evidence of absence. A merchant with no active_hours yet takes the neutral
+  // midpoint AFTER normalization — the raw values are counts, so splicing a literal 0.5 in among
+  // them would normalize to ~0 and quietly say "never around", the claim NULL exists to avoid.
+  const rawActivity = pool.map((m) => (m.active_hours ? m.active_hours[slot] ?? 0 : null));
+  const historyNorm = normalize(rawActivity.filter((v): v is number => v != null), false);
+  let historyIdx = 0;
+  const activity = rawActivity.map((v) => (v == null ? 0.5 : historyNorm[historyIdx++]));
   // Liquidity headroom: available float relative to the order, capped at 5× (beyond is no real edge).
   const liq = normalize(
     avail.map((a) => Math.min(a / Math.max(input.amountUsdc, 1), 5)),

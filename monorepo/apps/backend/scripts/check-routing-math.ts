@@ -141,8 +141,8 @@ const ids = (r: ReturnType<typeof rankPool>) => r.map((x) => x.merchant.id);
 // because reliability + cost is 0.44 against warmth's 0.12.
 //
 // That asymmetry is deliberate and it is safe because of the head start's shape: ranking first only
-// buys HEAD_START_MS (20s) of exclusivity, after which the order opens to every eligible LP anyway.
-// So the worst case from preferring a better-but-sleeping LP is twenty seconds, while the worst
+// buys HEAD_START_MS (5s) of exclusivity, after which the order opens to every eligible LP anyway.
+// So the worst case from preferring a better-but-sleeping LP is five seconds, while the worst
 // case from letting "was seen recently" outrank reliability is routing real money to whoever
 // happened to refresh a page.
 {
@@ -198,14 +198,15 @@ assert.ok(activitySlot(new Date('2026-08-13T23:00:00Z')) < ACTIVITY_SLOTS, 'slot
 
 // --- scoring -------------------------------------------------------------------------------------
 
-// Cheaper wins, all else equal — `cost` carries 0.20 and is the LP's only price lever.
+// Cheaper wins, all else equal — `cost` carries 0.14 and is the ONLY signal protecting the
+// payer's price (the rate is a pure function of the struck spread; no repricing, no rebate).
 {
   const dear = lp({ id: 'dear', spread_bps: 200 });
   const cheap = lp({ id: 'cheap', spread_bps: 20 });
   assert.deepEqual(ids(rankPool([dear, cheap], {}, { amountUsdc: 100 })), ['cheap', 'dear']);
 }
 
-// Reliability outranks price: it carries 0.30 to cost's 0.20, so a cheap flake must not win.
+// Reliability outranks price: it carries 0.30 to cost's 0.14, so a cheap flake must not win.
 {
   const flake = lp({ id: 'flake', spread_bps: 10, success_rate: '0.50' });
   const solid = lp({ id: 'solid', spread_bps: 300, success_rate: '0.999' });
