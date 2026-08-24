@@ -131,13 +131,30 @@ export const config = {
   // Public base URL of this backend (e.g. https://api.pay.app) — needed to register the Helius
   // webhook callback. Unset locally → registration is skipped and the poller confirms transfers.
   publicBaseUrl: env('PUBLIC_BASE_URL'),
-  // Public base URL of the WEB app (e.g. https://pay.app) — distinct from the one above, which is
-  // this API. Used to deep-link an LP from an out-of-band alert straight at the order they need to
-  // act on. Unset → alerts still send, they just carry no button.
+  // Public base URL of the WEB (payer) app. No consumer since alert deep links moved to lpBaseUrl
+  // — kept because deleting a deployed var name mid-flight is its own change; retire deliberately.
   webBaseUrl: env('WEB_BASE_URL'),
-  // Telegram bot token for LP order alerts (services/alert/telegram.ts). Unset → the adapter is
-  // inert and LPs fall back to the in-app inbox, exactly like an unconfigured Resend key.
+  // Telegram bot token for LP order alerts (services/alert/telegram.ts) AND the LP bot
+  // (services/telegram). Unset → both are inert and LPs fall back to the in-app inbox, exactly
+  // like an unconfigured Resend key.
   telegramBotToken: env('TELEGRAM_BOT_TOKEN'),
+  // Shared secret Telegram echoes back in X-Telegram-Bot-Api-Secret-Token on every webhook call.
+  // /webhooks/telegram FAILS CLOSED without it (unlike Helius, which has the poller as fallback —
+  // the bot has no fallback client, so an open webhook would mean spoofable LP actions).
+  telegramWebhookSecret: env('TELEGRAM_WEBHOOK_SECRET'),
+  // May the LOCAL long-poller run? envSource() can't answer this — it reports the var NAME, not
+  // whether the value was inherited from STAGE_ through env()'s fallback chain — and a local
+  // poller on stage's bot token would consume stage's updates. Raw process.env reads stay in this
+  // file (the one place allowed to): explicit LOCAL_ token, and never the same token stage uses.
+  telegramLongPollEnabled:
+    isLocal &&
+    !!clean(process.env.LOCAL_TELEGRAM_BOT_TOKEN) &&
+    clean(process.env.LOCAL_TELEGRAM_BOT_TOKEN) !== clean(process.env.STAGE_TELEGRAM_BOT_TOKEN),
+  // Public base URL of the LP console (provider.frenspay.xyz) — where alert deep links and the
+  // bot's "Open console" buttons land. Distinct from webBaseUrl (the payer app): LP alerts pointed
+  // there deep-linked at /merchant/... paths that no longer exist. Unset → alerts still send, they
+  // just carry no button.
+  lpBaseUrl: env('LP_BASE_URL'),
 
   // Privy (M3).
   privyAppId: env('PRIVY_APP_ID'),

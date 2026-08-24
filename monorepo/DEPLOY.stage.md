@@ -140,6 +140,9 @@ Use it to redeploy the current commit, or to recover after a failed run.
    STAGE_PRIVY_APP_SECRET=<privy app secret>            # backend-only, never in a web build
    PUBLIC_BASE_URL=https://<this-railway-service>.up.railway.app   # → https://stage.api.frenspay.xyz once the custom domain is attached (step 6)
    STAGE_CORS_ORIGIN=<see below>
+   STAGE_LP_BASE_URL=https://provider.frenspay.xyz   # LP console — alert deep links lose their button if unset
+   # STAGE_TELEGRAM_BOT_TOKEN / STAGE_TELEGRAM_WEBHOOK_SECRET — one bot per tier, docs/13 §Setup.
+   # Unset ⇒ the bot and its alert adapter are inert; the webhook fails closed.
    # leave STAGE_STAKE_TREASURY_ADDRESS and STAGE_ESCROW_PROGRAM_ID unset (staking 503s, orders are gated)
    # STAGE_PLATFORM_FEE_BPS optional (default 50) — dormant until merchant-pay ships on mainnet
    ```

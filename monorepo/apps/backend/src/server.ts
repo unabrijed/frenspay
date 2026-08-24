@@ -17,6 +17,7 @@ import { metrics } from './services/metrics';
 import { assertPayoutConfig } from './services/payout/provider';
 import { assertPhoneOtpConfig } from './services/phoneOtp';
 import { startRateLimitSweeper } from './services/rateLimit';
+import { assertTelegramConfig } from './services/telegram/assert';
 
 async function start() {
   // Fail fast on a misconfigured real KYC provider before accepting traffic.
@@ -25,6 +26,8 @@ async function start() {
   assertPayoutConfig();
   // Phone OTP: fatal only for console-on-prod; a missing SMS key just warns (enrollment is optional).
   assertPhoneOtpConfig();
+  // Telegram: never fatal (a bot misconfig must not crash-loop a payments backend) — warns by name.
+  assertTelegramConfig();
 
   // Serving another tier's data is worse than not serving at all, so this one IS fatal (0013).
   // Verify only — claiming an unstamped database belongs to db:deploy, never to a booting server.
