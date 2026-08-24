@@ -8,7 +8,7 @@
 //
 // The fiat leg is NOT integrated with any payout rail — the merchant types a UTR by hand. That keeps
 // this inside the "simulated rails" posture of docs/11 (no real fiat moves, so no payout licensing).
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 
 import type {
   MerchantOrder,
@@ -26,67 +26,60 @@ import { requireMerchant, requireUserId } from '../auth';
 import { config } from '../envConfig';
 import {
   cancelStakeWithdrawal,
-  claimOrderPayout,
   createPendingTransfer,
   getMerchantForUser,
   getUserKycTier,
   getWalletForUser,
   appendKybEvent,
   insertMerchantApplication,
-  listKybEvents,
   listMerchantDisputes,
-  listMerchantOrders,
   merchantEarnings,
   submitMerchantKyb,
-  listOpenOffers,
-  lockOrder,
   setMerchantAlertChannel,
-  unlockOrder,
   listStakeWithdrawals,
-  LIVE_ORDER_STATE_LIST,
   requestStakeWithdrawal,
-  setMerchantFloat,
-  setMerchantOnlineSelf,
-  setMerchantSpread,
   type KybEventRow,
   type MerchantOrderRow,
   type MerchantRow,
   type StakeWithdrawalRow,
 } from '../db/queries';
-import { amt, nonNegativeAmount, positiveAmount, USDC_DECIMALS } from '../lib/amount';
+import { amt, positiveAmount, USDC_DECIMALS } from '../lib/amount';
 import { acceptsLps, CORRIDORS, PAYOUT_METHODS } from '../lib/corridors';
 import { KYB_SUBMITTABLE, validateKybFields } from '../lib/kyb';
 import { formatAmount } from '../lib/units';
 import { KYC_APPROVED_TIER } from '../services/kyc';
-import { DISPUTE_WINDOW_MS, LOCK_TTL_MS } from '../services/orderMachine';
+import * as ops from '../services/merchantOps';
 import { leverageFor, MIN_BOND, tierProgress } from '../services/merchantStats';
-import { PAYEE_COOLDOWN_DAYS } from '../services/routing';
 import { buildUsdcTransfer } from '../services/solana';
 
 /** Cap on a single stake deposit — a typo shouldn't be able to move a merchant's whole balance. */
 const MAX_STAKE_DEPOSIT_USD = 50_000;
 
-/**
- * Band an LP may price inside, in basis points off the mid. The floor is not zero: a zero-spread LP
- * wins every `cost` comparison in routing, takes the flow, and then has no margin to absorb the FX
- * drift they're carrying (docs/06 — the FX window is ~24h, the quote's is 45s). The ceiling stops a
- * lone LP on a thin corridor from quoting a punitive rate to a payer who cannot see the spread.
- */
-const MIN_SPREAD_BPS = 10;
-const MAX_SPREAD_BPS = 300;
-
-/** Order states that still tie up an LP's capacity — the same set committedFloatByMerchant counts,
- *  so the pool never offers an order the lock would immediately refuse for want of headroom. */
-const LIVE_FOR_CAPACITY = new Set<string>(LIVE_ORDER_STATE_LIST);
-
 /** Adapters services/alert knows how to reach. Validated here so an LP can't store an address for a
  *  channel that will never fire and then wonder why they hear nothing. */
 const ALERT_CHANNELS: readonly string[] = ['telegram'];
 
-/** A bank payment reference: NPCI UTRs are 12 digits, RRNs 12, and other rails vary — so this is
- *  deliberately loose on length and strict on character set. Anything a human would want to *say*
- *  is excluded, which is the point. */
-const UTR_RE = /^[A-Za-z0-9][A-Za-z0-9-]{5,63}$/;
+/**
+ * How each merchantOps refusal answers over HTTP. The ops themselves are transport-blind (the
+ * Telegram bot maps the same errors to chat copy); this record is the routes' entire share of the
+ * old handler logic. 409 default: "the thing exists, it just isn't in a state you can act on".
+ */
+const ERR_STATUS: Record<string, number> = {
+  kyb_not_approved: 403,
+  lock_temporarily_blocked: 429,
+  missing_reference: 400,
+  invalid_reference: 400,
+  invalid_amount: 400,
+  spread_out_of_band: 400,
+};
+
+/** `force` pins the status for an op whose refusals all mean "the row exists, it just isn't in a
+ *  state that can do this" — even when the same error string means "forbidden" elsewhere.
+ *  /merchants/status answered 409 for kyb_not_approved (deliberately grouped with
+ *  merchant_suspended and bond_below_minimum) while lock and paid answer 403 for it. */
+function refuse(reply: FastifyReply, r: { error: string; extra?: Record<string, number> }, force?: number) {
+  return reply.code(force ?? ERR_STATUS[r.error] ?? 409).send({ error: r.error, ...r.extra });
+}
 
 export function toMerchantProfile(
   m: MerchantRow,
@@ -219,80 +212,30 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
   /**
    * The merchant's work queue: their own orders, plus the open pool they could take.
    *
-   * Two sets in one response because they are one screen and one poll. `mine` distinguishes them,
-   * and the payee is present on exactly the orders this LP holds the lock for — enforced by the
-   * queries, not by this handler.
+   * Two sets in one response because they are one screen and one poll. `mine` distinguishes them.
+   * Eligibility, headroom and payee redaction all live in ops.listWork — this handler only maps.
    */
   app.get('/merchants/orders', async (req): Promise<MerchantOrdersResponse> => {
     const merchant = await requireMerchant(req);
-    const mine = await listMerchantOrders(merchant.id);
-
-    // An LP who isn't currently routable shouldn't be shown work they can't take — and shouldn't be
-    // handed the shape of the order book either.
-    let open: MerchantOrderRow[] = [];
-    if (merchant.status === 'online' && merchant.kyb_status === 'approved') {
-      // Capacity is the same figure routing uses, minus what this LP already has in flight — so the
-      // pool never shows an order the lock would then refuse.
-      const committed = mine
-        .filter((o) => LIVE_FOR_CAPACITY.has(o.state))
-        .reduce((sum, o) => sum + Number(o.amount_usdc), 0);
-      const headroom =
-        Math.min(Number(merchant.float_usdc), Number(merchant.bond_usdc) * leverageFor(merchant.tier)) - committed;
-      if (headroom > 0) {
-        open = await listOpenOffers({
-          merchantId: merchant.id,
-          payoutRail: merchant.payout_rail,
-          country: merchant.country,
-          spreadBps: merchant.spread_bps,
-          maxAmountUsdc: headroom,
-          payeeCooldownDays: PAYEE_COOLDOWN_DAYS,
-        });
-      }
-    }
-    return { orders: [...mine, ...open].map(toMerchantOrder) };
+    return { orders: (await ops.listWork(merchant)).map(toMerchantOrder) };
   });
 
-  /**
-   * Take an order — the mutual exclusion the whole marketplace turns on, and the moment the payee
-   * is revealed. Exactly one of N concurrent callers gets a 200; the rest get 409.
-   *
-   * The reveal rides the same atomic statement as the claim (queries.lockOrder) rather than being a
-   * second read afterwards: a lock that succeeded but whose reveal then failed would leave an LP
-   * holding an order they cannot see how to pay.
-   */
+  /** Take an order — the mutual exclusion the whole marketplace turns on, and the moment the
+   *  payee is revealed. Exactly one of N concurrent callers gets a 200; the rest get 409. */
   app.post<{ Params: { id: string } }>('/merchants/orders/:id/lock', async (req, reply) => {
     const merchant = await requireMerchant(req);
-    if (merchant.kyb_status !== 'approved') return reply.code(403).send({ error: 'kyb_not_approved' });
-    if (merchant.lock_bans_until && merchant.lock_bans_until > new Date()) {
-      return reply.code(429).send({ error: 'lock_temporarily_blocked' });
-    }
-    // Eligibility is re-derived INSIDE lockOrder's CAS from these; the pool query is only a view.
-    const taken = await lockOrder({
-      orderId: req.params.id,
-      merchantId: merchant.id,
-      ttlMs: LOCK_TTL_MS,
-      country: merchant.country,
-      leverage: leverageFor(merchant.tier),
-      payeeCooldownDays: PAYEE_COOLDOWN_DAYS,
-    });
-    // 409, not 404: the order exists — someone else got there first, or it moved on.
-    if (!taken) return reply.code(409).send({ error: 'order_already_taken' });
-    return {
-      ok: true,
-      payoutDestination: taken.payoutDestination ?? undefined,
-      payoutName: taken.payoutName ?? undefined,
-      expiresInSecs: Math.round(LOCK_TTL_MS / 1000),
-    };
+    const r = await ops.takeOrder(merchant, req.params.id);
+    if (!r.ok) return refuse(reply, r);
+    return r;
   });
 
   /** Give it back. Free and unpenalised on purpose: if handing an order back costs the same as
    *  going silent, everyone goes silent and the pool waits out every TTL. */
   app.post<{ Params: { id: string } }>('/merchants/orders/:id/unlock', async (req, reply) => {
     const merchant = await requireMerchant(req);
-    if (!(await unlockOrder(req.params.id, merchant.id))) {
-      return reply.code(409).send({ error: 'order_not_unlockable' });
-    }
-    return { ok: true };
+    const r = await ops.giveBackOrder(merchant, req.params.id);
+    if (!r.ok) return refuse(reply, r);
+    return r;
   });
 
   /**
@@ -378,71 +321,38 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  /**
-   * "I've paid" — the merchant reports settling the fiat leg out-of-band.
-   *
-   * Deliberately does NOT move the order to a new state: it stays `payment_detected` (the money is
-   * still escrowed and the LP still owes it) and gains `payout_utr` + `payout_claimed_at`. The
-   * guarded UPDATE inside `claimOrderPayout` IS the compare-and-set, so a double-tap is idempotent
-   * and an order that was rerouted/refunded out from under them can't be claimed.
-   */
+  /** "I've paid" — the merchant reports settling the fiat leg out-of-band. All semantics
+   *  (UTR shape, the kyb gate, the claim CAS) live in ops.reportPaid. */
   app.post<{ Params: { id: string }; Body: SubmitPayoutRequest }>(
     '/merchants/orders/:id/paid',
     async (req, reply) => {
       const merchant = await requireMerchant(req);
-      if (merchant.kyb_status !== 'approved') return reply.code(403).send({ error: 'kyb_not_approved' });
-      const reference = req.body?.reference?.trim();
-      if (!reference) return reply.code(400).send({ error: 'missing_reference' });
-      // Shape-checked, not just length-capped. This string is now shown to the PAYER as the bank
-      // reference for their payment, so unconstrained free text is a channel from the LP straight
-      // onto the payer's receipt — a phone number, a name, "call me" — which breaks the rule that
-      // the payer never perceives an LP at all. A real UTR/RRN is alphanumeric.
-      if (!UTR_RE.test(reference)) return reply.code(400).send({ error: 'invalid_reference' });
-      const claimed = await claimOrderPayout({
-        orderId: req.params.id,
-        merchantId: merchant.id,
-        reference,
-        windowMs: DISPUTE_WINDOW_MS,
-      });
-      // 409 rather than 404: the order exists, it just isn't claimable (already claimed, released,
-      // refunded, or reassigned to another LP by the failover path).
-      if (!claimed) return reply.code(409).send({ error: 'order_not_claimable' });
-      return { ok: true, releasesInSecs: Math.round(DISPUTE_WINDOW_MS / 1000) };
+      const r = await ops.reportPaid(merchant, req.params.id, req.body?.reference);
+      if (!r.ok) return refuse(reply, r);
+      return r;
     },
   );
 
-  /** Set how much the LP can carry in flight — their own honest capacity, not their stake.
-   *  Routing takes min(this, bond × leverage), so declaring more than the stake backs buys nothing. */
+  /** Set how much the LP can carry in flight — their own honest capacity, not their stake. */
   app.post<{ Body: { floatUsd?: number } }>('/merchants/float', async (req, reply) => {
     const merchant = await requireMerchant(req);
-    // Zero is a legitimate float — an LP throttling themselves without going offline.
-    const floatUsd = nonNegativeAmount(req.body?.floatUsd);
-    if (floatUsd === null) return reply.code(400).send({ error: 'invalid_amount' });
-    await setMerchantFloat(merchant.id, floatUsd);
-    return { ok: true, floatUsdc: floatUsd };
+    const r = await ops.setFloat(merchant, req.body?.floatUsd);
+    if (!r.ok) return refuse(reply, r);
+    return r;
   });
 
   /**
    * Go online / offline. The LP's own switch — until now `merchants.status` was writable only by an
    * admin, and the documented workaround was setting float to 0, which is a different statement
    * ("I have no capacity" vs "I'm not here") that routing and the LP's own dashboard both misread.
-   *
-   * The guard lives in the UPDATE (`setMerchantOnlineSelf`): 'suspended' is neither reachable nor
-   * escapable here, and coming online re-checks KYB + the bond floor, so this can't be used as a
-   * side door around the routing gate.
    */
   app.post<{ Body: { online?: boolean } }>('/merchants/status', async (req, reply) => {
     const merchant = await requireMerchant(req);
     if (typeof req.body?.online !== 'boolean') return reply.code(400).send({ error: 'missing_fields' });
-    const status = req.body.online ? 'online' : 'offline';
-    if (!(await setMerchantOnlineSelf(merchant.id, status, MIN_BOND))) {
-      // Say which wall they hit — "refused" with no reason is the kind of thing an LP files a
-      // support ticket about.
-      if (merchant.status === 'suspended') return reply.code(409).send({ error: 'merchant_suspended' });
-      if (merchant.kyb_status !== 'approved') return reply.code(409).send({ error: 'kyb_not_approved' });
-      return reply.code(409).send({ error: 'bond_below_minimum' });
-    }
-    return { ok: true, status };
+    const r = await ops.setOnline(merchant, req.body.online);
+    // All three refusals are 409 here — see refuse()'s note.
+    if (!r.ok) return refuse(reply, r, 409);
+    return r;
   });
 
   /**
@@ -454,13 +364,9 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
    */
   app.post<{ Body: { spreadBps?: number } }>('/merchants/spread', async (req, reply) => {
     const merchant = await requireMerchant(req);
-    const bps = req.body?.spreadBps;
-    if (!Number.isInteger(bps)) return reply.code(400).send({ error: 'invalid_amount' });
-    if (bps! < MIN_SPREAD_BPS || bps! > MAX_SPREAD_BPS) {
-      return reply.code(400).send({ error: 'spread_out_of_band', minBps: MIN_SPREAD_BPS, maxBps: MAX_SPREAD_BPS });
-    }
-    await setMerchantSpread(merchant.id, bps!);
-    return { ok: true, spreadBps: bps };
+    const r = await ops.setSpread(merchant, req.body?.spreadBps);
+    if (!r.ok) return refuse(reply, r);
+    return r;
   });
 
   /**

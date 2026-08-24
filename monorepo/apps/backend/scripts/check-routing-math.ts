@@ -411,14 +411,16 @@ assert.ok(activitySlot(new Date('2026-08-13T23:00:00Z')) < ACTIVITY_SLOTS, 'slot
   assert.ok(fnBody(queries, 'blockedMerchantsForPayee').includes('sim_behavior is null'), 'the pair rule is about a PERSON — provider/sim rows are exempt');
   const routingSrc = readFileSync(join(ROOT, 'src/services/routing.ts'), 'utf8');
   assert.ok(routingSrc.includes('blockedMerchantsForPayee(input.payee'), 'rankMerchants must fold the blocked set into its exclusions');
-  const merchantRoutes = readFileSync(join(ROOT, 'src/routes/merchant.ts'), 'utf8');
-  assert.ok(merchantRoutes.includes('payeeCooldownDays: PAYEE_COOLDOWN_DAYS'), 'the lock and pool routes must pass the one cooldown constant');
+  // Both LP paths (the HTTP routes and the Telegram bot) go through services/merchantOps.ts, so the
+  // drift guard follows the rule to its new home — the routes are a transport now, not the rulebook.
+  const merchantOps = readFileSync(join(ROOT, 'src/services/merchantOps.ts'), 'utf8');
+  assert.ok(merchantOps.includes('payeeCooldownDays: PAYEE_COOLDOWN_DAYS'), 'the lock and pool paths must pass the one cooldown constant');
 
   // --- one in-flight truth ---
   for (const fn of ['committedFloatByMerchant', 'lockOrder', 'requestStakeWithdrawal']) {
     assert.ok(fnBody(queries, fn).includes('${LIVE_ORDER_STATES}'), `${fn} must count in-flight with the ONE state set`);
   }
-  assert.ok(merchantRoutes.includes('LIVE_ORDER_STATE_LIST'), 'the LP console headroom must use the same in-flight set');
+  assert.ok(merchantOps.includes('LIVE_ORDER_STATE_LIST'), 'the LP headroom must use the same in-flight set');
 
   // --- legs are orders: the fiat a leg shows is its own, the fee is the primary's ---
   for (const fn of ['listWorkerOrders', 'getOrderAlertInfo', 'merchantEarnings', 'listMerchantOrders', 'listOpenOffers']) {
