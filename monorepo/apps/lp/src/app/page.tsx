@@ -29,6 +29,7 @@ import {
   setMerchantFloat,
   setMerchantOnline,
   setMerchantSpread,
+  setContactPhone,
 } from '@/services/merchant';
 import { useLpStore } from '@/store/useLpStore';
 
@@ -228,6 +229,15 @@ export default function MerchantHome() {
     return act(() => setMerchantSpread(Math.round(pct * 100)));
   };
 
+  const editContactPhone = () => {
+    const current = merchant?.contactPhone ?? '+91 ';
+    const raw = window.prompt('The number we call if a payout goes wrong', current);
+    if (raw == null) return;
+    const phone = raw.replace(/\s/g, '');
+    if (!/^\+[1-9]\d{6,14}$/.test(phone)) return setErr('Include the country code, like +919876543210.');
+    return act(() => setContactPhone(phone));
+  };
+
   const withdraw = () => {
     const raw = window.prompt('How much of your stake to take back, in dollars');
     if (raw == null) return;
@@ -378,6 +388,19 @@ export default function MerchantHome() {
               <Txt style={type.rowName}>Settles to</Txt>
               <Txt style={[type.rowTime, { marginTop: 2 }, clamp1]}>{merchant.treasuryAddress}</Txt>
             </RowMeta>
+          </Row>
+          {/* Everyone who onboarded before this existed has no number on file, and apply refuses an
+              existing provider — so this row is their only way to add one. Nudged, never blocked. */}
+          <Row onPress={editContactPhone}>
+            <RowMeta>
+              <Txt style={type.rowName}>Contact number</Txt>
+              <Txt style={[type.rowTime, { marginTop: 2 }]}>
+                {merchant.contactPhone ?? 'Add a number we can reach you on'}
+              </Txt>
+            </RowMeta>
+            <Txt style={{ ...fonts.body500, fontSize: 14, color: merchant.contactPhone ? colors.muted : colors.accent }}>
+              {merchant.contactPhone ? 'Change' : 'Add'}
+            </Txt>
           </Row>
         </List>
 

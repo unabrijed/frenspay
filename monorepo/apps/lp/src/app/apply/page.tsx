@@ -23,6 +23,8 @@ export default function MerchantApply() {
   const kycTier = useLpStore((s) => s.kycTier);
   const load = useLpStore((s) => s.load);
   const [name, setName] = useState('');
+  // Prefilled with the corridor's dial code — this form is UPI-only, so it is always India.
+  const [phone, setPhone] = useState('+91 ');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -32,7 +34,12 @@ export default function MerchantApply() {
     try {
       // Settle to their own wallet — the address we already hold. Asking them to paste one is a
       // typo waiting to become an irreversible payout to a stranger.
-      await applyAsMerchant({ name: name.trim(), payoutMethod: 'UPI', treasuryAddress: walletAddress });
+      await applyAsMerchant({
+        name: name.trim(),
+        payoutMethod: 'UPI',
+        treasuryAddress: walletAddress,
+        contactPhone: phone.replace(/\s/g, ''),
+      });
       await load(); // /me now carries the merchant profile
       router.push('/');
     } catch (e) {
@@ -72,6 +79,12 @@ export default function MerchantApply() {
             <Txt style={[type.kvKey, { marginBottom: 8 }]}>Business name</Txt>
             <SearchBar placeholder="e.g. Anjuna Exchange" value={name} onChangeText={setName} />
 
+            <Txt style={[type.kvKey, { marginTop: 18, marginBottom: 8 }]}>Contact number</Txt>
+            <SearchBar placeholder="+91 98765 43210" value={phone} onChangeText={setPhone} />
+            <Txt style={[type.rowTime, { marginTop: 6 }]}>
+              How we reach you if a payout goes wrong. Not shown to anyone you pay.
+            </Txt>
+
             <Txt style={[type.inst, { marginTop: 18 }]}>
               Payouts settle to your fpay balance. We’ll review your application before you can take orders.
             </Txt>
@@ -82,7 +95,7 @@ export default function MerchantApply() {
             <Btn
               label={busy ? 'Submitting…' : 'Apply'}
               variant="ink"
-              disabled={busy || name.trim().length < 2 || !walletAddress}
+              disabled={busy || name.trim().length < 2 || !walletAddress || !/^\+[1-9]\d{6,14}$/.test(phone.replace(/\s/g, ''))}
               onPress={() => void submit()}
             />
           </>
