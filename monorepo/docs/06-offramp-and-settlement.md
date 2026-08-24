@@ -23,9 +23,11 @@ tested, and running on **devnet** in local dev; nothing here moves real money ye
 
 **1 · Quote (locked 45s).** `quoteEngine.createQuote` ranks LPs on a provisional USDC amount (live
 mid rate, no spread), takes the top-ranked LP, then prices the real quote off *that* LP's
-`spread_bps` plus the platform's own cut, both shaved off the live mid (`getMidRate`, per-currency,
-cached + range-validated): `amountUsdc = amountFiat / rate`, rate rounds down, USDC owed rounds up —
-the same money law as [01](01-architecture.md#money--decimals). The user sees only the all-in rate —
+`spread_bps` shaved off the live mid (`getMidRate`, per-currency, cached + range-validated); the
+platform's own cut is the flat `$0.001` **added** to the USDC owed — fee first, rate derived
+(the 2026-08-13 fold, [05](05-fees-fx-and-display.md)): `amountUsdc = divUp(amountFiat, lpRate) +
+0.001`, LP rate rounds down, USDC owed rounds up — the same money law as
+[01](01-architecture.md#money--decimals). The user sees only the all-in rate —
 **the fee is never a line item**; sizing/display is [05](05-fees-fx-and-display.md)'s subject, not
 restated here. The quote locks 45s (`QUOTE_TTL_MS`), re-checked for expiry on confirm.
 
