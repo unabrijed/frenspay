@@ -20,7 +20,9 @@ import {
   lockOrder,
   reassignOrderMerchant,
   unlockOrder,
+  updateMerchantStats,
 } from '../src/db/queries';
+import { spreadCapFor } from '../src/services/merchantStats';
 import { PAYEE_COOLDOWN_DAYS } from '../src/services/routing';
 
 let failures = 0;
@@ -315,6 +317,65 @@ async function main() {
     check('…nor is it offered to them', !(await offers(d)).some((o) => o.id === leg2));
     check('an uninvolved LP is offered leg 2', (await offers(f)).some((o) => o.id === leg2));
     check('leg 2 goes to a different LP', (await lock(leg2, e)) !== null);
+  }
+
+  // --- 15. The cooldown's own boundary ---
+  //
+  // Section 11 proves +1 day unblocks; this pins the fence itself. An hour inside the window must
+  // still block and an hour past it must not — the difference between >= and > in payeePaidSql is
+  // exactly one LP-payee pair being legal or not, and nothing else in the suite would catch it.
+  {
+    const P4 = 'shop-p4@zzlock';
+    const g = await mkMerchant(pool, 'ZZ-LOCK-G', null, 50);
+    const done = await mkOrder(pool, payer, g, 'EDGE1', 50, { payee: P4 });
+    await lock(done, g);
+    await claimOrderPayout({ orderId: done, merchantId: g, reference: 'UTREDGE', windowMs: 120_000 });
+    await pool.query(
+      `update orders set state = 'completed', locked_at = null,
+              payout_claimed_at = now() - make_interval(days => $2) + interval '1 hour'
+        where id = $1`,
+      [done, PAYEE_COOLDOWN_DAYS],
+    );
+    const again = await mkOrder(pool, payer, b, 'EDGE2', 50, { payee: P4 });
+    check('a claim one hour inside the cooldown still blocks', (await lock(again, g)) === null);
+    await pool.query(
+      `update orders set payout_claimed_at = now() - make_interval(days => $2) - interval '1 hour' where id = $1`,
+      [done, PAYEE_COOLDOWN_DAYS],
+    );
+    check('…and one hour past it no longer does', (await lock(again, g)) !== null);
+  }
+
+  // --- 16. A reroute follows the ROW, not the attempt log ---
+  //
+  // The regression: lockOrder rewrites merchant_id when a pool LP takes an order and writes no
+  // attempt row, so "expected current merchant" derived from attempts disagrees with the row after
+  // any pool lock — and a reroute CAS keyed on the stale value must miss, not refund the payer out
+  // from under a live assignment. rerouteOrder reads orders.merchant_id for this reason.
+  {
+    const id = await mkOrder(pool, payer, a, 'CAS1', 50);
+    await lock(id, b); // pool LP takes it: merchant_id → b, no attempt row
+    await unlockOrder(id, b); // honest hand-back: lock cleared, merchant_id STAYS b
+    const stale = await reassignOrderMerchant(id, a, new Date(Date.now() + 30_000), a, new Date(Date.now() + 5_000));
+    check('a reroute expecting the stale merchant misses', stale === false);
+    const fresh = await reassignOrderMerchant(id, a, new Date(Date.now() + 30_000), b, new Date(Date.now() + 5_000));
+    check("…and one expecting the row's current merchant lands", fresh === true);
+  }
+
+  // --- 17. The tier's price cap clamps in the stats write ---
+  //
+  // A downgrade and its price consequence are one statement (least() in updateMerchantStats), so
+  // no window exists where an LP charges a spread their tier no longer allows. And least() only
+  // ever lowers: a spread already inside the cap must come through untouched.
+  {
+    const over = await mkMerchant(pool, 'ZZ-LOCK-H', null, 250); // inserted raw, above tier 1's cap
+    const under = await mkMerchant(pool, 'ZZ-LOCK-I', null, 50);
+    const stats = { successRate: 0.9, avgCompletionSecs: 60, disputeRate: 0, positiveRate: 0.9, tier: 1 };
+    await updateMerchantStats(over, { ...stats, maxSpreadBps: spreadCapFor(1) });
+    await updateMerchantStats(under, { ...stats, maxSpreadBps: spreadCapFor(1) });
+    const spread = async (id: string) =>
+      Number((await pool.query<{ spread_bps: number }>(`select spread_bps from merchants where id = $1`, [id])).rows[0].spread_bps);
+    check('a spread above the tier cap is clamped to it', (await spread(over)) === spreadCapFor(1));
+    check('a spread inside the cap is untouched', (await spread(under)) === 50);
   }
 
   await clean(pool);
