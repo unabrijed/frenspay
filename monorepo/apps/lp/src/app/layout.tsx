@@ -21,7 +21,8 @@ import { fontVars } from '@/lib/fonts';
 const FONTS_READY_SCRIPT = `(function(){var F="24px 'Material Symbols Outlined'",e=document.documentElement;function r(){e.classList.add('fonts-ready')}try{if(document.fonts&&document.fonts.load){var c=function(){try{if(document.fonts.check(F))r()}catch(_){r()}};document.fonts.load(F).then(c).catch(function(){});document.fonts.ready.then(c)}else{r()}}catch(_){r()}})();`;
 
 export const metadata: Metadata = {
-  title: 'fpay for partners',
+  // Just the name, nothing after it — pre-launch, the title must not say what this site is.
+  title: 'FrensPay',
   description: 'Settle payouts and earn a spread.',
   // Not a public page. The wallet app is the product; this is a work console for the people who
   // settle its payouts, and it has no reason to be indexed.
