@@ -51,7 +51,7 @@ import { KYB_SUBMITTABLE, validateKybFields } from '../lib/kyb';
 import { formatAmount } from '../lib/units';
 import { KYC_APPROVED_TIER } from '../services/kyc';
 import * as ops from '../services/merchantOps';
-import { leverageFor, MIN_BOND, tierProgress } from '../services/merchantStats';
+import { leverageFor, MIN_BOND, spreadCapFor, tierProgress } from '../services/merchantStats';
 import { buildUsdcTransfer } from '../services/solana';
 
 /** Cap on a single stake deposit — a typo shouldn't be able to move a merchant's whole balance. */
@@ -130,6 +130,7 @@ export function toMerchantProfile(
             avgCompletionSecs: m.avg_completion_secs,
           }) ?? undefined),
     spreadBps: m.spread_bps,
+    maxSpreadBps: spreadCapFor(m.tier),
     pendingWithdrawal: pending
       ? { id: pending.id, amountUsdc: pending.amount_usdc, requestedAt: pending.requested_at.toISOString() }
       : undefined,
@@ -385,11 +386,12 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
   });
 
   /**
-   * Set the LP's own spread, in basis points off the mid rate.
+   * Set the LP's own spread, in basis points off the mid rate — bounded by their tier's cap
+   * (the platform's price envelope; merchantStats.TIER_MAX_SPREAD_BPS).
    *
    * This had no writer at all outside the seed: every real LP was pinned to the column default of
-   * 50 bps forever, unable to compete on the one axis that is genuinely theirs — while `cost`
-   * carries 0.20 of the routing score and the spread IS their entire revenue.
+   * 50 bps forever, unable to compete on the one axis that is genuinely theirs — the spread IS
+   * their entire revenue.
    */
   app.post<{ Body: { spreadBps?: number } }>('/merchants/spread', async (req, reply) => {
     const merchant = await requireMerchant(req);

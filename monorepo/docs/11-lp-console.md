@@ -73,6 +73,7 @@ Those signals roll into a **tier**, and the tier is what pays:
 | **More capacity per dollar staked** | effective float is `bond × leverage`, and leverage rises with tier | more exposure per bond |
 | **First refusal on every order** | the routed LP holds it exclusively for 20s before the pool sees it | nothing |
 | **The spread surplus** | an order is offered only to LPs at or below the quoted spread, so a cheaper LP who is faster keeps the difference | nothing |
+| **A wider price envelope** | the platform sets a per-tier ceiling on the margin (`TIER_MAX_SPREAD_BPS`); a higher tier may charge more, and a downgrade clamps a stored margin to the new cap in the same stats write | nothing — the payer-facing quote is still struck competitively |
 
 The screen leads with the number and with **what closes the gap to the next tier** — derived by
 running the same step function against current signals and naming the term that is binding ("12 more
@@ -165,7 +166,8 @@ accepted into a dead end.
 ## Status
 
 - ✅ Apply, KYB submission with a merchant-visible timeline, staking, self-serve availability and
-  pricing, capacity, the order queue with offer/lock/reveal, reporting a payout, the earnings and
+  pricing (inside the tier's price cap — the platform sets the envelope, the LP prices within it),
+  capacity, the order queue with offer/lock/reveal, reporting a payout, the earnings and
   disputes ledger, and the alert seam with a Telegram adapter.
 - ✅ Its own app (`apps/lp`), with the score leading and distance-to-next-tier computed from the
   same rules routing scores on.

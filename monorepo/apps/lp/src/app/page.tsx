@@ -222,7 +222,10 @@ export default function MerchantHome() {
   };
 
   const editSpread = () => {
-    const raw = window.prompt('Your margin, as a percent (0.10 to 3.00)', ((merchant?.spreadBps ?? 50) / 100).toFixed(2));
+    // The ceiling is the tier's, so the prompt names the real bound — a refused edit should read
+    // as "your tier", not as a bug.
+    const capPct = ((merchant?.maxSpreadBps ?? 100) / 100).toFixed(2);
+    const raw = window.prompt(`Your margin, as a percent (0.10 to ${capPct} at your tier)`, ((merchant?.spreadBps ?? 50) / 100).toFixed(2));
     if (raw == null) return;
     const pct = Number(raw);
     if (!Number.isFinite(pct)) return setErr('Enter a percent, like 0.50.');

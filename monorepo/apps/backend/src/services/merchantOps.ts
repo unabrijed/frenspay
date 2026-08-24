@@ -22,18 +22,19 @@ import {
 } from '../db/queries';
 import { nonNegativeAmount } from '../lib/amount';
 
-import { leverageFor, MIN_BOND } from './merchantStats';
+import { leverageFor, MIN_BOND, spreadCapFor } from './merchantStats';
 import { DISPUTE_WINDOW_MS, LOCK_TTL_MS } from './orderMachine';
 import { PAYEE_COOLDOWN_DAYS } from './routing';
 
 /**
- * Band an LP may price inside, in basis points off the mid. The floor is not zero: a zero-spread LP
- * wins every `cost` comparison in routing, takes the flow, and then has no margin to absorb the FX
- * drift they're carrying (docs/06 — the FX window is ~24h, the quote's is 45s). The ceiling stops a
- * lone LP on a thin corridor from quoting a punitive rate to a payer who cannot see the spread.
+ * The floor of the band an LP may price inside, in basis points off the mid. Not zero: a
+ * zero-spread LP wins every `cost` comparison in routing, takes the flow, and then has no margin to
+ * absorb the FX drift they're carrying (docs/06 — the FX window is ~24h, the quote's is 45s).
+ * The ceiling is the LP's TIER cap (`spreadCapFor`, merchantStats.ts) — the platform sets the price
+ * envelope per tier, which also stops a lone LP on a thin corridor from quoting a punitive rate to
+ * a payer who cannot see the spread.
  */
 export const MIN_SPREAD_BPS = 10;
-export const MAX_SPREAD_BPS = 300;
 
 /** A bank payment reference: NPCI UTRs are 12 digits, RRNs 12, and other rails vary — so this is
  *  deliberately loose on length and strict on character set. Anything a human would want to *say*
@@ -193,16 +194,18 @@ export async function setFloat(
   return { ok: true, floatUsdc: floatUsd };
 }
 
-/** Set the LP's own spread, in basis points off the mid rate — the one axis that is genuinely
- *  theirs (`cost` carries 0.20 of the routing score and the spread IS their entire revenue). */
+/** Set the LP's own spread, in basis points off the mid rate — their price inside the platform's
+ *  envelope: at least MIN_SPREAD_BPS, at most their tier's cap. The spread IS their entire
+ *  revenue; the cap is what the tier buys them. */
 export async function setSpread(
   merchant: MerchantRow,
   bpsRaw: unknown,
 ): Promise<{ ok: true; spreadBps: number } | Fail<'invalid_amount' | 'spread_out_of_band'>> {
   if (!Number.isInteger(bpsRaw)) return { ok: false, error: 'invalid_amount' };
   const bps = bpsRaw as number;
-  if (bps < MIN_SPREAD_BPS || bps > MAX_SPREAD_BPS) {
-    return { ok: false, error: 'spread_out_of_band', extra: { minBps: MIN_SPREAD_BPS, maxBps: MAX_SPREAD_BPS } };
+  const cap = spreadCapFor(merchant.tier);
+  if (bps < MIN_SPREAD_BPS || bps > cap) {
+    return { ok: false, error: 'spread_out_of_band', extra: { minBps: MIN_SPREAD_BPS, maxBps: cap } };
   }
   await setMerchantSpread(merchant.id, bps);
   return { ok: true, spreadBps: bps };

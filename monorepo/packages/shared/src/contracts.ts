@@ -176,6 +176,9 @@ export interface MerchantProfile {
   pendingWithdrawal?: { id: string; amountUsdc: string; requestedAt: string };
   /** The LP's take off the mid rate, in basis points. Also the routing `cost` signal. */
   spreadBps: number;
+  /** The most their TIER lets them charge, in bps — the platform's price envelope. Surfaced for the
+   *  same reason as maxFloatUsdc: a capped edit should read as "your tier", not as a bug. */
+  maxSpreadBps: number;
   /** Live smoothed reputation signals (fractions 0–1) — shown only to the merchant themselves. */
   successRate: number;
   disputeRate: number;

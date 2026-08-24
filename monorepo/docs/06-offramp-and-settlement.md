@@ -158,7 +158,11 @@ quality gap, and that asymmetry is safe: ranking first only buys 20 seconds of e
 Signals aren't static seed numbers. `merchantStats.recomputeMerchantStats` derives `success_rate` /
 `avg_completion_secs` / `dispute_rate` / `positive_rate` from real outcomes, each smoothed toward
 the seed `base_*` prior (`k=10`) so a low-volume LP isn't volatile; it also computes **`tier`** (a
-step function on settled volume and those rates) and rebuilds `active_hours`. Bond enforcement runs
+step function on settled volume and those rates) and rebuilds `active_hours`. The tier is also the
+**price envelope**: the platform sets how much may be added on the live mid per tier
+(`TIER_MAX_SPREAD_BPS`, decided 2026-08-24) — `setSpread` refuses a margin above the caller's cap,
+and the stats write clamps a stored spread with `least()` in the same statement a downgrade lands
+in, so no window exists where an LP charges a price their tier no longer allows. Bond enforcement runs
 **both ways** here: below `MIN_BOND` an online LP is suspended, and above it a suspended LP is
 reinstated to *offline* — gated on `suspend_reason = 'bond'`, so the machine can only ever reverse
 its own decision and never an admin's moderation or the user-suspend cascade. Because ranking reads

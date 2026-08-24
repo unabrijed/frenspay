@@ -1948,16 +1948,25 @@ export async function merchantFeedbackStats(): Promise<Record<string, { up: numb
   return out;
 }
 
-/** Write recomputed live signals back to a merchant. */
+/** Write recomputed live signals back to a merchant. `maxSpreadBps` is the new tier's price cap:
+ *  clamping in the same write means a tier downgrade can never leave a stored spread above what
+ *  the tier allows, with no window between the two. */
 export async function updateMerchantStats(
   id: string,
-  s: { successRate: number; avgCompletionSecs: number; disputeRate: number; positiveRate: number; tier: number },
+  s: {
+    successRate: number;
+    avgCompletionSecs: number;
+    disputeRate: number;
+    positiveRate: number;
+    tier: number;
+    maxSpreadBps: number;
+  },
 ): Promise<void> {
   await getPool().query(
     `update merchants set success_rate = $2, avg_completion_secs = $3, dispute_rate = $4, positive_rate = $5,
-                          tier = $6
+                          tier = $6, spread_bps = least(spread_bps, $7)
       where id = $1`,
-    [id, s.successRate, Math.round(s.avgCompletionSecs), s.disputeRate, s.positiveRate, s.tier],
+    [id, s.successRate, Math.round(s.avgCompletionSecs), s.disputeRate, s.positiveRate, s.tier, s.maxSpreadBps],
   );
 }
 

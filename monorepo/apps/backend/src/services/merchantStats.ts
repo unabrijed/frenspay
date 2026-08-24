@@ -35,6 +35,17 @@ export const LEVERAGE: Record<number, number> = { 1: 3, 2: 5, 3: 8 };
 export const leverageFor = (tier: number): number => LEVERAGE[tier] ?? LEVERAGE[1];
 
 /**
+ * The most an LP may add on top of the live mid, in bps, by tier — the platform sets the price
+ * envelope, the LP picks inside it (decided 2026-08-24: "the tier based prices we do set up").
+ * A proven LP has earned the right to a wider margin; an unproven one competes on price or not at
+ * all. Same code-table-not-a-column reasoning as LEVERAGE above. The floor stays MIN_SPREAD_BPS.
+ *
+ * ponytail: placeholder rungs (1%/2%/3%) pending Bridge's real numbers — one line to retune.
+ */
+export const TIER_MAX_SPREAD_BPS: Record<number, number> = { 1: 100, 2: 200, 3: 300 };
+export const spreadCapFor = (tier: number): number => TIER_MAX_SPREAD_BPS[tier] ?? TIER_MAX_SPREAD_BPS[1];
+
+/**
  * Slots in the activity histogram: day-of-week × hour.
  *
  * Lives here, not in routing.ts, purely to keep the dependency one-way: routing already imports
@@ -157,7 +168,16 @@ export async function recomputeMerchantStats(log?: (m: string) => void): Promise
     if (hours) await updateMerchantActivity(m.id, hours);
 
     const tier = tierFor({ settled, successRate, disputeRate, avgCompletionSecs });
-    await updateMerchantStats(m.id, { successRate, avgCompletionSecs, disputeRate, positiveRate, tier });
+    // maxSpreadBps clamps the stored spread to the (possibly lower) new tier's cap in the same
+    // write — a downgraded LP must not keep charging a price their tier no longer allows.
+    await updateMerchantStats(m.id, {
+      successRate,
+      avgCompletionSecs,
+      disputeRate,
+      positiveRate,
+      tier,
+      maxSpreadBps: spreadCapFor(tier),
+    });
 
     // Bond enforcement, now BOTH ways. Suspension stamps `suspend_reason = 'bond'` so the reinstate
     // below can tell its own decision apart from a human's — an admin suspension and the
