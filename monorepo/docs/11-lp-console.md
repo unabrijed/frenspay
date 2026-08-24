@@ -129,8 +129,8 @@ An LP who has to keep a tab open is an LP who misses orders, so the console is a
 We hand over a destination; they pay it however they normally would. Two things about the work
 they are handed, both decided 2026-08-21 ([06](06-offramp-and-settlement.md) § Routing, § Legs):
 
-- **They will not be handed the same receiver twice in 90 days**, nor two live orders to one
-  receiver. This is routing's pair rule, not a score — a personal account paying the same handle
+- **They will not be handed the same receiver twice in 180 days** (`PAYEE_COOLDOWN_DAYS` — doubled
+  from 90 on 2026-08-24), nor two live orders to one receiver. This is routing's pair rule, not a score — a personal account paying the same handle
   repeatedly is the account-freeze pattern — so it never shows in the queue as a refusal; the
   order simply isn't offered to them and the lock would refuse it if it were.
 - **An order may be one part of a larger payment.** When no single LP can carry a payment it is

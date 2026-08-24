@@ -22,9 +22,11 @@ export interface RankedMerchant {
  * The pair rule's cooldown: how long after paying a receiver an LP is barred from paying that same
  * receiver again. A personal account paying the same handle repeatedly is the documented
  * account-freeze pattern (docs/08), so this is a hard filter at every attach point, never a score.
- * "Multiple months" — decided 2026-08-21.
+ * "Multiple months" — decided 2026-08-21; doubled to half a year 2026-08-24. Raising it re-blocks
+ * pairs whose claims are 91–180 days old the moment it deploys — accepted, watched via the
+ * routing_* metrics rather than softened.
  */
-export const PAYEE_COOLDOWN_DAYS = 90;
+export const PAYEE_COOLDOWN_DAYS = 180;
 
 /** Most LPs one payment may be split across. Bounds the deposit tx (each leg is one more escrow
  *  PDA) and how many separate credits a receiver has to reconcile. */

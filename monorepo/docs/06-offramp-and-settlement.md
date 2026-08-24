@@ -133,8 +133,8 @@ quietly becomes a weight still routes the order.
   states, which parked real capacity on abandoned, unsigned wallet pop-ups for 15 minutes. An LP's
   obligation starts when the escrow is funded; that is where the count starts.
 - **The pair rule (0019) — the sixth hard filter.** A human LP must not pay the same receiver
-  (`quotes.payout_destination`) again within `PAYEE_COOLDOWN_DAYS` (90), and must never hold two
-  live orders to one receiver. A personal bank account paying the same handle over and over is the
+  (`quotes.payout_destination`) again within `PAYEE_COOLDOWN_DAYS` (180 — doubled 2026-08-24), and
+  must never hold two live orders to one receiver. A personal bank account paying the same handle over and over is the
   account-freeze pattern [08](08-compliance-and-legalities.md) documents, so it is a filter, never a
   score. The history it reads is the claim itself: `claimOrderPayout` is the sole writer of
   `payout_claimed_at` and `merchant_id` is frozen after a claim, so `orders ⋈ quotes` is the
