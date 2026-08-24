@@ -124,7 +124,7 @@ export default function Merchants() {
       ) : data.merchants.length === 0 ? (
         <EmptyState text="No merchants yet." />
       ) : (
-        <Table head={['Merchant', 'Rail', 'Status', 'KYB', 'Bond', 'Float', 'Success', 'Disputes', '👍', 'Actions']}>
+        <Table head={['Merchant', 'Contact', 'Rail', 'Status', 'KYB', 'Bond', 'Float', 'Success', 'Disputes', '👍', 'Actions']}>
           {data.merchants.map((m) => (
             <Fragment key={m.id}>
             <tr className="hover:bg-surface-low">
@@ -132,6 +132,8 @@ export default function Merchants() {
                 <span className="font-medium">{m.name}</span>
                 {!m.real ? <span className="ml-1.5 text-[11px] text-muted">sim</span> : null}
               </Td>
+              {/* The reviewer's only way to reach a human about the application in front of them. */}
+              <Td>{m.contactPhone ?? <span className="text-muted">—</span>}</Td>
               <Td>{m.payoutRail}</Td>
               <Td>
                 <Badge tone={m.status === 'online' ? 'ok' : m.status === 'suspended' ? 'danger' : 'muted'}>
@@ -167,7 +169,7 @@ export default function Merchants() {
                 shared spec the form rendered, so reviewer and applicant read identical words. */}
             {m.kybFields && KYB_DECIDABLE.includes(m.kybStatus) ? (
               <tr className="bg-surface-low/40">
-                <td colSpan={10} className="px-3 pb-2 pt-0">
+                <td colSpan={11} className="px-3 pb-2 pt-0">
                   <div className="flex flex-wrap gap-x-6 gap-y-0.5 text-[12px] text-muted">
                     {(KYB_FIELDS[m.country] ?? [])
                       .filter((f) => m.kybFields?.[f.key])
