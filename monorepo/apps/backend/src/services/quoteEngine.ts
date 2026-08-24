@@ -11,6 +11,7 @@ import { amt, fiatDecimals, USDC_DECIMALS } from '../lib/amount';
 import { BN, formatAmount, RATE_DECIMALS } from '../lib/units';
 
 import { getMidRate } from './fxRate';
+import { metrics } from './metrics';
 import { MERCHANT_CLAIM_MS } from './orderMachine';
 import { isWarm, MIN_LEG_USDC, planLegs, rankMerchants } from './routing';
 
@@ -56,7 +57,14 @@ export async function createQuote(
   // the planner split it. Split by necessity only: with a single LP able to cover, this never runs.
   if (!ranked[0]) ranked = await rankMerchants({ payoutMethod: input.payoutMethod, amountUsdc: MIN_LEG_USDC, payee });
   const plan = planLegs(ranked, amountFiat, mid, fdp);
-  if (!plan) return { error: 'no_merchant' };
+  if (!plan) {
+    metrics.inc('quote_no_merchant'); // the payer-visible face of routing_no_candidate
+    return { error: 'no_merchant' };
+  }
+  if (plan.legs.length > 1) {
+    metrics.inc('routing_split_used');
+    metrics.inc('routing_split_legs', plan.legs.length);
+  }
   const lead = plan.legs[0].merchant;
 
   // Fee FIRST, rate DERIVED — the inversion that makes a flat fee expressible at all (a bps fold

@@ -2321,8 +2321,12 @@ export async function lockOrder(input: {
   leverage: number;
   /** How long after paying a receiver this LP is barred from paying them again (routing.PAYEE_COOLDOWN_DAYS). */
   payeeCooldownDays: number;
-}): Promise<{ payoutDestination: string | null; payoutName: string | null } | null> {
-  const { rows } = await getPool().query<{ payout_destination: string | null; payout_name: string | null }>(
+}): Promise<{ payoutDestination: string | null; payoutName: string | null; afterWiden: boolean } | null> {
+  const { rows } = await getPool().query<{
+    payout_destination: string | null;
+    payout_name: string | null;
+    offer_widens_at: Date | null;
+  }>(
     // EVERY eligibility rule is re-checked HERE, inside the CAS. It previously checked only the
     // order's own state plus the LP's online/kyb/ban flags, which meant the pool query in the route
     // was the only thing enforcing rail, country, price and capacity — a check-then-act split
@@ -2374,9 +2378,10 @@ export async function lockOrder(input: {
                -- Re-checked here because the pool path never goes through rankMerchants.
                and not exists (${payeePaidSql({ lp: '$2', payee: 'q.payout_destination', days: '$6', exceptOrder: 'o.id' })})
           )
-       returning o.quote_id
+       returning o.quote_id, o.offer_widens_at
      )
-     select q.payout_destination, q.payout_name from quotes q join taken t on t.quote_id = q.id`,
+     select q.payout_destination, q.payout_name, t.offer_widens_at
+       from quotes q join taken t on t.quote_id = q.id`,
     [
       input.orderId,
       input.merchantId,
@@ -2387,7 +2392,13 @@ export async function lockOrder(input: {
     ],
   );
   if (!rows[0]) return null;
-  return { payoutDestination: rows[0].payout_destination, payoutName: rows[0].payout_name };
+  return {
+    payoutDestination: rows[0].payout_destination,
+    payoutName: rows[0].payout_name,
+    // Whether the head start had already lapsed when this lock won — i.e. a pool LP took it, not
+    // the routed one. Read from the row, not re-derived by the caller, so the answer is the CAS's.
+    afterWiden: rows[0].offer_widens_at != null && rows[0].offer_widens_at.getTime() <= Date.now(),
+  };
 }
 
 /** Hand an order back before the TTL runs out. No penalty: the honest exit has to be cheaper than

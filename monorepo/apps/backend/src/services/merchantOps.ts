@@ -23,6 +23,7 @@ import {
 import { nonNegativeAmount } from '../lib/amount';
 
 import { leverageFor, MIN_BOND, spreadCapFor } from './merchantStats';
+import { metrics } from './metrics';
 import { DISPUTE_WINDOW_MS, LOCK_TTL_MS } from './orderMachine';
 import { PAYEE_COOLDOWN_DAYS } from './routing';
 
@@ -108,6 +109,9 @@ export async function takeOrder(merchant: MerchantRow, orderId: string): Promise
   // "already taken", not "not found": the order exists — someone else got there first, or it moved
   // on. Callers that can re-ask (the bot's double-tap) may distinguish "taken by ME" with a read.
   if (!taken) return { ok: false, error: 'order_already_taken' };
+  // M6: did the routed LP act inside their head start, or did the pool pick it up after widening?
+  // The ratio is how we'll know whether 5s of first refusal is being used or wasted.
+  metrics.inc(taken.afterWiden ? 'lock_after_widen' : 'lock_first_choice');
   return {
     ok: true,
     payoutDestination: taken.payoutDestination ?? undefined,

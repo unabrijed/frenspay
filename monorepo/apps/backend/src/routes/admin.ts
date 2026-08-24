@@ -38,6 +38,7 @@ import {
   findUserById,
   getMerchantForUser,
   getDisputeForOrder,
+  listAllMerchants,
   getOrderAdmin,
   insertAdminAction,
   inviteCodeStatus,
@@ -68,6 +69,7 @@ import {
 } from '../db/queries';
 import { screenHandle } from '../services/compliance';
 import { canonicalInviteCode } from '../services/invites';
+import { ACTIVITY_SLOTS, activitySlot } from '../services/merchantStats';
 import { settleDispute } from '../services/orderMachine';
 import { providerHasCredentials } from '../services/payout/provider';
 
@@ -140,6 +142,23 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.get('/admin/merchants', async (req): Promise<AdminMerchantsResponse> => {
     await requireAdmin(req);
     return { merchants: await listMerchantsAdmin() };
+  });
+
+  // The corridor's probabilistic capacity curve (2026-08-24): each human LP's 168-slot day×hour
+  // activity histogram, summed across the pool. "When are we thin" — the companion question to the
+  // routing_* counters' "who is blocked". The data already exists per merchant; this only adds it up.
+  app.get('/admin/lp-activity', async (req) => {
+    await requireAdmin(req);
+    const merchants = await listAllMerchants();
+    const humans = merchants.filter((m) => m.sim_behavior == null);
+    const slots = new Array<number>(ACTIVITY_SLOTS).fill(0);
+    let withHistory = 0;
+    for (const m of humans) {
+      if (!m.active_hours) continue;
+      withHistory++;
+      for (let i = 0; i < ACTIVITY_SLOTS; i++) slots[i] += m.active_hours[i] ?? 0;
+    }
+    return { slots, currentSlot: activitySlot(), lps: humans.length, withHistory };
   });
 
   app.get<{ Querystring: { limit?: string; cursor?: string } }>(

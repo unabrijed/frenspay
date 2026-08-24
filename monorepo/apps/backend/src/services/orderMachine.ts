@@ -514,7 +514,10 @@ export async function rerouteOrder(input: {
   const attempts = await listRoutingAttempts(input.orderId);
   const sequence = attempts.length ? Math.max(...attempts.map((a) => a.sequence)) : 0;
   const currentMerchantId = input.currentMerchantId;
-  if (sequence >= MAX_ROUTING_ATTEMPTS || !currentMerchantId) return false; // give up → refund
+  if (sequence >= MAX_ROUTING_ATTEMPTS || !currentMerchantId) {
+    metrics.inc('routing_reroute_exhausted'); // M6: give up → the caller refunds
+    return false;
+  }
 
   const tried = attempts.map((a) => a.merchantId);
   const ranked = await rankMerchants({
@@ -524,7 +527,10 @@ export async function rerouteOrder(input: {
     payee: input.payee,
   });
   const next = ranked[0]?.merchant;
-  if (!next) return false; // no fresh LP that can cover the order → refund
+  if (!next) {
+    metrics.inc('routing_reroute_exhausted'); // M6: no fresh LP can cover it → the caller refunds
+    return false;
+  }
 
   // Atomically reassign while still in payment_detected AND still pointing at the stalled LP — so two
   // concurrent ticks can't both claim. Lost the race → bail.
@@ -543,5 +549,6 @@ export async function rerouteOrder(input: {
   // The new LP gets the same push the original got at fund-confirm — without it their fresh head
   // start ticked away against a merchant who could only find the order by polling.
   await alertMerchantOrderReady(input.orderId).catch(() => {});
+  metrics.inc('routing_reroute'); // M6
   return true;
 }

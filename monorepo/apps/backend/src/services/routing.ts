@@ -11,6 +11,7 @@ import { CORRIDORS } from '../lib/corridors';
 import { type Amount, BN, divUp, RATE_DECIMALS } from '../lib/units';
 
 import { ACTIVITY_SLOTS, activitySlot, leverageFor, MIN_BOND } from './merchantStats';
+import { metrics } from './metrics';
 
 export interface RankedMerchant {
   merchant: MerchantRow;
@@ -126,10 +127,25 @@ export async function rankMerchants(input: {
     minBondUsdc: MIN_BOND,
   });
   const blocked = input.payee ? await blockedMerchantsForPayee(input.payee, PAYEE_COOLDOWN_DAYS) : [];
-  return rankPool(eligible, await committedFloatByMerchant(), {
+  const ranked = rankPool(eligible, await committedFloatByMerchant(), {
     amountUsdc: input.amountUsdc,
     excludeIds: [...(input.excludeIds ?? []), ...blocked],
   });
+  // M6: the watchdog the 180-day cooldown was shipped with — these are how we see the pair rule
+  // consuming coverage (or not) without weakening it. rankPool itself stays pure (check-routing-math
+  // imports it), so the counting lives here. The empty-pool reason is attributed, approximately:
+  // nothing routable at all → the corridor is the problem; everything routable excluded → the
+  // payee's cooldown history is; otherwise nobody's float covered the amount.
+  metrics.inc('routing_candidates', eligible.length);
+  if (blocked.length) metrics.inc('routing_cooldown_blocked', blocked.length);
+  if (ranked.length === 0) {
+    metrics.inc('routing_no_candidate');
+    const excluded = new Set([...(input.excludeIds ?? []), ...blocked]);
+    const reason =
+      eligible.length === 0 ? 'pool_empty' : eligible.every((m) => excluded.has(m.id)) ? 'payee_cooldown' : 'capacity';
+    metrics.inc(`routing_no_candidate_${reason}`);
+  }
+  return ranked;
 }
 
 /** The LP's rate at a spread: fiat per USDC off the live mid, rounded DOWN (less fiat per USDC, so
