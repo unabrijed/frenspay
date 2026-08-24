@@ -2009,13 +2009,20 @@ export async function setUserStatus(id: string, status: 'active' | 'suspended'):
  * sharing the prefix, astronomically unlikely at this userbase; widen to the full id if it matters.
  */
 export async function deleteUser(id: string): Promise<void> {
-  // phone released for the email's reason: uq_users_phone is partial (`where phone is not null`),
-  // and a retained number kept the deleted account resolvable by phone — payable, even.
+  // phone and telegram released for the email's reason: every one of those uniques is partial
+  // (`where ... is not null`), so a retained value stays claimed by a row nobody can reach. A kept
+  // number left the deleted account resolvable by phone — payable, even; a kept chat id would make
+  // the Telegram link answer telegram_taken forever, against a dead account, with no release path.
   await getPool().query(
     `update users set status = 'deleted',
                       handle = '@deleted_' || left(replace(id::text, '-', ''), 12),
                       email  = null,
-                      phone  = null
+                      phone  = null,
+                      telegram_chat_id         = null,
+                      telegram_username        = null,
+                      telegram_linked_at       = null,
+                      telegram_link_token_hash = null,
+                      telegram_link_expires_at = null
       where id = $1`,
     [id],
   );
