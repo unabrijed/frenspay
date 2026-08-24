@@ -60,7 +60,6 @@ const IN_OK = {
   entityType: 'Sole proprietor',
   pan: 'ABCDE1234F',
   address: '12 MG Road, Bengaluru 560001',
-  contactPhone: '+919876543210',
   payoutAccount: 'sharma@okaxis',
   // The country-agnostic screening block (SCREENING) — required alongside the identifiers.
   cryptoExperience: 'Active user',
@@ -80,7 +79,7 @@ assert.deepEqual(validateKyb('IN', { ...IN_OK, gstin: '   ' }), [], 'whitespace-
 assert.deepEqual(validateKyb('IN', { ...IN_OK, gstin: 'nonsense' }), ['gstin'], 'a PRESENT optional field is still checked');
 
 // Required fields.
-for (const key of ['legalName', 'entityType', 'pan', 'address', 'contactPhone', 'payoutAccount', 'cryptoExperience', 'profession', 'plannedStake', 'commitment', 'accountDedicated']) {
+for (const key of ['legalName', 'entityType', 'pan', 'address', 'payoutAccount', 'cryptoExperience', 'profession', 'plannedStake', 'commitment', 'accountDedicated']) {
   const missing = { ...IN_OK, [key]: '' };
   assert.deepEqual(validateKyb('IN', missing), [key], `${key} is required`);
   assert.deepEqual(validateKyb('IN', { ...IN_OK, [key]: '   ' }), [key], `${key} cannot be whitespace`);
@@ -105,7 +104,7 @@ assert.deepEqual(manyBad.sort(), ['legalName', 'pan', 'payoutAccount'], 'all inv
 // Indonesia is a different spec, not a translation of India's.
 assert.deepEqual(validateKyb('ID', IN_OK).sort(), ['nib'], 'India fields do not satisfy Indonesia');
 assert.deepEqual(
-  validateKyb('ID', { legalName: 'Warung Sari', entityType: 'Perorangan', nib: '1234567890123', address: 'Jl. Sudirman 1', contactPhone: '+628123456789', payoutAccount: '900012345678', cryptoExperience: 'Some experience', profession: 'Business owner', plannedStake: 'Not sure yet', commitment: 'Not sure yet', accountDedicated: 'I’ll open one before starting' }),
+  validateKyb('ID', { legalName: 'Warung Sari', entityType: 'Perorangan', nib: '1234567890123', address: 'Jl. Sudirman 1', payoutAccount: '900012345678', cryptoExperience: 'Some experience', profession: 'Business owner', plannedStake: 'Not sure yet', commitment: 'Not sure yet', accountDedicated: 'I’ll open one before starting' }),
   [],
   'a complete Indonesia submission passes',
 );
@@ -114,7 +113,7 @@ assert.deepEqual(validateKyb('ID', { nib: '123' }).includes('nib'), true, 'NIB m
 // An unknown country cannot submit at all. Failing closed matters: the alternative is accepting a
 // blank submission from a corridor whose identifiers nobody has thought about yet.
 assert.deepEqual(validateKyb('ZZ', IN_OK), ['country'], 'unknown country fails closed');
-assert.deepEqual(validateKyb('IN', {}).length, 11, 'an empty submission reports every required field');
+assert.deepEqual(validateKyb('IN', {}).length, 10, 'an empty submission reports every required field');
 
 // --- lifecycle helper ----------------------------------------------------------------------------
 assert.equal(kybAwaitingMerchant('pending'), true);

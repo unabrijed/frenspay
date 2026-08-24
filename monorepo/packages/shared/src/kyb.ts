@@ -50,7 +50,6 @@ const INDIA: KybField[] = [
     pattern: '^[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][0-9A-Za-z]{3}$',
   },
   { key: 'address', label: 'Registered address', maxLen: 300 },
-  { key: 'contactPhone', label: 'Contact number', hint: 'Where we reach you about a payout that went wrong', maxLen: 20 },
   {
     key: 'payoutAccount',
     label: 'Which account you’ll pay from',
@@ -66,7 +65,6 @@ const INDONESIA: KybField[] = [
   { key: 'nib', label: 'NIB', hint: 'Your 13-digit business identification number', pattern: '^[0-9]{13}$' },
   { key: 'npwp', label: 'NPWP', hint: 'Tax number — leave blank if you don’t have one', optional: true, maxLen: 30 },
   { key: 'address', label: 'Registered address', maxLen: 300 },
-  { key: 'contactPhone', label: 'Contact number', maxLen: 20 },
   {
     key: 'payoutAccount',
     label: 'Which account you’ll pay from',

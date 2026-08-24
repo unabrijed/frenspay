@@ -25,7 +25,6 @@ const INDIA: KybFieldSpec[] = [
   { key: 'pan', pattern: /^[A-Za-z]{5}[0-9]{4}[A-Za-z]$/ },
   { key: 'gstin', optional: true, pattern: /^[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][0-9A-Za-z]{3}$/ },
   { key: 'address', maxLen: 300 },
-  { key: 'contactPhone', maxLen: 20 },
   { key: 'payoutAccount', maxLen: 120 },
 ];
 
@@ -35,7 +34,6 @@ const INDONESIA: KybFieldSpec[] = [
   { key: 'nib', pattern: /^[0-9]{13}$/ },
   { key: 'npwp', optional: true, maxLen: 30 },
   { key: 'address', maxLen: 300 },
-  { key: 'contactPhone', maxLen: 20 },
   { key: 'payoutAccount', maxLen: 120 },
 ];
 
