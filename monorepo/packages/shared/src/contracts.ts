@@ -180,6 +180,11 @@ export interface MerchantProfile {
   successRate: number;
   disputeRate: number;
   positiveRate: number;
+  /** E.164, and how we reach them when a payout goes wrong. NOT users.phone — that column is the
+   *  pay-by-phone directory opt-in, and a provider stored there becomes findable by every payer. */
+  contactPhone?: string;
+  /** False until a verification layer lands; true when Telegram itself vouched for the number. */
+  contactPhoneVerified?: boolean;
 }
 
 /**
@@ -802,6 +807,8 @@ export interface AdminMerchant {
   successRate: number;
   disputeRate: number;
   positiveRate: number;
+  /** The number support calls when a payout goes wrong. Unverified unless Telegram vouched. */
+  contactPhone?: string;
   /** true = a real logged-in merchant (merchants.user_id set), false = seeded sim LP. */
   real: boolean;
 }

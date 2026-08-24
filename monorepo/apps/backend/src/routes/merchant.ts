@@ -33,6 +33,8 @@ import {
   appendKybEvent,
   insertMerchantApplication,
   listMerchantDisputes,
+  normalizePhone,
+  setMerchantContactPhone,
   merchantEarnings,
   submitMerchantKyb,
   setMerchantAlertChannel,
@@ -134,6 +136,8 @@ export function toMerchantProfile(
     successRate: Number(m.success_rate),
     disputeRate: Number(m.dispute_rate),
     positiveRate: Number(m.positive_rate),
+    contactPhone: m.contact_phone ?? undefined,
+    contactPhoneVerified: m.contact_phone_verified_at != null,
   };
 }
 
@@ -172,7 +176,7 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
    * REJECT send recipients, so registering someone else's address as a treasury would permanently
    * block fpay sends to it.
    */
-  app.post<{ Body: { name?: string; payoutMethod?: PayoutMethod; treasuryAddress?: string } }>(
+  app.post<{ Body: { name?: string; payoutMethod?: PayoutMethod; treasuryAddress?: string; contactPhone?: string } }>(
     '/merchants/apply',
     async (req, reply) => {
       const userId = requireUserId(req);
@@ -181,9 +185,14 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
       if ((await getUserKycTier(userId)) < KYC_APPROVED_TIER) {
         return reply.code(403).send({ error: 'kyc_required' });
       }
-      const { name, payoutMethod, treasuryAddress } = req.body ?? {};
+      const { name, payoutMethod, treasuryAddress, contactPhone } = req.body ?? {};
       const rail = payoutMethod ?? 'UPI';
       if (!name || !treasuryAddress) return reply.code(400).send({ error: 'missing_fields' });
+      // A number we can reach them on is not optional: when a payout goes wrong the alternative is
+      // waiting for them to open the app. Normalized to E.164 here so every consumer gets one shape.
+      if (!contactPhone) return reply.code(400).send({ error: 'missing_phone' });
+      const phone = normalizePhone(contactPhone);
+      if (!phone) return reply.code(400).send({ error: 'invalid_phone' });
       if (!PAYOUT_METHODS.includes(rail)) return reply.code(400).send({ error: 'invalid_rail' });
       // A corridor that never falls back to the pool has no LP network to join. Note this is now a
       // narrower rejection than "the corridor prefers a provider": QRIS prefers Xendit AND keeps an
@@ -204,7 +213,14 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'invalid_treasury_address' });
       }
       if (await getMerchantForUser(userId)) return reply.code(409).send({ error: 'already_a_merchant' });
-      const id = await insertMerchantApplication({ userId, name, payoutRail: rail, treasuryAddress, country });
+      const id = await insertMerchantApplication({
+        userId,
+        name,
+        payoutRail: rail,
+        treasuryAddress,
+        country,
+        contactPhone: phone,
+      });
       return reply.code(201).send({ id, kybStatus: 'pending' });
     },
   );
@@ -236,6 +252,19 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
     const r = await ops.giveBackOrder(merchant, req.params.id);
     if (!r.ok) return refuse(reply, r);
     return r;
+  });
+
+  /**
+   * Change the number we reach them on. Separate from apply because apply 409s an existing
+   * merchant, so this is the only way every provider who onboarded before 0022 ever gets one.
+   * Re-typing a number clears any verification it had — a new number is a new claim.
+   */
+  app.post<{ Body: { phone?: string } }>('/merchants/contact-phone', async (req, reply) => {
+    const merchant = await requireMerchant(req);
+    const phone = normalizePhone(req.body?.phone ?? '');
+    if (!phone) return reply.code(400).send({ error: 'invalid_phone' });
+    await setMerchantContactPhone(merchant.id, phone);
+    return { ok: true, contactPhone: phone };
   });
 
   /**

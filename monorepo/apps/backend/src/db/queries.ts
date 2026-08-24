@@ -893,6 +893,13 @@ export interface MerchantRow {
   alert_address: string | null;
   /** Timed out of LOCKING after repeated abandonment (0015). Not a routing or bond penalty. */
   lock_bans_until: Date | null;
+  /** How we reach the human about a payout that went wrong (0022). E.164. Deliberately NOT
+   *  users.phone — that column is the pay-by-phone directory opt-in, and an LP stored there would
+   *  become findable by every payer. Unverified until a real verification layer lands; the one
+   *  exception is a Telegram contact share, which Telegram itself has verified. */
+  contact_phone: string | null;
+  contact_phone_verified_at: Date | null;
+  contact_phone_verified_via: string | null;
   /** 168 slots (day-of-week × hour, UTC) of historical activity (0017). NULL = never computed,
    *  which scores neutral so a new LP is not punished for having no history. */
   active_hours: number[] | null;
@@ -2041,17 +2048,54 @@ export async function insertMerchantApplication(input: {
   payoutRail: PayoutMethod;
   treasuryAddress: string;
   country: string;
+  contactPhone: string;
 }): Promise<string> {
-  const { rows } = await getPool().query<{ id: string }>(
-    `insert into merchants (user_id, name, payout_rail, status, treasury_address, kyb_status,
-                            sim_behavior, bond_usdc, float_usdc, country)
-     values ($1, $2, $3, 'offline', $4, 'pending', null, 0, 0, $5)
-     returning id`,
-    [input.userId, input.name, input.payoutRail, input.treasuryAddress, input.country],
+  // One transaction: the row and the role mirror are one fact. Un-transacted, a failure between
+  // them left an application whose owner still read as a plain user.
+  // The alert columns are seeded from an ALREADY-LINKED Telegram account, which is the only way
+  // they are ever written outside the link handshake — otherwise someone who connects Telegram
+  // BEFORE applying is never wired up, and nothing later would do it.
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+    const { rows } = await client.query<{ id: string }>(
+      `insert into merchants (user_id, name, payout_rail, status, treasury_address, kyb_status,
+                              sim_behavior, bond_usdc, float_usdc, country, contact_phone,
+                              alert_channel, alert_address)
+       select $1, $2, $3, 'offline', $4, 'pending', null, 0, 0, $5, $6,
+              case when u.telegram_chat_id is not null then 'telegram' end,
+              u.telegram_chat_id
+         from users u where u.id = $1
+       returning id`,
+      [input.userId, input.name, input.payoutRail, input.treasuryAddress, input.country, input.contactPhone],
+    );
+    // Informational role mirror (capability stays merchants.user_id); never demotes an admin.
+    await client.query(`update users set role = 'merchant' where id = $1 and role = 'user'`, [input.userId]);
+    await client.query('commit');
+    return rows[0].id;
+  } catch (err) {
+    await client.query('rollback');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/** Set (or replace) the phone we reach this LP on. `verifiedVia` is null for a typed number — the
+ *  verification layer is stubbed — and 'telegram' when Telegram itself vouched for it. */
+export async function setMerchantContactPhone(
+  merchantId: string,
+  phone: string,
+  verifiedVia?: 'telegram',
+): Promise<void> {
+  await getPool().query(
+    `update merchants
+        set contact_phone = $2,
+            contact_phone_verified_via = $3,
+            contact_phone_verified_at = case when $3::text is null then null else now() end
+      where id = $1`,
+    [merchantId, phone, verifiedVia ?? null],
   );
-  // Informational role mirror (capability stays merchants.user_id); never demotes an admin.
-  await getPool().query(`update users set role = 'merchant' where id = $1 and role = 'user'`, [input.userId]);
-  return rows[0].id;
 }
 
 /** The merchant account this user runs, if any — the entire merchant-role signal. */
@@ -3905,6 +3949,7 @@ export async function listMerchantsAdmin(): Promise<AdminMerchant[]> {
     successRate: Number(m.success_rate),
     disputeRate: Number(m.dispute_rate),
     positiveRate: Number(m.positive_rate),
+    contactPhone: m.contact_phone ?? undefined,
     real: m.user_id != null,
   }));
 }

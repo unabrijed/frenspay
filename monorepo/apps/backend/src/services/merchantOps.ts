@@ -207,3 +207,15 @@ export async function setSpread(
   await setMerchantSpread(merchant.id, bps);
   return { ok: true, spreadBps: bps };
 }
+
+/**
+ * The seam a real phone-verification layer plugs into. Deliberately unimplemented: a typed number
+ * is stored unverified (`contact_phone_verified_at` stays null) and nothing today claims otherwise.
+ * The one number that arrives already verified comes from a Telegram contact share, which Telegram
+ * itself vouched for — that path writes `verified_via = 'telegram'` and never calls this.
+ *
+ * The machinery to build on already exists for the pay-by-phone alias: services/phoneOtp.ts.
+ */
+export function verifyContactPhone(): never {
+  throw new Error('not_implemented');
+}
