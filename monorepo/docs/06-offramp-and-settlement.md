@@ -193,7 +193,7 @@ UPI ID is invisible until somebody commits to paying it.
 ```
 payment_detected
   t+0s    only orders.merchant_id (routing's pick) may lock      payee hidden
-  t+20s   offer_widens_at passes — any eligible LP may take it   payee hidden
+  t+5s    offer_widens_at passes — any eligible LP may take it   payee hidden
   locked  payee revealed to the lock holder, and only them       5 min to pay
   lapsed  cleared, re-opened to everyone, the LP is told
 ```
