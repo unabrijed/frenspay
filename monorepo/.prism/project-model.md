@@ -3,6 +3,13 @@
 Seeded 2026-08-10 by the Indonesia-corridor prism-plan run. Feed Architecture/Invariants/Danger
 zones/Lessons into every fan-out agent; never violate a recorded invariant without flagging it.
 
+> **Doc numbering (2026-08-25):** `docs/` was renumbered to 01–13 by commit `abdf036`. Older
+> entries below cite the retired set; read them as: docs/11 (compliance) → `08-compliance-and-legalities`;
+> docs/17–18 (pay-target / country) → `01-architecture` + `04-p2p-and-contacts`; docs/21 (rails law)
+> → `01-architecture`; docs/22 (Indonesia plan) → `06-offramp-and-settlement`; docs/23 (settlement
+> models) → `06-offramp-and-settlement`; docs/24 (moderation) → `07-admin-and-moderation`. The LP
+> console is `11-lp-console`. Git history holds the originals.
+
 ## Architecture (concern → where it lives)
 
 - **Money/decimals law**: decimal string at rest/wire · BigNumber mid-calculation · bigint at chain edge · `number` only at print — docs/01 §Money & decimals; `packages/shared/src/units.ts` (byte-identical mirror at `apps/backend/src/lib/units.ts`, enforced by `check:money`).
@@ -56,6 +63,11 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     moderation, user-suspend cascade — both write the same status through `setMerchantStatus`).
     Auto-reinstate may ONLY reverse 'bond', or it silently un-bans a moderated merchant.
 23. `users.status` is enforced in `authPreHandler` (403 `account_suspended`, admins exempt — the console must stay reachable for recovery); user-suspend cascades one-way to the owned merchants row (routing/payouts never join users); `resolveHandleToFriend` filters suspended, `findUserByHandle` deliberately does NOT (docs/24).
+24. **The tier is the price envelope** (2026-08-24): a human LP prices inside `[MIN_SPREAD_BPS, TIER_MAX_SPREAD_BPS[tier]]` (merchantStats.ts; enforced in `setSpread`), and `updateMerchantStats` clamps `spread_bps` with `least()` in the SAME statement the tier lands in — no window where a downgraded LP charges a price their tier no longer allows. Provider (`psp`) rows' `spread_bps` remains the platform's corridor take (docs/06).
+25. **`settled` (the tier volume gate) is LIFETIME; the reputation RATES are 90-day** (merchantStats.ts `recomputeMerchantStats`). Windowing `settled` would make a rung earned by volume dissolve in a quiet quarter → leverage 8→3 → capacity cut under already-committed float (lock CAS reads leverage from the fresh tier, queries.ts `lockOrder`). `positive_rate` also stays lifetime — `feedback_up` has no timestamp of its own. Dispute bounds live INSIDE `filter(...)` on each table's own timestamp; a WHERE bound turns the left joins inner and drops zero-history merchants.
+26. **The cooldown window is a bind param, one fragment, three attach points** (`payeePaidSql`: blocked set, lock CAS, pool view); `PAYEE_COOLDOWN_DAYS` (180 since 2026-08-24) is the only place the number lives. Raising it re-blocks pairs retroactively at deploy. `psp`/sim exemption exists ONLY in `blockedMerchantsForPayee` — lock and pool have no exemption predicate; psp rows are exempt by construction (born locked). Load-bearing, silent.
+27. **A reroute must re-alert.** `rerouteOrder` grants a fresh `HEAD_START_MS` and now fires `alertMerchantOrderReady`; before 2026-08-25 the failover LP's head start ticked away against a 3s poller. The head start (5s) is real ONLY because the preferred LP is pushed in the same synchronous pass the clock starts and rivals are DB-blocked from seeing the order until it widens (`listOpenOffers` `offer_widens_at <= now()`).
+28. `routeQuality` / `quotes.route_quality` is DEAD OUTPUT — computed (quoteEngine.ts), persisted, on the DTO, read by nothing in any app (verified 2026-08-24, 3 independent greps). Deletion candidate; do not build on it.
 
 ## Danger zones
 
@@ -72,6 +84,16 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
 - `phones.ts` already handles trunk zeros + variable length — don't add phone deps.
 - Xendit "one integration, five countries" = code only; each live country needs a local legal entity.
 - Singapore (MAS DTSP) is a trap for this business shape; check entity domicile before SG anything.
+- A spec that describes the architecture accurately can still be ~half already-shipped: the 2026-08-24 routing spec's lock/redaction/ceiling/reroute sections were DOCUMENTATION of existing code, not work. Verify "what's new" against the tree before sizing the patch.
+- Windowing a count that feeds a threshold changes the threshold's meaning (settled → tier gate). Ask "who else reads this number" before bounding any aggregate.
+- "≈ zero" latency arguments must trace WHO gets pushed vs who polls, and whether the clock and the push start in the same pass — the 5s head-start claim fell 3-0 on exactly that.
+- A metric with no consumer (routeQuality) can still distort a plan if the plan assumes it matters; grep consumers before defending an output.
+
+## Counsel flags & open questions (from 2026-08-24 routing plan — for prism-retro)
+- FLAG-1: the pair rule has TWO recorded rationales (LP bank-freeze protection, docs/06 §pair rule; payee data-minimisation, docs/06 §privacy). Under the second, lock→see VPA→unlock→re-lock is a harvesting path (unlock is penalty-free and writes no `lock_expired`). Counsel decides which governs; that decides whether A3 gets fixed.
+- FLAG-2: a forced split is "one payment, ≤3 source accounts, one receiver, same day" — deliberately generated. Explainability question for counsel; per-leg cooldown holds in code.
+- Unverified: is the compliance cash-out cap checked per PAYMENT or per LEG? If per-leg, splits multiply a payer's effective cap. Check before real-money scale.
+- Open: real `TIER_MAX_SPREAD_BPS` values (placeholders 100/200/300 shipped); a feedback timestamp column (so `positive_rate` can window); check-lock has no CI story (invariant 10 keeps check:all no-DB); no distinct payer-facing error for `no_merchant` (bare 503); A2 coverage-DoS via min-size live orders; A7 lock churn writes no attempt rows so "max 3 attempts" is bounded only by `expires_at`.
 
 ## Decision log
 
@@ -93,3 +115,23 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   shared `usePayStore.ts`). Cut deliberately: shortened dispute window for high-tier LPs (trades
   payer protection for LP throughput — wrong side of that trade).
 - 2026-08-13 · **Admin user moderation shipped** (handle renames admin-ONLY — users still can't self-change; display-name edits; suspend/reinstate with mandatory reason) — freed handles release INSTANTLY, Bridge's explicit accepted risk ("you have to manage your username"). Suspension = one gate in authPreHandler (admins exempt) + resolve-time receive-block + one-way merchant cascade; audit note `@old -> @new; reason` is the sole post-release history disambiguator → docs/24-admin-user-moderation.md. Cut-but-mandatory-later: recipient pinning + request-payment binding to `from_user_id` BEFORE self-service handle changes ever ship. Open for retro: does support need read-only access for suspended users; request-pay staleness window.
+- 2026-08-24/25 · **Routing V1 rebalance shipped** (plan: `~/.claude/plans/linear-wondering-raccoon.md`;
+  8 commits `1356d03`…`1569acc` on `stage`, unpushed). Cooldown 90→180d + partial index (0023);
+  head start 20s→5s + reroute now re-alerts (bug found by the skeptic panel); weights
+  .30/.14/.14/.10/.12/.08/.08/.04 (cost trimmed not floored — the payer's rate is a pure function
+  of the struck spread with no rebate, so cost is the only payer-protecting signal; warm NOT raised
+  — it measures a polling tab); reputation rates 90d with `settled` + `positive_rate` lifetime;
+  **tier-priced spreads** (Bridge mid-loop: "the tier based prices we do set up" → per-tier caps,
+  least()-clamped in the stats write); routing_* counters + `GET /admin/lp-activity` (Bridge: the
+  summed histogram is the corridor's probabilistic capacity-by-hour). Spec items DROPPED with
+  evidence: new RoutingAudit table (`order_routing_attempts` exists), 0.5-neutral normalize
+  (routeQuality is dead output). Fleet: 8 lenses, 22/22 facts grounded, 4 claims × 3 skeptics
+  (C1 settled/tier-gate + C4 no-rebate SURVIVED 3-0; C2 routeQuality-impact + C3 "5s≈zero"
+  REFUTED 3-0 — both draft recommendations reversed). Divergence 0.71. Bridge's manual steps:
+  `yarn db:migrate` (0023), real tier-cap numbers, push on ack.
+
+## Telemetry (2026-08-24 routing plan)
+- divergence: 0.71 (evidence 0.85, conclusion 0.50) | threshold 0.30 UNCALIBRATED
+- models: draft=fable · skeptics=2x-opus+1x-sonnet (cross-tier; version axis unavailable)
+- claims: C1 grounded · C2 refuted-impact · C3 refuted · C4 grounded · grounding sweep 22/22 (0 struck)
+- fleet: 8 lenses + 1 grounding verifier + 3 skeptics
