@@ -32,6 +32,13 @@ export async function registerKycRoutes(app: FastifyInstance) {
   // open — the tier is raised later via the webhook + reconciler (kyc/poller).
   app.post<{ Body: { returnUrl?: string } }>('/kyc/verify', async (req, reply) => {
     const userId = requireUserId(req);
+    // Vendor off (credentials blanked in the host's panel — config.personaLive). Answer before the
+    // network call: an empty key would 401 at Persona and land here anyway, one pointless round trip
+    // later. The client already has copy for this code (packages/app/src/lib/errors.ts). Partners are
+    // not stuck behind it — /merchants/apply drops its tier gate while the vendor is off (docs/14).
+    if (config.kycProvider === 'persona' && !config.personaLive) {
+      return reply.code(503).send({ error: 'kyc_unavailable' });
+    }
     const provider = getKycProvider();
     // The client return target becomes the vendor's post-verification redirect. Only echo it onward
     // if it's an allowed origin (CORS allowlist) so we never hand a third party an arbitrary redirect.
@@ -59,9 +66,13 @@ export async function registerKycRoutes(app: FastifyInstance) {
     return reply.send({ url: result.url, sessionId: result.sessionId } satisfies KycStartResponse);
   });
 
-  // dev-only: set any tier directly (for exercising limits/screening).
+  // LOCAL-only: set any tier directly (for exercising limits/screening).
+  // Gated on isLocal, NOT isDevelopment — isDevelopment is `isStage || isLocal`, and stage is mainnet.
+  // While this answered on stage, any authenticated user could POST /sim/kyc/3 and self-promote past
+  // every compliance cap on real money, which made the "never run KYC_PROVIDER=sim on stage" rule in
+  // DEPLOY.stage.md moot: the sim promotion was reachable regardless of the provider.
   app.post<{ Params: { tier: string } }>('/sim/kyc/:tier', async (req, reply) => {
-    if (!config.isDevelopment) return reply.code(403).send({ error: 'sim_disabled' });
+    if (!config.isLocal) return reply.code(403).send({ error: 'sim_disabled' });
     const userId = requireUserId(req);
     const tier = Number(req.params.tier);
     if (!Number.isInteger(tier) || tier < 0 || tier > 3) return reply.code(400).send({ error: 'invalid_tier' });
