@@ -30,6 +30,11 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
 6. The RAIL is the currency authority — never `users.country` (docs/18: dialing/display preference only, "money paths untouched"), never a QR's own tag-53 claim (cross-check, reject prefill on mismatch, never default a currency).
 7. DB fiat columns stay numeric(20,2) scale for every corridor; validation/display decimals live in code.
 8. No real payout/on-ramp before real KYC/AML vendor + sanctions + counsel sign-off (docs/11). Payout providers are key-gated test mode only.
+   **EXCEPTION, accepted by Bridge 2026-08-29 (docs/14):** while the identity vendor is off
+   (`config.personaLive` false — its credentials are blank), an admin approving the partner KYB form
+   grants tier 2 directly. No vendor, no documents. Payout providers are still test-mode, so no real
+   fiat leaves — but tier 2 also raises that user's OWN payer limits to $1,000/tx, which nobody asked
+   for. Owed: re-verify `kyc_provider = 'manual'` when the vendor returns.
 9. Payee-name confirmation is the anti-wrong-send gate; loose classification is tolerated because of it (docs/17).
 10. check-scripts in `check:all` are no-DB, no-network (check-fx's live fetch is opt-in via FX_CHECK_LIVE=1).
 11. A DB row is never sufficient to move money: payout-provider registry membership = credential resolves AND row enabled; admin flips can only subtract (disable/reorder); enabling a new money-mover requires a deploy; the sim adapter is excluded from the adapter map in production (docs/23).
@@ -69,6 +74,22 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
 27. **A reroute must re-alert.** `rerouteOrder` grants a fresh `HEAD_START_MS` and now fires `alertMerchantOrderReady`; before 2026-08-25 the failover LP's head start ticked away against a 3s poller. The head start (5s) is real ONLY because the preferred LP is pushed in the same synchronous pass the clock starts and rivals are DB-blocked from seeing the order until it widens (`listOpenOffers` `offer_widens_at <= now()`).
 28. `routeQuality` / `quotes.route_quality` is DEAD OUTPUT — computed (quoteEngine.ts), persisted, on the DTO, read by nothing in any app (verified 2026-08-24, 3 independent greps). Deletion candidate; do not build on it.
 
+29. **Blank vendor credentials are a STATE, not an error.** `config.personaLive` (envConfig) is the
+    one switch: provider is 'persona' AND both credentials pass `usableSecret`. `assertKycConfig` may
+    only throw for a `persona_sandbox_` key on a production tier — anything else that throws at boot
+    turns a variable edit into a crash-loop, which is exactly the bug docs/14 exists to have fixed.
+    `KYC_PROVIDER=""` can never express "off": `env()` collapses empty to its fallback, `'persona'`.
+    Asserted by `check-kyc-switch.ts` (a process per scenario — envConfig reads env once at load).
+30. **Every KYB country spec carries exactly one required `identity: true` field** (kyb.ts;
+    check-kyb enforces). While the vendor is off, approving that form IS the identity decision, so a
+    spec with only business identifiers would make the approval a judgment about a business nobody
+    was asked to identify. India: PAN. Indonesia: NIK — NIB and NPWP are both the business.
+31. **Dev-only money routes gate on `isLocal`, never `isDevelopment`.** `isDevelopment = isStage ||
+    isLocal` and stage is mainnet. `/sim/kyc/:tier` was gated on the wrong one and had no rate-limit
+    rule, so any authenticated stage user could POST /sim/kyc/3 and self-promote past every
+    compliance cap on real money — which also made the "never set KYC_PROVIDER=sim on stage" doctrine
+    moot, since the sim promotion was reachable whatever the provider was. Fixed 2026-08-29.
+
 ## Danger zones
 
 - `routes/orders.ts` destination regexes — the ONLY gate before a human/PSP acts on a scanned string.
@@ -88,6 +109,16 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
 - Windowing a count that feeds a threshold changes the threshold's meaning (settled → tier gate). Ask "who else reads this number" before bounding any aggregate.
 - "≈ zero" latency arguments must trace WHO gets pushed vs who polls, and whether the clock and the push start in the same pass — the 5s head-start claim fell 3-0 on exactly that.
 - A metric with no consumer (routeQuality) can still distort a plan if the plan assumes it matters; grep consumers before defending an output.
+- **A reference someone links may already be IN the tree.** The p2p.me merchant form Bridge pointed at
+  was ported months earlier as `kyb.ts` SCREENING, field for field, with a review queue. Grep the repo
+  for the peer product's actual questions before sizing "build this form" as new work.
+- **Ask what the chosen SCOPE deletes, before designing.** All three explorer lenses proposed a
+  parallel manual-KYC subsystem. Scoping the fallback to LP applicants only collapsed the entire need:
+  those users already fill in a form a human already reviews in a queue that already exists. The
+  scoping answer arrived before the design and still nearly got designed around.
+- Two changes landing in one handler (approve a business / grant a tier) need the audit row and the
+  confirm dialog to name BOTH, or the second one is invisible to the person clicking and to whoever
+  reads the trail later.
 
 ## Counsel flags & open questions (from 2026-08-24 routing plan — for prism-retro)
 - FLAG-1: the pair rule has TWO recorded rationales (LP bank-freeze protection, docs/06 §pair rule; payee data-minimisation, docs/06 §privacy). Under the second, lock→see VPA→unlock→re-lock is a harvesting path (unlock is penalty-free and writes no `lock_expired`). Counsel decides which governs; that decides whether A3 gets fixed.
@@ -129,6 +160,33 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   (C1 settled/tier-gate + C4 no-rebate SURVIVED 3-0; C2 routeQuality-impact + C3 "5s≈zero"
   REFUTED 3-0 — both draft recommendations reversed). Divergence 0.71. Bridge's manual steps:
   `yarn db:migrate` (0023), real tier-cap numbers, push on ack.
+
+- 2026-08-29 · **Manual partner onboarding while the identity vendor is dark** (plan:
+  `~/.claude/plans/sparkling-growing-lagoon.md`; 6 code commits + 1 docs commit on `stage`,
+  unpushed → docs/14-manual-onboarding-fallback.md). Persona has no production key, `/merchants/apply`
+  required tier 2, and only Persona granted tier 2 — the partner funnel was shut. **Rejected** a
+  parallel manual-KYC subsystem (new provider + `users.kyc_fields` + second admin queue + new sheet),
+  which all three explorer lenses independently proposed: with the manual path scoped to LP applicants
+  only, everyone who needs it is already filling in the 13-field KYB form that a human already reads
+  in a queue that already exists. Shipped instead: `config.personaLive` as the one switch, the boot
+  assert degraded, `/kyc/verify` 503ing before the network call, the apply gate keyed off the switch,
+  `identity: true` on the KYB spec (+ NIK for Indonesia), and the KYB approval granting tier 2 with
+  `kyc_provider='manual'` provenance. Found on the way and fixed: the reconciler aborted a whole pass
+  on one bad session, `/sim/kyc/:tier` answered on mainnet stage, and the LP console watched for the
+  previous vendor's return param so its Persona return never polled. **No migration** —
+  `merchants.kyb_fields` is jsonb and `users.kyc_provider` already existed.
+  **Open for retro:** (1) the `kyc_provider='manual'` re-verification sweep is owed and automated by
+  nothing; (2) tier 2 raising manual users' own payer limits ($100→$1,000/tx) is unwanted exposure —
+  the cheap close is a fourth KYC_TIERS row, not a new gate per call site; (3) is the compliance
+  cash-out cap per PAYMENT or per LEG (still unverified, inherited from the routing plan).
+
+## Telemetry (2026-08-29 manual-onboarding plan)
+- divergence: 0.75 (evidence 0.81, conclusion 0.67) | threshold 0.30 UNCALIBRATED
+- models: draft=opus · skeptic panel NOT RUN (plan mode restricts subagents to Explore/Plan) — every
+  load-bearing claim grounded instead by re-reading source, which outranks cross-tier survival
+- claims: boot-throws · apply-tier-gate · kyb_fields-jsonb · setKycApproved-greatest ·
+  sim-live-on-stage · admin-hides-evidence-after-decide — all 6 grounded, 0 struck
+- fleet: 3 explorer lenses (differential file sets), orchestrator judged
 
 ## Telemetry (2026-08-24 routing plan)
 - divergence: 0.71 (evidence 0.85, conclusion 0.50) | threshold 0.30 UNCALIBRATED
