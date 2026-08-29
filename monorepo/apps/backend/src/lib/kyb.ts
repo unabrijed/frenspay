@@ -33,6 +33,7 @@ const INDONESIA: KybFieldSpec[] = [
   { key: 'entityType', maxLen: 60 },
   { key: 'nib', pattern: /^[0-9]{13}$/ },
   { key: 'npwp', optional: true, maxLen: 30 },
+  { key: 'nik', pattern: /^[0-9]{16}$/ },
   { key: 'address', maxLen: 300 },
   { key: 'payoutAccount', maxLen: 120 },
 ];
@@ -47,6 +48,7 @@ const SCREENING: KybFieldSpec[] = [
   { key: 'accountDedicated', options: ['Yes, dedicated to this', 'No, I also use it personally', 'I’ll open one before starting'] },
   { key: 'otherPlatforms', optional: true, maxLen: 200 },
   { key: 'heardAbout', optional: true, maxLen: 120 },
+  { key: 'contactTelegram', optional: true, maxLen: 64 },
 ];
 
 export const KYB_FIELDS: Record<string, KybFieldSpec[]> = {

@@ -52,6 +52,13 @@ for (const [country, spec] of Object.entries(KYB_FIELDS)) {
   // for this whole business shape is third-party money moving through a personal account; knowing
   // WHICH account before they start is what makes that reviewable rather than discoverable after.
   assert.ok(spec.some((f) => f.key === 'payoutAccount' && !f.optional), `${country}: no required payoutAccount`);
+  // Exactly one required field must name the PERSON. While the identity vendor is off, approving this
+  // form is what grants tier 2 (docs/14) — a spec with no personal identifier would make that
+  // approval a judgment about a business nobody has been asked to identify. Exactly one, not at least
+  // one: two would leave the reviewer guessing which name the decision is actually about.
+  const ids = spec.filter((f) => f.identity);
+  assert.equal(ids.length, 1, `${country}: expected exactly one identity field, found ${ids.length}`);
+  assert.ok(!ids[0].optional, `${country}: the identity field (${ids[0].key}) cannot be optional`);
 }
 
 // --- validation behaviour ------------------------------------------------------------------------
@@ -102,13 +109,14 @@ const manyBad = validateKyb('IN', { ...IN_OK, pan: 'nope', legalName: '', payout
 assert.deepEqual(manyBad.sort(), ['legalName', 'pan', 'payoutAccount'], 'all invalid fields reported at once');
 
 // Indonesia is a different spec, not a translation of India's.
-assert.deepEqual(validateKyb('ID', IN_OK).sort(), ['nib'], 'India fields do not satisfy Indonesia');
+assert.deepEqual(validateKyb('ID', IN_OK).sort(), ['nib', 'nik'], 'India fields do not satisfy Indonesia');
 assert.deepEqual(
-  validateKyb('ID', { legalName: 'Warung Sari', entityType: 'Perorangan', nib: '1234567890123', address: 'Jl. Sudirman 1', payoutAccount: '900012345678', cryptoExperience: 'Some experience', profession: 'Business owner', plannedStake: 'Not sure yet', commitment: 'Not sure yet', accountDedicated: 'I’ll open one before starting' }),
+  validateKyb('ID', { legalName: 'Warung Sari', entityType: 'Perorangan', nib: '1234567890123', nik: '3175031234567890', address: 'Jl. Sudirman 1', payoutAccount: '900012345678', cryptoExperience: 'Some experience', profession: 'Business owner', plannedStake: 'Not sure yet', commitment: 'Not sure yet', accountDedicated: 'I’ll open one before starting' }),
   [],
   'a complete Indonesia submission passes',
 );
 assert.deepEqual(validateKyb('ID', { nib: '123' }).includes('nib'), true, 'NIB must be 13 digits');
+assert.deepEqual(validateKyb('ID', { nik: '123' }).includes('nik'), true, 'NIK must be 16 digits');
 
 // An unknown country cannot submit at all. Failing closed matters: the alternative is accepting a
 // blank submission from a corridor whose identifiers nobody has thought about yet.
