@@ -46,12 +46,13 @@ export default function Merchants() {
       list.push(
         {
           title: `Approve KYB: ${m.name}`,
-          // An owner still below tier 2 can only have applied because the identity vendor is off (the
-          // apply route drops its gate then, and nothing else raises a tier). So approving here also
-          // verifies the PERSON — two decisions, one click, and the reviewer has to be told.
+          // This approves the BUSINESS and nothing else. It used to also grant the owner tier 2 while
+          // the identity vendor was off; that was removed on 2026-08-29 (docs/14) because no partner
+          // capability reads a tier — only payer ones do. The Identity column still shows where the
+          // person stands, because admitting a partner the vendor never checked is worth seeing.
           body:
             m.ownerKycTier !== undefined && m.ownerKycTier < 2
-              ? 'The identity vendor is off, so this approval ALSO verifies the person: it grants them tier 2, which raises their own limits to $1,000 per payment. Approve only if their identity details check out, not just the business.'
+              ? 'The business is verified. Note this person has NOT passed an identity check — approve on the strength of the details below, and only if they hold up. Their own payment limits are unchanged.'
               : 'The business is verified. They can go online themselves whenever they like — approval does NOT put them into routing.',
           confirmLabel: 'Approve',
           onConfirm: async () => {
@@ -140,9 +141,9 @@ export default function Merchants() {
               </Td>
               {/* The reviewer's only way to reach a human about the application in front of them. */}
               <Td>{m.contactPhone ?? <span className="text-muted">—</span>}</Td>
-              {/* Who this person is, and who decided that. 'manual' means a human here granted the
-                  tier because the vendor was off — the marker that makes them findable for
-                  re-verification when it comes back. */}
+              {/* Where the person stands, and who decided it. A partner sitting at tier 1 is normal
+                  while the vendor is off — nothing a partner does reads a tier. It is shown so a
+                  reviewer knows an identity check has not happened, not because it blocks anything. */}
               <Td className="whitespace-nowrap">
                 {m.ownerKycTier === undefined ? (
                   <span className="text-muted">—</span>

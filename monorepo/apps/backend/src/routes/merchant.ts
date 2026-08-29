@@ -277,8 +277,10 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
   /**
    * Submit (or resubmit) the business details behind this LP.
    *
-   * The person is already verified — /merchants/apply requires the same tier-2 vendor KYC that gates
-   * cash-out. This is the BUSINESS: who they trade as, and above all which account the fiat will
+   * The person may NOT be verified: /merchants/apply requires tier-2 vendor KYC only while the vendor
+   * is live (docs/14), and while it is off the human reading this form is the only identity check
+   * there is — which is why every country spec carries one `identity: true` field. This is otherwise
+   * the BUSINESS: who they trade as, and above all which account the fiat will
    * actually leave from. That last field is the one that matters: the documented failure mode for
    * this entire business shape is third-party money moving through a personal account and the
    * account being frozen (docs/06, docs/08), and knowing which account BEFORE they start is what

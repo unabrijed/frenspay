@@ -29,7 +29,6 @@ import type {
 } from '@fpay/shared';
 
 import { effectiveRole, isRootAdminEmail, requireAdmin } from '../auth';
-import { config } from '../envConfig';
 import { KYB_DECIDABLE } from '../lib/kyb';
 import {
   addDenylistEntry,
@@ -67,11 +66,8 @@ import {
   setUserStatus,
   updatePayoutProvider,
   updateUserProfileAdmin,
-  setKycApproved,
 } from '../db/queries';
 import { screenHandle } from '../services/compliance';
-import { KYC_APPROVED_TIER } from '../services/kyc';
-import { notifyKycUpgraded } from '../services/notify';
 import { canonicalInviteCode } from '../services/invites';
 import { ACTIVITY_SLOTS, activitySlot } from '../services/merchantStats';
 import { settleDispute } from '../services/orderMachine';
@@ -259,32 +255,20 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : decision === 'review' ? 'under_review' : 'more_info';
     await appendKybEvent(req.params.id, moved.from, to, `kyb_${decision}`, { note, by: adminId });
 
-    // While the identity vendor is off, THIS approval is also the identity decision: /merchants/apply
-    // drops its tier-2 gate (routes/merchant.ts), so nothing else can ever raise this person's tier and
-    // an approved partner would sit at tier 1 unable to cash out. The reviewer read a form carrying a
-    // personal identifier (KybField.identity) and a business identifier, which is what makes granting
-    // it honest — docs/14, and the accepted risk recorded against invariant 8.
-    //
-    // setKycApproved, never setUserKycTier: greatest() so a re-approval can never LOWER a tier, and it
-    // stamps kyc_status + kyc_verified_at, without which the row would sit in the reconciler's pending
-    // pool forever. 'manual' is the provenance that makes these users findable when the vendor returns.
-    let tierGranted = false;
-    if (decision === 'approve' && !config.personaLive && moved.userId) {
-      await setKycApproved(moved.userId, KYC_APPROVED_TIER, 'manual');
-      await notifyKycUpgraded(moved.userId, KYC_APPROVED_TIER);
-      tierGranted = true;
-    }
-
+    // NO KYC TIER IS GRANTED HERE, deliberately (docs/14). Approving a business used to also raise the
+    // owner to tier 2 while the vendor was off. Auditing that on 2026-08-29 showed it bought the
+    // partner nothing and cost exactly what nobody asked for: EVERY kyc_tier gate in this codebase is
+    // payer-side (money.ts external sends, crosschain.ts EVM withdrawal, compliance.ts limits) plus the
+    // apply gate, which is already conditional on the vendor being live. A partner takes orders,
+    // reports paid, goes online and is routed on kyb_status + bond + status — merchantOps, routing and
+    // listRoutableMerchants never read a tier. So the grant only opened unhosted-wallet sends at
+    // $1,000/tx and 10x payer limits. Approve the business; leave the person's tier to a real vendor.
     await insertAdminAction({
       adminUserId: adminId,
       action: `kyb_${decision}`,
       targetKind: 'merchant',
       targetId: req.params.id,
-      // The audit row has to say a TIER was granted, not just that a business was approved. These are
-      // one click but two decisions, and only one of them is visible in the merchants table afterwards.
-      note: [note, tierGranted ? `granted kyc tier ${KYC_APPROVED_TIER} (manual — vendor off)` : null]
-        .filter(Boolean)
-        .join(' · ') || undefined,
+      note: note ?? undefined,
     });
     return { ok: true, kybStatus: to };
   });
