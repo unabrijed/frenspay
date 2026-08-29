@@ -717,9 +717,17 @@ export async function countRecentExternalRecipients(fromUserId: string, hours: n
   return Number(rows[0].total);
 }
 
-/** Is this address a merchant settlement treasury? Untracked deposits there are effectively lost. */
+/** Is this address a merchant settlement treasury? Untracked deposits there are effectively lost.
+ *
+ *  APPROVED rows only. This answer REFUSES a send (money.ts), and /merchants/apply takes an arbitrary
+ *  treasury address proven only to be a parseable pubkey — so counting pending rows let one
+ *  never-reviewed application permanently block every fpay send to any address the applicant named.
+ *  The tier-2 gate on apply was the other half of that mitigation and is now conditional (docs/14). */
 export async function isMerchantTreasuryAddress(address: string): Promise<boolean> {
-  const { rowCount } = await getPool().query('select 1 from merchants where treasury_address = $1', [address]);
+  const { rowCount } = await getPool().query(
+    `select 1 from merchants where treasury_address = $1 and kyb_status = 'approved'`,
+    [address],
+  );
   return (rowCount ?? 0) > 0;
 }
 
