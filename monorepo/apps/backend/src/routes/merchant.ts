@@ -181,9 +181,15 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
     '/merchants/apply',
     async (req, reply) => {
       const userId = requireUserId(req);
-      // Merchant KYC: the human behind the merchant must be identity-verified (the same personal
+      // Partner KYC: the human behind the business must be identity-verified (the same personal
       // tier-2 KYC that gates cash-out). KYB approval is a separate, later step on top of this.
-      if ((await getUserKycTier(userId)) < KYC_APPROVED_TIER) {
+      //
+      // ...UNLESS the vendor is off (config.personaLive false — credentials blanked in the host's
+      // panel). Then nobody can reach tier 2 at all and this gate closes the funnel completely, so the
+      // identity check MOVES to the human who reads the business form: an admin KYB approval grants
+      // tier 2 itself (routes/admin.ts). One reviewer, one form, one decision — docs/14. The gate
+      // re-imposes itself the moment the credentials come back; nothing here needs redeploying.
+      if (config.personaLive && (await getUserKycTier(userId)) < KYC_APPROVED_TIER) {
         return reply.code(403).send({ error: 'kyc_required' });
       }
       const { name, payoutMethod, treasuryAddress, contactPhone } = req.body ?? {};

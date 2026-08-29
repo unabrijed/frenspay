@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import type { AuthSyncRequest, MeResponse, ResolveHandleResponse } from '@fpay/shared';
 
 import { effectiveRole, isRootAdminEmail, requirePrivyDid, requireUserId } from '../auth';
+import { config } from '../envConfig';
 import {
   canonicalHandle,
   ensureInviteCodes,
@@ -188,6 +189,10 @@ export async function registerAuthRoutes(app: FastifyInstance) {
             await merchantSettledCount(merchant.id),
           )
         : undefined,
+      // Whether the identity vendor is even reachable on this deployment. The LP console branches on
+      // it: with the vendor off, /merchants/apply drops its tier gate and the reviewer becomes the
+      // identity check, so a "Verify your identity" wall there would block the funnel for nothing.
+      identityCheckAvailable: config.personaLive,
       // The governing role, not the column — a root admin's row still says 'user'. The console
       // gates its whole UI on this, so it has to agree with requireAdmin.
       role: effectiveRole(user) as MeResponse['role'],

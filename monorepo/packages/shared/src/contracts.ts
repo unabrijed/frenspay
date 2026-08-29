@@ -107,6 +107,12 @@ export interface MeResponse {
    *  on /me (already fetched on boot and on the KYC poll) rather than a second endpoint, so the 99%
    *  who aren't merchants pay nothing for it. */
   merchant?: MerchantProfile;
+  /** False when the identity vendor is switched off (its credentials are blank on this deployment).
+   *  Two client consequences, both in the LP console: don't offer a Verify button that can only 503,
+   *  and don't gate the partner application behind a tier nobody can currently reach — while it is
+   *  false, the human reviewing the business form is the identity check (docs/14). Optional so an
+   *  older backend simply reads as "available", the pre-existing behaviour. */
+  identityCheckAvailable?: boolean;
   /** Coarse role for the admin viewer; 'merchant' is informational (capability = `merchant` field). */
   role?: 'user' | 'merchant' | 'admin';
   /** How many invite codes this user owns (3 at signup; admin can mint more). /me only. */
@@ -812,6 +818,12 @@ export interface AdminMerchant {
   positiveRate: number;
   /** The number support calls when a payout goes wrong. Unverified unless Telegram vouched. */
   contactPhone?: string;
+  /** The OWNER's identity tier, and who decided it. Shown next to the review buttons because while
+   *  the vendor is off an approval also grants tier 2 — the reviewer has to be able to see that they
+   *  are making that call, and afterwards that 'manual' is why this person is verified. Absent for
+   *  platform rows, which have no owner. */
+  ownerKycTier?: number;
+  ownerKycProvider?: string;
   /** true = a real logged-in merchant (merchants.user_id set), false = seeded sim LP. */
   real: boolean;
 }

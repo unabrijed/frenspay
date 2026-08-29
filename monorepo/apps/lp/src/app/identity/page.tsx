@@ -25,6 +25,7 @@ export default function Identity() {
   const params = useSearchParams();
   const kycTier = useLpStore((s) => s.kycTier);
   const kycStatus = useLpStore((s) => s.kycStatus);
+  const identityCheckAvailable = useLpStore((s) => s.identityCheckAvailable);
   const pollKyc = useLpStore((s) => s.pollKyc);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -33,7 +34,9 @@ export default function Identity() {
   // The vendor redirects back here with its own query params. Their presence is the signal that a
   // check just finished; the tier itself lands via the vendor's webhook and our poller, which can
   // trail the user's return by a few seconds — hence the poll rather than a single read.
-  const returned = params.has('verificationSessionId');
+  // Persona appends `inquiry-id`; `verificationSessionId` is the previous vendor's key, kept as a
+  // fallback so an in-flight return during a vendor swap still polls instead of silently doing nothing.
+  const returned = params.has('inquiry-id') || params.has('verificationSessionId');
   useEffect(() => {
     if (!returned || kycTier >= 2) return;
     setWaiting(true);
@@ -63,6 +66,9 @@ export default function Identity() {
   };
 
   const done = kycTier >= 2;
+  // Vendor off: there is no check to start, and /kyc/verify would only 503. Say so plainly and send
+  // them to the application, where a person reviews the same form instead.
+  const off = !done && !identityCheckAvailable;
   const pending = kycStatus === 'pending' || kycStatus === 'in_review' || waiting;
 
   return (
@@ -71,17 +77,21 @@ export default function Identity() {
         <BackButton onPress={() => router.push('/apply')} />
       </View>
       <View style={styles.scroll}>
-        <Txt style={type.handle}>{done ? 'You’re verified' : 'Verify your identity'}</Txt>
+        <Txt style={type.handle}>
+          {done ? 'You’re verified' : off ? 'We’ll check this by hand' : 'Verify your identity'}
+        </Txt>
         <Txt style={[type.lead, { marginTop: 10 }]}>
           {done
             ? 'Nothing else needed here — you can apply now.'
-            : 'You’ll be handling other people’s money, so we check who you are first. Passport or ID, about two minutes.'}
+            : off
+              ? 'The automatic check is unavailable right now, so a person reviews your application instead. Go ahead and apply — we’ll be in touch on the number you give us if we need anything else.'
+              : 'You’ll be handling other people’s money, so we check who you are first. Passport or ID, about two minutes.'}
         </Txt>
 
         {err ? <Txt style={[type.lead, { color: colors.danger, marginTop: 12 }]}>{err}</Txt> : null}
 
         <Spacer />
-        {done ? (
+        {done || off ? (
           <Btn label="Continue" variant="ink" onPress={() => router.push('/apply')} />
         ) : (
           <Btn

@@ -21,6 +21,10 @@ export default function MerchantApply() {
   const router = useRouter();
   const walletAddress = useLpStore((s) => s.walletAddress);
   const kycTier = useLpStore((s) => s.kycTier);
+  // With the vendor off nobody can reach tier 2, so this wall would close the funnel outright. The
+  // server drops the same gate on the same flag; the human reading the business form checks identity
+  // instead (docs/14). Keep the two in step — a client-only bypass would just 403.
+  const identityCheckAvailable = useLpStore((s) => s.identityCheckAvailable);
   const load = useLpStore((s) => s.load);
   const [name, setName] = useState('');
   // Prefilled with the corridor's dial code — this form is UPI-only, so it is always India.
@@ -65,7 +69,7 @@ export default function MerchantApply() {
             In the wallet app this opened a sheet; here it is a route, because this console has no
             sheet layer and one screen is cheaper than one. The store's KYC poll flips kycTier on
             approval, so the form appears without a reload. */}
-        {kycTier < 2 ? (
+        {kycTier < 2 && identityCheckAvailable ? (
           <>
             <Txt style={type.inst}>
               Partners handle other people’s money, so we verify who you are first. It is the same quick
