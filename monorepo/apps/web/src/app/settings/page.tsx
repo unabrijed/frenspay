@@ -14,7 +14,7 @@ import { Screen } from '@/components/ui/Screen';
 import { Txt } from '@/components/ui/Txt';
 import { VerifyCard } from '@/components/VerifyCard';
 import { colors, fonts, GUTTER, radii, type } from '@/lib/theme';
-import { IS_DEV } from '@/services/envConfig';
+import { IS_LOCAL_ENV } from '@/services/envConfig';
 import { usePayStore } from '@/store/usePayStore';
 
 export default function Settings() {
@@ -82,7 +82,10 @@ export default function Settings() {
               router.replace('/onboarding/welcome');
             }}
           />
-          {IS_DEV ? (
+          {/* IS_LOCAL_ENV, not IS_DEV: the backing route (POST /sim/kyc/1) is gated on isLocal, because
+              isDevelopment includes stage and stage is mainnet. On a stage build IS_DEV is true, so this
+              link used to render and now 403s — logging you out without resetting the tier it promises. */}
+          {IS_LOCAL_ENV ? (
             <TextLink
               label="Reset for testing"
               onPress={async () => {

@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import type { CSSProperties, ReactNode } from 'react';
 import { Linking, ScrollView } from 'react-native';
 
-import { IS_DEV } from '@/services/envConfig';
+import { IS_LOCAL_ENV } from '@/services/envConfig';
 
 export default function Settings() {
   const router = useRouter();
@@ -65,7 +65,10 @@ export default function Settings() {
               router.replace('/onboarding/welcome');
             }}
           />
-          {IS_DEV ? (
+          {/* IS_LOCAL_ENV, not IS_DEV: the backing route (POST /sim/kyc/1) is gated on isLocal, because
+              isDevelopment includes stage and stage is mainnet. On a stage build IS_DEV is true, so this
+              link used to render and now 403s — logging you out without resetting the tier it promises. */}
+          {IS_LOCAL_ENV ? (
             <TextLink
               label="Reset for testing"
               onPress={async () => {
