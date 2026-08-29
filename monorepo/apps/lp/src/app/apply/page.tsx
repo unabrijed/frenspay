@@ -4,7 +4,7 @@
 // approves it, and staking is what actually brings them online.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { BackButton } from '@fpay/ui/BackButton';
 import { Btn } from '@fpay/ui/Button';
@@ -30,6 +30,14 @@ export default function MerchantApply() {
   // Prefilled with the corridor's dial code — this form is UPI-only, so it is always India.
   const [phone, setPhone] = useState('+91 ');
   const [busy, setBusy] = useState(false);
+  // Re-read /me on mount. Both screens branch on identityCheckAvailable, and the store writes it only
+  // in load() — which for a not-yet-partner runs once at sign-in and never again (the home poll fetches
+  // orders, and is gated on already being a partner). An operator flipping the credential in Railway
+  // would otherwise strand a stale tab: showing the application form the server now 403s, with no
+  // Verify button on screen to escape to, until a hard reload.
+  useEffect(() => {
+    void load();
+  }, [load]);
   const [err, setErr] = useState<string | null>(null);
 
   const submit = async () => {

@@ -27,9 +27,18 @@ export default function Identity() {
   const kycStatus = useLpStore((s) => s.kycStatus);
   const identityCheckAvailable = useLpStore((s) => s.identityCheckAvailable);
   const pollKyc = useLpStore((s) => s.pollKyc);
+  const load = useLpStore((s) => s.load);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [waiting, setWaiting] = useState(false);
+  // Re-read /me on mount. Both screens branch on identityCheckAvailable, and the store writes it only
+  // in load() — which for a not-yet-partner runs once at sign-in and never again (the home poll fetches
+  // orders, and is gated on already being a partner). An operator flipping the credential in Railway
+  // would otherwise strand a stale tab: showing the application form the server now 403s, with no
+  // Verify button on screen to escape to, until a hard reload.
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   // The vendor redirects back here with its own query params. Their presence is the signal that a
   // check just finished; the tier itself lands via the vendor's webhook and our poller, which can
