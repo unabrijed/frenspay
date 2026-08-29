@@ -46,9 +46,13 @@ export async function authPreHandler(req: FastifyRequest, reply: FastifyReply): 
     }
     return;
   }
-  // Dev fallback only in a dev/stage environment AND when Privy is unconfigured — never let a prod
-  // misconfig (missing PRIVY secret) turn the spoofable x-dev-user-id header into an auth bypass.
-  if (config.isDevelopment && !privyConfigured()) {
+  // Dev fallback, LOCAL only, and only when Privy is unconfigured — this header is spoofable, so it
+  // names any user id you like. It said `isDevelopment` until 2026-08-29, and `isDevelopment` is
+  // `isStage || isLocal`: blanking STAGE_PRIVY_APP_ID or _SECRET would have turned mainnet stage into
+  // a no-token impersonation endpoint, silently, on a server that boots healthy. Blanking a variable
+  // to switch a vendor off is a normal gesture here (docs/14), which is exactly why this can't key on
+  // a flag that includes a deployed tier. rateLimit.ts already keys the same header on isLocal.
+  if (config.isLocal && !privyConfigured()) {
     const hdr = req.headers['x-dev-user-id'];
     if (typeof hdr === 'string' && hdr.length > 0) {
       // The header names a row directly, so fetch it for the same suspension gate as the Privy
