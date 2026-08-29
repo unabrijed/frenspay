@@ -67,8 +67,8 @@ export function startKycPoller(intervalMs = 15_000, log?: (m: string) => void): 
   if (timer || !hasDatabase()) return;
   if (getKycProvider().name === 'sim') return; // sim resolves synchronously in the route
   // Vendor off (credentials blanked): there is nobody to reconcile WITH, and asking would 401 every
-  // open session on a 15s loop. Manual approvals never create a session row, so nothing is stranded.
-  if (config.kycProvider === 'persona' && !config.personaLive) return;
+  // open session on a 15s loop. Nothing is stranded — no session row is ever created while it is off.
+  if (!config.personaLive) return;
   timer = setInterval(() => {
     if (running) return;
     running = true;

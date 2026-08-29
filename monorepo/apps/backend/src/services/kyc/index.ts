@@ -8,8 +8,16 @@ import { simProvider } from './sim';
 /** Approving a verification unlocks tier 2 (merchant pay). Higher tiers are a future workflow. */
 export const KYC_APPROVED_TIER = 2;
 
+/** The active provider.
+ *
+ *  `sim` promotes to tier 2 instantly with no documents. It exists for local dev and the check
+ *  harness, and it must be UNREACHABLE on any deployed tier — stage and prod are both mainnet.
+ *  Gating on `isLocal` HERE, rather than trusting the KYC_PROVIDER string, is what makes that
+ *  structural: a typo, a stray variable, a mis-set host panel or a future caller cannot select it.
+ *  On a deployed tier the answer is always the real vendor, and if that vendor is off its callers
+ *  refuse (`/kyc/verify` 503s, the reconciler stands down). */
 export function getKycProvider(): KycProvider {
-  return config.kycProvider === 'persona' ? personaProvider : simProvider;
+  return config.isLocal && config.kycProvider !== 'persona' ? simProvider : personaProvider;
 }
 
 /** Fail fast on a DANGEROUS provider config — not on an absent one.

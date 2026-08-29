@@ -54,9 +54,13 @@ function clean(v: string | undefined): string {
  *  "healthy", then 503s every call at the vendor. Treat placeholder-looking values as missing. Lives
  *  here rather than beside its caller because `personaLive` below is derived from it — one definition,
  *  so "is this credential real?" cannot answer differently in two places. */
-export function usableSecret(value: string): boolean {
+export function usableSecret(value: string, prefix?: RegExp): boolean {
   const v = value.trim();
-  return v.length > 0 && !/[<>]|your[-_ ]/i.test(v);
+  if (!v || /[<>]|your[-_ ]/i.test(v)) return false;
+  // A shape check where the shape is known and stable. Without it `x`, `TODO` and `changeme` all read
+  // as real credentials: personaLive goes true, the apply gate re-imposes itself, tier 2 becomes
+  // unreachable and the funnel shuts again — signalled by nothing but one probe line nobody reads.
+  return prefix ? prefix.test(v) : true;
 }
 
 /** Read an env var through the tier chain (see header). */
@@ -193,7 +197,9 @@ export const config = {
   // (docs/14). Deliberately NOT `kycProvider !== 'persona'`: an empty KYC_PROVIDER resolves back to
   // 'persona' through env()'s fallback, so the provider name alone can never express "off".
   personaLive:
-    kycProviderValue === 'persona' && usableSecret(personaApiKeyValue) && usableSecret(personaTemplateIdValue),
+    kycProviderValue === 'persona' &&
+    usableSecret(personaApiKeyValue, /^persona_(sandbox|production)_/) &&
+    usableSecret(personaTemplateIdValue, /^itmpl_/),
 
   // Pay-by-phone OTP (services/phoneOtp.ts). 'console' = the code goes to the server log (local
   // only; refused on production); 'messagecentral' = Message Central VerifyNow. Stage/prod default
@@ -311,7 +317,7 @@ if (config.adminEmails.length === 0) {
 // Identity verification being OFF is a deployment state, not a bug — but it is invisible otherwise,
 // and it silently changes who can become a partner. Say it at boot, naming the tier-prefixed variable
 // actually being read so a mis-prefixed one is obvious.
-if (config.kycProvider === 'persona' && !config.personaLive) {
+if (!config.personaLive && !config.isLocal) {
   console.warn(
     `[config] WARNING: ${envSource('PERSONA_API_KEY')} / ${envSource('PERSONA_TEMPLATE_ID')} are unset or ` +
       'placeholders — identity verification is OFF. /kyc/verify returns 503 and partner onboarding ' +

@@ -24,11 +24,15 @@ const PROBE = `import('./src/envConfig.ts').then(async (m) => {
   const kyc = await import('./src/services/kyc/index.ts');
   let threw = null;
   try { kyc.assertKycConfig(); } catch (e) { threw = String(e.message); }
-  console.log('RESULT=' + JSON.stringify({ live: m.config.personaLive, threw }));
+  console.log('RESULT=' + JSON.stringify({
+    live: m.config.personaLive,
+    provider: kyc.getKycProvider().name,
+    threw,
+  }));
 });`;
 
 /** Boot the config + the KYC guard under one env, and report what happened. */
-function probe(env: Record<string, string>): { live: boolean; threw: string | null } {
+function probe(env: Record<string, string>): { live: boolean; provider: string; threw: string | null } {
   const out = execFileSync('npx', ['tsx', '-e', PROBE], {
     cwd: BACKEND,
     encoding: 'utf8',
@@ -101,6 +105,34 @@ check('prod · sandbox key → LIVE but REFUSES TO BOOT', () => {
 check('prod · production key → LIVE and boots', () => {
   const r = probe({ NODE_ENV: 'production', PERSONA_API_KEY: PRODUCTION, PERSONA_TEMPLATE_ID: TEMPLATE });
   assert.equal(r.live, true);
+  assert.equal(r.threw, null);
+});
+
+// --- sim must be UNREACHABLE on a deployed tier, whatever the variable says ------------------------
+// The hole this catches was live on mainnet stage until 2026-08-29: KYC_PROVIDER=sim + one
+// POST /kyc/verify promoted any authenticated user to tier 2 with no documents. The gate that let it
+// through was `isDevelopment`, which is `isStage || isLocal`. Asserting the SELECTED PROVIDER rather
+// than the route's guard is the point — it holds no matter which caller is asked next.
+check('stage · KYC_PROVIDER=sim → the selector still refuses to hand back sim', () => {
+  const r = probe({ NODE_ENV: 'stage', STAGE_KYC_PROVIDER: 'sim', STAGE_PERSONA_API_KEY: '', STAGE_PERSONA_TEMPLATE_ID: '' });
+  assert.notEqual(r.provider, 'sim', 'sim must be unreachable on a deployed tier — stage is mainnet');
+  assert.equal(r.live, false, 'and with no credentials the vendor is off, so /kyc/verify 503s');
+});
+
+check('prod · KYC_PROVIDER=sim → the selector still refuses to hand back sim', () => {
+  const r = probe({ NODE_ENV: 'production', KYC_PROVIDER: 'sim', PERSONA_API_KEY: '', PERSONA_TEMPLATE_ID: '' });
+  assert.notEqual(r.provider, 'sim');
+});
+
+check('local · KYC_PROVIDER=sim → sim IS selected (dev must keep working)', () => {
+  const r = probe({ NODE_ENV: 'local', LOCAL_KYC_PROVIDER: 'sim' });
+  assert.equal(r.provider, 'sim');
+});
+
+// --- a credential has a known shape ---------------------------------------------------------------
+check('stage · junk credential → off (a real key is persona_sandbox_/persona_production_)', () => {
+  const r = probe({ NODE_ENV: 'stage', STAGE_PERSONA_API_KEY: 'changeme', STAGE_PERSONA_TEMPLATE_ID: TEMPLATE });
+  assert.equal(r.live, false, '`changeme` passed the emptiness check and read as a live vendor');
   assert.equal(r.threw, null);
 });
 

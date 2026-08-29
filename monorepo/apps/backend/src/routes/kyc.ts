@@ -32,14 +32,16 @@ export async function registerKycRoutes(app: FastifyInstance) {
   // open — the tier is raised later via the webhook + reconciler (kyc/poller).
   app.post<{ Body: { returnUrl?: string } }>('/kyc/verify', async (req, reply) => {
     const userId = requireUserId(req);
+    const provider = getKycProvider();
     // Vendor off (credentials blanked in the host's panel — config.personaLive). Answer before the
     // network call: an empty key would 401 at Persona and land here anyway, one pointless round trip
     // later. The client already has copy for this code (packages/app/src/lib/errors.ts). Partners are
     // not stuck behind it — /merchants/apply drops its tier gate while the vendor is off (docs/14).
-    if (config.kycProvider === 'persona' && !config.personaLive) {
+    // Keyed off the SELECTED provider, not the configured string: on a deployed tier the selector
+    // always answers 'persona', so a garbled KYC_PROVIDER lands here rather than falling through.
+    if (provider.name === 'persona' && !config.personaLive) {
       return reply.code(503).send({ error: 'kyc_unavailable' });
     }
-    const provider = getKycProvider();
     // The client return target becomes the vendor's post-verification redirect. Only echo it onward
     // if it's an allowed origin (CORS allowlist) so we never hand a third party an arbitrary redirect.
     const returnUrl = safeReturnUrl(req.body?.returnUrl);
@@ -54,8 +56,11 @@ export async function registerKycRoutes(app: FastifyInstance) {
     }
 
     if (result.mode === 'instant') {
-      // Sim path — dev/stage only. In prod a real vendor must verify; never let a user self-promote.
-      if (!config.isDevelopment) return reply.code(403).send({ error: 'kyc_provider_unavailable' });
+      // Sim path. Second line of defence only — getKycProvider() cannot return sim off-local, so this
+      // is unreachable on a deployed tier. It said `isDevelopment` until 2026-08-29, and since
+      // `isDevelopment` is `isStage || isLocal` and stage is mainnet, one POST here promoted any
+      // authenticated stage user to tier 2 with no documents whenever KYC_PROVIDER was 'sim'.
+      if (!config.isLocal) return reply.code(403).send({ error: 'kyc_provider_unavailable' });
       const next = Math.max(await getUserKycTier(userId), result.tier);
       await setUserKycTier(userId, next);
       await notifyKycUpgraded(userId, next); // M6
