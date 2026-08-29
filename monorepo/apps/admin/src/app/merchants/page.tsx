@@ -46,7 +46,13 @@ export default function Merchants() {
       list.push(
         {
           title: `Approve KYB: ${m.name}`,
-          body: 'The business is verified. They can go online themselves whenever they like — approval does NOT put them into routing.',
+          // An owner still below tier 2 can only have applied because the identity vendor is off (the
+          // apply route drops its gate then, and nothing else raises a tier). So approving here also
+          // verifies the PERSON — two decisions, one click, and the reviewer has to be told.
+          body:
+            m.ownerKycTier !== undefined && m.ownerKycTier < 2
+              ? 'The identity vendor is off, so this approval ALSO verifies the person: it grants them tier 2, which raises their own limits to $1,000 per payment. Approve only if their identity details check out, not just the business.'
+              : 'The business is verified. They can go online themselves whenever they like — approval does NOT put them into routing.',
           confirmLabel: 'Approve',
           onConfirm: async () => {
             await api.merchantKyb(m.id, 'approve');
@@ -124,7 +130,7 @@ export default function Merchants() {
       ) : data.merchants.length === 0 ? (
         <EmptyState text="No merchants yet." />
       ) : (
-        <Table head={['Merchant', 'Contact', 'Rail', 'Status', 'KYB', 'Bond', 'Float', 'Success', 'Disputes', '👍', 'Actions']}>
+        <Table head={['Merchant', 'Contact', 'Identity', 'Rail', 'Status', 'KYB', 'Bond', 'Float', 'Success', 'Disputes', '👍', 'Actions']}>
           {data.merchants.map((m) => (
             <Fragment key={m.id}>
             <tr className="hover:bg-surface-low">
@@ -134,6 +140,18 @@ export default function Merchants() {
               </Td>
               {/* The reviewer's only way to reach a human about the application in front of them. */}
               <Td>{m.contactPhone ?? <span className="text-muted">—</span>}</Td>
+              {/* Who this person is, and who decided that. 'manual' means a human here granted the
+                  tier because the vendor was off — the marker that makes them findable for
+                  re-verification when it comes back. */}
+              <Td className="whitespace-nowrap">
+                {m.ownerKycTier === undefined ? (
+                  <span className="text-muted">—</span>
+                ) : (
+                  <Badge tone={m.ownerKycTier >= 2 ? (m.ownerKycProvider === 'manual' ? 'warn' : 'ok') : 'muted'}>
+                    {`tier ${m.ownerKycTier}${m.ownerKycProvider ? ` · ${m.ownerKycProvider}` : ''}`}
+                  </Badge>
+                )}
+              </Td>
               <Td>{m.payoutRail}</Td>
               <Td>
                 <Badge tone={m.status === 'online' ? 'ok' : m.status === 'suspended' ? 'danger' : 'muted'}>
@@ -164,12 +182,14 @@ export default function Merchants() {
                 </div>
               </Td>
             </tr>
-            {/* The submission itself, shown exactly while a decision is open — approving a business
-                nobody can read is the bug this row exists to prevent. Labels come from the same
-                shared spec the form rendered, so reviewer and applicant read identical words. */}
-            {m.kybFields && KYB_DECIDABLE.includes(m.kybStatus) ? (
+            {/* The submission itself. Shown for EVERY decided state, not just open ones: approving a
+                business nobody can read is the first bug this row prevents, and "what did we actually
+                approve this person on?" six weeks later is the second — which matters more now that an
+                approval can also be the identity decision. Labels come from the same shared spec the
+                form rendered, so reviewer and applicant read identical words. */}
+            {m.kybFields ? (
               <tr className="bg-surface-low/40">
-                <td colSpan={11} className="px-3 pb-2 pt-0">
+                <td colSpan={12} className="px-3 pb-2 pt-0">
                   <div className="flex flex-wrap gap-x-6 gap-y-0.5 text-[12px] text-muted">
                     {(KYB_FIELDS[m.country] ?? [])
                       .filter((f) => m.kybFields?.[f.key])

@@ -2899,10 +2899,10 @@ export async function decideMerchantKyb(
   decision: 'approve' | 'reject' | 'review' | 'more_info',
   note: string | null,
   decidableFrom: readonly string[],
-): Promise<{ from: string } | null> {
+): Promise<{ from: string; userId: string | null } | null> {
   const kyb =
     decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : decision === 'review' ? 'under_review' : 'more_info';
-  const { rows } = await getPool().query<{ from_status: string }>(
+  const { rows } = await getPool().query<{ from_status: string; user_id: string | null }>(
     `with prev as (select kyb_status as from_status from merchants where id = $1)
      update merchants m
         set kyb_status = $2,
@@ -2913,10 +2913,12 @@ export async function decideMerchantKyb(
                           else m.status end
        from prev
       where m.id = $1 and m.kyb_status = any($4::text[])
-      returning prev.from_status`,
+      returning prev.from_status, m.user_id`,
     [id, kyb, note, decidableFrom],
   );
-  return rows[0] ? { from: rows[0].from_status } : null;
+  // user_id comes back because an approval may also have to grant the OWNER tier 2 while the identity
+  // vendor is off (docs/14). Null for platform `psp` rows, which have no human behind them.
+  return rows[0] ? { from: rows[0].from_status, userId: rows[0].user_id } : null;
 }
 
 /** @deprecated Superseded by decideMerchantKyb (0016). Kept only for the dev /sim route, which
@@ -3284,11 +3286,18 @@ export async function getUserByKycSession(
   return rows[0] ? { id: rows[0].id, kycTier: rows[0].kyc_tier, status: rows[0].kyc_status } : null;
 }
 
-/** Apply an approved verification: raise the tier (never lower it) and stamp approval. */
-export async function setKycApproved(userId: string, tier: number): Promise<void> {
+/** Apply an approved verification: raise the tier (never lower it) and stamp approval.
+ *
+ *  `provider` records WHO decided — 'manual' when a human granted it from the admin console because
+ *  the vendor was off (docs/14). It is the only way to find those users again: when the vendor comes
+ *  back, `select id from users where kyc_provider = 'manual'` IS the re-verification list. Omitted by
+ *  the vendor path, which already stamped it at setKycSession, hence coalesce rather than a write. */
+export async function setKycApproved(userId: string, tier: number, provider?: string): Promise<void> {
   await getPool().query(
-    `update users set kyc_tier = greatest(kyc_tier, $2), kyc_status = 'approved', kyc_verified_at = now() where id = $1`,
-    [userId, tier],
+    `update users set kyc_tier = greatest(kyc_tier, $2), kyc_status = 'approved', kyc_verified_at = now(),
+            kyc_provider = coalesce($3, kyc_provider)
+      where id = $1`,
+    [userId, tier, provider ?? null],
   );
 }
 
@@ -3974,10 +3983,17 @@ export async function listRiskEventsAdmin(limit = 50, cursor?: string): Promise<
   };
 }
 
-/** Thin DTO mapper over listAllMerchants. Money columns pass THROUGH as the decimal strings pg
- *  hands back — numeric(20,6) already carries the scale, so no conversion is needed or wanted. */
+/** Money columns pass THROUGH as the decimal strings pg hands back — numeric(20,6) already carries
+ *  the scale, so no conversion is needed or wanted.
+ *
+ *  Its own query rather than listAllMerchants() because the console needs the OWNER's identity tier
+ *  beside each row: approving KYB while the vendor is off grants that tier, and a reviewer cannot be
+ *  asked to make that call blind. Left join — platform `psp` rows have no user. */
 export async function listMerchantsAdmin(): Promise<AdminMerchant[]> {
-  const rows = await listAllMerchants();
+  const { rows } = await getPool().query<MerchantRow & { owner_kyc_tier: number | null; owner_kyc_provider: string | null }>(
+    `select m.*, u.kyc_tier as owner_kyc_tier, u.kyc_provider as owner_kyc_provider
+       from merchants m left join users u on u.id = m.user_id`,
+  );
   return rows.map((m) => ({
     id: m.id,
     name: m.name,
@@ -3992,6 +4008,8 @@ export async function listMerchantsAdmin(): Promise<AdminMerchant[]> {
     disputeRate: Number(m.dispute_rate),
     positiveRate: Number(m.positive_rate),
     contactPhone: m.contact_phone ?? undefined,
+    ownerKycTier: m.owner_kyc_tier ?? undefined,
+    ownerKycProvider: m.owner_kyc_provider ?? undefined,
     real: m.user_id != null,
   }));
 }
