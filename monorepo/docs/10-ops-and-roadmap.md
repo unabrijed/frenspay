@@ -69,11 +69,15 @@ Two providers behind one API (`POST /kyc/verify` in `routes/kyc.ts`), selected b
 | `sim` | local only — **never** on a deployed tier, both of which are mainnet | instant tier-2 promote, no documents |
 | `persona` | stage **and** prod (also the default there, set or not) | hosted government-ID + selfie inquiry; tier raised by the 15s reconciler poller reading the inquiry back from Persona |
 
-- **Sim:** onboard → Settings → *Verify identity* → instant tier 2. Re-test via dev-only
-  *Reset for testing* (`POST /sim/kyc/1`) — the backend tier persists across logins otherwise.
-- **Persona:** set `STAGE_PERSONA_API_KEY` + `STAGE_PERSONA_TEMPLATE_ID` (missing values with
-  `persona` selected → the server **refuses to boot**, `assertKycConfig` — placeholder-looking values
-  are rejected too). Complete the hosted flow; the poller fetches the authoritative inquiry
+- **Sim:** onboard → Settings → *Verify identity* → instant tier 2. Re-test via *Reset for testing*
+  (`POST /sim/kyc/1`) — the backend tier persists across logins otherwise. **Local only**: that route
+  is gated on `isLocal`, not `isDevelopment`, because `isDevelopment` includes stage and stage is
+  mainnet — while it answered there, any authenticated user could self-promote to tier 3.
+- **Persona:** set `STAGE_PERSONA_API_KEY` + `STAGE_PERSONA_TEMPLATE_ID`. Leaving either blank (or
+  placeholder-shaped) turns identity verification **off** rather than breaking the deploy:
+  `config.personaLive` is false, the server boots, `/kyc/verify` 503s, and partner onboarding falls
+  back to a human reading the business form — [14](14-manual-onboarding-fallback.md), an accepted
+  risk. Set them both and complete the hosted flow; the poller fetches the authoritative inquiry
   (`approved`/`completed` → tier 2 · `declined`/`failed` → terminal · `expired` → cleared so the user
   can restart · `needs_review` → in review). No webhook is wired — the poller *is* the path; ≤15s.
 - **Sandbox vs production keys.** A `persona_sandbox_…` key (what self-serve signup gives) runs the
@@ -119,7 +123,7 @@ and past that the error changes to `rate_limited`, which is noise rather than pr
 | boot refuses with `sandbox key on a production tier` | a `persona_sandbox_…` key on prod | wait for the production key; do not switch prod to `sim` |
 
 Two things that are **not** the cause, both ruled out before reading anything: an unset
-`KYC_PROVIDER` (stage and prod default to `persona`), and missing credentials (`assertKycConfig` is
+`KYC_PROVIDER` (stage and prod default to `persona`), and missing credentials (now the OFF switch, docs/14; `assertKycConfig` is
 fatal at boot, so a service answering `/health` has them).
 
 ## Owed, and known

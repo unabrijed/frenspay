@@ -59,6 +59,7 @@ Flow docs follow the **same six-part shape**, so you always know where to look:
 | 11 | [The LP console](11-lp-console.md) | the app the people who settle our payouts use — notifier, scoreboard, stake. **No money moves through it** |
 | 12 | [The mobile app](12-mobile-app.md) | Expo/React Native rendering the same `@fpay/app` the web does — the platform seam, the `.native` twins, Privy Expo, Persona in-app, push; what is not yet device-verified |
 | 13 | [The Telegram bot](13-telegram-bot.md) | the LP console's second renderer, inside Telegram — the link handshake, working orders from chat, phone-at-apply; **drafted ahead of implementation**, setup steps included |
+| 14 | [Onboarding when the vendor is off](14-manual-onboarding-fallback.md) | the `personaLive` switch, and the human review that grants tier 2 while the identity vendor has no production key — **an accepted risk, read before extending** |
 
 **Deployment is not a numbered doc** — the runbooks live at the repo root, next to the code they
 deploy: [`DEPLOY.stage.md`](../DEPLOY.stage.md) and [`DEPLOY.md`](../DEPLOY.md). One architecture

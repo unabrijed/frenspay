@@ -120,7 +120,8 @@ merchant cash-out + external-address sends. The vendor seam is real — `service
 **Persona the active provider on both stage and prod** (stage on a sandbox key — force-pass, no real
 documents; prod only with a production key, which Persona issues after its compliance review / Startup
 Program approval). `sim` is local-only: it promotes to tier 2 with no documents, and both deployed tiers
-are mainnet. Testing runbook:
+are mainnet. When the vendor's credentials are blank it is **off** rather than broken, and the partner
+funnel switches to human review — [14](14-manual-onboarding-fallback.md). Testing runbook:
 [10-ops-and-roadmap](10-ops-and-roadmap.md).
 
 ## Legalities
@@ -141,7 +142,9 @@ are mainnet. Testing runbook:
   or bring-your-own-Twilio both need the $299/mo Scale plan. 🟡 Stage needs the Message Central
   key set before a real code goes out.
 - ✅ KYC tiers enforced; 🟡 Persona KYC (2026-08-19): stage runs the sandbox key, prod waits
-  on Persona's production approval — runbook in [10](10-ops-and-roadmap.md).
+  on Persona's production approval — runbook in [10](10-ops-and-roadmap.md). ⬜ **Vendor OFF since
+  2026-08-29** — blank credentials are the switch, and partner onboarding falls back to human review
+  that grants tier 2 ([14](14-manual-onboarding-fallback.md), an accepted risk).
 - ✅ Invite codes as real minted objects (0007/0008). ✅ `FREN-` prefix + remint script (🟡 cutover run pending).
 - ✅ Email unique index + 409 collision policy (migration 0010; 🟡 until applied on stage).
 

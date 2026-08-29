@@ -56,7 +56,7 @@ classification. **Caveat:** the per-order escrow does put funds under *program* 
 #3. *(The custody/MTL line is fact-specific and jurisdiction-specific; confirm with counsel before
 real funds move at scale.)* See [03-custody-money-in-and-confirmation](03-custody-money-in-and-confirmation.md).
 
-### 2. KYC / customer identification — ✅ *enforced; real vendor is a config flip*
+### 2. KYC / customer identification — 🟡 *tiers enforced; the vendor is currently OFF*
 The tiered model is **enforced**: `users.kyc_tier` gates money movement (tier 1 ≈ $100/tx, $300/day
 P2P; tier 2 unlocks merchant cash-out + external-address sends), checked server-side against
 rolling-24h volume. The vendor seam is real (`services/kyc/` — `provider.ts` interface, `persona.ts`
@@ -64,6 +64,13 @@ vendor, `sim.ts` simulator) and **Persona — government ID + selfie — is the 
 stage and prod** (stage on a sandbox key that never sees a real document; prod only once Persona
 issues a production key after its compliance review). `sim` runs locally only: it promotes to tier 2
 without seeing a document, and both deployed tiers are mainnet. See [02-identity-and-onboarding](02-identity-and-onboarding.md).
+
+**As of 2026-08-29 the vendor is switched off** (no production key yet), and while it is off a human
+admin approving the partner business form grants tier 2 directly —
+[14-manual-onboarding-fallback](14-manual-onboarding-fallback.md). That is a **deliberate exception to
+the rule below** that no real payout precedes a real vendor, taken to unblock partner onboarding, with
+an owed re-verification sweep (`kyc_provider = 'manual'`). It also raises those users' own payer limits
+as a side effect of tier 2 being one number. Read that doc before extending anything identity-shaped.
 
 ### 3. Escrow release authority — 🟡 *platform-held*
 The escrow is trust-minimized (funds can only go to the intended merchant or back to the user), but

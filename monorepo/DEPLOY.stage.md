@@ -129,7 +129,7 @@ Use it to redeploy the current commit, or to recover after a failed run.
    NODE_ENV=stage
    STAGE_DATABASE_URL=<Supabase session pooler URL — step 2>
    STAGE_KYC_PROVIDER=persona                           # optional — stage/prod already default to persona. NEVER `sim` here: stage is mainnet, and sim promotes to tier 2 with no documents
-   STAGE_PERSONA_API_KEY=<persona_sandbox_… is fine on stage>   # without these two, boot THROWS (assertKycConfig)
+   STAGE_PERSONA_API_KEY=<persona_sandbox_… is fine on stage>   # BLANK BOTH = identity verification off (docs/14), NOT a boot failure
    STAGE_PERSONA_TEMPLATE_ID=<itmpl_… from Persona → Inquiry Templates>
    STAGE_SOLANA_RPC_URL=https://mainnet.helius-rpc.com/?api-key=<KEY>   # mainnet RPC (Helius free tier)
    STAGE_HELIUS_API_KEY=<KEY>                            # push confirmation — see §Helius. Same key as the RPC URL above
@@ -461,7 +461,7 @@ forward — which is why migrations must be written additively.
 | `Failed to upload code with status code 404 Not Found` | `RAILWAY_STAGE_SERVICE` names a service that doesn't exist in this environment. The `railway status` output printed just above it lists the real names under `All resources` — copy one exactly. This is the most likely cause by far; the 404 is Railway's answer for "no such target", not for a bad token. |
 | `railway up` fails: unauthorized | `RAILWAY_STAGE_TOKEN` missing, expired, or scoped to the wrong environment. It must be a **project** token for **stage**. An account token (from Account Settings) is read from `RAILWAY_API_TOKEN`, carries no project, and makes `railway status` fail to resolve one. |
 | Deploy stuck "waiting for healthcheck" | `PORT` was set by hand (never set it — Railway injects it), or the server crashed at boot. The deploy logs carry the real error. |
-| Boot throws on KYC config | `assertKycConfig` — stage refuses to start without Persona credentials. Set `STAGE_PERSONA_API_KEY` + `STAGE_PERSONA_TEMPLATE_ID` (§Service setup step 3). Do **not** answer this by setting `STAGE_KYC_PROVIDER=sim` — stage is mainnet. |
+| Boot throws on KYC config | Only one config still does this: a `persona_sandbox_…` key on a **production** tier. Blank credentials are no longer an error — they mean the vendor is off (`config.personaLive`), the app boots, `/kyc/verify` 503s and partner onboarding falls back to manual review (docs/14). Do **not** answer any KYC problem with `STAGE_KYC_PROVIDER=sim` — stage is mainnet, and sim self-promotes. |
 | `/kyc/verify` returns 503 `kyc_unavailable` | The service booted fine (so the vars are set) and the **call to Persona** was rejected. The boot log's `persona probe:` line and the `kyc provider start failed` line carry `[template=… key=len…####]` — see the KYC runbook in `docs/10-ops-and-roadmap.md`. |
 | `prepared statement does not exist` / lock hangs | `STAGE_DATABASE_URL` points at the transaction pooler (`:6543`). It must be the **session** pooler (`:5432`). |
 | Build fails on an unpublished `@fpay/*` package | A new workspace's `package.json` isn't COPY'd before the install layer in the root `Dockerfile`. Its header explains why; add the line. |
