@@ -50,6 +50,15 @@ function clean(v: string | undefined): string {
     .trim();
 }
 
+/** A value like `<your template id>` is set-but-unusable: it passes an empty-check, boots the server
+ *  "healthy", then 503s every call at the vendor. Treat placeholder-looking values as missing. Lives
+ *  here rather than beside its caller because `personaLive` below is derived from it — one definition,
+ *  so "is this credential real?" cannot answer differently in two places. */
+export function usableSecret(value: string): boolean {
+  const v = value.trim();
+  return v.length > 0 && !/[<>]|your[-_ ]/i.test(v);
+}
+
 /** Read an env var through the tier chain (see header). */
 function env(key: string, fallback = ''): string {
   const raw = isLocal
@@ -86,6 +95,14 @@ function num(key: string, def: number, range?: { min?: number; max?: number }): 
 // even on a stage backend pointed at mainnet.
 const MAINNET_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const usdcMintValue = env('USDC_MINT');
+
+// KYC credentials are read before the config object so `personaLive` can be DERIVED from them rather
+// than restated. Blanking either variable in the host's panel is the documented way to turn identity
+// verification off (docs/14) — which is why emptiness must be a first-class state here and not an
+// error thrown at boot.
+const kycProviderValue = env('KYC_PROVIDER', isLocal ? 'sim' : 'persona');
+const personaApiKeyValue = env('PERSONA_API_KEY');
+const personaTemplateIdValue = env('PERSONA_TEMPLATE_ID');
 
 export const config = {
   nodeEnv: node_env,
@@ -166,10 +183,17 @@ export const config = {
   // via Persona's hosted flow, decisions read back by the reconciler poller. NODE_ENV decides:
   // local → sim, stage/prod → persona (prod must never self-promote). Override per tier via
   // <PREFIX>_KYC_PROVIDER if needed. A persona_sandbox_ key is refused outside dev/stage (assertKycConfig).
-  kycProvider: env('KYC_PROVIDER', isLocal ? 'sim' : 'persona'),
-  personaApiKey: env('PERSONA_API_KEY'),
-  personaTemplateId: env('PERSONA_TEMPLATE_ID'),
+  kycProvider: kycProviderValue,
+  personaApiKey: personaApiKeyValue,
+  personaTemplateId: personaTemplateIdValue,
   personaBaseUrl: env('PERSONA_BASE_URL', 'https://api.withpersona.com'),
+  // THE switch. Persona is live only when it is selected AND both credentials are real. Blanking
+  // either one in Railway turns identity verification off everywhere — the route 503s, the poller
+  // and the boot probe stand down, and merchant onboarding falls back to manual KYB review
+  // (docs/14). Deliberately NOT `kycProvider !== 'persona'`: an empty KYC_PROVIDER resolves back to
+  // 'persona' through env()'s fallback, so the provider name alone can never express "off".
+  personaLive:
+    kycProviderValue === 'persona' && usableSecret(personaApiKeyValue) && usableSecret(personaTemplateIdValue),
 
   // Pay-by-phone OTP (services/phoneOtp.ts). 'console' = the code goes to the server log (local
   // only; refused on production); 'messagecentral' = Message Central VerifyNow. Stage/prod default
@@ -282,6 +306,16 @@ if (config.adminEmails.length === 0) {
   console.warn(
     `[config] WARNING: ${envSource('ADMIN_EMAILS')} is unset — no root admins. The admin console is ` +
       "reachable only by a user whose users.role is already 'admin'.",
+  );
+}
+// Identity verification being OFF is a deployment state, not a bug — but it is invisible otherwise,
+// and it silently changes who can become a partner. Say it at boot, naming the tier-prefixed variable
+// actually being read so a mis-prefixed one is obvious.
+if (config.kycProvider === 'persona' && !config.personaLive) {
+  console.warn(
+    `[config] WARNING: ${envSource('PERSONA_API_KEY')} / ${envSource('PERSONA_TEMPLATE_ID')} are unset or ` +
+      'placeholders — identity verification is OFF. /kyc/verify returns 503 and partner onboarding ' +
+      'falls back to manual review of the business form.',
   );
 }
 // The f-list loop needs both halves: the key to send and the secret to mint a token the confirm

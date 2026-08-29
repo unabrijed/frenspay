@@ -110,7 +110,7 @@ export const personaProvider: KycProvider = {
  *  readable with a sandbox key, so a bad template id still surfaces on the first verify — with the
  *  same fingerprint. Never throws, never logs the key. */
 export async function probePersona(log: (m: string) => void): Promise<void> {
-  if (config.kycProvider !== 'persona') return;
+  if (!config.personaLive) return; // not selected, or credentials blanked — nothing to probe
   const k = config.personaApiKey;
   const fp = `[template=${config.personaTemplateId} key=len${k.length}…${k.slice(-4)}]`;
   const env = k.startsWith('persona_sandbox_') ? 'sandbox' : k.startsWith('persona_production_') ? 'production' : 'unknown-prefix';

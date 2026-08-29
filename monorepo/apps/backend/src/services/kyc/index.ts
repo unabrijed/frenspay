@@ -12,28 +12,25 @@ export function getKycProvider(): KycProvider {
   return config.kycProvider === 'persona' ? personaProvider : simProvider;
 }
 
-/** Fail fast on a misconfigured real provider rather than 500ing per request. Call once at startup.
- *  API key + inquiry template are always required for Persona. A sandbox key never sees a real
- *  document (the hosted flow has a force-pass toggle), so outside dev/stage it is refused outright —
- *  otherwise anyone could reach tier 2 on prod with test data. */
+/** Fail fast on a DANGEROUS provider config — not on an absent one.
+ *
+ *  Absent credentials are a deliberate deployment state, not an error: `config.personaLive` is false,
+ *  `/kyc/verify` 503s, the reconciler and the boot probe stand down, and partner onboarding falls back
+ *  to manual review of the business form (docs/14). This used to throw, which meant blanking the key
+ *  in Railway crash-looped the server instead of turning the vendor off.
+ *
+ *  What still refuses to boot is the one config that would quietly let anyone past a real gate: a
+ *  sandbox key on a production tier. A sandbox key never sees a real document — the hosted flow has a
+ *  force-pass toggle — so accepting one on prod would hand out tier 2 for test data.
+ *  Call once at startup. */
 export function assertKycConfig(): void {
-  if (config.kycProvider !== 'persona') return;
-  const missing: string[] = [];
-  if (!usableSecret(config.personaApiKey)) missing.push('PERSONA_API_KEY');
-  if (!usableSecret(config.personaTemplateId)) missing.push('PERSONA_TEMPLATE_ID');
+  if (!config.personaLive) return;
   if (!config.isDevelopment && config.personaApiKey.startsWith('persona_sandbox_')) {
-    missing.push('PERSONA_API_KEY (sandbox key on a production tier)');
+    throw new Error(
+      'KYC_PROVIDER=persona with a persona_sandbox_ key on a production tier — refusing to start. ' +
+        'Blank PERSONA_API_KEY to run with identity verification off instead.',
+    );
   }
-  if (missing.length) {
-    throw new Error(`KYC_PROVIDER=persona but missing/placeholder required env: ${missing.join(', ')}`);
-  }
-}
-
-/** A value like `<your template id>` is set-but-unusable: it passes an empty-check, boots the server
- *  "healthy", then 503s every /kyc/verify at the vendor. Treat template-looking values as missing. */
-function usableSecret(value: string): boolean {
-  const v = value.trim();
-  return v.length > 0 && !/[<>]|your[-_ ]/i.test(v);
 }
 
 export type { KycProvider, KycDecision, KycStartResult, KycOutcome } from './provider';

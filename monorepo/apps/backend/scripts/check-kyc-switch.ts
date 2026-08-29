@@ -1,0 +1,108 @@
+// check-kyc-switch.ts — the identity vendor's on/off switch, asserted end to end.
+//
+// WHY THIS EXISTS. Blanking PERSONA_API_KEY in the host's variable panel is how identity verification
+// is switched off (docs/14). It used to be how the backend was switched off: assertKycConfig threw,
+// server.ts caught it and process.exit(1)'d, and the deploy crash-looped. That regression is invisible
+// to tsc and to every other check here — the whole thing is env-shaped — and it takes stage down.
+//
+// envConfig reads process.env once, at module load, so each scenario has to be its own process. No DB,
+// no network (invariant 10): the probe imports two modules and prints a line.
+// Run: yarn workspace @fpay/backend check:kyc
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const BACKEND = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+// Real-shaped credentials. The sandbox prefix is load-bearing in two of the cases below.
+const SANDBOX = 'persona_sandbox_2e04303e-0000-0000-0000-00000000abcd';
+const PRODUCTION = 'persona_production_2e04303e-0000-0000-0000-00000000abcd';
+const TEMPLATE = 'itmpl_AwkjEXAMPLE00000000000000';
+
+const PROBE = `import('./src/envConfig.ts').then(async (m) => {
+  const kyc = await import('./src/services/kyc/index.ts');
+  let threw = null;
+  try { kyc.assertKycConfig(); } catch (e) { threw = String(e.message); }
+  console.log('RESULT=' + JSON.stringify({ live: m.config.personaLive, threw }));
+});`;
+
+/** Boot the config + the KYC guard under one env, and report what happened. */
+function probe(env: Record<string, string>): { live: boolean; threw: string | null } {
+  const out = execFileSync('npx', ['tsx', '-e', PROBE], {
+    cwd: BACKEND,
+    encoding: 'utf8',
+    // Capture stderr rather than inheriting it: the boot warnings are the POINT of several of these
+    // cases, and echoing seven copies of them into check:all buries the one line that matters. On a
+    // non-zero exit execFileSync attaches what it captured to the thrown error, so nothing is lost.
+    stdio: ['ignore', 'pipe', 'pipe'],
+    // The child inherits nothing but what is named here: a developer's own .env would otherwise
+    // supply the very credentials a "blank" case is trying to assert the absence of.
+    env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', ...env },
+  });
+  const line = out.split('\n').find((l) => l.startsWith('RESULT='));
+  assert.ok(line, `probe printed no RESULT (env=${JSON.stringify(env)}):\n${out}`);
+  return JSON.parse(line.slice('RESULT='.length));
+}
+
+let failures = 0;
+function check(name: string, fn: () => void) {
+  try {
+    fn();
+    console.log(`✓ ${name}`);
+  } catch (e) {
+    console.log(`✗ ${name} — ${(e as Error).message}`);
+    failures++;
+  }
+}
+
+// --- the regression that takes a deployment down -------------------------------------------------
+check('stage · both credentials blank → vendor off, and the server still BOOTS', () => {
+  const r = probe({ NODE_ENV: 'stage', STAGE_PERSONA_API_KEY: '', STAGE_PERSONA_TEMPLATE_ID: '' });
+  assert.equal(r.live, false, 'personaLive must be false');
+  assert.equal(r.threw, null, 'assertKycConfig must NOT throw — blank credentials are "off", not "broken"');
+});
+
+check('prod · credentials blank → vendor off, and the server still BOOTS', () => {
+  const r = probe({ NODE_ENV: 'production', PERSONA_API_KEY: '', PERSONA_TEMPLATE_ID: '' });
+  assert.equal(r.live, false);
+  assert.equal(r.threw, null);
+});
+
+// --- either variable is enough to turn it off ----------------------------------------------------
+check('stage · key set but template blank → off (either variable is the switch)', () => {
+  const r = probe({ NODE_ENV: 'stage', STAGE_PERSONA_API_KEY: SANDBOX, STAGE_PERSONA_TEMPLATE_ID: '' });
+  assert.equal(r.live, false);
+  assert.equal(r.threw, null);
+});
+
+check('stage · placeholder value → off (set-but-unusable is not set)', () => {
+  const r = probe({ NODE_ENV: 'stage', STAGE_PERSONA_API_KEY: '<your api key>', STAGE_PERSONA_TEMPLATE_ID: TEMPLATE });
+  assert.equal(r.live, false);
+  assert.equal(r.threw, null);
+});
+
+// --- the vendor actually configured --------------------------------------------------------------
+check('stage · sandbox key + template → LIVE (a sandbox key is fine on stage)', () => {
+  const r = probe({ NODE_ENV: 'stage', STAGE_PERSONA_API_KEY: SANDBOX, STAGE_PERSONA_TEMPLATE_ID: TEMPLATE });
+  assert.equal(r.live, true);
+  assert.equal(r.threw, null);
+});
+
+// --- the one config that must still refuse to start ----------------------------------------------
+// A sandbox key never sees a real document (the hosted flow has a force-pass toggle). Booting prod
+// with one would hand out tier 2 for test data, which is worse than not booting.
+check('prod · sandbox key → LIVE but REFUSES TO BOOT', () => {
+  const r = probe({ NODE_ENV: 'production', PERSONA_API_KEY: SANDBOX, PERSONA_TEMPLATE_ID: TEMPLATE });
+  assert.equal(r.live, true, 'credentials are real-shaped, so the vendor is selected');
+  assert.match(r.threw ?? '', /sandbox/i, 'assertKycConfig must throw on a sandbox key on a production tier');
+});
+
+check('prod · production key → LIVE and boots', () => {
+  const r = probe({ NODE_ENV: 'production', PERSONA_API_KEY: PRODUCTION, PERSONA_TEMPLATE_ID: TEMPLATE });
+  assert.equal(r.live, true);
+  assert.equal(r.threw, null);
+});
+
+console.log(failures === 0 ? 'check-kyc-switch: ok' : `check-kyc-switch: ${failures} FAILED`);
+process.exit(failures === 0 ? 0 : 1);
