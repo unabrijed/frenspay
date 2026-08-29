@@ -31,10 +31,9 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
 7. DB fiat columns stay numeric(20,2) scale for every corridor; validation/display decimals live in code.
 8. No real payout/on-ramp before real KYC/AML vendor + sanctions + counsel sign-off (docs/11). Payout providers are key-gated test mode only.
    **EXCEPTION, accepted by Bridge 2026-08-29 (docs/14):** while the identity vendor is off
-   (`config.personaLive` false — its credentials are blank), an admin approving the partner KYB form
-   grants tier 2 directly. No vendor, no documents. Payout providers are still test-mode, so no real
-   fiat leaves — but tier 2 also raises that user's OWN payer limits to $1,000/tx, which nobody asked
-   for. Owed: re-verify `kyc_provider = 'manual'` when the vendor returns.
+   (`config.personaLive` false — its credentials are blank), a partner is admitted on a human's
+   reading of the KYB form rather than a vendor's identity check. **No tier is granted** — that half
+   was removed the same day after the audit below; no payer limit moves and there is nothing to sweep.
 9. Payee-name confirmation is the anti-wrong-send gate; loose classification is tolerated because of it (docs/17).
 10. check-scripts in `check:all` are no-DB, no-network (check-fx's live fetch is opt-in via FX_CHECK_LIVE=1).
 11. A DB row is never sufficient to move money: payout-provider registry membership = credential resolves AND row enabled; admin flips can only subtract (disable/reorder); enabling a new money-mover requires a deploy; the sim adapter is excluded from the adapter map in production (docs/23).
@@ -84,11 +83,21 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     check-kyb enforces). While the vendor is off, approving that form IS the identity decision, so a
     spec with only business identifiers would make the approval a judgment about a business nobody
     was asked to identify. India: PAN. Indonesia: NIK — NIB and NPWP are both the business.
-31. **Dev-only money routes gate on `isLocal`, never `isDevelopment`.** `isDevelopment = isStage ||
-    isLocal` and stage is mainnet. `/sim/kyc/:tier` was gated on the wrong one and had no rate-limit
-    rule, so any authenticated stage user could POST /sim/kyc/3 and self-promote past every
-    compliance cap on real money — which also made the "never set KYC_PROVIDER=sim on stage" doctrine
-    moot, since the sim promotion was reachable whatever the provider was. Fixed 2026-08-29.
+31. **Dev-only capabilities gate on `isLocal`, never `isDevelopment`** — and the gate belongs at the
+    SELECTOR, not at each caller. `isDevelopment = isStage || isLocal`, and stage is mainnet. Three
+    sites had this wrong on 2026-08-29 and each was one word: `/sim/kyc/:tier` (self-promote to tier
+    3), `/kyc/verify`'s instant branch (self-promote to tier 2 whenever KYC_PROVIDER was 'sim'), and
+    `auth.ts`'s `x-dev-user-id` shim (impersonate ANY user with no token, whenever the Privy vars were
+    blank — and blanking a var is now a normal gesture here, per docs/14). Fixing the first and
+    calling the class closed is what let the second survive: `getKycProvider()` now returns sim only
+    when `isLocal`, so no present or future caller can reach it off-local. The correct alternative
+    pattern already existed at `orders.ts` and `money.ts`: `isDevelopment && !isMainnet`.
+32. **Every `kyc_tier` gate is PAYER-side.** money.ts (external unhosted sends), crosschain.ts (EVM
+    withdrawal), compliance.ts (send + cash-out limits), and `/merchants/apply`. `merchantOps`,
+    `routing` and `listRoutableMerchants` read `kyb_status` + `bond_usdc` + `status` and never a tier.
+    So raising a partner's tier grants them nothing as a partner and everything as a payer — which is
+    why the manual grant was deleted (docs/14). Check this before ever tying a tier to a partner
+    action again.
 
 ## Danger zones
 
@@ -117,8 +126,15 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   those users already fill in a form a human already reviews in a queue that already exists. The
   scoping answer arrived before the design and still nearly got designed around.
 - Two changes landing in one handler (approve a business / grant a tier) need the audit row and the
-  confirm dialog to name BOTH, or the second one is invisible to the person clicking and to whoever
-  reads the trail later.
+  confirm dialog to name BOTH — or better, don't land two changes in one handler.
+- **Audit the thing you just shipped, against the code, before it settles.** The manual-onboarding
+  change was well-reasoned and its central mechanism was still wrong: it granted a tier that bought
+  its recipient nothing. Six downstream problems existed only to support that one unnecessary write.
+  Ask "what does this actually unlock, at every gate that reads it?" and enumerate them — the answer
+  took one grep and overturned a decision two rounds of planning had agreed on.
+- **A half-fixed bug class is more dangerous than an unfixed one**, because the commit message says it
+  is closed. Locking `/sim/kyc/:tier` and declaring the sim-on-stage doctrine moot left the identical
+  hole one route over, and the next reader had a written reason not to look.
 
 ## Counsel flags & open questions (from 2026-08-24 routing plan — for prism-retro)
 - FLAG-1: the pair rule has TWO recorded rationales (LP bank-freeze protection, docs/06 §pair rule; payee data-minimisation, docs/06 §privacy). Under the second, lock→see VPA→unlock→re-lock is a harvesting path (unlock is penalty-free and writes no `lock_expired`). Counsel decides which governs; that decides whether A3 gets fixed.
@@ -179,6 +195,35 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   nothing; (2) tier 2 raising manual users' own payer limits ($100→$1,000/tx) is unwanted exposure —
   the cheap close is a fourth KYC_TIERS row, not a new gate per call site; (3) is the compliance
   cash-out cap per PAYMENT or per LEG (still unverified, inherited from the routing plan).
+
+- 2026-08-29 (second pass) · **Audit of the manual-onboarding change; the tier grant deleted** (plan:
+  `~/.claude/plans/sparkling-growing-lagoon.md`; 7 commits `636cc52`…`6b4ffa3` on `stage`, unpushed).
+  Three adversarial lenses over the diff; 6 claims grounded by re-reading source, 0 struck. The
+  headline overturned the change's own central mechanism — see invariant 32. **Fixed:** sim
+  unreachable off-local at the selector (it was still reachable on mainnet stage via `/kyc/verify`);
+  the `x-dev-user-id` shim gated on `isLocal` (blanking a Privy var on stage was a no-token
+  impersonation endpoint); the KYB tier grant deleted; `isMerchantTreasuryAddress` filtered to
+  approved rows (one unreviewed application blocked every send to any address it named); the LP
+  console re-reads the switch on the two screens that branch on it; the payer app stops offering a
+  CTA that can only 503; `usableSecret` checks the credential prefix. Docs 02/06/07/11/14 corrected
+  against the code on ten specific disagreements (`FP-` vs `FREN`, tier-2-to-apply stated as
+  unconditional, "no rail refuses LPs" when two do, `users.status` deletion "TBD" when 0012 shipped
+  it, five filters that are seven).
+  **Open for retro:** (1) `appendKybEvent` can still throw between the CAS and the audit row, leaving
+  a decided merchant with no timeline entry and an unretryable 409 — pre-existing, needs a
+  transaction, deliberately not done here; (2) `POST /admin/merchants/:id/status` remains the one
+  admin write with no state guard, no row check and no reason; (3) there is still no route that can
+  LOWER a kyc_tier, which is fine now that nothing grants one manually but will matter the first time
+  a vendor declines someone already approved; (4) is the compliance cash-out cap per PAYMENT or per
+  LEG (still unverified, inherited from the routing plan).
+
+## Telemetry (2026-08-29 audit pass)
+- divergence: 0.69 (evidence 0.70, conclusion 0.67) | threshold 0.30 UNCALIBRATED
+- models: draft=opus · skeptic panel NOT RUN (plan mode restricts subagents to Explore/Plan) — the
+  load-bearing claims were grounded by re-reading source instead, which outranks cross-tier survival
+- claims: tier-grant-buys-nothing · sim-on-stage · privy-shim-on-stage · treasury-unfiltered ·
+  setKycSession-erases-provenance · cashout-503-on-mainnet — 6 grounded, 0 struck
+- fleet: 3 lenses (attack / correctness / rules-cartography), differential file sets
 
 ## Telemetry (2026-08-29 manual-onboarding plan)
 - divergence: 0.75 (evidence 0.81, conclusion 0.67) | threshold 0.30 UNCALIBRATED
