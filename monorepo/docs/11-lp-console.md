@@ -23,18 +23,26 @@ settles their payment ([06](06-offramp-and-settlement.md) § Why this way), and 
 lived inside the wallet app that promise held only as far as the URL bar. Anyone signed in could
 reach it, and the code shipped in every payer's JavaScript bundle whether they visited or not.
 
-**Who can use it:** existing fpay users only. Applying needs a `users` row and tier-2 identity
-verification, and account creation needs an invite ([02](02-identity-and-onboarding.md)), so the
-console never signs anyone up. Someone arriving without an account gets told to open the wallet app
+**Who can use it:** existing fpay users only. Account creation needs an invite
+([02](02-identity-and-onboarding.md)) — with three carve-outs in `inviteRequired`: an existing user
+(matched on Privy DID *or* verified email), an empty directory, and any address in `ADMIN_EMAILS`.
+The console itself never signs anyone up.
+
+Applying needs a `users` row and **tier-2 identity verification only while the identity vendor is
+live** (`routes/merchant.ts` — `if (config.personaLive && …)`). While it is off, that gate is dropped
+and the human reviewing the business form is the identity check
+([14](14-manual-onboarding-fallback.md)). Approval does **not** grant a KYC tier: nothing a partner
+does reads one. Someone arriving without an account gets told to open the wallet app
 first — the same dead end the admin console gives a non-admin.
 
 ## The lifecycle
 
 ```mermaid
 flowchart TB
-    A["apply<br/>needs tier-2 KYC"] --> B["KYB<br/>business details reviewed by a human"]
-    B --> C["stake<br/>≥ MIN_BOND USDC"]
-    C --> D["go online<br/>their own switch"]
+    A["apply<br/>tier-2 KYC only while the vendor is live"] --> B["submit KYB<br/>13 typed fields, their own screen"]
+    B --> B2["a human decides<br/>approve · reject · ask for more · review"]
+    B2 --> C["stake<br/>≥ $2,000 USDC"]
+    C --> D["go online<br/>their own switch — needs KYB approved AND bond ≥ $2,000"]
     D --> E["an order is offered<br/>alert + in-app inbox"]
     E --> F["take it<br/>payee revealed, 5 min held"]
     F --> G["pay it, out of band<br/>their own banking app"]
@@ -99,10 +107,38 @@ An LP stakes USDC before they can be routed anything. It is **skin in the game, 
   eligible to work, not back at the desk — they say when).
 - **It bounds exposure.** Effective float is `min(what they declared, bond × leverage)`. Their claim
   about their own capacity was previously unchecked against their stake.
-- **It is slashed only on an upheld dispute**, a flat penalty, once per order.
+### The numbers, in one place
+
+Every constant this doc names by symbol. Enforced values, read from source — if you change one, change
+it here too.
+
+| what | value | where |
+|---|---|---|
+| `MIN_BOND` — stake floor to go online, and to stay routable | **$2,000** | `services/merchantStats.ts` |
+| `DISPUTE_PENALTY_USDC` — flat slash per upheld dispute | **$1,500** | `services/merchantStats.ts` |
+| `MAX_STAKE_DEPOSIT_USD` — cap on one stake deposit | **$50,000** | `routes/merchant.ts` |
+| `LEVERAGE` — effective float multiplier, by partner tier | **1 → 3× · 2 → 5× · 3 → 8×** | `services/merchantStats.ts` |
+| `MIN_SPREAD_BPS` — price floor | **10 bps** | `services/merchantOps.ts` |
+| `TIER_MAX_SPREAD_BPS` — price ceiling, by tier | **1 → 100 · 2 → 200 · 3 → 300 bps** | `services/merchantStats.ts` |
+| tier 2 needs | **10 settled · ≥95% success · ≤3% disputes** | `TIER_RULES` |
+| tier 3 needs | **50 settled · ≥98% success · ≤1% disputes · ≤120s median** | `TIER_RULES` |
+| `PAYEE_COOLDOWN_DAYS` — a partner may not pay the same payee again inside | **180 days** | `services/routing.ts` |
+| `HEAD_START_MS` — the preferred partner's exclusive window | **5s** | `services/orderMachine.ts` |
+| `LOCK_TTL_MS` — how long a taken order is held | **5 min** | `services/orderMachine.ts` |
+| `DISPUTE_WINDOW_MS` — the payer's window to dispute | **2 min** | `services/orderMachine.ts` |
+| lock ban | **3 abandonments in 24h → 1 hour blocked** | `services/orderMachine.ts` |
+
+`settled` (the tier's volume gate) is **lifetime**; the three rates are 90-day, except `positive_rate`
+which is lifetime because 👍 has no timestamp of its own.
+
+- **It is slashed only on an upheld dispute**, a flat penalty, once per order — **$1,500**, against a
+  **$2,000** floor. One upheld dispute against a floor-bonded partner drops them below `MIN_BOND` and
+  the next stats tick auto-suspends them. The two numbers only mean anything together.
 - **It comes back.** Withdrawal is a *request*: the bond is debited immediately (money on its way out
-  must stop backing new orders), preconditions are no in-flight orders and no open disputes, and a
-  human sends the USDC. The stake vault has no signer by design, so automating the release means a
+  must stop backing new orders). **Four** preconditions, all predicates in one statement: enough bond,
+  **no withdrawal already requested**, no in-flight orders, no open disputes — the first two are the
+  ones an LP actually hits (`withdrawal_already_pending`, `insufficient_bond`). Then a human sends the
+  USDC. The stake vault has no signer by design, so automating the release means a
   second hot key in env — a security decision deliberately not made as a side effect.
 
 > **Open decision: staked returns.** The stake earns the LP nothing today. Whether it should — and

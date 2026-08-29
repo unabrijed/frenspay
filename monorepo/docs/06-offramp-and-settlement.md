@@ -99,12 +99,14 @@ stateDiagram-v2
 Release/refund **broadcast first, then transition** — a failed broadcast leaves the order in its
 actionable state for the worker to retry, so there's no stuck order with a dangling on-chain intent.
 
-**3 · Routing and scoring — the LP marketplace.** `routing.rankMerchants` applies **five hard
-filters, all in the SELECT** (`listRoutableMerchants`), then scores whoever survives:
+**3 · Routing and scoring — the LP marketplace.** `routing.rankMerchants` applies **seven hard
+filters** — five in the SELECT (`listRoutableMerchants`: online, KYB-approved, same rail, same country,
+and bond ≥ `MIN_BOND` **or** a platform `psp` row, which is exempt), then available float and the payee
+cooldown in JS — before scoring whoever survives:
 
 ```mermaid
 flowchart LR
-    A["online · KYB-approved · same rail<br/>· same country · bond ≥ MIN_BOND"] --> F["available float covers the order<br/>min(declared, bond × leverage) − in-flight"]
+    A["online · KYB-approved · same rail · same country<br/>· bond ≥ $2,000 (psp rows exempt)"] --> F["available float covers the order<br/>min(declared, bond × leverage) − in-flight"]
     F --> N["min-max normalize each signal"]
     N --> S["score = .26·reliability + .18·cost + .12·speed + .08·dispute<br/>+ .08·rating + .12·liquidity + .12·warm + .04·activity"]
     S --> P["sort best-first → quote-time pick"]
@@ -277,8 +279,9 @@ depends on the winning row. Every path goes through `claimOrderPayout`, which no
 requires `locked_at is not null` — **you cannot report paying an order you never took**:
 - **A simulated LP** (`sim_behavior` = `happy`/`slow`/`no_receipt`/`timeout`) — `simMerchant.ts`
   plays the part on each 8s confirmer tick.
-- **A real (human) LP** (`sim_behavior` NULL) — a person who is tier-2 KYC'd, applied via `POST
-  /merchants/apply` (refused only on a rail whose `settle` omits `'lp'` — today none do), passed
+- **A real (human) LP** (`sim_behavior` NULL) — a person who applied via `POST /merchants/apply`
+  (tier-2 KYC required only while the identity vendor is live — [14](14-manual-onboarding-fallback.md);
+  **refused outright on `Pix` and `bank`**, whose corridors have no `'lp'` in `settle`), passed
   KYB, staked a bond, took the order, and paid the payee **out-of-band from their own account**. No
   money moves through our software on this leg; we hand them a destination and they pay it.
   `POST /merchants/orders/:id/paid` with a UTR claims through `claimOrderPayout`, resetting
