@@ -74,6 +74,10 @@ interface PayState {
   // ---- persisted ----
   onboarded: boolean;
   kycTier: number;
+  /** Is the identity vendor switched on for this deployment? Server truth via /me. Defaults true so a
+   *  backend that doesn't send it behaves exactly as before. False ⇒ there is no check to start, and
+   *  every "Verify identity" surface must say so instead of offering a button that can only 503. */
+  identityCheckAvailable: boolean;
   /** How many invite codes I own + how many have been burned. Server truth via /me. */
   invitesTotal: number;
   invitesUsed: number;
@@ -295,6 +299,7 @@ export const usePayStore = create<PayState>()(
     (set, get) => ({
       onboarded: false,
       kycTier: 1,
+      identityCheckAvailable: true,
       invitesTotal: 3,
       invitesUsed: 0,
       invites: [],
@@ -460,6 +465,7 @@ export const usePayStore = create<PayState>()(
             evmDepositAddress: me.evmDepositAddress ?? '',
             kycTier: me.kycTier,
             kycStatus: me.kycStatus ?? 'none',
+            identityCheckAvailable: me.identityCheckAvailable ?? true,
             invitesTotal: me.invitesTotal ?? 0,
             invitesUsed: me.invitesUsed ?? 0,
             // Absent once acknowledged — the server stops sending them, so this goes back to [].
@@ -561,6 +567,7 @@ export const usePayStore = create<PayState>()(
             role: me.role ?? 'user',
             kycTier: me.kycTier,
             kycStatus: me.kycStatus ?? 'none',
+            identityCheckAvailable: me.identityCheckAvailable ?? true,
             ...(me.preferredCurrency && isDisplayCurrency(me.preferredCurrency)
               ? { displayCurrency: me.preferredCurrency }
               : {}),
@@ -660,6 +667,7 @@ export const usePayStore = create<PayState>()(
           unread: 0,
           requests: [],
           kycTier: 1,
+          identityCheckAvailable: true,
           invitesTotal: 3,
           invitesUsed: 0,
           invites: [],

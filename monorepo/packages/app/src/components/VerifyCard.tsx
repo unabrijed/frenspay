@@ -14,11 +14,25 @@ import { type KycStatus } from '@fpay/shared';
 
 import { Btn, colors, Icons, Pressable, radii, Txt, type, View } from '@fpay/ui';
 
-export function VerifyCard({ tier, status, onPress }: { tier: number; status?: KycStatus; onPress: () => void }) {
+export function VerifyCard({
+  tier,
+  status,
+  available = true,
+  onPress,
+}: {
+  tier: number;
+  status?: KycStatus;
+  /** False when the identity vendor is switched off for this deployment (/me.identityCheckAvailable).
+   *  There is no check to start, so the card stops asking: a CTA that can only fail, on Home, for
+   *  weeks, is worse than saying plainly that checks are paused. */
+  available?: boolean;
+  onPress: () => void;
+}) {
   const verified = tier >= 2;
+  const paused = !verified && !available;
   // A check already running must not be advertised as one that hasn't started — the sheet behind this
   // card says "Checking your result…", and an unqualified "Verify identity" out here contradicted it.
-  const waiting = !verified && (status === 'pending' || status === 'in_review');
+  const waiting = !verified && available && (status === 'pending' || status === 'in_review');
   const head = (
     <View style={styles.kycHead}>
       {verified ? (
@@ -30,14 +44,16 @@ export function VerifyCard({ tier, status, onPress }: { tier: number; status?: K
       )}
       <View style={{ flex: 1 }}>
         <Txt style={type.rowName}>
-          {verified ? 'Identity verified' : waiting ? 'Verification in progress' : 'Verify your identity'}
+          {verified ? 'Identity verified' : waiting ? 'Verification in progress' : paused ? 'Identity checks are paused' : 'Verify your identity'}
         </Txt>
         <Txt style={[type.rowTime, { marginTop: 2 }]}>
           {verified
             ? `Tier ${tier} · scan-to-pay and higher limits`
             : waiting
               ? 'We’re waiting on the result'
-              : 'Unlock scan-to-pay and higher limits'}
+              : paused
+                ? 'We’ll let you know as soon as they’re back on'
+                : 'Unlock scan-to-pay and higher limits'}
         </Txt>
       </View>
       {verified ? <Icons.Chevron size={16} color={colors.muted} /> : null}
@@ -50,6 +66,8 @@ export function VerifyCard({ tier, status, onPress }: { tier: number; status?: K
       </Pressable>
     );
   }
+  // Paused: the head says it, and there is nothing to press. Offering a button here would 503.
+  if (paused) return <View style={styles.kyc}>{head}</View>;
   return (
     <View style={styles.kyc}>
       {head}
