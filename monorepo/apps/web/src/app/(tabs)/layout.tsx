@@ -27,9 +27,8 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
 
   // The one-look invite reveal, guarded HERE rather than wired into the onboarding chain: /me only
   // returns the codes while they're unacknowledged, so this fires on whichever path reaches the
-  // tabs first — a new user finishing funding, the mainnet fund-skip, or an account that predates
-  // invite codes entirely and just got minted three on its next /me. One guard at the sink covers
-  // every path in, same as the faucet guard in onboarding/fund.
+  // tabs first — a new user finishing the handle step, or an account that predates invite codes
+  // entirely and just got minted three on its next /me. One guard at the sink covers every path in.
   //
   // It lives at /invites, NOT under /onboarding/*: it isn't a step in the chain, and sitting in
   // that namespace read as one to anyone who saw the URL.

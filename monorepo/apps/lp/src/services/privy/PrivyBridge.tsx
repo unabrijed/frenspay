@@ -12,7 +12,6 @@ import { useEffect, useRef } from 'react';
 
 import { base58encode } from '@/lib/base58';
 import { setAccountSuspendedHandler, setAuthToken, setSessionRevokedHandler, setTokenRefresher } from '@/services/api';
-import { IS_MAINNET } from '@/services/envConfig';
 import { setActiveSigner } from '@/services/signer';
 import { useLpStore } from '@/store/useLpStore';
 
@@ -20,7 +19,7 @@ import { PrivySigner } from './signer';
 
 // Must match the cluster the backend builds transactions for — derived from the RPC env, never
 // hardcoded (a devnet-pinned chain id silently breaks every mainnet broadcast).
-const SOLANA_CHAIN = IS_MAINNET ? ('solana:mainnet' as const) : ('solana:devnet' as const);
+const SOLANA_CHAIN = 'solana:mainnet' as const;
 
 export function PrivyBridge(): null {
   const { user, ready, getAccessToken, logout } = usePrivy();

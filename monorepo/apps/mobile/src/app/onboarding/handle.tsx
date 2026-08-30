@@ -15,13 +15,24 @@ export default function Handle() {
   const router = useRouter();
   const hydrated = useStoreHydrated();
   const authStatus = usePayStore((s) => s.authStatus);
+  const completeOnboarding = usePayStore((s) => s.completeOnboarding);
+  const load = usePayStore((s) => s.load);
 
   useEffect(() => {
     if (hydrated && authStatus !== 'signedIn') router.replace('/');
   }, [hydrated, authStatus, router]);
   if (!hydrated || authStatus !== 'signedIn') return <Splash />;
 
-  return <HandlePrivy onDone={() => router.push('/onboarding/fund')} />;
+  return (
+    <HandlePrivy
+      onDone={() => {
+        // Onboarding is over here: the funding step that used to follow was the devnet faucet.
+        completeOnboarding();
+        void load(); // best-effort prefetch; Home skeletons until it or the 12s LiveSync lands
+        router.replace('/home');
+      }}
+    />
+  );
 }
 
 function HandlePrivy({ onDone }: { onDone: () => void }) {

@@ -1,17 +1,15 @@
 'use client';
 
-// AddMoney.tsx — bottom sheet: faucet top-up (amount chips + field) plus a network-aware USDC
-// deposit picker (pick a chain → its address + scannable QR + copy). The three EVM chains share ONE
+// AddMoney.tsx — bottom sheet: a network-aware USDC deposit picker (pick a chain → its address +
+// scannable QR + copy). Deposits are the only way in — there is no faucet and no testnet. The three EVM chains share ONE
 // smart-wallet address (identical on each), so choosing Base/Arbitrum/Ethereum shows the same
 // address (we say so); Solana has its own.
 import { useState } from 'react';
 
-import { Btn, Chip, Chips, colors, Eyebrow, Field, fonts, Grab, haptic, Icons, Input, List, Pressable, Row, RowIcon, RowMeta, SheetBody, SheetHeader, sx, TextLink, Txt, type, View } from '@fpay/ui';
+import { Btn, Chip, Chips, colors, Eyebrow, fonts, Grab, haptic, Icons, List, Pressable, Row, RowIcon, RowMeta, SheetBody, SheetHeader, TextLink, Txt, type, View } from '@fpay/ui';
 import { platform } from '../platform';
 import { QrCode } from '../components/QrCode';
 import { usePayStore } from '../store';
-
-const CHIPS = [50, 100, 250];
 
 const ALL_NETWORKS: Array<{ id: string; name: string; chain: 'evm' | 'solana' }> = [
   { id: 'base', name: 'Base', chain: 'evm' },
@@ -19,9 +17,9 @@ const ALL_NETWORKS: Array<{ id: string; name: string; chain: 'evm' | 'solana' }>
   { id: 'ethereum', name: 'Ethereum', chain: 'evm' },
   { id: 'solana', name: 'Solana', chain: 'solana' },
 ];
-// ponytail: on mainnet the EVM chips hide entirely — the smart-wallet bridge (CCTP) is off there,
-// so USDC sent to the EVM address would strand. Restore the chips when cross-chain ships on mainnet.
-const networks = () => (platform().env.isMainnet ? ALL_NETWORKS.filter((n) => n.chain === 'solana') : ALL_NETWORKS);
+// The EVM chips bridge through CCTP on mainnet; until the backend's minter is configured they
+// answer `crosschain_unavailable`, which has its own copy.
+const networks = () => ALL_NETWORKS;
 
 function DepositFromWallet() {
   const evmAddress = usePayStore((s) => s.evmDepositAddress);
@@ -31,7 +29,7 @@ function DepositFromWallet() {
   const checkDeposits = usePayStore((s) => s.checkDeposits);
   const doMoveToBalance = usePayStore((s) => s.doMoveToBalance);
   const error = usePayStore((s) => s.error);
-  const [net, setNet] = useState(platform().env.isMainnet ? 'solana' : 'base');
+  const [net, setNet] = useState('solana');
   const [copied, setCopied] = useState(false);
   const [showQr, setShowQr] = useState(false);
 
@@ -144,41 +142,11 @@ function DepositFromWallet() {
 
 export function AddMoney() {
   const close = usePayStore((s) => s.close);
-  const doAdd = usePayStore((s) => s.doAdd);
-  const busy = usePayStore((s) => s.busy);
-  const [amt, setAmt] = useState(100);
   return (
     <>
       <Grab />
       <SheetHeader title="Add money" onClose={close} />
       <SheetBody>
-        {/* The faucet is test money — it never exists on mainnet, where deposits are the only way in. */}
-        {platform().env.isMainnet ? null : (
-          <>
-            <Txt style={type.lead}>Top up your dollar balance.</Txt>
-            <View style={{ marginTop: 16 }}>
-              <Chips>
-                {CHIPS.map((v) => (
-                  <Chip key={v} label={`$${v}`} on={amt === v} onPress={() => setAmt(v)} />
-                ))}
-              </Chips>
-            </View>
-            <Field style={{ marginTop: 12 }}>
-              <Txt style={[type.fieldText, { color: colors.muted }]}>$</Txt>
-              <Input
-                value={amt ? String(amt) : ''}
-                onChangeText={(v) => {
-                  const n = parseInt(v.replace(/[^0-9]/g, ''), 10);
-                  setAmt(Number.isNaN(n) ? 0 : Math.min(n, 100000));
-                }}
-                keyboardType="decimal"
-                placeholder="0"
-                style={[type.fieldText, { flex: 1, minWidth: 0 }]}
-              />
-            </Field>
-            <Btn label={busy ? 'Adding…' : `Add $${amt}`} disabled={amt <= 0 || busy} onPress={() => doAdd(amt)} style={{ marginTop: 16 }} />
-          </>
-        )}
         <DepositFromWallet />
       </SheetBody>
     </>

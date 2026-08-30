@@ -59,12 +59,8 @@ const E = {
 const DEFAULT_API_URL = 'http://localhost:3001';
 export const API_URL = E.apiUrl || DEFAULT_API_URL;
 
-// Deployed tiers fail CLOSED to mainnet, matching apps/web: a missing RPC var must never resurrect
-// devnet affordances on a live site. Only local dev defaults to devnet.
-export const SOLANA_RPC_URL =
-  E.solanaRpcUrl ||
-  (isProdEnv || isStageEnv ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com');
-export const IS_MAINNET = !SOLANA_RPC_URL.includes('devnet');
+// Every tier is mainnet — there is no testnet (2026-08-30). The var only picks the RPC provider.
+export const SOLANA_RPC_URL = E.solanaRpcUrl || 'https://api.mainnet-beta.solana.com';
 
 // Dev-only backend identity (no Privy). Read inside the `isProduction` ternary, not in `E`, so the
 // whole branch folds away in a production build — the same rule apps/web documents at length for

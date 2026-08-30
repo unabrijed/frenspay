@@ -66,14 +66,8 @@ const E = {
 // environment via *_API_URL (e.g. http://localhost:3001 when running the backend locally).
 const DEFAULT_API_URL = 'http://localhost:3001';
 export const API_URL = E.apiUrl || DEFAULT_API_URL;
-// Deployed tiers fail CLOSED to mainnet (like ACCESS_KEY): a missing RPC var must never resurrect
-// devnet affordances on a live site. Only local dev defaults to devnet.
-export const SOLANA_RPC_URL =
-  E.solanaRpcUrl ||
-  (isProdEnv || isStageEnv ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com');
-// Cluster derives from the RPC URL — the web twin of the backend's mint-derived isMainnet. Gates
-// the faucet UI, the EVM deposit chips (bridge is off on mainnet), and the Privy chain id.
-export const IS_MAINNET = !SOLANA_RPC_URL.includes('devnet');
+// Every tier is mainnet — there is no testnet (2026-08-30). The var only picks the RPC provider.
+export const SOLANA_RPC_URL = E.solanaRpcUrl || 'https://api.mainnet-beta.solana.com';
 
 // Dev signing path (no Privy): a seeded user id + secret key from apps/backend/.devnet/keys.json.
 //

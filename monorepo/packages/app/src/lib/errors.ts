@@ -27,9 +27,6 @@ const BY_CODE: Record<string, string> = {
   // Any rate-limited route (services/rateLimit.ts), not just KYC — retrying a failing verify is
   // the fastest way to hit it, which is exactly when a raw code would have surfaced.
   rate_limited: 'Too many attempts. Wait a minute and try again.',
-  // funding / faucet
-  faucet_empty: 'Test funds are temporarily out. Try again shortly.',
-  faucet_disabled: 'Adding test money isn’t available here.',
   wallet_not_found: 'Your wallet is still being set up. Try again in a moment.',
   // account lifecycle
   account_suspended: 'Your account is paused. Contact support to sort it out.',

@@ -1,5 +1,5 @@
 // api.ts — typed fetch client for the Railway backend. Same @fpay/shared DTOs as the server.
-import { type ApiPaymentRequest, type AuthSyncRequest, type BalanceResponse, type CreateOrderRequest, type CreateOrderResponse, type CreateRequestRequest, type CrosschainQuoteResponse, type DepositBalancesResponse, type DepositInfoResponse, type DepositPrepareRequest, type DepositPrepareResponse, type FaucetRequest, type FaucetResponse, type FundSubmitRequest, type KycVerifyResponse, type MeResponse, type NotificationsResponse, type OrderResponse, type OrdersResponse, type PrepareCrosschainRequest, type PrepareCrosschainResponse, type PrepareTransferRequest, type PrepareTransferResponse, type PushTokenRequest, type QuoteRequest, type QuoteResponse, type ReportDepositRequest, type ReportDepositResponse, type RequestsResponse, type ResolveHandleResponse, type SubmitCrosschainRequest, type SubmitTransferRequest, type SubmitTransferResponse, type TransactionsResponse } from '@fpay/shared';
+import { type ApiPaymentRequest, type AuthSyncRequest, type BalanceResponse, type CreateOrderRequest, type CreateOrderResponse, type CreateRequestRequest, type CrosschainQuoteResponse, type DepositBalancesResponse, type DepositInfoResponse, type DepositPrepareRequest, type DepositPrepareResponse, type FundSubmitRequest, type KycVerifyResponse, type MeResponse, type NotificationsResponse, type OrderResponse, type OrdersResponse, type PrepareCrosschainRequest, type PrepareCrosschainResponse, type PrepareTransferRequest, type PrepareTransferResponse, type PushTokenRequest, type QuoteRequest, type QuoteResponse, type ReportDepositRequest, type ReportDepositResponse, type RequestsResponse, type ResolveHandleResponse, type SubmitCrosschainRequest, type SubmitTransferRequest, type SubmitTransferResponse, type TransactionsResponse } from '@fpay/shared';
 
 import { platform } from '../platform';
 
@@ -160,8 +160,6 @@ export const api = {
     req<PrepareTransferResponse>('/transfer/prepare', { method: 'POST', body: JSON.stringify(body) }),
   submitTransfer: (body: SubmitTransferRequest) =>
     req<SubmitTransferResponse>('/transfer/submit', { method: 'POST', body: JSON.stringify(body) }),
-  faucet: (body: FaucetRequest) =>
-    req<FaucetResponse>('/devnet/faucet', { method: 'POST', body: JSON.stringify(body) }),
   // ---- M1 order lifecycle ----
   createQuote: (body: QuoteRequest) =>
     req<QuoteResponse>('/orders/quote', { method: 'POST', body: JSON.stringify(body) }),

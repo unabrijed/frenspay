@@ -263,7 +263,6 @@ interface PayState {
   addPasskey: () => Promise<void>;
   finishPay: () => void;
   doSend: (u: number) => Promise<Txn | null>;
-  doAdd: (amt: number) => Promise<void>;
 
   // ---- direct send to a raw wallet address (docs/16 + cross-chain docs/19) ----
   /** Route a detected wallet address: Solana → amount entry; EVM family → network picker. */
@@ -1361,22 +1360,6 @@ export const usePayStore = create<PayState>()(
           }));
         } catch (e) {
           get().notify(friendlyError(e));
-        }
-      },
-
-      doAdd: async (amt) => {
-        // Fund via the devnet faucet. Keep the sheet open (button shows "Adding…") until the balance
-        // settles, then close on the updated number. On failure (e.g. faucet_empty) toast a friendly
-        // line and leave the sheet open so the user can retry.
-        set({ busy: true, error: null });
-        try {
-          await wallet.addMoney?.(amt);
-          await get().refresh();
-          get().close();
-        } catch (e) {
-          get().notify(friendlyError(e));
-        } finally {
-          set({ busy: false });
         }
       },
 

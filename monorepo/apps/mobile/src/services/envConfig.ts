@@ -75,13 +75,8 @@ function lanApiUrl(): string {
 }
 
 export const API_URL = E.apiUrl || lanApiUrl();
-// Deployed tiers fail CLOSED to mainnet: a missing RPC var must never resurrect devnet affordances
-// in a release. Only the local tier defaults to devnet.
-export const SOLANA_RPC_URL =
-  E.solanaRpcUrl ||
-  (isProdEnv || isStageEnv ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com');
-// Cluster derives from the RPC URL — the twin of the backend's mint-derived isMainnet.
-export const IS_MAINNET = !SOLANA_RPC_URL.includes('devnet');
+// Every tier is mainnet — there is no testnet (2026-08-30). The var only picks the RPC provider.
+export const SOLANA_RPC_URL = E.solanaRpcUrl || 'https://api.mainnet-beta.solana.com';
 
 // Dev signing path (no Privy): a seeded user id + secret key from apps/backend/.devnet/keys.json.
 // SECURITY: `DEV_SECRET_KEY` is a RAW SOLANA PRIVATE KEY and every EXPO_PUBLIC_* read is inlined into

@@ -25,7 +25,7 @@ export type BootState = {
 };
 
 /** `null` = don't route yet, hold the splash. */
-export type BootDest = '/home' | '/onboarding/fund' | '/onboarding/handle' | '/onboarding/welcome' | null;
+export type BootDest = '/home' | '/onboarding/handle' | '/onboarding/welcome' | null;
 
 export function bootRoute(s: BootState): BootDest {
   if (!s.hydrated || !s.authReady) return null;
@@ -37,7 +37,8 @@ export function bootRoute(s: BootState): BootDest {
   // Signed in, and we do NOT know. Waiting is the whole fix: this is the moment the old code
   // guessed "no account" from an empty localStorage and sent an existing user to pick a new name.
   if (!s.probed) return null;
-  // Named but not finished: resume at funding rather than restarting from the top.
-  if (s.handle) return '/onboarding/fund';
+  // Named = finished. The funding step that used to follow was the devnet faucet; with no testnet
+  // there is nothing to fund at signup — Add money on Home shows the deposit address instead.
+  if (s.handle) return '/home';
   return '/onboarding/handle';
 }
