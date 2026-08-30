@@ -185,8 +185,12 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
       }
       // Withdrawal to an unhosted wallet — verified tier required. LimitExceededError shape so the
       // client's existing "verify to continue" plumbing handles it.
+      // ...UNLESS the vendor is off (config.personaLive false — credentials blanked in the host's
+      // panel). Then tier 2 is unreachable and this gate blocks every outside-wallet send forever,
+      // for nobody's benefit. Same rule as /merchants/apply; checkSendLimit below still holds the
+      // tier-1 $100/tx cap, and the gate re-imposes itself when the credentials come back.
       const tier = await getUserKycTier(userId);
-      if (tier < KYC_APPROVED_TIER) {
+      if (config.personaLive && tier < KYC_APPROVED_TIER) {
         return reply.code(403).send({
           error: 'limit_exceeded',
           kind: 'send',
