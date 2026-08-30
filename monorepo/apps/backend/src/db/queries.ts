@@ -732,25 +732,6 @@ export async function isMerchantTreasuryAddress(address: string): Promise<boolea
 }
 
 /**
- * Record a devnet faucet deposit as a confirmed incoming 'add' transfer so it shows in activity.
- * (from_user_id null = external/faucet origin → listTransactionsForUser renders it as direction 'in'.)
- */
-export async function recordDeposit(input: {
-  toUserId: string;
-  toAddress: string;
-  amountUsd: number;
-  signature: string;
-}): Promise<{ id: string }> {
-  const { rows } = await getPool().query<{ id: string }>(
-    `insert into transfers (to_user_id, to_address, amount_usdc, kind, status, signature, confirmed_at)
-     values ($1, $2, $3, 'add', 'confirmed', $4, now())
-     returning id`,
-    [input.toUserId, input.toAddress, input.amountUsd, input.signature],
-  );
-  return rows[0];
-}
-
-/**
  * Record the broadcast signature on a transfer the caller owns. Scoped to from_user_id so a
  * user can only attach a signature to their own transfer. Returns false when no row matched
  * (unknown id or not the owner) so the route can 404 instead of silently no-op'ing.
@@ -939,7 +920,10 @@ export async function listRoutableMerchants(filter: {
     `select * from merchants
       where status = 'online' and kyb_status = 'approved'
         and payout_rail = $1 and country = $2
-        and (sim_behavior = 'psp' or bond_usdc >= $3)`,
+        and (sim_behavior = 'psp' or bond_usdc >= $3)
+        -- No simulated LP is ever routable: there is no testnet tier (2026-08-30), and a sim row's
+        -- treasury is a keypair anyone can derive. A hard filter in the SELECT, never a job.
+        and (sim_behavior is null or sim_behavior = 'psp')`,
     [filter.payoutRail, filter.country, filter.minBondUsdc],
   );
   return rows;
@@ -2927,18 +2911,6 @@ export async function decideMerchantKyb(
   // user_id comes back because an approval may also have to grant the OWNER tier 2 while the identity
   // vendor is off (docs/14). Null for platform `psp` rows, which have no human behind them.
   return rows[0] ? { from: rows[0].from_status, userId: rows[0].user_id } : null;
-}
-
-/** @deprecated Superseded by decideMerchantKyb (0016). Kept only for the dev /sim route, which
- *  still speaks the old two-outcome shape. */
-export async function setMerchantKyb(id: string, decision: 'approve' | 'reject'): Promise<boolean> {
-  const kyb = decision === 'approve' ? 'approved' : 'rejected';
-  const status = decision === 'approve' ? 'online' : 'offline';
-  const { rowCount } = await getPool().query(
-    `update merchants set kyb_status = $2, status = $3 where id = $1 and kyb_status not in ('approved','rejected')`,
-    [id, kyb, status],
-  );
-  return (rowCount ?? 0) > 0;
 }
 
 /** Draw a merchant's bond down (floored at 0) when a dispute is upheld against them. */

@@ -280,6 +280,10 @@ export async function runOrderWorkerOnce(log?: (m: string) => void): Promise<voi
       }
 
       // Clean payment_detected: the LP picks the order up (or stalls, per behavior).
+      // ponytail: unreachable since 2026-08-30 — the seed creates no sim LPs and listRoutableMerchants
+      // excludes every non-psp sim_behavior row, so no order can carry one of these behaviours. Left
+      // in place because the ladder below is interleaved with it; delete the branch outright next
+      // time this file is opened for a real change.
       if (o.sim_behavior != null && o.state === 'payment_detected' && o.resolution == null) {
         if (behavior === 'happy' && elapsed >= SIM_DELAY_MS) {
           await release();

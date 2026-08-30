@@ -1,5 +1,7 @@
 // orders.ts — M1 on/off-ramp order lifecycle (quote → escrow fund → release/refund), M4 merchant
-// onboarding + disputes, and the dev-only sim controls that drive the lifecycle by hand.
+// onboarding + disputes. The dev-only /sim controls that once drove the lifecycle by hand are gone:
+// there is no testnet tier, so there is no tier where a hand-driven release moves anything but real
+// USDC (2026-08-30).
 import type { FastifyInstance } from 'fastify';
 
 import type {
@@ -18,46 +20,30 @@ import { PublicKey } from '@solana/web3.js';
 import { requireUserId } from '../auth';
 import { config } from '../envConfig';
 import {
-  appendOrderEvent,
   attachTransferSignature,
   cancelOrder,
   freezeOrderForDispute,
   getOrderForDispute,
   getOrderForUser,
-  getOrderSimRow,
   insertDispute,
   listLegsForUser,
   listOrdersForUser,
-  setMerchantKyb,
   setOrderFeedback,
-  updateOrder,
   withUserLock,
 } from '../db/queries';
 import { fiatDecimals, positiveAmount } from '../lib/amount';
 import { CORRIDORS } from '../lib/corridors';
 import { checkCashOutLimit } from '../services/compliance';
 import { getMidRate } from '../services/fxRate';
-import { recomputeMerchantStats } from '../services/merchantStats';
 import { metrics } from '../services/metrics';
 import { aggregateLegs } from '../lib/legs';
-import {
-  confirmOrderFromQuote,
-  flagResolution,
-  markFundSubmitted,
-  refundToUser,
-  releaseToMerchant,
-  settleDispute,
-} from '../services/orderMachine';
+import { confirmOrderFromQuote, markFundSubmitted } from '../services/orderMachine';
 import { createQuote } from '../services/quoteEngine';
 
 // Same floor as the external-send rails (routes/money.ts MIN_EXTERNAL_SEND_USD): an on-chain escrow
 // plus an LP payout for micro-amounts is dust-spam, and it's currency-blind — 0.01 INR and 1 IDR
 // both price to a real, fundable USDC order without it (found by the prism skeptic pass).
 const MIN_ORDER_USD = 1;
-
-// The /sim/* routes can drive REAL escrow releases/refunds, so they key off the mint as well as
-// the tier — a stage backend pointed at mainnet must never expose them.
-const simEnabled = config.isDevelopment && !config.isMainnet;
 
 export async function registerOrderRoutes(app: FastifyInstance) {
   // Quote Engine: a locked rate+fee+ETA, valid 45s. Routing picks the best simulated merchant/LP.
@@ -196,71 +182,6 @@ export async function registerOrderRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  // --- dev-only simulated-merchant controls (drive the lifecycle by hand; disabled in prod) ---
-  app.post<{ Params: { id: string } }>('/sim/orders/:id/merchant-confirm', async (req, reply) => {
-    if (!simEnabled) return reply.code(403).send({ error: 'sim_disabled' });
-    const userId = requireUserId(req);
-    const order = await getOrderSimRow(req.params.id);
-    if (!order || order.userId !== userId) return reply.code(404).send({ error: 'order_not_found' });
-    if (!order.treasuryAddress) return reply.code(409).send({ error: 'no_merchant' });
-    if (order.state !== 'payment_detected' && order.state !== 'merchant_confirms') {
-      return reply.code(409).send({ error: 'order_not_releasable' });
-    }
-    await releaseToMerchant({
-      orderId: order.id,
-      reference: order.reference,
-      amountUsdc: order.amountUsdc,
-      treasuryAddress: order.treasuryAddress,
-    });
-    return { ok: true, resolution: 'released' };
-  });
-
-  app.post<{ Params: { id: string }; Querystring: { reason?: string } }>(
-    '/sim/orders/:id/fail',
-    async (req, reply) => {
-      if (!simEnabled) return reply.code(403).send({ error: 'sim_disabled' });
-      const userId = requireUserId(req);
-      const order = await getOrderSimRow(req.params.id);
-      if (!order || order.userId !== userId) return reply.code(404).send({ error: 'order_not_found' });
-      if (order.state === 'completed' || order.state === 'refunded' || order.state === 'failed') {
-        return reply.code(409).send({ error: 'order_terminal' });
-      }
-      const reason = req.query.reason ?? 'refund';
-      if (reason === 'needs_action') {
-        await flagResolution(order.id, order.state, 'needs_action', 'wrong_amount');
-        return { ok: true, resolution: 'needs_action' };
-      }
-      if (reason === 'under_review') {
-        await flagResolution(order.id, order.state, 'under_review', 'manual_review');
-        return { ok: true, resolution: 'under_review' };
-      }
-      const ok = await refundToUser({
-        orderId: order.id,
-        userId: order.userId,
-        reference: order.reference,
-        amountUsdc: order.amountUsdc,
-      });
-      if (!ok) return reply.code(409).send({ error: 'refund_failed' });
-      return { ok: true, resolution: 'refunded' };
-    },
-  );
-
-  // M3 failover demo (dev only): force the assigned LP to fail NOW so the next worker tick re-routes
-  // the order to the next-best LP — independent of which LP got picked.
-  app.post<{ Params: { id: string } }>('/sim/orders/:id/merchant-fail', async (req, reply) => {
-    if (!simEnabled) return reply.code(403).send({ error: 'sim_disabled' });
-    const userId = requireUserId(req);
-    const order = await getOrderSimRow(req.params.id);
-    if (!order || order.userId !== userId) return reply.code(404).send({ error: 'order_not_found' });
-    if (order.state !== 'payment_detected') return reply.code(409).send({ error: 'order_not_failable' });
-    // Escalate immediately: under_review + a past deadline → next tick hits rerouteOrder.
-    await updateOrder(order.id, { resolution: 'under_review', expiresAt: new Date(Date.now() - 60_000) });
-    await appendOrderEvent(order.id, 'payment_detected', 'payment_detected', 'merchant_fail_forced', {
-      resolution: 'under_review',
-    });
-    return { ok: true, resolution: 'under_review' };
-  });
-
   // --- M4: merchant lifecycle (onboarding KYB sim) + disputes ---
   // Onboarding (`POST /merchants/apply`) moved to routes/merchant.ts, where it is authenticated and
   // bound to a user — it used to be anonymous.
@@ -308,34 +229,4 @@ export async function registerOrderRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  // --- dev-only M4 controls (KYB decision, stats recompute, dispute resolution) ---
-  app.post<{ Params: { id: string }; Querystring: { decision?: string } }>(
-    '/sim/merchants/:id/kyb',
-    async (req, reply) => {
-      if (!simEnabled) return reply.code(403).send({ error: 'sim_disabled' });
-      const decision = req.query.decision === 'reject' ? 'reject' : 'approve';
-      const ok = await setMerchantKyb(req.params.id, decision);
-      if (!ok) return reply.code(409).send({ error: 'not_pending' });
-      return { ok: true, kybStatus: decision === 'approve' ? 'approved' : 'rejected' };
-    },
-  );
-
-  app.post('/sim/merchants/recompute', async (req, reply) => {
-    if (!simEnabled) return reply.code(403).send({ error: 'sim_disabled' });
-    await recomputeMerchantStats((m) => req.log.info(m));
-    return { ok: true };
-  });
-
-  app.post<{ Params: { id: string }; Querystring: { for?: string } }>(
-    '/sim/disputes/:id/resolve',
-    async (req, reply) => {
-      if (!simEnabled) return reply.code(403).send({ error: 'sim_disabled' });
-      // Settlement logic (bond draw + refund/unfreeze) lives in orderMachine.settleDispute — the
-      // same implementation the admin console uses, so the two can't drift.
-      const result = await settleDispute(req.params.id, req.query.for !== 'merchant' ? 'upheld' : 'rejected');
-      if (result === null) return reply.code(404).send({ error: 'dispute_not_found' });
-      if (result === 'already_resolved') return reply.code(409).send({ error: 'dispute_resolved' });
-      return { ok: true, resolution: result };
-    },
-  );
 }

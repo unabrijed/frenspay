@@ -50,11 +50,11 @@ export const WARM_WINDOW_MS = 120_000;
 export { ACTIVITY_SLOTS, activitySlot };
 
 export const isWarm = (m: MerchantRow): boolean =>
-  // Non-human rows are always warm. `last_seen_at` is written by authenticated merchant-portal
-  // requests, and a platform ('psp') or sim row has no user_id and therefore never makes one — so
+  // The platform ('psp') row is always warm. `last_seen_at` is written by authenticated
+  // merchant-portal requests, and a platform row has no user_id and therefore never makes one — so
   // treating them as cold made EVERY quote on a provider corridor widen its ETA to the human claim
   // SLA, an SLA that does not even apply to them. A vendor API does not go to sleep.
-  m.sim_behavior != null ||
+  m.sim_behavior === 'psp' ||
   (m.last_seen_at != null && Date.now() - m.last_seen_at.getTime() < WARM_WINDOW_MS);
 
 // Reliability-weighted, matching the architecture's "expose certainty". Weights sum to 1. (M4 folded the

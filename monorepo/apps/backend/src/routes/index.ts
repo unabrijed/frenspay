@@ -29,10 +29,9 @@ export async function registerRoutes(app: FastifyInstance) {
   await registerSystemRoutes(app);
   await registerAuthRoutes(app);
   await registerMoneyRoutes(app);
-  // Mainnet-lite: CCTP's EVM side keys off isProduction (Sepolia contracts + sandbox Iris on dev
-  // tiers), so a mainnet-mint stage backend must not register cross-chain at all — mixing mainnet
-  // Solana with testnet EVM strands funds. The web client already tolerates the 404s.
-  if (!config.isMainnet || config.isProduction) await registerCrosschainRoutes(app);
+  // Every tier is mainnet on both sides (no Sepolia table any more), so cross-chain registers
+  // everywhere; the routes themselves 503 `crosschain_unavailable` until the EVM minter + RPCs exist.
+  await registerCrosschainRoutes(app);
   await registerOrderRoutes(app);
   await registerMerchantRoutes(app);
   await registerKycRoutes(app);

@@ -59,7 +59,6 @@ import {
   sanitizeDisplayName,
   appendKybEvent,
   decideMerchantKyb,
-  setMerchantKyb,
   setMerchantStatus,
   setUserRole,
   deleteUser,

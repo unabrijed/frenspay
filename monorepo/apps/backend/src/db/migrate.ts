@@ -3,7 +3,7 @@
 // image's CMD (repo-root Dockerfile) runs it before `start`, so a deploy can never boot against a
 // stale schema. There is no host-side start command to look for; the CMD is it. Which DB
 // is being touched is printed by the config banner at import time (NODE_ENV tier chain).
-// Full fresh-start sequence is unchanged: db:reset → db:seed → devnet:setup (then copy the printed
+// Full fresh-start sequence is unchanged: db:reset → db:seed.
 // USDC_MINT + FEE_PAYER_SECRET_KEY into .env; web users re-appear on next login via /auth/sync).
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

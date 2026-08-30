@@ -68,8 +68,6 @@ export interface WalletProvider {
     idempotencyKey?: string;
   }): Promise<Txn>;
   depositAddress(): string;
-  /** Devnet faucet: mint test USDC into the caller's own wallet. Optional (real/devnet only). */
-  addMoney?(amountUsd: number): Promise<Txn>;
   // ---- payment requests ----
   getRequests(): Promise<ApiPaymentRequest[]>;
   createRequest(input: CreateRequestRequest): Promise<ApiPaymentRequest>;
@@ -533,16 +531,6 @@ export interface SubmitTransferRequest {
 export interface SubmitTransferResponse {
   signature: string;
   status: 'pending' | 'confirmed';
-}
-
-/** POST /devnet/faucet — mint controlled test USDC to the caller's wallet (devnet/dev only). */
-export interface FaucetRequest {
-  amountUsd: string | number;
-}
-
-export interface FaucetResponse {
-  signature: string;
-  balanceUsd: string;
 }
 
 /* ---- M1: orders, quotes, the spend/cash-out lifecycle (stablecoin-onofframp-architecture.pdf) ----

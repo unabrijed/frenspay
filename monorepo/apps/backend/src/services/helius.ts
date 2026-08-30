@@ -1,6 +1,6 @@
 // helius.ts — register the transfer-confirmation webhook with Helius at boot (backend-architecture
 // §2 Indexer). The fee-payer signs every sponsored transfer, so watching its address catches all
-// transfers + faucet mints; Helius then pushes to POST /webhooks/helius. Idempotent.
+// transfers; Helius then pushes to POST /webhooks/helius. Idempotent.
 //
 // No-op unless HELIUS_API_KEY + PUBLIC_BASE_URL are set (i.e. a deployed backend on Helius RPC).
 // Locally / on public devnet RPC it's skipped — the confirmer poller is the working fallback.
