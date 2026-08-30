@@ -1579,12 +1579,61 @@ export async function listOrdersByEscrowFundTransfer(
   return rows;
 }
 
-export async function getOrderByEscrowReleaseTransfer(transferId: string): Promise<{ id: string; state: OrderState } | null> {
-  const { rows } = await getPool().query<{ id: string; state: OrderState }>(
-    'select id, state from orders where escrow_release_transfer_id = $1',
+export interface SettledOrderRow {
+  id: string;
+  state: OrderState;
+  /** 'refund' or 'order release' — the transfer row's note is what tells the two settlements apart. */
+  note: string | null;
+  to_user_id: string | null;
+  amount_usdc: string;
+}
+
+/** The order a settlement (release OR refund) transfer belongs to, with what the transfer was. */
+export async function getOrderByEscrowReleaseTransfer(transferId: string): Promise<SettledOrderRow | null> {
+  const { rows } = await getPool().query<SettledOrderRow>(
+    `select o.id, o.state, t.note, t.to_user_id, t.amount_usdc
+       from orders o join transfers t on t.id = o.escrow_release_transfer_id
+      where o.escrow_release_transfer_id = $1`,
     [transferId],
   );
   return rows[0] ?? null;
+}
+
+/** The settlement tx already recorded for an order, if any — the in-flight guard reads this. */
+export async function getEscrowReleaseTransfer(
+  orderId: string,
+): Promise<{ id: string; status: 'pending' | 'confirmed' | 'failed'; signature: string | null; created_at: Date } | null> {
+  const { rows } = await getPool().query<{ id: string; status: 'pending' | 'confirmed' | 'failed'; signature: string | null; created_at: Date }>(
+    `select t.id, t.status, t.signature, t.created_at
+       from orders o join transfers t on t.id = o.escrow_release_transfer_id
+      where o.id = $1`,
+    [orderId],
+  );
+  return rows[0] ?? null;
+}
+
+/**
+ * Orders whose deposit the DB has not seen confirmed but whose vault may hold the money anyway: a
+ * /fund-submit that never arrived, a signature the poller cannot see. The reconciler reads their
+ * vaults (services/orderMachine.ts reconcileFundedVaults). Bounded by age and count — this runs
+ * every tick and each row is an RPC read.
+ */
+export async function listPossiblyFundedOrders(maxAgeHours: number, limit = 50): Promise<
+  { id: string; state: OrderState; reference_code: string; amount_usdc: string; sim_behavior: string | null }[]
+> {
+  const { rows } = await getPool().query<{ id: string; state: OrderState; reference_code: string; amount_usdc: string; sim_behavior: string | null }>(
+    `select o.id, o.state, o.reference_code, o.amount_usdc, m.sim_behavior
+       from orders o
+       left join merchants m on m.id = o.merchant_id
+       left join transfers t on t.id = o.escrow_fund_transfer_id
+      where o.state in ('pay_instructions', 'waiting_payment', 'failed')
+        and o.created_at > now() - make_interval(hours => $1)
+        and t.status is distinct from 'confirmed'
+      order by o.created_at
+      limit $2`,
+    [maxAgeHours, limit],
+  );
+  return rows;
 }
 
 export async function getOrderEscrowFundTransferId(orderId: string): Promise<string | null> {

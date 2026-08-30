@@ -137,6 +137,15 @@ async function ensureAta(owner: PublicKey, mint: PublicKey, ata: PublicKey): Pro
   }
 }
 
+/**
+ * Has this order's escrow already been settled on-chain? Both terminal instructions CLOSE the escrow
+ * account, so "the PDA is gone" is the one fact a release and a refund share — and the only
+ * idempotency truth that survives a dropped, late-landing or twice-broadcast settlement tx.
+ */
+export async function escrowSettled(reference: string): Promise<boolean> {
+  return (await connection().getAccountInfo(escrowPda(reference))) === null;
+}
+
 /** Build, sign (authority = fee-payer), and broadcast `release` (vault → merchant). Returns the signature. */
 export async function releaseEscrow(input: { reference: string; merchantOwner: string }): Promise<string> {
   const merchant = new PublicKey(input.merchantOwner);

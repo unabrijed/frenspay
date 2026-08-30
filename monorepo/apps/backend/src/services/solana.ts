@@ -240,6 +240,20 @@ export async function buildUsdcTransfer(input: {
   return { unsignedTx, feePayer: payer.publicKey.toBase58() };
 }
 
+/**
+ * Wait, bounded, for a signature we just broadcast. 'pending' after the timeout means UNKNOWN, not
+ * dropped: a tx can still land for a minute or so after broadcast (blockhash validity), so a caller
+ * must not act as if it failed — only as if it has not landed yet.
+ */
+export async function confirmSignature(signature: string, timeoutMs: number): Promise<'pending' | 'confirmed' | 'failed'> {
+  const until = Date.now() + timeoutMs;
+  for (;;) {
+    const status = await getTransferStatus(signature).catch(() => 'pending' as const);
+    if (status !== 'pending' || Date.now() >= until) return status;
+    await new Promise((r) => setTimeout(r, 2_000));
+  }
+}
+
 /** Poll on-chain status for a signature (used by M2 confirmation). `searchTransactionHistory` is
  *  load-bearing: without it the RPC only answers from its recent-status cache (~150 blocks), so a
  *  poller that was down for a couple of minutes got `null` forever and the row sat 'pending' for good. */
