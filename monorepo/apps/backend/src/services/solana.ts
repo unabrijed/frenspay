@@ -240,9 +240,11 @@ export async function buildUsdcTransfer(input: {
   return { unsignedTx, feePayer: payer.publicKey.toBase58() };
 }
 
-/** Poll on-chain status for a signature (used by M2 confirmation). */
+/** Poll on-chain status for a signature (used by M2 confirmation). `searchTransactionHistory` is
+ *  load-bearing: without it the RPC only answers from its recent-status cache (~150 blocks), so a
+ *  poller that was down for a couple of minutes got `null` forever and the row sat 'pending' for good. */
 export async function getTransferStatus(signature: string): Promise<'pending' | 'confirmed' | 'failed'> {
-  const { value } = await connection().getSignatureStatuses([signature]);
+  const { value } = await connection().getSignatureStatuses([signature], { searchTransactionHistory: true });
   const s = value[0];
   if (!s) return 'pending';
   if (s.err) return 'failed';

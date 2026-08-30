@@ -752,13 +752,15 @@ export async function setTransferStatus(
   transferId: string,
   status: 'pending' | 'confirmed' | 'failed',
 ): Promise<boolean> {
-  // Transition-gated (`status <> $2`) so the poller can't re-fire order-advance/notify on a row the
-  // Helius webhook already finalized in the same tick. Returns true only on a real transition.
+  // Gated on `status = 'pending'`: a row leaves pending exactly once, so the poller can't re-fire
+  // order-advance/notify on a row the Helius webhook already finalized in the same tick — and a
+  // 'failed' row can never be re-flipped to 'confirmed' by a later redelivery (the `<> $2` gate this
+  // replaced allowed exactly that, which double-credited a stake). Returns true only on the transition.
   const { rowCount } = await getPool().query(
     `update transfers
         set status = $2,
             confirmed_at = case when $2 = 'confirmed' then now() else confirmed_at end
-      where id = $1 and status <> $2`,
+      where id = $1 and status = 'pending' and $2 <> 'pending'`,
     [transferId, status],
   );
   return (rowCount ?? 0) > 0;
@@ -774,26 +776,50 @@ export async function setTransferStatusBySignature(
     `update transfers
         set status = $2,
             confirmed_at = case when $2 = 'confirmed' then now() else confirmed_at end
-      where signature = $1 and status <> $2
+      where signature = $1 and status = 'pending' and $2 <> 'pending'
       returning id`,
     [signature, status],
   );
   return rows[0]?.id ?? null;
 }
 
-export async function getPendingSignatures(): Promise<{ id: string; signature: string }[]> {
+/** What the confirmation paths need to ask the chain the second question (services/transferVerify.ts). */
+export interface PendingTransfer {
+  id: string;
+  signature: string;
+  kind: string;
+  status: 'pending' | 'confirmed' | 'failed';
+  from_user_id: string | null;
+  to_user_id: string | null;
+  from_address: string;
+  to_address: string;
+  amount_usdc: string;
+}
+
+const PENDING_TRANSFER_COLS = 'id, signature, kind, status, from_user_id, to_user_id, from_address, to_address, amount_usdc';
+
+export async function listPendingSolanaTransfers(): Promise<PendingTransfer[]> {
   // chain filter is load-bearing: this feeds the SOLANA poller only — a foreign-chain signature
   // followed here would sit permanent-pending (see the transfers.chain comment in schema.sql).
-  const { rows } = await getPool().query<{ id: string; signature: string }>(
-    `select id, signature from transfers
+  const { rows } = await getPool().query<PendingTransfer>(
+    `select ${PENDING_TRANSFER_COLS} from transfers
       where status = 'pending' and signature is not null and chain = 'solana'`,
   );
   return rows;
 }
 
+/** The webhook's entry point: Helius names a signature, we look up what the row claims it did. */
+export async function getTransferBySignature(signature: string): Promise<PendingTransfer | null> {
+  const { rows } = await getPool().query<PendingTransfer>(
+    `select ${PENDING_TRANSFER_COLS} from transfers where signature = $1`,
+    [signature],
+  );
+  return rows[0] ?? null;
+}
+
 /**
  * Retire transfers abandoned after /transfer/prepare: still pending, never signed, older than
- * maxAgeMin. The confirmer poller only follows signed rows (getPendingSignatures), so without
+ * maxAgeMin. The confirmer poller only follows signed rows (listPendingSolanaTransfers), so without
  * this sweep these would stay pending forever. Returns how many were expired.
  */
 export async function expireStaleUnsignedTransfers(maxAgeMin = 15): Promise<number> {
@@ -1542,9 +1568,9 @@ export async function getOrderByReference(reference: string): Promise<{
  *  merchant's sim_behavior so the caller can pick a human-sized SLA (NULL = real). */
 export async function listOrdersByEscrowFundTransfer(
   transferId: string,
-): Promise<{ id: string; state: OrderState; sim_behavior: string | null }[]> {
-  const { rows } = await getPool().query<{ id: string; state: OrderState; sim_behavior: string | null }>(
-    `select o.id, o.state, m.sim_behavior
+): Promise<{ id: string; state: OrderState; sim_behavior: string | null; reference_code: string; amount_usdc: string }[]> {
+  const { rows } = await getPool().query<{ id: string; state: OrderState; sim_behavior: string | null; reference_code: string; amount_usdc: string }>(
+    `select o.id, o.state, m.sim_behavior, o.reference_code, o.amount_usdc
        from orders o left join merchants m on m.id = o.merchant_id
       where o.escrow_fund_transfer_id = $1
       order by o.group_id nulls first, o.created_at`,

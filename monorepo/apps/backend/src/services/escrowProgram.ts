@@ -49,7 +49,8 @@ export function escrowPda(reference: string): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from('escrow'), Buffer.from(reference)], program().programId)[0];
 }
 
-function vaultPda(escrow: PublicKey): PublicKey {
+/** The vault token account for an escrow — a PDA-owned account, not an ATA of anything. */
+export function vaultPda(escrow: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from('vault'), escrow.toBuffer()], program().programId)[0];
 }
 

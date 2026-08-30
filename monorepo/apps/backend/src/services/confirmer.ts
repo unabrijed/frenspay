@@ -3,12 +3,12 @@
 // Helius webhook (POST /webhooks/helius) for push confirmation; this poller is the fallback.
 import { config } from '../envConfig';
 import { hasDatabase } from '../db/pool';
-import { expireStaleUnsignedTransfers, getPendingSignatures, setTransferStatus } from '../db/queries';
+import { expireStaleUnsignedTransfers, listPendingSolanaTransfers, setTransferStatus } from '../db/queries';
 
 import { recomputeMerchantStats } from './merchantStats';
 import { onTransferConfirmedAndNotify } from './orderMachine';
 import { runOrderWorkerOnce } from './simMerchant';
-import { getTransferStatus } from './solana';
+import { verifiedStatus } from './transferVerify';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let tick = 0;
@@ -16,10 +16,16 @@ let running = false; // re-entrancy guard: a slow pass must not overlap the next
 
 /** One pass: resolve every pending+broadcast transfer and persist a terminal status. */
 export async function confirmPendingOnce(log?: (m: string) => void): Promise<void> {
-  const pending = await getPendingSignatures();
+  const pending = await listPendingSolanaTransfers();
   for (const t of pending) {
-    const status = await getTransferStatus(t.signature);
-    if (status !== 'pending') {
+    // One row at a time, and one row's failure stays its own: a 429 from the RPC or a downstream
+    // handler throwing used to abort the whole pass here, which silently skipped the order worker
+    // below — no lock expired, no escalation ran, no refund fired — every tick until it cleared.
+    try {
+      // Landed AND moved what the row says (transferVerify.ts) — the second question is asked here,
+      // before the flip, so nothing downstream can see a confirmed row the chain does not back.
+      const status = await verifiedStatus(t);
+      if (status === 'pending') continue;
       // Only act on a real transition — if the webhook finalized this row first, don't double-advance/notify.
       const changed = await setTransferStatus(t.id, status);
       if (changed) {
@@ -27,6 +33,8 @@ export async function confirmPendingOnce(log?: (m: string) => void): Promise<voi
         // Advance any order linked to this escrow transfer + notify the recipient of a confirmed P2P send.
         if (status === 'confirmed') await onTransferConfirmedAndNotify(t.id);
       }
+    } catch (e) {
+      log?.(`transfer ${t.id}: ${String(e)}`);
     }
   }
   // Retire transfers prepared but never signed (user abandoned before broadcast).
