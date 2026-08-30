@@ -890,12 +890,15 @@ export const usePayStore = create<PayState>()(
           [3000, 7000, 12000].forEach((ms) => setTimeout(() => void get().refresh(), ms));
           return tx;
         } catch (e) {
-          if (e instanceof ApiError && e.code === 'limit_exceeded') {
+          if (e instanceof ApiError && e.code === 'limit_exceeded' && get().identityCheckAvailable) {
             set({ busy: false, error: 'Verify your identity to send to outside wallets.' });
             get().open('verify');
             return null;
           }
-          set({ busy: false, error: friendlyError(e) });
+          // friendlyError's catalog answers `limit_exceeded` with "verify your identity", which is
+          // wrong when there is no vendor to verify at — use the backend's own reason there.
+          const overCap = e instanceof ApiError && e.code === 'limit_exceeded';
+          set({ busy: false, error: overCap ? e.message : friendlyError(e) });
           get().open('sendFailed');
           return null;
         }
@@ -914,7 +917,11 @@ export const usePayStore = create<PayState>()(
         // rate immediately and repaints when the fresh one lands — the binding number is the
         // backend's quote either way.
         void get().syncRates(m.currency);
-        if (get().kycTier >= 2) {
+        // Gate only when there is somewhere to BE verified. With the identity vendor off
+        // (/me.identityCheckAvailable false) nobody can reach tier 2, so this sheet is a dead end
+        // and the check closes scan-and-pay for every user. The $100 tier-1 cap is unaffected —
+        // the backend holds it (services/compliance.ts), and it is the only thing that ever did.
+        if (get().kycTier >= 2 || !get().identityCheckAvailable) {
           get().open('amount');
         } else {
           set({ pendingPay: true });
@@ -1153,7 +1160,7 @@ export const usePayStore = create<PayState>()(
           [3000, 7000, 12000].forEach((ms) => setTimeout(() => void get().refresh(), ms));
           return tx;
         } catch (e) {
-          if (e instanceof ApiError && e.code === 'limit_exceeded') {
+          if (e instanceof ApiError && e.code === 'limit_exceeded' && get().identityCheckAvailable) {
             set({ busy: false, error: 'Verify your identity to raise your limit.' });
             get().open('verify');
             return null;
@@ -1181,7 +1188,7 @@ export const usePayStore = create<PayState>()(
           set({ quote, payRupees: rupees, busy: false });
           get().open('quote');
         } catch (e) {
-          if (e instanceof ApiError && e.code === 'limit_exceeded') {
+          if (e instanceof ApiError && e.code === 'limit_exceeded' && get().identityCheckAvailable) {
             set({ busy: false, error: 'Verify your identity to raise your limit.', pendingPay: true });
             get().open('verify');
             return;
@@ -1248,7 +1255,7 @@ export const usePayStore = create<PayState>()(
                 // Re-quote failed; fall through and report the original error.
               }
             }
-            if (e instanceof ApiError && e.code === 'limit_exceeded') {
+            if (e instanceof ApiError && e.code === 'limit_exceeded' && get().identityCheckAvailable) {
               set({ busy: false, error: 'Verify your identity to raise your limit.', pendingPay: true });
               get().open('verify');
               return;
@@ -1400,6 +1407,10 @@ export const usePayStore = create<PayState>()(
       partialize: (s) => ({
         onboarded: s.onboarded,
         kycTier: s.kycTier,
+        // Persisted next to kycTier because the gates read them together: on a cold start the
+        // default is `true` (vendor live), which would bounce a returning user to a dead-end Verify
+        // sheet in the window before load() lands. A deployment fact, corrected by the next /me.
+        identityCheckAvailable: s.identityCheckAvailable,
         recovered: s.recovered,
         recoveryPrompted: s.recoveryPrompted,
         balanceUSD: s.balanceUSD,
