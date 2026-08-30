@@ -1,6 +1,8 @@
 // compliance.ts — M5 KYC tier limits + risk/screening. The cosmetic tiers become real: per-tier caps
 // on money movement, a simulated sanctions denylist, and a simple per-action fraud score with an audit
 // trail. Simulated rails — tier upgrades + screening are sim (no real KYC/AML vendor; that lands at M7).
+import { config } from '../envConfig';
+
 import {
   canonicalHandle,
   getUserKycTier,
@@ -30,6 +32,27 @@ export const MAX_TIER = 3;
 
 export function tierLimits(tier: number): TierLimits {
   return KYC_TIERS[tier] ?? KYC_TIERS[0];
+}
+
+/**
+ * The caps a decision is actually made against.
+ *
+ * With the identity vendor off (`config.personaLive` false — credentials blanked in the host's
+ * panel) NOBODY can reach tier 2, so a tier-2 cash-out gate closes scan-and-pay for every user
+ * permanently. Same rule as /merchants/apply (routes/merchant.ts): the GATE lifts, the CAPS do not
+ * — a tier-1 user pays partners under the same $100/tx, $300/day they can already send. The gate
+ * re-imposes itself the moment the credentials come back; nothing here needs redeploying.
+ *
+ * KYC_TIERS itself is deliberately left alone: unlocking cash-out in the table would keep tier 1
+ * unlocked AFTER the vendor returns, which is the opposite of what this is for.
+ *
+ * `vendorLive` is a parameter so both branches can be asserted in one process (check-compliance.ts);
+ * every production caller takes the default.
+ */
+export function effectiveLimits(tier: number, vendorLive = config.personaLive): TierLimits {
+  const l = tierLimits(tier);
+  if (vendorLive || l.cashOut) return l;
+  return { ...l, cashOut: true, cashOutPerTx: l.sendPerTx, cashOutDaily: l.sendDaily };
 }
 
 export type LimitCheck =
@@ -72,7 +95,7 @@ export async function checkSendLimit(userId: string, amountUsd: number): Promise
 /** Enforce merchant cash-out limits (requires a verified tier + per-tx + rolling-24h daily). */
 export async function checkCashOutLimit(userId: string, amountUsd: number): Promise<LimitCheck> {
   const tier = await getUserKycTier(userId);
-  const lim = tierLimits(tier);
+  const lim = effectiveLimits(tier);
   const used = await recentCashOutVolumeUsd(userId, WINDOW_HOURS);
   if (!lim.cashOut) {
     return { ok: false, kind: 'cash_out', currentTier: tier, requiredTier: smallestTierFor('cash_out', amountUsd, used), limitUsd: 0, reason: 'verify your identity to pay merchants' };
@@ -124,7 +147,7 @@ export async function scoreAndRecord(input: {
     score += 15;
     reasons.push('external wallet destination');
   }
-  const lim = tierLimits(await getUserKycTier(input.userId));
+  const lim = effectiveLimits(await getUserKycTier(input.userId));
   const cap = input.kind === 'send' ? lim.sendPerTx : lim.cashOutPerTx;
   // money:number — a risk-scoring threshold, not a ledger amount. Compliance compares and scores;
   // it never moves money, so a 1-ulp difference only shifts a score at an exact cap boundary.
