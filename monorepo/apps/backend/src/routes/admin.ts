@@ -38,6 +38,7 @@ import {
   findUserById,
   getMerchantForUser,
   getDisputeForOrder,
+  listAllMerchants,
   getOrderAdmin,
   insertAdminAction,
   inviteCodeStatus,
@@ -68,6 +69,7 @@ import {
 } from '../db/queries';
 import { screenHandle } from '../services/compliance';
 import { canonicalInviteCode } from '../services/invites';
+import { ACTIVITY_SLOTS, activitySlot } from '../services/merchantStats';
 import { settleDispute } from '../services/orderMachine';
 import { providerHasCredentials } from '../services/payout/provider';
 
@@ -140,6 +142,23 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.get('/admin/merchants', async (req): Promise<AdminMerchantsResponse> => {
     await requireAdmin(req);
     return { merchants: await listMerchantsAdmin() };
+  });
+
+  // The corridor's probabilistic capacity curve (2026-08-24): each human LP's 168-slot day×hour
+  // activity histogram, summed across the pool. "When are we thin" — the companion question to the
+  // routing_* counters' "who is blocked". The data already exists per merchant; this only adds it up.
+  app.get('/admin/lp-activity', async (req) => {
+    await requireAdmin(req);
+    const merchants = await listAllMerchants();
+    const humans = merchants.filter((m) => m.sim_behavior == null);
+    const slots = new Array<number>(ACTIVITY_SLOTS).fill(0);
+    let withHistory = 0;
+    for (const m of humans) {
+      if (!m.active_hours) continue;
+      withHistory++;
+      for (let i = 0; i < ACTIVITY_SLOTS; i++) slots[i] += m.active_hours[i] ?? 0;
+    }
+    return { slots, currentSlot: activitySlot(), lps: humans.length, withHistory };
   });
 
   app.get<{ Querystring: { limit?: string; cursor?: string } }>(
@@ -235,6 +254,15 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const to =
       decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : decision === 'review' ? 'under_review' : 'more_info';
     await appendKybEvent(req.params.id, moved.from, to, `kyb_${decision}`, { note, by: adminId });
+
+    // NO KYC TIER IS GRANTED HERE, deliberately (docs/14). Approving a business used to also raise the
+    // owner to tier 2 while the vendor was off. Auditing that on 2026-08-29 showed it bought the
+    // partner nothing and cost exactly what nobody asked for: EVERY kyc_tier gate in this codebase is
+    // payer-side (money.ts external sends, crosschain.ts EVM withdrawal, compliance.ts limits) plus the
+    // apply gate, which is already conditional on the vendor being live. A partner takes orders,
+    // reports paid, goes online and is routed on kyb_status + bond + status — merchantOps, routing and
+    // listRoutableMerchants never read a tier. So the grant only opened unhosted-wallet sends at
+    // $1,000/tx and 10x payer limits. Approve the business; leave the person's tier to a real vendor.
     await insertAdminAction({
       adminUserId: adminId,
       action: `kyb_${decision}`,

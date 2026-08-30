@@ -1,113 +1,107 @@
-// Auth step. Mock mode: the original "Continue with Face ID" → handle.
-// Privy mode (USE_PRIVY): email-OTP login → embedded wallet is created → handle.
+// Auth step (Privy): email-OTP login → embedded Solana wallet → handle. Port of the web's
+// onboarding/faceid/page.tsx.
+import { bootRoute, Skeleton, usePayStore } from '@fpay/app';
+import { BackButton, Btn, colors, Field, GlyphCircle, Icons, Input, Screen, Spacer, Txt, type, View } from '@fpay/ui';
 import { useRouter } from 'expo-router';
+import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-
-import { Icons } from '@/components/icons';
-import { BackButton } from '@/components/ui/BackButton';
-import { Btn } from '@/components/ui/Button';
-import { Field, GlyphCircle, Spacer } from '@/components/ui/primitives';
-import { Txt } from '@/components/ui/Txt';
-import { colors, type } from '@/lib/theme';
-import { USE_PRIVY } from '@/services/env';
-import { usePayStore } from '@/store/usePayStore';
 
 export default function FaceID() {
   const router = useRouter();
-  if (USE_PRIVY) return <EmailOtp onDone={() => router.replace('/onboarding/handle')} />;
-  return (
-    <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
-      <View style={styles.fhead}>
-        <BackButton onPress={() => router.back()} />
-      </View>
-      <View style={styles.center}>
-        <GlyphCircle>
-          <Icons.Face size={44} color={colors.muted} strokeWidth={1.6} />
-        </GlyphCircle>
-        <Txt style={type.onbH1}>Set up with Face ID</Txt>
-        <Txt style={[type.lead, styles.sub, { fontSize: 15 }]}>
-          No passwords, no seed phrases. Your account is secured on this device.
-        </Txt>
-      </View>
-      <View style={styles.cta}>
-        <Btn label="Continue with Face ID" onPress={() => router.push('/onboarding/handle')} />
-      </View>
-    </SafeAreaView>
-  );
-}
-
-function EmailOtp({ onDone }: { onDone: () => void }) {
-  const router = useRouter();
   const authStatus = usePayStore((s) => s.authStatus);
   const authError = usePayStore((s) => s.authError);
+  const authEmail = usePayStore((s) => s.authEmail);
+  const handle = usePayStore((s) => s.handle);
+  const onboarded = usePayStore((s) => s.onboarded);
+  const loaded = usePayStore((s) => s.firstLoadDone);
   const requestOtp = usePayStore((s) => s.requestOtp);
   const verifyOtp = usePayStore((s) => s.verifyOtp);
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const sent = authStatus === 'codeSent';
+  const signedIn = authStatus === 'signedIn';
+
+  // Signed in: route on what the SERVER said — existing users to Home, brand-new ones to a handle.
+  useEffect(() => {
+    const dest = bootRoute({ hydrated: true, authReady: true, authStatus, probed: loaded, onboarded, handle });
+    if (signedIn && dest) router.replace(dest);
+  }, [signedIn, authStatus, loaded, onboarded, handle, router]);
 
   useEffect(() => {
-    if (authStatus === 'signedIn') onDone();
-  }, [authStatus, onDone]);
+    setSubmitting(false);
+  }, [authStatus, authError]);
+
+  if (signedIn) {
+    return (
+      <Screen edges={['top', 'bottom']} style={styles.safe}>
+        <View style={styles.center}>
+          <GlyphCircle>
+            <Icons.Face size={44} color={colors.muted} />
+          </GlyphCircle>
+          <Txt style={type.onbH1}>Setting up your account</Txt>
+          <Txt style={[type.lead, styles.sub, { fontSize: 15 }]}>Getting things ready…</Txt>
+          <Skeleton w={168} h={6} r={999} style={{ marginTop: 4 }} />
+        </View>
+      </Screen>
+    );
+  }
 
   return (
-    <SafeAreaView edges={['top', 'bottom']} style={styles.safe}>
+    <Screen edges={['top', 'bottom']} style={styles.safe}>
       <View style={styles.fhead}>
         <BackButton onPress={() => router.back()} />
       </View>
       <View style={styles.center}>
         <GlyphCircle>
-          <Icons.Face size={44} color={colors.muted} strokeWidth={1.6} />
+          <Icons.Face size={44} color={colors.muted} />
         </GlyphCircle>
         <Txt style={type.onbH1}>{sent ? 'Enter your code' : 'Set up your account'}</Txt>
         <Txt style={[type.lead, styles.sub, { fontSize: 15 }]}>
-          {sent ? `We sent a 6-digit code to ${usePayStore.getState().authEmail}.` : 'No passwords, no seed phrases — just your email.'}
+          {sent ? `We sent a 6-digit code to ${authEmail}.` : 'No passwords. Just your email.'}
         </Txt>
         <Field style={{ marginTop: 4, alignSelf: 'stretch' }}>
           {sent ? (
-            <TextInput
-              style={[type.fieldText, styles.input]}
-              value={code}
-              onChangeText={setCode}
-              placeholder="123456"
-              placeholderTextColor={colors.muted}
-              keyboardType="number-pad"
-              autoFocus
-            />
+            <Input value={code} onChangeText={setCode} placeholder="123456" keyboardType="numeric" autoComplete="one-time-code" autoFocus style={styles.input} />
           ) : (
-            <TextInput
-              style={[type.fieldText, styles.input]}
-              value={email}
-              onChangeText={setEmail}
-              placeholder="you@email.com"
-              placeholderTextColor={colors.muted}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoFocus
-            />
+            <Input value={email} onChangeText={setEmail} placeholder="you@email.com" keyboardType="email" autoComplete="email" autoFocus style={styles.input} />
           )}
         </Field>
         {authError ? <Txt style={[type.lead, { fontSize: 13, color: colors.danger }]}>{authError}</Txt> : null}
       </View>
       <View style={styles.cta}>
         {sent ? (
-          <Btn label="Verify" disabled={code.length < 4} onPress={() => verifyOtp(code)} />
+          <Btn
+            label={submitting ? 'Verifying…' : 'Verify'}
+            disabled={code.length < 4 || submitting}
+            pending={submitting}
+            onPress={() => {
+              setSubmitting(true);
+              verifyOtp(code);
+            }}
+          />
         ) : (
-          <Btn label="Send code" disabled={!email.includes('@')} onPress={() => requestOtp(email.trim())} />
+          <Btn
+            label={submitting ? 'Sending…' : 'Send code'}
+            disabled={!email.includes('@') || submitting}
+            pending={submitting}
+            onPress={() => {
+              setSubmitting(true);
+              requestOtp(email.trim());
+            }}
+          />
         )}
         <Spacer />
       </View>
-    </SafeAreaView>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.canvas, paddingHorizontal: 24, paddingTop: 8, paddingBottom: 26 },
+const styles = {
+  safe: { flex: 1, backgroundColor: colors.canvas, paddingLeft: 24, paddingRight: 24, paddingTop: 8, paddingBottom: 26 },
   fhead: { paddingBottom: 2 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 18 },
   sub: { textAlign: 'center', maxWidth: 270 },
-  input: { flex: 1, paddingVertical: 0 },
+  input: { ...type.fieldText, flex: 1, minWidth: 0 },
   cta: { gap: 13, alignItems: 'center' },
-});
+} satisfies Record<string, CSSProperties>;

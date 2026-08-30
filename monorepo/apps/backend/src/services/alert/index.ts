@@ -17,10 +17,11 @@ const PROVIDERS: Record<string, AlertProvider> = {
   [telegramProvider.id]: telegramProvider,
 };
 
-/** Deep-link target for the button in an alert. Falls back to a bare path when no web URL is
- *  configured, which still renders — Telegram just won't attach the button. */
+/** Deep-link target for the button in an alert — the LP console (provider.frenspay.xyz), not the
+ *  payer app: the old webBaseUrl links pointed at /merchant/... routes that only ever existed
+ *  there, so the button 404'd for as long as nobody could receive one. Unset → no button. */
 const link = (path: string): string | undefined =>
-  config.webBaseUrl ? `${config.webBaseUrl.replace(/\/$/, '')}${path}` : undefined;
+  config.lpBaseUrl ? `${config.lpBaseUrl.replace(/\/$/, '')}${path}` : undefined;
 
 /**
  * Alert the human behind an LP row. Best-effort throughout: an unreachable LP is a routing problem
@@ -53,7 +54,7 @@ export const alertOrderReady = (merchant: MerchantRow, amountFiat: string, curre
   alertMerchant(merchant, {
     title: `${currency} ${amountFiat} to pay out`,
     body: 'Yours for the next few seconds, then it opens to everyone.',
-    url: link(`/merchant/orders/${orderId}`),
+    url: link(`/orders/${orderId}`),
   });
 
 /** Sent while the payer is still signing, so the LP is already looking when the money lands. */
@@ -61,12 +62,12 @@ export const alertOrderIncoming = (merchant: MerchantRow, amountFiat: string, cu
   alertMerchant(merchant, {
     title: `${currency} ${amountFiat} coming your way`,
     body: 'Funding now. Open the app so you don’t lose it to someone else.',
-    url: link('/merchant'),
+    url: link('/'),
   });
 
 export const alertLockLost = (merchant: MerchantRow, reference: string) =>
   alertMerchant(merchant, {
     title: 'You lost an order',
     body: `${reference} went back to the pool because it wasn’t paid in time.`,
-    url: link('/merchant'),
+    url: link('/'),
   });

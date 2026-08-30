@@ -107,6 +107,12 @@ export interface MeResponse {
    *  on /me (already fetched on boot and on the KYC poll) rather than a second endpoint, so the 99%
    *  who aren't merchants pay nothing for it. */
   merchant?: MerchantProfile;
+  /** False when the identity vendor is switched off (its credentials are blank on this deployment).
+   *  Two client consequences, both in the LP console: don't offer a Verify button that can only 503,
+   *  and don't gate the partner application behind a tier nobody can currently reach — while it is
+   *  false, the human reviewing the business form is the identity check (docs/14). Optional so an
+   *  older backend simply reads as "available", the pre-existing behaviour. */
+  identityCheckAvailable?: boolean;
   /** Coarse role for the admin viewer; 'merchant' is informational (capability = `merchant` field). */
   role?: 'user' | 'merchant' | 'admin';
   /** How many invite codes this user owns (3 at signup; admin can mint more). /me only. */
@@ -176,10 +182,18 @@ export interface MerchantProfile {
   pendingWithdrawal?: { id: string; amountUsdc: string; requestedAt: string };
   /** The LP's take off the mid rate, in basis points. Also the routing `cost` signal. */
   spreadBps: number;
+  /** The most their TIER lets them charge, in bps — the platform's price envelope. Surfaced for the
+   *  same reason as maxFloatUsdc: a capped edit should read as "your tier", not as a bug. */
+  maxSpreadBps: number;
   /** Live smoothed reputation signals (fractions 0–1) — shown only to the merchant themselves. */
   successRate: number;
   disputeRate: number;
   positiveRate: number;
+  /** E.164, and how we reach them when a payout goes wrong. NOT users.phone — that column is the
+   *  pay-by-phone directory opt-in, and a provider stored there becomes findable by every payer. */
+  contactPhone?: string;
+  /** False until a verification layer lands; true when Telegram itself vouched for the number. */
+  contactPhoneVerified?: boolean;
 }
 
 /**
@@ -305,6 +319,12 @@ export interface NotificationsResponse {
   unread: number;
   /** Keyset cursor for the next page; absent on the last page. Pass back as ?cursor=. */
   nextCursor?: string;
+}
+
+/** POST /me/push-token body — the phone app's Expo push token (0021). */
+export interface PushTokenRequest {
+  token: string;
+  platform: 'android' | 'ios';
 }
 
 /** POST /auth/sync body — token in the Authorization header identifies the Privy user. */
@@ -568,6 +588,9 @@ export interface Quote {
   payoutDestination?: string;
   /** Payee name as printed on the QR — shown pre-pay so the user can catch a wrong-send. */
   payoutName?: string;
+  /** Set (≥ 2) when the payment will reach the payee as that many separate credits. Absent for the
+   *  normal single credit. Says nothing about who sends them — only that the shop will see N. */
+  parts?: number;
   quotedAt: number; // epoch ms
   expiresAt: number; // epoch ms (quotedAt + 45_000)
 }
@@ -605,6 +628,9 @@ export interface Order {
   direction: OrderDirection;
   referenceCode: string;
   amountUsdc: string;
+  /** This order's own fiat. Equals `quote.amountInr` except on one leg of a payment made in parts,
+   *  where it is that part's share; the aggregate order carries the whole. */
+  amountFiat?: string;
   quote: Quote;
   merchantName: string;
   payoutMethod: PayoutMethod;
@@ -621,6 +647,10 @@ export interface Order {
   updatedAt: string; // ISO 8601
   /** Append-only transition log powering the live timeline (present on GET /orders/:id). */
   events?: OrderEvent[];
+  /** Present on GET /orders/:id when the payment was made in parts: every leg, this one included,
+   *  each with its own `referenceCode`, `state`, `payoutClaimedAt` and `payoutUtr`. The top-level
+   *  fields are then the whole payment's aggregate; `payoutUtr` is per leg only. */
+  legs?: Order[];
 }
 
 /* ---- order API DTOs ---- */
@@ -775,12 +805,25 @@ export interface AdminMerchant {
   name: string;
   status: 'online' | 'offline' | 'suspended';
   kybStatus: KybStatus;
+  /** ISO 3166-1 alpha-2 — which country's KYB_FIELDS spec labels kybFields. */
+  country: string;
+  /** What they submitted for review (0016), screening answers included — a reviewer deciding
+   *  without these is deciding blind. */
+  kybFields?: Record<string, string>;
   payoutRail: string;
   bondUsdc: string;
   floatUsdc: string;
   successRate: number;
   disputeRate: number;
   positiveRate: number;
+  /** The number support calls when a payout goes wrong. Unverified unless Telegram vouched. */
+  contactPhone?: string;
+  /** The OWNER's identity tier, and who decided it. Shown next to the review buttons because while
+   *  the vendor is off an approval also grants tier 2 — the reviewer has to be able to see that they
+   *  are making that call, and afterwards that 'manual' is why this person is verified. Absent for
+   *  platform rows, which have no owner. */
+  ownerKycTier?: number;
+  ownerKycProvider?: string;
   /** true = a real logged-in merchant (merchants.user_id set), false = seeded sim LP. */
   real: boolean;
 }

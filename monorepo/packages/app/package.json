@@ -1,0 +1,28 @@
+{
+  "name": "@fpay/app",
+  "version": "1.0.0",
+  "private": true,
+  "_comment": "The product: the store, the backend client, the sheets and the components every app that IS fpay renders — web and mobile. Source-only like @fpay/ui (consumers transpile it). What a platform does differently (storage, the in-app browser, share, clipboard, foreground events, env) goes through ONE seam, src/platform.ts, which each app fills in with configure() at boot. Import the barrel from native code.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  },
+  "dependencies": {
+    "@fpay/shared": "*",
+    "@fpay/ui": "*",
+    "@solana/web3.js": "^1.98.4",
+    "@yudiel/react-qr-scanner": "^2.6.0",
+    "buffer": "^6.0.3",
+    "qrcode.react": "^4.2.0",
+    "zustand": "^5.0.14"
+  },
+  "peerDependencies": {
+    "react": ">=19"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  }
+}

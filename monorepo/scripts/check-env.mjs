@@ -21,7 +21,13 @@ const NEXT_APPS = [
   { name: 'admin', path: 'apps/admin/src/services/envConfig.ts', src: 'apps/admin/src' },
   { name: 'lp', path: 'apps/lp/src/services/envConfig.ts', src: 'apps/lp/src' },
   { name: 'landing', path: 'apps/landing/src/lib/envConfig.ts', src: 'apps/landing/src' },
+  // Expo, not Next, but the same inlining rule and the same tier block — with its own public prefix,
+  // normalised away below so the comparison is about the chain, not the spelling.
+  { name: 'mobile', path: 'apps/mobile/src/services/envConfig.ts', src: 'apps/mobile/src', prefix: 'EXPO_PUBLIC_' },
 ];
+/** An app's envConfig source with its public prefix spelled the Next way. */
+const source = (a) =>
+  a.prefix ? read(a.path).replaceAll(a.prefix, 'NEXT_PUBLIC_').replace('(Expo inlines)', '(Next inlines)') : read(a.path);
 const BACKEND = 'apps/backend/src/envConfig.ts';
 
 const failures = [];
@@ -59,7 +65,7 @@ function strayEnvReads(dir) {
 }
 
 // 1) The three Next apps must resolve tiers identically.
-const [reference, ...rest] = NEXT_APPS.map((a) => ({ ...a, block: tierBlock(read(a.path), a.name) }));
+const [reference, ...rest] = NEXT_APPS.map((a) => ({ ...a, block: tierBlock(source(a), a.name) }));
 for (const app of rest) {
   if (reference.block && app.block && app.block !== reference.block) {
     fail(
@@ -92,7 +98,7 @@ const SECRET_SHAPED = /NEXT_PUBLIC_(?:[A-Z0-9_]*_)?(?:SECRET|PRIVATE|PASSWORD|MN
 /** Analyse code, not prose — these files explain the rule in comments that name the very vars. */
 const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 for (const app of NEXT_APPS) {
-  const src = stripComments(read(app.path));
+  const src = stripComments(source(app));
   // Split on export statements so each secret-shaped read can be attributed to its own export.
   const statements = src.split(/\bexport const /).slice(1);
   for (const stmt of statements) {

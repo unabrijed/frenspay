@@ -23,9 +23,11 @@ tested, and running on **devnet** in local dev; nothing here moves real money ye
 
 **1 · Quote (locked 45s).** `quoteEngine.createQuote` ranks LPs on a provisional USDC amount (live
 mid rate, no spread), takes the top-ranked LP, then prices the real quote off *that* LP's
-`spread_bps` plus the platform's own cut, both shaved off the live mid (`getMidRate`, per-currency,
-cached + range-validated): `amountUsdc = amountFiat / rate`, rate rounds down, USDC owed rounds up —
-the same money law as [01](01-architecture.md#money--decimals). The user sees only the all-in rate —
+`spread_bps` shaved off the live mid (`getMidRate`, per-currency, cached + range-validated); the
+platform's own cut is the flat `$0.001` **added** to the USDC owed — fee first, rate derived
+(the 2026-08-13 fold, [05](05-fees-fx-and-display.md)): `amountUsdc = divUp(amountFiat, lpRate) +
+0.001`, LP rate rounds down, USDC owed rounds up — the same money law as
+[01](01-architecture.md#money--decimals). The user sees only the all-in rate —
 **the fee is never a line item**; sizing/display is [05](05-fees-fx-and-display.md)'s subject, not
 restated here. The quote locks 45s (`QUOTE_TTL_MS`), re-checked for expiry on confirm.
 
@@ -97,12 +99,14 @@ stateDiagram-v2
 Release/refund **broadcast first, then transition** — a failed broadcast leaves the order in its
 actionable state for the worker to retry, so there's no stuck order with a dangling on-chain intent.
 
-**3 · Routing and scoring — the LP marketplace.** `routing.rankMerchants` applies **five hard
-filters, all in the SELECT** (`listRoutableMerchants`), then scores whoever survives:
+**3 · Routing and scoring — the LP marketplace.** `routing.rankMerchants` applies **seven hard
+filters** — five in the SELECT (`listRoutableMerchants`: online, KYB-approved, same rail, same country,
+and bond ≥ `MIN_BOND` **or** a platform `psp` row, which is exempt), then available float and the payee
+cooldown in JS — before scoring whoever survives:
 
 ```mermaid
 flowchart LR
-    A["online · KYB-approved · same rail<br/>· same country · bond ≥ MIN_BOND"] --> F["available float covers the order<br/>min(declared, bond × leverage) − in-flight"]
+    A["online · KYB-approved · same rail · same country<br/>· bond ≥ $2,000 (psp rows exempt)"] --> F["available float covers the order<br/>min(declared, bond × leverage) − in-flight"]
     F --> N["min-max normalize each signal"]
     N --> S["score = .26·reliability + .18·cost + .12·speed + .08·dispute<br/>+ .08·rating + .12·liquidity + .12·warm + .04·activity"]
     S --> P["sort best-first → quote-time pick"]
@@ -125,6 +129,25 @@ quietly becomes a weight still routes the order.
   stake, so a minimum-bond LP could declare a million and be routed it. Their stake is what makes
   the trade trustable, so it is what bounds the trade. Platform settlement rows are **exempt** — the
   same reasoning `settleDispute` uses, their bond being a seeded fiction with no top-up path.
+  **"In-flight" has one definition** (`LIVE_ORDER_STATE_LIST`: `payment_detected`,
+  `merchant_confirms`, `funds_released`) shared by routing, the lock's capacity re-check, the LP
+  console's headroom and the stake-withdrawal gate. Routing used to also count the two pre-funding
+  states, which parked real capacity on abandoned, unsigned wallet pop-ups for 15 minutes. An LP's
+  obligation starts when the escrow is funded; that is where the count starts.
+- **The pair rule (0019) — the sixth hard filter.** A human LP must not pay the same receiver
+  (`quotes.payout_destination`) again within `PAYEE_COOLDOWN_DAYS` (180 — doubled 2026-08-24), and
+  must never hold two live orders to one receiver. A personal bank account paying the same handle over and over is the
+  account-freeze pattern [08](08-compliance-and-legalities.md) documents, so it is a filter, never a
+  score. The history it reads is the claim itself: `claimOrderPayout` is the sole writer of
+  `payout_claimed_at` and `merchant_id` is frozen after a claim, so `orders ⋈ quotes` is the
+  complete who-paid-whom-when ledger (the `payee_payments` view names it). One SQL fragment
+  (`payeePaidSql`) is applied at **all three places an LP gets attached to an order** — routing's
+  blocked set (quote, reroute, split planning), the lock's own CAS (the pool path never calls
+  `rankMerchants`), and the pool view (so an LP is never shown work the lock would refuse) —
+  because a rule that lives in two of the three leaks through the third. Provider (`psp`) and sim
+  rows are exempt: the rule is about a person, and the one Indonesia platform row pays every
+  warung in the country. When it leaves nobody eligible, the quote is **split first** (below) and
+  refused only if even a split cannot cover it.
 
 On the scoring side, `cost` inverts `spread_bps`, `liquidity` caps headroom at 5×, `rating` is the
 payer's 👍/👎, and the two availability terms are new: **`warm`** is `last_seen_at` inside
@@ -132,12 +155,22 @@ payer's 👍/👎, and the two availability terms are new: **`warm`** is `last_s
 **`activity`** indexes a 168-slot day×hour histogram at the current UTC slot. Warmth carries 0.12
 because it is a fact about *now*; activity carries 0.04, the smallest of the eight, because it is a
 prediction and with a handful of LPs per corridor those counts are noise. Neither outranks a real
-quality gap, and that asymmetry is safe: ranking first only buys 20 seconds of exclusivity (below).
+quality gap, and that asymmetry is safe: ranking first only buys 5 seconds of exclusivity (below).
 
 Signals aren't static seed numbers. `merchantStats.recomputeMerchantStats` derives `success_rate` /
 `avg_completion_secs` / `dispute_rate` / `positive_rate` from real outcomes, each smoothed toward
-the seed `base_*` prior (`k=10`) so a low-volume LP isn't volatile; it also computes **`tier`** (a
-step function on settled volume and those rates) and rebuilds `active_hours`. Bond enforcement runs
+the seed `base_*` prior (`k=10`) so a low-volume LP isn't volatile. The **rates observe the last
+90 days** (2026-08-24) — what routing trusts is what an LP has done lately, decaying toward the
+seed prior as orders age out — with two deliberate exceptions: `positive_rate` stays lifetime
+(`feedback_up` has no timestamp of its own, and windowing on the wrong clock is worse than not
+windowing), and the **settled COUNT stays lifetime** because it is the tier's volume gate — a rung
+earned by volume must not dissolve in a quiet quarter, which would cut leverage under an LP's
+already-committed float. It also computes **`tier`** (a
+step function on settled volume and those rates) and rebuilds `active_hours`. The tier is also the
+**price envelope**: the platform sets how much may be added on the live mid per tier
+(`TIER_MAX_SPREAD_BPS`, decided 2026-08-24) — `setSpread` refuses a margin above the caller's cap,
+and the stats write clamps a stored spread with `least()` in the same statement a downgrade lands
+in, so no window exists where an LP charges a price their tier no longer allows. Bond enforcement runs
 **both ways** here: below `MIN_BOND` an online LP is suspended, and above it a suspended LP is
 reinstated to *offline* — gated on `suspend_reason = 'bond'`, so the machine can only ever reverse
 its own decision and never an admin's moderation or the user-suspend cascade. Because ranking reads
@@ -168,7 +201,7 @@ UPI ID is invisible until somebody commits to paying it.
 ```
 payment_detected
   t+0s    only orders.merchant_id (routing's pick) may lock      payee hidden
-  t+20s   offer_widens_at passes — any eligible LP may take it   payee hidden
+  t+5s    offer_widens_at passes — any eligible LP may take it   payee hidden
   locked  payee revealed to the lock holder, and only them       5 min to pay
   lapsed  cleared, re-opened to everyone, the LP is told
 ```
@@ -176,8 +209,9 @@ payment_detected
 - **The lock is a CAS that transfers `merchant_id`.** `locked_at is null` is what makes exactly one
   of N concurrent callers win. No offers table, no reservation service, no advisory lock — and
   `merchant_id` is never NULL, so committed float, the routing trail and the worker are untouched.
-- **The head start is the reputation reward.** Ranking first buys `HEAD_START_MS` (20s) of
-  exclusivity and nothing else. It costs the platform nothing and is worth more to a good LP than a
+- **The head start is the reputation reward.** Ranking first buys `HEAD_START_MS` (5s — cut from
+  20s on 2026-08-24; the preferred LP is pushed a deep link the moment the clock starts while
+  rivals cannot even see the order, so the window is real at 5s) of exclusivity and nothing else. It costs the platform nothing and is worth more to a good LP than a
   badge.
 - **The eligible pool is derived, never stored.** It is the same question routing asks, evaluated
   fresh: same rail, same country, online, approved, capacity clear, and `spread_bps` at or below
@@ -201,13 +235,53 @@ Provider- and sim-settled orders are **born locked** at `payment_detected`: thei
 the settler and no pool was ever consulted. That uniformity is what lets the claim below require a
 lock with one predicate instead of carving out an exception.
 
+**4½ · Legs — a payment made in parts (0019).** Split **by necessity only**: the first LP who can
+carry the whole amount at their own rate gets it as one order, exactly as before. Only when nobody
+can does `routing.planLegs` size up to `MAX_LEGS` (3) legs across distinct LPs, best-first, each
+leg what that LP's headroom covers and none below `MIN_LEG_USDC` (5); if even that cannot cover it,
+the quote is refused (`no_merchant` → 503, the payer sees "not available right now").
+
+- **A leg is an ordinary `orders` row.** N legs share one quote, each with its own
+  `reference_code` → its own escrow PDA → its own lock, claim, release, refund, reroute and
+  dispute. Nothing downstream learned the word "leg": a leg points at the primary via `group_id`,
+  carries its own `amount_fiat`, and the LP console, the worker, the stats and the admin all see
+  an order. The pair rule's live arm is what keeps two legs of one payment on two LPs — no
+  leg-specific code.
+- **One signature, N deposits.** The platform fee is not a program argument — it is a plain SPL
+  transfer ahead of `deposit(amount, reference)` — so `buildDepositTx` emits one fee transfer and
+  one `deposit` per leg in one user-signed tx (~550 B for one leg, ~109 B per extra; three fit well
+  under the 1232 B cap). One `transfers` row carries the total; every leg points at it, and one
+  confirmation advances them all. **The fee rides the primary leg only**: its order is lp-owed +
+  fee, its deposit is net of the fee, and `getOrderPlatformFee` answers `'0'` for the others — a
+  leg answering with the quote's fee would have refunded it N times over.
+- **Money law for legs.** Fiat legs are whole minor units and sum to the amount exactly; each
+  leg's USDC is `divUp(fiat, lpRate)` on its own, so no LP is ever short and the payer pays at
+  most (n−1) µUSDC more than a single leg would have cost. The quote is struck at the **dearest**
+  leg's spread — one price per quote, or the lock's `m.spread_bps <= q.spread_bps` would refuse a
+  dearer leg's own provisional LP. The rate depends on the set and the sizes on the rate, so the
+  planner grows the set one LP at a time (spread only rises, so capacity only falls, so the n-th
+  leg is never empty).
+- **What the payer sees.** `GET /orders/:id` returns the primary with the aggregate
+  (`lib/legs.ts` `aggregateLegs`: the least-advanced live leg's state; `completed` once every leg
+  has settled and any part reached the receiver; `payoutClaimedAt` only when every part still in
+  play is claimed) and `legs[]`, each with its own reference and UTR. The Quote sheet says "Arrives
+  as 2 payments" **before** they commit — the shop sees two credits and the person at the counter
+  is who adds them up; nothing about who sends them. The receipt lists one reference per credit
+  and one "I didn't receive part N" per claimed leg; disputes are per leg (`uq_disputes_order`
+  stays). History stays one row per payment (`group_id is null`). One "you paid X" notification
+  per payment, when the last leg settles.
+- **The payer sees "Paid" at the claim, not at the release.** The receiver has the money at
+  `payoutClaimedAt`; the escrow settling to whoever paid it ~2½ minutes later is our business. The
+  dispute link stays under the receipt for the window and `completed` is what takes it away.
+
 **5 · Payout claim — three shapes on the same rails.** Once locked, who claims and pays the fiat leg
 depends on the winning row. Every path goes through `claimOrderPayout`, which now additionally
 requires `locked_at is not null` — **you cannot report paying an order you never took**:
 - **A simulated LP** (`sim_behavior` = `happy`/`slow`/`no_receipt`/`timeout`) — `simMerchant.ts`
   plays the part on each 8s confirmer tick.
-- **A real (human) LP** (`sim_behavior` NULL) — a person who is tier-2 KYC'd, applied via `POST
-  /merchants/apply` (refused only on a rail whose `settle` omits `'lp'` — today none do), passed
+- **A real (human) LP** (`sim_behavior` NULL) — a person who applied via `POST /merchants/apply`
+  (tier-2 KYC required only while the identity vendor is live — [14](14-manual-onboarding-fallback.md);
+  **refused outright on `Pix` and `bank`**, whose corridors have no `'lp'` in `settle`), passed
   KYB, staked a bond, took the order, and paid the payee **out-of-band from their own account**. No
   money moves through our software on this leg; we hand them a destination and they pay it.
   `POST /merchants/orders/:id/paid` with a UTR claims through `claimOrderPayout`, resetting
@@ -404,8 +478,12 @@ ships **disabled** — inert until its env key exists *and* an operator turns it
   spread-ceiling offer filter, tier/leverage, warmth + day×hour activity signals, the
   `services/alert` seam (Telegram; in-app inbox always fires), KYB evidence with a six-state
   lifecycle and a merchant-visible timeline, stake withdrawal, and the LP earnings/disputes ledger.
-  Guarded by `check-routing-math.ts` (no DB, in `check:all`) and `check-lock.ts` (29 assertions
+  Guarded by `check-routing-math.ts` (no DB, in `check:all`) and `check-lock.ts` (40 assertions
   against real Postgres — mutual exclusion can only be proven there; not in `check:all`).
+- ✅ **The pair rule and legs (0019, 2026-08-21)**: one in-flight definition; the LP→receiver
+  cooldown as a hard filter at all three attach points, with the claim as its history; split by
+  necessity into per-leg orders/escrows with one signature, the fee on the primary leg, and the
+  money law asserted without a DB (`planLegs`, `aggregateLegs`); "Paid" at the claim.
 - 🟡 The LP pool is still mostly seeded/simulated, though the human-LP path is now a full self-serve
   account (availability, pricing, capacity, stake in/out, alerts, KYB, ledger, disputes). No real
   payout vendor is live anywhere (Xendit sandbox-only, gated on licensing/counsel); interactive E2E
@@ -425,8 +503,10 @@ ships **disabled** — inert until its env key exists *and* an operator turns it
 - `apps/backend/src/lib/corridors.ts` (the `settle: ('provider'|'lp')[]` registry) and
   `apps/backend/src/lib/kyb.ts` (+ its source of truth `packages/shared/src/kyb.ts`)
 - `apps/backend/src/services/alert/{index,provider,telegram}.ts` — the LP alert seam
+- `apps/backend/src/lib/legs.ts` — `aggregateLegs`, a payment in parts as one order (pure)
 - Migrations `0014` (country, tier, bond floor, stake withdrawals) · `0015` (order lock, alerts,
-  `quotes.spread_bps`) · `0016` (KYB evidence + timeline) · `0017` (activity histogram)
+  `quotes.spread_bps`) · `0016` (KYB evidence + timeline) · `0017` (activity histogram) · `0019`
+  (legs: `orders.group_id`/`amount_fiat`, `quotes.legs`; the pair rule's indexes + `payee_payments`)
 - `apps/backend/scripts/{check-routing-math,check-lock}.ts`
 - `apps/backend/src/envConfig.ts` (`isMainnet` gate, `platformFeeBps`, `payoutSecretKeys`,
   `payoutCallbackTokens`, `platformTreasuryAddress`)

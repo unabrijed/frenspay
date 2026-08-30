@@ -67,27 +67,46 @@ Two providers behind one API (`POST /kyc/verify` in `routes/kyc.ts`), selected b
 | Provider | When | Behaviour |
 |---|---|---|
 | `sim` | local only — **never** on a deployed tier, both of which are mainnet | instant tier-2 promote, no documents |
-| `didit` | live on stage **and** prod (also the default there, set or not) | hosted document+liveness; tier raised later by the 15s reconciler poller (webhook = fast-path ping only) |
+| `persona` | stage **and** prod (also the default there, set or not) | hosted government-ID + selfie inquiry; tier raised by the 15s reconciler poller reading the inquiry back from Persona |
 
-- **Sim:** onboard → Settings → *Verify identity* → instant tier 2. Re-test via dev-only
-  *Reset for testing* (`POST /sim/kyc/1`) — the backend tier persists across logins otherwise.
-- **Didit:** set `STAGE_DIDIT_API_KEY` + `STAGE_DIDIT_WORKFLOW_ID` (missing values with `didit`
-  selected → the server **refuses to boot**, `assertKycConfig` — placeholder-looking values are
-  rejected too). Complete the hosted flow; the poller fetches the authoritative decision
-  (`approved` → tier 2 · `declined` → terminal · `expired`/`abandoned` → cleared so the user can
-  restart). `STAGE_DIDIT_WEBHOOK_SECRET` + a reachable `/webhooks/kyc` make it feel instant;
-  correctness never depends on it.
-- Key files: `services/kyc/{index,didit,sim,poller}.ts`, `routes/kyc.ts`, `routes/webhooks.ts`,
-  web `store/usePayStore.ts` (`verifyDone`, `pollKyc`, `resetForTesting`).
+- **Sim:** onboard → Settings → *Verify identity* → instant tier 2. Re-test via *Reset for testing*
+  (`POST /sim/kyc/1`) — the backend tier persists across logins otherwise. **Local only**: that route
+  is gated on `isLocal`, not `isDevelopment`, because `isDevelopment` includes stage and stage is
+  mainnet — while it answered there, any authenticated user could self-promote to tier 3.
+- **Persona:** set `STAGE_PERSONA_API_KEY` + `STAGE_PERSONA_TEMPLATE_ID`. Leaving either blank (or
+  placeholder-shaped) turns identity verification **off** rather than breaking the deploy:
+  `config.personaLive` is false, the server boots, `/kyc/verify` 503s, and partner onboarding falls
+  back to a human reading the business form — [14](14-manual-onboarding-fallback.md), an accepted
+  risk. Set them both and complete the hosted flow; the poller fetches the authoritative inquiry
+  (`approved`/`completed` → tier 2 · `declined`/`failed` → terminal · `expired` → cleared so the user
+  can restart · `needs_review` → in review). No webhook is wired — the poller *is* the path; ≤15s.
+- **Sandbox vs production keys.** A `persona_sandbox_…` key (what self-serve signup gives) runs the
+  hosted flow with a force-pass/force-fail toggle and never sees a real document. It is the right key
+  for **stage**; on **prod** `assertKycConfig` refuses it at boot. `persona_production_…` keys exist
+  only after Persona's compliance review (or Startup Program approval) — until then prod has no
+  working real-verification provider and must not be switched to `sim` (mainnet).
+- **Allowed Domains** (Persona dashboard): if set, the web origin (`https://stage.frenspay.xyz`, …)
+  must be listed or the user finishes at Persona and is never redirected home. Leave it empty, or
+  list every origin that `safeReturnUrl` (`routes/kyc.ts`) already allows via `CORS_ORIGIN`.
+- Key files: `services/kyc/{index,persona,sim,poller}.ts`, `routes/kyc.ts`, `routes/webhooks.ts`
+  (401s everything for Persona — the seam stays, see the comment in `persona.ts`), web
+  `store/usePayStore.ts` (`verifyDone`, `pollKyc`, `resetForTesting`), `app/(tabs)/home/page.tsx`
+  (the `?inquiry-id=` return).
 
 ### Debugging a 503 `kyc_unavailable`
 
+**Read the boot log first.** Every start with `persona` selected prints one `persona probe:` line
+(`services/kyc/persona.ts probePersona`, non-fatal): `key OK (sandbox|production) [template=…
+key=len…xxxx]` is healthy; `FAILED: … → 401` is the key as Railway holds it (diff `len`/last4
+against a working local run). Templates aren't readable with a sandbox key, so a wrong template id
+shows up on the first Verify instead — with the same fingerprint.
+
 That code carries no diagnosis and is meant not to — it is emitted from one place (`routes/kyc.ts`)
-and means only *"the call to Didit threw"*. The reason exists **solely** in the server log line
-`kyc provider start failed`, which since the fingerprinting fix reads:
+and means only *"the call to Persona threw"*. The reason exists **solely** in the server log line
+`kyc provider start failed`, which reads:
 
 ```
-didit /v3/session/ → <status> <body> [workflow=<uuid> key=len<N>…<last4>]
+persona /api/v1/inquiries → <status> <body> [template=<itmpl_…> key=len<N>…<last4>]
 ```
 
 Read it with `railway logs --service <service> --environment <env> | grep -i "kyc provider start failed" -A5`.
@@ -96,18 +115,15 @@ and past that the error changes to `rate_limited`, which is noise rather than pr
 
 | Log shows | Cause | Fix |
 |---|---|---|
-| `→ 403`, and `workflow=` lives in the same Didit app that issued the key | key revoked or regenerated | reissue it, update `DIDIT_API_KEY` |
-| `→ 403`, and `workflow=` belongs to a **different** app than the key | key + workflow crossed between two Didit applications — the classic first-setup failure | repoint both at one application |
-| `→ 403`/`402` with a plan or quota body | app not activated, or free-tier session quota spent | Didit dashboard; nothing in the repo |
-| `→ 404` | Didit moved `/v3/session/` or the base URL | update `diditBaseUrl` or the path in `services/kyc/didit.ts` |
-| `→ 400` naming `callback` | the deployed `returnUrl` origin is rejected | check `safeReturnUrl` against `CORS_ORIGIN` |
-| no `→` at all | the 10s `FETCH_TIMEOUT_MS` aborted — Didit slow or unreachable | retry; raise the timeout only if it recurs |
-
-Comparing the logged `key=len<N>…<last4>` against the dashboard key is what separates "wrong key" from
-"wrong workflow" from "right pair, dead app" — the body alone answers 403 to all three.
+| `→ 401 Must be authenticated` | key missing, mangled in the host's variable panel, or revoked | diff `len`/last4 against the dashboard; re-paste `PERSONA_API_KEY` |
+| `→ 404`/`422` naming the template or `inquiry-template-id` | template id from another environment/organization, or a typo | copy `itmpl_…` from the dashboard's Inquiry Templates page |
+| `→ 400` naming `redirect-uri` | the deployed `returnUrl` origin is rejected | check `safeReturnUrl` against `CORS_ORIGIN`, and Allowed Domains in Persona |
+| `→ 429` | Persona rate limit | back off; the route itself is already capped at 5/min |
+| no `→` at all | the 10s `FETCH_TIMEOUT_MS` aborted — Persona slow or unreachable | retry; raise the timeout only if it recurs |
+| boot refuses with `sandbox key on a production tier` | a `persona_sandbox_…` key on prod | wait for the production key; do not switch prod to `sim` |
 
 Two things that are **not** the cause, both ruled out before reading anything: an unset
-`KYC_PROVIDER` (stage and prod default to `didit`), and missing credentials (`assertKycConfig` is
+`KYC_PROVIDER` (stage and prod default to `persona`), and missing credentials (now the OFF switch, docs/14; `assertKycConfig` is
 fatal at boot, so a service answering `/health` has them).
 
 ## Owed, and known
@@ -158,13 +174,18 @@ cutover) → the DB-backed checks (`check:admin`, `check-fees`). All Bridge-run.
 - **Fiat receiving** (someone outside pays you) — collections via provider rails; after payouts.
 - **CCTP cross-chain** (coded end-to-end, Sepolia-staged) — mainnet contracts + treasury funding +
   Privy smart-wallet/paymaster dashboard work.
-- **Phone-OTP channel** — parked decision (Privy SMS = US/CA-only; WhatsApp = all regions; the
-  dashboard choice is irreversible). Nothing gets enabled without an explicit call.
+- **Phone OTP at volume** — decided 2026-08-22: our own OTP, Message Central first (1,000 free
+  credits, then ₹0.20/SMS). When volume arrives, swap the provider in `services/phoneOtp.ts` to
+  Meta's WhatsApp Cloud API (₹0.115/OTP, needs Meta Business verification) or Telegram Gateway
+  ($0.01). Stage needs `STAGE_MESSAGECENTRAL_*` set first.
 - **External-deposit history ingestion** — on-chain deposits credit the balance but write no
   `transfers` row today ([03](03-custody-money-in-and-confirmation.md)); needs an inbound indexer.
-- **Multi-instance infra** — Redis locks/shared rate-limit store, real push delivery, a metrics
-  scrape target.
-- **Mobile (Expo)** — parked out of the workspace; P2P-only parity when revived.
+- **Multi-instance infra** — Redis locks/shared rate-limit store, a metrics scrape target.
+- **Push delivery (phone)** — built ([12](12-mobile-app.md)): `notify()` fans out through Expo's
+  push service, no SDK or server credential. Gated on ops: a free Expo project id in
+  `apps/mobile/app.json` (`extra.eas.projectId`) and the Firebase FCM V1 service-account key
+  uploaded to that project — until then token registration no-ops and the inbox still works.
+- **Mobile (Expo)** — revived 2026-08-22 on `@fpay/app`; first device pass pending ([12](12-mobile-app.md)).
 
 ## Key files
 

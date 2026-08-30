@@ -128,10 +128,9 @@ Use it to redeploy the current commit, or to recover after a failed run.
    ```
    NODE_ENV=stage
    STAGE_DATABASE_URL=<Supabase session pooler URL — step 2>
-   STAGE_KYC_PROVIDER=didit                             # optional — stage/prod already default to didit. NEVER `sim` here: stage is mainnet, and sim promotes to tier 2 with no documents
-   STAGE_DIDIT_API_KEY=<Didit app API key>              # without these two, boot THROWS (assertKycConfig)
-   STAGE_DIDIT_WORKFLOW_ID=<workflow uuid from the SAME Didit application as the key above>
-   STAGE_DIDIT_WEBHOOK_SECRET=<optional — the 15s reconciler poller applies decisions without it>
+   STAGE_KYC_PROVIDER=persona                           # optional — stage/prod already default to persona. NEVER `sim` here: stage is mainnet, and sim promotes to tier 2 with no documents
+   STAGE_PERSONA_API_KEY=<persona_sandbox_… is fine on stage>   # BLANK BOTH = identity verification off (docs/14), NOT a boot failure
+   STAGE_PERSONA_TEMPLATE_ID=<itmpl_… from Persona → Inquiry Templates>
    STAGE_SOLANA_RPC_URL=https://mainnet.helius-rpc.com/?api-key=<KEY>   # mainnet RPC (Helius free tier)
    STAGE_HELIUS_API_KEY=<KEY>                            # push confirmation — see §Helius. Same key as the RPC URL above
    STAGE_HELIUS_WEBHOOK_SECRET=<openssl rand -hex 32>    # real values live in apps/backend/.env — NEVER paste one into this tracked file
@@ -141,6 +140,9 @@ Use it to redeploy the current commit, or to recover after a failed run.
    STAGE_PRIVY_APP_SECRET=<privy app secret>            # backend-only, never in a web build
    PUBLIC_BASE_URL=https://<this-railway-service>.up.railway.app   # → https://stage.api.frenspay.xyz once the custom domain is attached (step 6)
    STAGE_CORS_ORIGIN=<see below>
+   STAGE_LP_BASE_URL=https://provider.frenspay.xyz   # LP console — alert deep links lose their button if unset
+   # STAGE_TELEGRAM_BOT_TOKEN / STAGE_TELEGRAM_WEBHOOK_SECRET — one bot per tier, docs/13 §Setup.
+   # Unset ⇒ the bot and its alert adapter are inert; the webhook fails closed.
    # leave STAGE_STAKE_TREASURY_ADDRESS and STAGE_ESCROW_PROGRAM_ID unset (staking 503s, orders are gated)
    # STAGE_PLATFORM_FEE_BPS optional (default 50) — dormant until merchant-pay ships on mainnet
    ```
@@ -179,7 +181,7 @@ Use it to redeploy the current commit, or to recover after a failed run.
 comma-separated list of EVERY browser origin that calls the API:
 
 ```
-STAGE_CORS_ORIGIN=https://admin.frenspay.xyz,https://frenspay.xyz,https://www.frenspay.xyz,https://<web-domain>
+STAGE_CORS_ORIGIN=https://admin.frenspay.xyz,https://frenspay.xyz,https://www.frenspay.xyz,https://<web-domain>,https://<lp-domain>
 ```
 
 A missing origin breaks that frontend in prod only, silently.
@@ -338,6 +340,16 @@ Ship to prod by merging `stage` → `sacred` (PR).
    `NEXT_PUBLIC_STAGE_APP_URL` is no longer read and can be removed if it is already set. The landing
    page spends an invite code joining the f list rather than handing off to the app, so it links to
    the app in neither direction and needs no URL for it.
+   lp (stage) — the LP console; the backend calls it "merchants", `/merchants/*`:
+   ```
+   NEXT_PUBLIC_APP_ENV=stage
+   NEXT_PUBLIC_STAGE_API_URL=<same as web>
+   NEXT_PUBLIC_STAGE_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com   # deployed tiers fail closed to mainnet anyway; set it for parity
+   NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<same privy app id as web>              # staking signs a real USDC transfer, so it needs the embedded wallet
+   NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<privy client id>                    # optional
+   ```
+   Nothing else: there is no access gate (`STAGE_ACCESS_KEY`), no landing link, and the dev
+   identity (`*_DEV_USER_ID`) is only read when `NODE_ENV !== 'production'` — never in a build.
 6. **Deploy**: push `stage` (or Deployments → Redeploy). Watch the log: install and build must run
    the `vercel.json` commands verbatim, and web must get past the post-build step (the historical
    crash below) to READY.
@@ -449,8 +461,8 @@ forward — which is why migrations must be written additively.
 | `Failed to upload code with status code 404 Not Found` | `RAILWAY_STAGE_SERVICE` names a service that doesn't exist in this environment. The `railway status` output printed just above it lists the real names under `All resources` — copy one exactly. This is the most likely cause by far; the 404 is Railway's answer for "no such target", not for a bad token. |
 | `railway up` fails: unauthorized | `RAILWAY_STAGE_TOKEN` missing, expired, or scoped to the wrong environment. It must be a **project** token for **stage**. An account token (from Account Settings) is read from `RAILWAY_API_TOKEN`, carries no project, and makes `railway status` fail to resolve one. |
 | Deploy stuck "waiting for healthcheck" | `PORT` was set by hand (never set it — Railway injects it), or the server crashed at boot. The deploy logs carry the real error. |
-| Boot throws on KYC config | `assertKycConfig` — stage refuses to start without real Didit credentials. Set `STAGE_DIDIT_API_KEY` + `STAGE_DIDIT_WORKFLOW_ID` (§Service setup step 3). Do **not** answer this by setting `STAGE_KYC_PROVIDER=sim` — stage is mainnet. |
-| `/kyc/verify` returns 503 `kyc_unavailable` | The service booted fine (so the vars are set) and the **call to Didit** was rejected. The only record is the `kyc provider start failed` line in the deploy logs, which carries `[workflow=… key=len…####]` — see the KYC runbook in `docs/10-ops-and-roadmap.md`. |
+| Boot throws on KYC config | Only one config still does this: a `persona_sandbox_…` key on a **production** tier. Blank credentials are no longer an error — they mean the vendor is off (`config.personaLive`), the app boots, `/kyc/verify` 503s and partner onboarding falls back to manual review (docs/14). Do **not** answer any KYC problem with `STAGE_KYC_PROVIDER=sim` — stage is mainnet, and sim self-promotes. |
+| `/kyc/verify` returns 503 `kyc_unavailable` | The service booted fine (so the vars are set) and the **call to Persona** was rejected. The boot log's `persona probe:` line and the `kyc provider start failed` line carry `[template=… key=len…####]` — see the KYC runbook in `docs/10-ops-and-roadmap.md`. |
 | `prepared statement does not exist` / lock hangs | `STAGE_DATABASE_URL` points at the transaction pooler (`:6543`). It must be the **session** pooler (`:5432`). |
 | Build fails on an unpublished `@fpay/*` package | A new workspace's `package.json` isn't COPY'd before the install layer in the root `Dockerfile`. Its header explains why; add the line. |
 | `Cannot find package '@fpay/shared'` at runtime | A *value* import of `@fpay/shared` reached the bundle, where it is external. Make it `import type`. |

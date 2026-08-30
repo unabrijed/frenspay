@@ -3,20 +3,21 @@
 Yarn-workspaces monorepo for **fpay**, a travel payments app (hold USD, spend INR at a
 locked rate via UPI QR, plus send/request with friends). Three Next.js frontends — the
 **web app**, an operator **console**, and the **landing** page — share one backend, design
-system, and business logic. An Expo **mobile app** is in the tree but parked.
+system, and business logic. An Expo **mobile app** renders the same product natively.
 
 ```
 monorepo/
   apps/
     web/        Next.js (App Router) web app — mobile-first, runs in any browser
-    mobile/     Expo / React Native app — PARKED, not in the workspace (see below)
+    mobile/     Expo / React Native app — the same product on a phone (see below)
     backend/    Fastify API service (runs on Railway, from an image built in CI)
     admin/      Next.js operator console — admin.frenspay.xyz
     lp/         Next.js LP console — the marketplace side
     landing/    Static Next export — frenspay.xyz (Tailwind v4; web/admin are v3)
   packages/
     shared/     money math + API contract types, used by all apps
-    ui/         the design system — used by web + lp
+    ui/         the design system — used by web + lp + mobile (.native twins for the phone)
+    app/        the product — store, API client, sheets, components; used by web + mobile
   brand/        logo source + `yarn brand` — generates every app icon (see brand/README.md)
 ```
 
@@ -99,9 +100,9 @@ the repo-root `Dockerfile`'s `CMD` (`db:deploy && start`), and `.githooks/pre-pu
 strings, so a root alias would be a second way to say something deploy config already says one way,
 and the two can drift.
 
-> **There is no `yarn mobile` / `yarn dev:mobile`.** `apps/mobile` is parked out of the workspace, so
-> it has no installed dependencies and no root script — see [Mobile app](#mobile-app-appsmobile-parked)
-> for how to bring it back.
+> **`yarn dev:mobile` starts Metro only**, in its own terminal — Expo's keypress menu breaks under the
+> `dev:*` fan-out. Run `yarn dev:backend` beside it, or point the app at stage; see
+> [Mobile app](#mobile-app-appsmobile).
 
 ---
 
@@ -149,36 +150,34 @@ production build strips — meaning this path works under `next dev` only, never
 
 ---
 
-## Mobile app (`apps/mobile`, parked)
+## Mobile app (`apps/mobile`)
 
-**Not in the workspace.** Its dependencies cost ~169MB and no mobile work is planned, so it was
-removed from `workspaces` in the root `package.json`. The source is untouched and still typechecks
-against the same shared package — it is parked, not abandoned. Until it is resumed there are **no
-mobile scripts**: `yarn mobile` and `yarn dev:mobile` do not exist.
+The same product as the web app, on a phone: Expo / React Native rendering `@fpay/app` over
+`@fpay/ui`'s native renderer — see [docs/12](docs/12-mobile-app.md) for the shape. Android first.
 
-To bring it back:
-
-```bash
-# 1. add "apps/mobile" back to `workspaces` in the root package.json, then:
-yarn install
-cd apps/mobile && npx expo prebuild -p android   # regenerate the native project
-```
-
-It stays out of `yarn dev` even once resumed: Expo needs its own terminal, or its keypress menu
-(`i` / `a` / `r`) stops working and its output drowns the other three. **Always launch it from the
-repo root** — never `expo start` / `npx expo` from a random directory, or Expo resolves the wrong entry.
-
-**Privy on mobile needs a custom dev build** (Expo Go can't run its native modules). On this
-machine the Android local build is the path:
+**Privy needs a dev build** (Expo Go can't run its native modules), and there is no EAS: the build
+is local and free. The phone connects over **wireless adb** (Android 11+: Developer options →
+Wireless debugging → Pair device with pairing code):
 
 ```bash
-cd apps/mobile
-npx expo prebuild --platform android   # generates android/ (one-time)
-npx expo run:android                   # builds + installs the dev client (needs an emulator/device)
+adb pair <phone-ip>:<pairing-port>          # once, with the code the phone shows
+adb connect <phone-ip>:<port>               # each session; `adb devices` should list it
+cp apps/mobile/.env.example apps/mobile/.env   # fill the Privy app id + NATIVE client id
+yarn workspace @fpay/mobile android         # prebuild (once) + Gradle build + install + Metro
 ```
 
-Once installed, the dev client connects to Metro like Expo Go did. (Web is the easier path
-for testing Privy — no build, no device.)
+After the first install, `yarn dev:mobile` (Metro only, its own terminal) is enough; the dev
+client reconnects. It stays out of `yarn dev`: Expo needs its own terminal or its keypress menu
+(`a` / `r`) stops working. **Always launch from the repo root or `apps/mobile`** — never
+`npx expo` from a random directory, or Expo resolves the wrong entry. A clean cache is
+`yarn workspace @fpay/mobile start -- -c`.
+
+The app talks to **stage** by default (`EXPO_PUBLIC_STAGE_API_URL` in `.env.example`); for a local
+backend, leave `EXPO_PUBLIC_LOCAL_API_URL` blank and it finds the Mac's LAN IP from Metro.
+
+**Bridge-gated before the first real pass:** a Privy **app client** for `com.bridge.fpay` (the
+native client id); for push, a free Expo project id in `app.json` (`extra.eas.projectId`) plus the
+Firebase FCM V1 key uploaded to it; for passkeys, `/.well-known/assetlinks.json` on frenspay.xyz.
 
 ---
 
@@ -221,9 +220,9 @@ three tiers:
 | Web | `NEXT_PUBLIC_APP_ENV=stage` | `NEXT_PUBLIC_STAGE_*` | `apps/web/src/services/envConfig.ts` |
 | Admin | `NEXT_PUBLIC_APP_ENV=stage` | `NEXT_PUBLIC_STAGE_*` | `apps/admin/src/services/envConfig.ts` |
 | Landing | `NEXT_PUBLIC_APP_ENV=stage` | `NEXT_PUBLIC_STAGE_*` | `apps/landing/src/lib/envConfig.ts` |
-| Mobile (parked) | `NODE_ENV` (Expo forces it) | `EXPO_PUBLIC_STAGE_*` | `apps/mobile/src/services/env.ts` |
+| Mobile | `EXPO_PUBLIC_APP_ENV=stage` | `EXPO_PUBLIC_STAGE_*` | `apps/mobile/src/services/envConfig.ts` |
 
-The three Next apps carry a byte-identical tier block. That duplication is forced, not sloppy:
+The three Next apps and the Expo app carry a byte-identical tier block (mobile's under its own prefix). That duplication is forced, not sloppy:
 Next only inlines **literal** `process.env.NEXT_PUBLIC_*` references appearing in the app's own
 source, and the backend may only `import type` from `@fpay/shared`. `yarn check:env` asserts the
 blocks stay identical and that nothing reads `process.env` outside an `envConfig.ts`.
@@ -236,12 +235,12 @@ and `DEPLOY.stage.md`.
 
 ---
 
-## Networking cheatsheet (for the parked mobile app)
+## Networking cheatsheet (mobile app against a local backend)
 
-Only relevant once `apps/mobile` is back in the workspace. `EXPO_PUBLIC_STAGE_API_URL` must be
-reachable **from where the app runs** (the backend binds `0.0.0.0`):
+The app defaults to stage. To hit a local backend, `EXPO_PUBLIC_LOCAL_API_URL` must be reachable
+**from where the app runs** (the backend binds `0.0.0.0`); blank = the Mac's LAN IP from Metro:
 
-| Running on | `EXPO_PUBLIC_STAGE_API_URL` |
+| Running on | `EXPO_PUBLIC_LOCAL_API_URL` |
 |---|---|
 | iOS Simulator | `http://localhost:3001` |
 | Android emulator | `http://10.0.2.2:3001` |
@@ -292,14 +291,14 @@ backend with `curl localhost:3001/health` plus the endpoints in the backend READ
 - **Faucet `429 Too Many Requests`** — the public devnet faucet is rate-limited; fund the
   fee-payer via https://faucet.solana.com or a Helius devnet RPC.
 
-Once the parked mobile app is resumed:
+Mobile app:
 
 - **App can't reach the backend** — on a physical phone `localhost` is the phone, not your Mac.
   Use the Mac's LAN IP and the same Wi-Fi. The web app uses `localhost:3001`.
 - **`EXPO_PUBLIC_*` changes don't take effect** — restart with a cleared cache
   (`yarn workspace @fpay/mobile start -- -c`).
-- **`expo run:android` finds no device** — start an Android emulator (or connect a phone
-  with USB debugging) first; `adb devices` should list it.
+- **`expo run:android` finds no device** — `adb connect <phone-ip>:<port>` first (wireless
+  debugging); `adb devices` should list it. USB never worked on this Mac.
 
 ---
 
@@ -328,8 +327,8 @@ you deploy:
 Everything here is free to develop with: Solana **devnet**, Helius free RPC, Privy free
 tier, Railway's Hobby plan, GitHub Actions (metered on a private repo — 2,000 min/month — but this
 workflow only uploads, so it barely registers), Vercel's free Hobby tier for the frontends, and the
-free **web** workflow (no EAS needed — and if mobile is resumed, the Android dev build is local +
-free).
+free **web** workflow (no EAS needed — the Android dev build is local + free; Expo's push service
+and a Firebase project for FCM are free too).
 
 > The one recurring cost is Railway **build** compute, billed as ordinary usage at roughly a cent
 > per build against the Hobby plan's $5 monthly credit. Building in Actions and having Railway pull

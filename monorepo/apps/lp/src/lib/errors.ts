@@ -28,6 +28,8 @@ const BY_CODE: Record<string, string> = {
   order_not_unlockable: 'You’re not holding this order.',
   lock_temporarily_blocked: 'You’ve dropped a few orders lately. Try again in a bit.',
   order_not_claimable: 'This order moved on. Don’t pay it.',
+  missing_phone: 'Add a number we can reach you on.',
+  invalid_phone: 'That does not look like a phone number. Include the country code, like +91.',
   unsupported_channel: 'We can’t send alerts that way yet.',
   // Money movement out of their own wallet.
   staking_unavailable: 'Staking is temporarily unavailable. Try again shortly.',

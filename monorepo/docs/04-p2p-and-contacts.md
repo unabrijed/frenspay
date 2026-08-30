@@ -64,7 +64,11 @@ points at the old handle (self-corrects within one 12s refresh —
 
 ## Contacts — "Send to Contacts"
 
-The pieces exist; the home-action wiring is the gap:
+On web this is complete, and the picker is the honest maximum — the Contact Picker API is a
+one-shot, gesture-gated pick with no persistent access, shipped only on Android (Chrome, Samsung
+Internet); iOS Safari keeps it behind a flag and no desktop browser has it. A real address-book
+*sync* (match everyone, keep it fresh) is a native-app capability — deliberately NOT built: the
+phone app uses the system picker too (one contact the user chose, [12](12-mobile-app.md)).
 
 - ✅ **Directory resolve** — `GET /users/resolve?handle=|phone=` (authed, rate-limited), consent
   model in [02-identity-and-onboarding](02-identity-and-onboarding.md).
@@ -72,9 +76,9 @@ The pieces exist; the home-action wiring is the gap:
   name / `@handle` / phone / pasted address, debounce-resolving with the verified name shown.
 - ✅ **Device contact picker** (`apps/web/src/lib/contacts.ts`) — Web Contact Picker API,
   Android-Chrome only, graceful no-op elsewhere; a picked contact's number prefills the search.
-- ⬜ **"Send to Contacts" as THE home action** (decided 2026-08-13) — the Send entry leads with
-  contacts/directory rather than a bare search box. Native contact-list sync is a mobile-phase
-  item; on web the picker + directory is the honest maximum.
+- ✅ **Contacts lead the Send sheet** (decided 2026-08-13) — where the device has a picker,
+  "Pay your contacts" sits above the search box; elsewhere the search box is the sole, and so
+  still leading, element. A picked number that isn't on fpay gets the invite answer above.
 
 ## The home screen ⬜ decided 2026-08-13, gap to close
 
@@ -115,7 +119,8 @@ balance hero above the grid follows the dual-currency + eye-hide spec in
   via poller/webhook.
 - ✅ Contacts building blocks (directory, PeopleSearch, Android-Chrome picker).
 - ⬜ Home grid → Add · Send (decided 2026-08-13). ⬜ "Send to Contacts" as the leading Send entry.
-- 🟡 Mobile (Expo) parks with P2P-only parity and lags web.
+- ✅ Mobile renders the same send/request sheets from `@fpay/app`; contacts = the system picker
+  (one contact, no sync) — device verification pending ([12](12-mobile-app.md)).
 
 ## Key files
 

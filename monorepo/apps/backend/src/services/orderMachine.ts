@@ -10,7 +10,7 @@ import type { Order, OrderResolution, OrderState, PayoutMethod } from '@fpay/sha
 
 import { config } from '../envConfig';
 import { amt, USDC_DECIMALS } from '../lib/amount';
-import { formatAmount } from '../lib/units';
+import { BN, formatAmount } from '../lib/units';
 import {
   appendOrderEvent,
   casOrderState,
@@ -22,19 +22,20 @@ import {
   getOrderAlertInfo,
   setLockBan,
   getDisputeRow,
-  getOrderByEscrowFundTransfer,
+  getGroupSettlement,
   getOrderByEscrowReleaseTransfer,
   getOrderForUser,
   getOrderPlatformFee,
   getOrderSimRow,
-  getOrderUserAmount,
   getQuoteRowForUser,
   getSendNotifyInfo,
   getWalletForUser,
   insertOrder,
   insertRiskEvent,
   insertRoutingAttempt,
+  listOrdersByEscrowFundTransfer,
   listRoutingAttempts,
+  markGroupFundSubmitted,
   markLatestAttemptOutcome,
   reassignOrderMerchant,
   recordEscrowTransfer,
@@ -82,9 +83,12 @@ export const MAX_ROUTING_ATTEMPTS = 3;
  * platform nothing and is worth more to a good LP than any badge.
  *
  * Short on purpose. The payer is standing somewhere waiting, and a head start long enough to matter
- * to a sleeping LP is long enough to hurt them.
+ * to a sleeping LP is long enough to hurt them. 5s is still a real window (2026-08-24): the
+ * preferred LP is pushed a deep link in the same pass this clock starts, while rivals can't even
+ * SEE the order until it widens and then only on their next poll — exclusivity plus a push beat
+ * a blind 3s poller every time. What 5s no longer forgives is not being reachable.
  */
-export const HEAD_START_MS = 20_000;
+export const HEAD_START_MS = 5_000;
 
 /**
  * How long a lock is held before it lapses and the order returns to the pool. Generous because the
@@ -121,113 +125,137 @@ export async function confirmOrderFromQuote(userId: string, quoteId: string): Pr
   if (!lim.ok) return { error: 'limit_exceeded', limit: lim };
   await scoreAndRecord({ userId, kind: 'cash_out', amountUsd: quote.amountUsdc });
 
-  const referenceCode = 'PAY-' + randomBytes(4).toString('hex').toUpperCase();
+  // The legs. One when a single LP can carry the payment; N when routing had to split it
+  // (quote.legs: each an LP and what they are owed). Each leg is an ordinary order with its own
+  // reference, escrow PDA, lock, claim, release and dispute — the rest of the machine never learns
+  // the word "leg". The platform's flat cut rides the PRIMARY leg: one fee per conversion, however
+  // many vaults, so its order carries lp-owed + fee and its deposit is net of the fee, exactly as a
+  // single order always was (getOrderPlatformFee answers '0' for the others).
+  const fee = new BN(quote.platformFeeUsdc);
+  const legs = quote.legs
+    ? quote.legs.map((l, i) => ({
+        merchantId: l.merchantId as string | null,
+        amountFiat: l.amountFiat as string | null,
+        amountUsdc: Number(formatAmount(i === 0 ? new BN(l.amountUsdc).plus(fee) : new BN(l.amountUsdc), USDC_DECIMALS)),
+      }))
+    : [{ merchantId: quote.merchantId, amountFiat: null, amountUsdc: quote.amountUsdc }];
+  const refs = legs.map(() => 'PAY-' + randomBytes(4).toString('hex').toUpperCase());
 
-  // The escrow-funding tx: a program `deposit` (user signs as token authority, fee-payer sponsors).
-  // Same prepare/submit shape as /transfer/prepare, so the web client signs it via the existing signer.
+  // The escrow-funding tx: one program `deposit` per leg under ONE user signature (token authority;
+  // fee-payer sponsors). Same prepare/submit shape as /transfer/prepare, so the web client signs it
+  // via the existing signer and never learns how many vaults it funded.
   let built;
   try {
     built = await buildDepositTx({
       userOwner: wallet.address,
-      amountUsd: quote.amountUsdc,
+      deposits: legs.map((l, i) => ({ amountUsd: l.amountUsdc, reference: refs[i] })),
       platformFeeUsd: quote.platformFeeUsdc,
-      reference: referenceCode,
     });
   } catch {
     return { error: 'solana_unavailable' };
   }
-  const escrowAddr = escrowAddress(referenceCode);
 
+  // One transfers row — there is one signature — for the whole debit; every leg points at it, and
+  // one confirmation advances them all (onTransferConfirmed).
   const { id: transferId } = await createPendingTransfer({
     fromUserId: userId,
     toUserId: null,
     fromAddress: wallet.address,
-    toAddress: escrowAddr,
+    toAddress: escrowAddress(refs[0]),
     amountUsd: quote.amountUsdc,
     kind: 'escrow_fund',
-    note: referenceCode,
+    note: refs.join(' '),
   });
 
-  const orderId = await insertOrder({
-    userId,
-    quoteId,
-    merchantId: quote.merchantId,
-    amountUsdc: quote.amountUsdc,
-    referenceCode,
-    state: 'pay_instructions',
-    escrowFundTransferId: transferId,
-    note: referenceCode,
-  });
-  await appendOrderEvent(orderId, null, 'quote_locked', 'quote_created');
-  await appendOrderEvent(orderId, 'quote_locked', 'pay_instructions', 'confirm_order');
-  // M3: record the initial LP assignment as routing attempt #1 (the failover audit trail + tried-set).
-  if (quote.merchantId) {
-    await insertRoutingAttempt({ orderId, merchantId: quote.merchantId, sequence: 1, outcome: 'assigned', reason: 'initial' });
+  let primaryId = '';
+  for (const [i, leg] of legs.entries()) {
+    const orderId = await insertOrder({
+      userId,
+      quoteId,
+      merchantId: leg.merchantId,
+      amountUsdc: leg.amountUsdc,
+      amountFiat: leg.amountFiat,
+      groupId: i === 0 ? null : primaryId,
+      referenceCode: refs[i],
+      state: 'pay_instructions',
+      escrowFundTransferId: transferId,
+      note: refs[i],
+    });
+    if (i === 0) primaryId = orderId;
+    await appendOrderEvent(orderId, null, 'quote_locked', 'quote_created');
+    await appendOrderEvent(orderId, 'quote_locked', 'pay_instructions', 'confirm_order');
+    // M3: record the initial LP assignment as routing attempt #1 (the failover audit trail + tried-set).
+    if (leg.merchantId) {
+      await insertRoutingAttempt({ orderId, merchantId: leg.merchantId, sequence: 1, outcome: 'assigned', reason: 'initial' });
+    }
+
+    // Tell the routed LP NOW, while the payer is still signing and the deposit is confirming — a few
+    // seconds of head start for free, with nothing added to what the payer sees or waits for.
+    //
+    // This is where the payer-experience constraint lands in code: the LP-side race has to happen
+    // inside time the payer already spends, never in front of them. No "finding someone to pay you"
+    // screen exists, and none should — from the payer's seat this is a normal person paying a normal
+    // shop, and the entire marketplace behind it stays invisible.
+    //
+    // Fire-and-forget: an alert must never delay handing the user their unsigned transaction.
+    void (async () => {
+      try {
+        const info = await getOrderAlertInfo(orderId);
+        // sim_behavior NULL = a real person. Nobody to tell on a provider or simulated row.
+        if (info?.merchant?.user_id && info.merchant.sim_behavior == null) {
+          await alertOrderIncoming(info.merchant, info.amountFiat, info.currency);
+        }
+      } catch {
+        /* best-effort */
+      }
+    })();
   }
 
-  // Tell the routed LP NOW, while the payer is still signing and the deposit is confirming — a few
-  // seconds of head start for free, with nothing added to what the payer sees or waits for.
-  //
-  // This is where the payer-experience constraint lands in code: the LP-side race has to happen
-  // inside time the payer already spends, never in front of them. No "finding someone to pay you"
-  // screen exists, and none should — from the payer's seat this is a normal person paying a normal
-  // shop, and the entire marketplace behind it stays invisible.
-  //
-  // Fire-and-forget: an alert must never delay handing the user their unsigned transaction.
-  void (async () => {
-    try {
-      const info = await getOrderAlertInfo(orderId);
-      // sim_behavior NULL = a real person. Nobody to tell on a provider or simulated row.
-      if (info?.merchant?.user_id && info.merchant.sim_behavior == null) {
-        await alertOrderIncoming(info.merchant, info.amountFiat, info.currency);
-      }
-    } catch {
-      /* best-effort */
-    }
-  })();
-
-  const order = await getOrderForUser(orderId, userId);
+  const order = await getOrderForUser(primaryId, userId);
   if (!order) return { error: 'quote_not_found' };
-  return { ok: true, order, unsignedTx: built.unsignedTx, feePayer: built.feePayer, transferId, referenceCode };
+  return { ok: true, order, unsignedTx: built.unsignedTx, feePayer: built.feePayer, transferId, referenceCode: refs[0] };
 }
 
-/** pay_instructions → waiting_payment: the user broadcast the escrow-funding tx; record + advance. */
+/** pay_instructions → waiting_payment: the user broadcast the escrow-funding tx; record + advance
+ *  every leg of the payment, since they all ride that one signature. */
 export async function markFundSubmitted(orderId: string, userId: string): Promise<boolean> {
-  const order = await getOrderForUser(orderId, userId);
-  if (!order || order.state !== 'pay_instructions') return false;
-  await updateOrder(orderId, { state: 'waiting_payment' });
-  await appendOrderEvent(orderId, 'pay_instructions', 'waiting_payment', 'fund_submitted');
-  return true;
+  const ids = await markGroupFundSubmitted(orderId, userId);
+  for (const id of ids) await appendOrderEvent(id, 'pay_instructions', 'waiting_payment', 'fund_submitted');
+  return ids.length > 0;
 }
 
-/** Called by the confirmer when any escrow transfer confirms on-chain; advances the linked order. */
+/** Called by the confirmer when any escrow transfer confirms on-chain; advances the linked order(s). */
 export async function onTransferConfirmed(transferId: string): Promise<void> {
-  const funded = await getOrderByEscrowFundTransfer(transferId);
-  // Advance from waiting_payment OR pay_instructions: a confirmed deposit is authoritative even if the
-  // user's /fund-submit call dropped (otherwise the escrow funds while the order stays stuck → stranded).
-  if (funded && (funded.state === 'waiting_payment' || funded.state === 'pay_instructions')) {
-    // Three claim clocks: a real merchant (sim_behavior NULL) is a person who has to open a banking
-    // app — the human-sized SLA; a provider-driven platform row ('psp') is a vendor disbursement
-    // that outlives 30s but not minutes; everything else is a sim worker reacting in one tick.
-    const slaMs =
-      funded.sim_behavior == null ? MERCHANT_CLAIM_MS : funded.sim_behavior === 'psp' ? PROVIDER_SLA_MS : ORDER_SLA_MS;
-    // The same split decides whether this order is OFFERED at all (0015).
-    //
-    // A human-LP order becomes lockable now: the LP routing picked holds it exclusively until
-    // offer_widens_at, then anyone eligible can take it. A provider- or sim-settled order is born
-    // LOCKED — its merchant row is the settler, no pool was ever consulted, and nobody else may
-    // touch it. That uniformity is what lets claimOrderPayout require a lock with one predicate
-    // instead of carving out an exception for the psp caller.
-    const offered = funded.sim_behavior == null;
-    const now = Date.now();
-    await updateOrder(funded.id, {
-      state: 'payment_detected',
-      expiresAt: new Date(now + slaMs),
-      lockedAt: offered ? null : new Date(now),
-      offerWidensAt: offered ? new Date(now + HEAD_START_MS) : null,
-    });
-    await appendOrderEvent(funded.id, funded.state, 'payment_detected', 'fund_confirmed');
-    if (offered) await alertMerchantOrderReady(funded.id);
+  const funded = await listOrdersByEscrowFundTransfer(transferId);
+  if (funded.length) {
+    // One signature funds every leg of a payment, so one confirmation advances them all.
+    for (const f of funded) {
+      // Advance from waiting_payment OR pay_instructions: a confirmed deposit is authoritative even if
+      // the user's /fund-submit call dropped (otherwise the escrow funds while the order stays stuck →
+      // stranded).
+      if (f.state !== 'waiting_payment' && f.state !== 'pay_instructions') continue;
+      // Three claim clocks: a real merchant (sim_behavior NULL) is a person who has to open a banking
+      // app — the human-sized SLA; a provider-driven platform row ('psp') is a vendor disbursement
+      // that outlives 30s but not minutes; everything else is a sim worker reacting in one tick.
+      const slaMs = f.sim_behavior == null ? MERCHANT_CLAIM_MS : f.sim_behavior === 'psp' ? PROVIDER_SLA_MS : ORDER_SLA_MS;
+      // The same split decides whether this order is OFFERED at all (0015).
+      //
+      // A human-LP order becomes lockable now: the LP routing picked holds it exclusively until
+      // offer_widens_at, then anyone eligible can take it. A provider- or sim-settled order is born
+      // LOCKED — its merchant row is the settler, no pool was ever consulted, and nobody else may
+      // touch it. That uniformity is what lets claimOrderPayout require a lock with one predicate
+      // instead of carving out an exception for the psp caller.
+      const offered = f.sim_behavior == null;
+      const now = Date.now();
+      await updateOrder(f.id, {
+        state: 'payment_detected',
+        expiresAt: new Date(now + slaMs),
+        lockedAt: offered ? null : new Date(now),
+        offerWidensAt: offered ? new Date(now + HEAD_START_MS) : null,
+      });
+      await appendOrderEvent(f.id, f.state, 'payment_detected', 'fund_confirmed');
+      if (offered) await alertMerchantOrderReady(f.id);
+    }
     return;
   }
   const released = await getOrderByEscrowReleaseTransfer(transferId);
@@ -235,10 +263,17 @@ export async function onTransferConfirmed(transferId: string): Promise<void> {
     await updateOrder(released.id, { state: 'completed', expiresAt: null });
     await appendOrderEvent(released.id, 'funds_released', 'completed', 'completed');
     metrics.inc('orders_completed'); // M6
-    const info = await getOrderUserAmount(released.id);
-    if (info) await notifyPaymentSent(info.userId, info.amountUsdc); // M6
+    await notifyGroupSettled(released.id); // M6
   }
 }
+
+/** "You paid X" once per PAYMENT, not once per leg: fires when the last leg has settled either way,
+ *  for the sum that actually reached the receiver. A refunded leg announces itself separately. */
+async function notifyGroupSettled(orderId: string): Promise<void> {
+  const g = await getGroupSettlement(orderId);
+  if (g?.allTerminal && g.completedUsdc > 0) await notifyPaymentSent(g.userId, g.completedUsdc);
+}
+
 
 /** The confirmer AND the Helius webhook both funnel a confirmed transfer through here: advance any
  *  linked order, then notify the recipient of a P2P send. Keeps both confirmation paths in sync. */
@@ -394,6 +429,9 @@ export async function refundToUser(input: {
   await markLatestAttemptOutcome(input.orderId, 'failed'); // M3: the final LP didn't deliver
   metrics.inc('orders_refunded'); // M6
   await notifyRefunded(input.userId, input.amountUsdc); // M6
+  // If this was the last open leg of a split whose other parts DID reach the receiver, those are
+  // announced now — their completion held off because this leg was still in flight.
+  await notifyGroupSettled(input.orderId);
   return true;
 }
 
@@ -469,16 +507,30 @@ export async function rerouteOrder(input: {
    *  below matched zero rows, rerouteOrder returned false, and the worker REFUNDED the payer while
    *  the locking LP was still holding a live lock and paying the fiat leg. */
   currentMerchantId: string | null;
+  /** Who the fiat is for — the pair rule excludes any LP who has paid them recently or holds a
+   *  sibling leg to them, so a failover can't land where routing would never have gone. */
+  payee: string | null;
 }): Promise<boolean> {
   const attempts = await listRoutingAttempts(input.orderId);
   const sequence = attempts.length ? Math.max(...attempts.map((a) => a.sequence)) : 0;
   const currentMerchantId = input.currentMerchantId;
-  if (sequence >= MAX_ROUTING_ATTEMPTS || !currentMerchantId) return false; // give up → refund
+  if (sequence >= MAX_ROUTING_ATTEMPTS || !currentMerchantId) {
+    metrics.inc('routing_reroute_exhausted'); // M6: give up → the caller refunds
+    return false;
+  }
 
   const tried = attempts.map((a) => a.merchantId);
-  const ranked = await rankMerchants({ payoutMethod: input.payoutMethod, amountUsdc: input.amountUsdc, excludeIds: tried });
+  const ranked = await rankMerchants({
+    payoutMethod: input.payoutMethod,
+    amountUsdc: input.amountUsdc,
+    excludeIds: tried,
+    payee: input.payee,
+  });
   const next = ranked[0]?.merchant;
-  if (!next) return false; // no fresh LP that can cover the order → refund
+  if (!next) {
+    metrics.inc('routing_reroute_exhausted'); // M6: no fresh LP can cover it → the caller refunds
+    return false;
+  }
 
   // Atomically reassign while still in payment_detected AND still pointing at the stalled LP — so two
   // concurrent ticks can't both claim. Lost the race → bail.
@@ -494,5 +546,9 @@ export async function rerouteOrder(input: {
   await markLatestAttemptOutcome(input.orderId, 'failed'); // the LP we just left
   await insertRoutingAttempt({ orderId: input.orderId, merchantId: next.id, sequence: sequence + 1, outcome: 'rerouted', reason: 'failover' });
   await appendOrderEvent(input.orderId, 'payment_detected', 'payment_detected', 'rerouted', { toMerchant: next.name });
+  // The new LP gets the same push the original got at fund-confirm — without it their fresh head
+  // start ticked away against a merchant who could only find the order by polling.
+  await alertMerchantOrderReady(input.orderId).catch(() => {});
+  metrics.inc('routing_reroute'); // M6
   return true;
 }

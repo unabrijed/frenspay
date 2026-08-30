@@ -41,13 +41,26 @@ const isProduction = !isDevelopment;
  *  (Railway, Vercel) routinely carries a trailing newline or the quotes it was copied inside, and
  *  neither is visible in the UI. Untrimmed, it passes every set-but-empty check, boots the server
  *  "healthy", then ships a subtly wrong header to the vendor forever — a stage `x-api-key` with a
- *  trailing newline is indistinguishable in our logs from a revoked key (Didit answers 403 to both).
+ *  trailing newline is indistinguishable in our logs from a revoked key (the vendor answers 401 to both).
  *  Guard once here so every secret inherits it, not at each call site. */
 function clean(v: string | undefined): string {
   return (v ?? '')
     .trim()
     .replace(/^(['"])(.*)\1$/s, '$2')
     .trim();
+}
+
+/** A value like `<your template id>` is set-but-unusable: it passes an empty-check, boots the server
+ *  "healthy", then 503s every call at the vendor. Treat placeholder-looking values as missing. Lives
+ *  here rather than beside its caller because `personaLive` below is derived from it — one definition,
+ *  so "is this credential real?" cannot answer differently in two places. */
+export function usableSecret(value: string, prefix?: RegExp): boolean {
+  const v = value.trim();
+  if (!v || /[<>]|your[-_ ]/i.test(v)) return false;
+  // A shape check where the shape is known and stable. Without it `x`, `TODO` and `changeme` all read
+  // as real credentials: personaLive goes true, the apply gate re-imposes itself, tier 2 becomes
+  // unreachable and the funnel shuts again — signalled by nothing but one probe line nobody reads.
+  return prefix ? prefix.test(v) : true;
 }
 
 /** Read an env var through the tier chain (see header). */
@@ -86,6 +99,14 @@ function num(key: string, def: number, range?: { min?: number; max?: number }): 
 // even on a stage backend pointed at mainnet.
 const MAINNET_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const usdcMintValue = env('USDC_MINT');
+
+// KYC credentials are read before the config object so `personaLive` can be DERIVED from them rather
+// than restated. Blanking either variable in the host's panel is the documented way to turn identity
+// verification off (docs/14) — which is why emptiness must be a first-class state here and not an
+// error thrown at boot.
+const kycProviderValue = env('KYC_PROVIDER', isLocal ? 'sim' : 'persona');
+const personaApiKeyValue = env('PERSONA_API_KEY');
+const personaTemplateIdValue = env('PERSONA_TEMPLATE_ID');
 
 export const config = {
   nodeEnv: node_env,
@@ -131,13 +152,30 @@ export const config = {
   // Public base URL of this backend (e.g. https://api.pay.app) — needed to register the Helius
   // webhook callback. Unset locally → registration is skipped and the poller confirms transfers.
   publicBaseUrl: env('PUBLIC_BASE_URL'),
-  // Public base URL of the WEB app (e.g. https://pay.app) — distinct from the one above, which is
-  // this API. Used to deep-link an LP from an out-of-band alert straight at the order they need to
-  // act on. Unset → alerts still send, they just carry no button.
+  // Public base URL of the WEB (payer) app. No consumer since alert deep links moved to lpBaseUrl
+  // — kept because deleting a deployed var name mid-flight is its own change; retire deliberately.
   webBaseUrl: env('WEB_BASE_URL'),
-  // Telegram bot token for LP order alerts (services/alert/telegram.ts). Unset → the adapter is
-  // inert and LPs fall back to the in-app inbox, exactly like an unconfigured Resend key.
+  // Telegram bot token for LP order alerts (services/alert/telegram.ts) AND the LP bot
+  // (services/telegram). Unset → both are inert and LPs fall back to the in-app inbox, exactly
+  // like an unconfigured Resend key.
   telegramBotToken: env('TELEGRAM_BOT_TOKEN'),
+  // Shared secret Telegram echoes back in X-Telegram-Bot-Api-Secret-Token on every webhook call.
+  // /webhooks/telegram FAILS CLOSED without it (unlike Helius, which has the poller as fallback —
+  // the bot has no fallback client, so an open webhook would mean spoofable LP actions).
+  telegramWebhookSecret: env('TELEGRAM_WEBHOOK_SECRET'),
+  // May the LOCAL long-poller run? envSource() can't answer this — it reports the var NAME, not
+  // whether the value was inherited from STAGE_ through env()'s fallback chain — and a local
+  // poller on stage's bot token would consume stage's updates. Raw process.env reads stay in this
+  // file (the one place allowed to): explicit LOCAL_ token, and never the same token stage uses.
+  telegramLongPollEnabled:
+    isLocal &&
+    !!clean(process.env.LOCAL_TELEGRAM_BOT_TOKEN) &&
+    clean(process.env.LOCAL_TELEGRAM_BOT_TOKEN) !== clean(process.env.STAGE_TELEGRAM_BOT_TOKEN),
+  // Public base URL of the LP console (provider.frenspay.xyz) — where alert deep links and the
+  // bot's "Open console" buttons land. Distinct from webBaseUrl (the payer app): LP alerts pointed
+  // there deep-linked at /merchant/... paths that no longer exist. Unset → alerts still send, they
+  // just carry no button.
+  lpBaseUrl: env('LP_BASE_URL'),
 
   // Privy (M3).
   privyAppId: env('PRIVY_APP_ID'),
@@ -145,14 +183,30 @@ export const config = {
   // Optional: paste the verification key from the Privy dashboard to skip a network fetch per verify.
   privyVerificationKey: env('PRIVY_VERIFICATION_KEY'),
 
-  // M7: KYC vendor. 'sim' = the dev instant-promote (no documents); 'didit' = real document+liveness
-  // via Didit's hosted flow + signed webhook. NODE_ENV decides: local → sim, stage/prod → didit
-  // (prod must never self-promote). Override per tier via <PREFIX>_KYC_PROVIDER if needed.
-  kycProvider: env('KYC_PROVIDER', isLocal ? 'sim' : 'didit'),
-  diditApiKey: env('DIDIT_API_KEY'),
-  diditWorkflowId: env('DIDIT_WORKFLOW_ID'),
-  diditWebhookSecret: env('DIDIT_WEBHOOK_SECRET'),
-  diditBaseUrl: env('DIDIT_BASE_URL', 'https://verification.didit.me'),
+  // M7: KYC vendor. 'sim' = the dev instant-promote (no documents); 'persona' = real document+selfie
+  // via Persona's hosted flow, decisions read back by the reconciler poller. NODE_ENV decides:
+  // local → sim, stage/prod → persona (prod must never self-promote). Override per tier via
+  // <PREFIX>_KYC_PROVIDER if needed. A persona_sandbox_ key is refused outside dev/stage (assertKycConfig).
+  kycProvider: kycProviderValue,
+  personaApiKey: personaApiKeyValue,
+  personaTemplateId: personaTemplateIdValue,
+  personaBaseUrl: env('PERSONA_BASE_URL', 'https://api.withpersona.com'),
+  // THE switch. Persona is live only when it is selected AND both credentials are real. Blanking
+  // either one in Railway turns identity verification off everywhere — the route 503s, the poller
+  // and the boot probe stand down, and merchant onboarding falls back to manual KYB review
+  // (docs/14). Deliberately NOT `kycProvider !== 'persona'`: an empty KYC_PROVIDER resolves back to
+  // 'persona' through env()'s fallback, so the provider name alone can never express "off".
+  personaLive:
+    kycProviderValue === 'persona' &&
+    usableSecret(personaApiKeyValue, /^persona_(sandbox|production)_/) &&
+    usableSecret(personaTemplateIdValue, /^itmpl_/),
+
+  // Pay-by-phone OTP (services/phoneOtp.ts). 'console' = the code goes to the server log (local
+  // only; refused on production); 'messagecentral' = Message Central VerifyNow. Stage/prod default
+  // to messagecentral and merely warn when the key is unset — enrollment 502s, nothing else does.
+  phoneOtpProvider: env('PHONE_OTP_PROVIDER', isLocal ? 'console' : 'messagecentral'),
+  messageCentralCustomerId: env('MESSAGECENTRAL_CUSTOMER_ID'),
+  messageCentralKey: env('MESSAGECENTRAL_KEY'),
 
   // v2 cross-chain (docs/19): per-EVM-chain RPCs (Sepolias on dev/stage, mainnets in prod).
   ethereumRpcUrl: env('ETHEREUM_RPC_URL'),
@@ -258,6 +312,16 @@ if (config.adminEmails.length === 0) {
   console.warn(
     `[config] WARNING: ${envSource('ADMIN_EMAILS')} is unset — no root admins. The admin console is ` +
       "reachable only by a user whose users.role is already 'admin'.",
+  );
+}
+// Identity verification being OFF is a deployment state, not a bug — but it is invisible otherwise,
+// and it silently changes who can become a partner. Say it at boot, naming the tier-prefixed variable
+// actually being read so a mis-prefixed one is obvious.
+if (!config.personaLive && !config.isLocal) {
+  console.warn(
+    `[config] WARNING: ${envSource('PERSONA_API_KEY')} / ${envSource('PERSONA_TEMPLATE_ID')} are unset or ` +
+      'placeholders — identity verification is OFF. /kyc/verify returns 503 and partner onboarding ' +
+      'falls back to manual review of the business form.',
   );
 }
 // The f-list loop needs both halves: the key to send and the secret to mint a token the confirm

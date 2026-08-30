@@ -15,6 +15,7 @@ export async function applyAsMerchant(input: {
   name: string;
   payoutMethod: PayoutMethod;
   treasuryAddress: string;
+  contactPhone: string;
 }): Promise<{ id: string }> {
   return req<{ id: string; kybStatus: string }>('/merchants/apply', {
     method: 'POST',
@@ -66,6 +67,15 @@ export async function getMerchantLedger(days = 30): Promise<MerchantLedgerRespon
 /** Where to reach this LP when work lands — the in-app inbox always fires, this is the pocket. */
 export async function setMerchantAlerts(channel: string, address: string): Promise<void> {
   await req<{ ok: true }>('/merchants/alerts', { method: 'POST', body: JSON.stringify({ channel, address }) });
+}
+
+/** The number we call when a payout goes wrong. Separate from apply, which refuses an existing
+ *  provider — so this is the only way anyone who onboarded earlier ever sets one. */
+export async function setContactPhone(phone: string): Promise<{ contactPhone: string }> {
+  return req<{ ok: true; contactPhone: string }>('/merchants/contact-phone', {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  });
 }
 
 /** Report that the fiat leg was paid out-of-band. Starts the payer's dispute window. */

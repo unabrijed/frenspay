@@ -27,7 +27,7 @@ const CSP = [
   // WalletConnect origins per Privy's template: loginMethods is dashboard-inherited, so wallet
   // login could be enabled there — drop these once it's confirmed off.
   "connect-src 'self' https://*.frenspay.xyz https://auth.privy.io https://*.rpc.privy.systems https://fastly.jsdelivr.net https://vitals.vercel-insights.com wss://relay.walletconnect.com wss://relay.walletconnect.org https://explorer-api.walletconnect.com",
-  // Privy auth iframe + Turnstile. Didit KYC is a full-page redirect, not an iframe.
+  // Privy auth iframe + Turnstile. Persona KYC is a full-page redirect, not an iframe.
   "frame-src https://auth.privy.io https://challenges.cloudflare.com https://verify.walletconnect.com https://verify.walletconnect.org",
   "worker-src 'self' blob:",
   "object-src 'none'",
@@ -40,7 +40,7 @@ const CSP = [
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   // @fpay/shared is consumed as raw TS source — let Next compile it.
-  transpilePackages: ['@fpay/shared', '@fpay/ui'],
+  transpilePackages: ['@fpay/shared', '@fpay/ui', '@fpay/app'],
   // There's a stray yarn.lock at the payments/ root (outside the monorepo); pin the
   // workspace root to the monorepo so module resolution + file tracing are correct.
   outputFileTracingRoot: path.join(__dirname, '..', '..'),

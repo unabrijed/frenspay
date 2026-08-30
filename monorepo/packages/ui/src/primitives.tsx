@@ -4,9 +4,13 @@
 import type { CSSProperties, ReactNode } from 'react';
 
 import { Icons } from './icons';
+import { Flag, Input, type LogoState, Mark } from './leaf';
 import { Txt } from './Txt';
 import { Pressable, type St, sx, View } from './rn';
 import { colors, radii, shadows, type } from './theme';
+
+export { Flag, Input, Mark } from './leaf';
+export type { LogoState } from './leaf';
 
 /* ---- generic ---- */
 export const Spacer = () => <View style={{ flex: 1 }} />;
@@ -120,15 +124,12 @@ export function SearchBar({
     <View style={styles.search}>
       <Icons.Search size={18} color={colors.muted} />
       {controlled ? (
-        <input
+        <Input
           value={value}
-          onChange={(e) => onChangeText?.(e.target.value)}
+          onChangeText={onChangeText}
           placeholder={placeholder}
           autoFocus={autoFocus}
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          style={sx(type.searchPh, { flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', padding: 0, color: colors.ink })}
+          style={[type.searchPh, { flex: 1, minWidth: 0 }]}
         />
       ) : (
         <Txt style={type.searchPh}>{placeholder}</Txt>
@@ -138,84 +139,6 @@ export function SearchBar({
 }
 
 /* ---- avatars / logos / squares ---- */
-
-// The mark: two frens, the dots are heads and the curve is a body under each.
-// Geometry mirrors brand/logo-icon.svg (the square cut — the wide lockup dies
-// below 32px in a square tile). Inlined rather than imported from the landing's
-// generated logo-geometry.ts because these are separate apps with no shared UI
-// package; if the artwork changes, `yarn brand` regenerates the icons and this
-// needs the same edit by hand.
-//
-// This replaced a literal <Txt>T</Txt> — a leftover from the Tabroad name that
-// was still shipping on the onboarding welcome screen and the boot splash.
-//
-// Motion lives in globals.css (a @keyframes block needs a stylesheet and this file
-// styles inline), keyed off the classes and data-attributes below.
-//
-// Every gesture is a BODY gesture — the two lean toward each other at rest, and hop
-// together on success. Deliberately no wink and no blink: at this size two dots over
-// a curve are already one bad reading away from a smiley, and an eyelid is what
-// settles that reading the wrong way. The mark is two frens sitting either side, so
-// it moves the way two people do, not the way a face does. Same reason avatars stay
-// initials — a circular avatar slot is exactly where the two collapse into one face.
-export type LogoState = 'idle' | 'joining' | 'success';
-
-// One copy of the curve. The bead rides it via offset-path, and two copies of the
-// same `d` is the one way this file could silently drift from itself.
-const LINK = 'M60 136 C82 132 98 184 128 192 C158 184 174 132 196 136';
-
-// `color`/`bead` default to the terracotta-tile placement (cream mark, terracotta
-// bead). They are separate props because the bead is a GAP in the curve: it has to
-// be painted in whatever the mark is sitting ON, which is not derivable from the
-// mark's own colour.
-export function Mark({
-  size,
-  state = 'idle',
-  enter,
-  color = colors.canvas,
-  bead = colors.accent,
-}: {
-  size: number;
-  state?: LogoState;
-  enter?: boolean;
-  color?: string;
-  bead?: string;
-}) {
-  return (
-    <svg
-      className="fp-logo"
-      data-state={state}
-      data-enter={enter ? '' : undefined}
-      width={size}
-      height={size}
-      viewBox="0 0 256 256"
-      fill="none"
-      aria-hidden="true"
-    >
-      {/* pathLength normalises the draw-on to 0..1, so the entrance keyframes never
-          have to know the curve's real length. */}
-      <path
-        className="fp-logo-link"
-        d={LINK}
-        pathLength={1}
-        stroke={color}
-        strokeWidth="48"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle className="fp-logo-dot fp-logo-dot-l" cx="66" cy="74" r="31" fill={color} />
-      <circle className="fp-logo-dot fp-logo-dot-r" cx="190" cy="74" r="31" fill={color} />
-      {/* Painted in the SURROUND, not the mark, so it reads as a gap travelling
-          along the curve rather than a dot stuck on it. */}
-      <circle
-        className="fp-logo-bead"
-        r={48 * 0.4}
-        fill={bead}
-        style={{ offsetPath: `path("${LINK}")` } as CSSProperties}
-      />
-    </svg>
-  );
-}
 
 export function LogoXl({ state }: { state?: LogoState } = {}) {
   return (
@@ -249,25 +172,6 @@ export function Fav({ label }: { label: string }) {
     <View style={styles.fav}>
       <Txt style={type.avatarInitial}>{label}</Txt>
     </View>
-  );
-}
-/** Circular country flag (circle-flags SVGs off jsDelivr — remote like Material Symbols, never
- *  self-hosted). Decorative: the country name/code is always adjacent text, and a load failure
- *  (offline, unknown ISO) hides the img so rows degrade to text-only. */
-export function Flag({ iso, size = 40 }: { iso: string; size?: number }) {
-  return (
-    // eslint-disable-next-line @next/next/no-img-element -- tiny remote SVGs; next/image adds nothing
-    <img
-      src={`https://cdn.jsdelivr.net/gh/HatScripts/circle-flags@2.7.0/flags/${iso.toLowerCase()}.svg`}
-      width={size}
-      height={size}
-      alt=""
-      loading="lazy"
-      style={{ borderRadius: '50%', flexShrink: 0 }}
-      onError={(e) => {
-        e.currentTarget.style.display = 'none';
-      }}
-    />
   );
 }
 export function ProfileAvatar({ label }: { label: string }) {
@@ -334,13 +238,13 @@ export const SheetBody = ({ children, style }: { children: ReactNode; style?: St
 const border = (c: string, w = 1): CSSProperties => ({ borderWidth: w, borderStyle: 'solid', borderColor: c });
 
 const styles = {
-  card: { backgroundColor: colors.surface, ...border(colors.hair), borderRadius: radii.card, boxShadow: shadows.card },
+  card: { backgroundColor: colors.surface, ...border(colors.hair), borderRadius: radii.card, ...shadows.card },
   list: {
     backgroundColor: colors.surface,
     ...border(colors.hair),
     borderRadius: radii.card,
     overflow: 'hidden',
-    boxShadow: shadows.card,
+    ...shadows.card,
     // A list is content: never shrink it. The RN shim puts minHeight:0 on every View, which removes
     // flexbox's min-content floor — so inside a definite-height column (a sheet, /settings) a long
     // list would shrink to fit, squashing its rows into each other instead of overflowing and scrolling.

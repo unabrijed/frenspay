@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';
 
@@ -16,6 +16,7 @@ import { usePayStore, useStoreHydrated } from '@/store/usePayStore';
 // non-onboarded user back to the entry router (`/`), which re-routes them to the correct step.
 export default function TabsLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const hydrated = useStoreHydrated();
   const onboarded = usePayStore((s) => s.onboarded);
   const hasUnseenInvites = usePayStore((s) => s.invites.length > 0);
@@ -43,7 +44,11 @@ export default function TabsLayout({ children }: { children: ReactNode }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', position: 'relative' }}>{children}</div>
-      <BottomNav />
+      <BottomNav
+        active={pathname.startsWith('/activity') ? 'activity' : 'home'}
+        onHome={() => router.push('/home')}
+        onActivity={() => router.push('/activity')}
+      />
     </div>
   );
 }

@@ -3,10 +3,10 @@
 // Merchants — every LP (real + sim) with the reputation signals routing ranks on, plus the
 // admin actions: KYB approve/reject (pending only) and suspend/reinstate. Every action confirms
 // first and lands in the audit trail server-side.
-import { useCallback, useState } from 'react';
+import { Fragment, useCallback, useState } from 'react';
 
 import type { AdminMerchant } from '@fpay/shared';
-import { KYB_DECIDABLE } from '@fpay/shared';
+import { KYB_DECIDABLE, KYB_FIELDS } from '@fpay/shared';
 import { api } from '@/services/api';
 import {
   Badge,
@@ -46,7 +46,14 @@ export default function Merchants() {
       list.push(
         {
           title: `Approve KYB: ${m.name}`,
-          body: 'The business is verified. They can go online themselves whenever they like — approval does NOT put them into routing.',
+          // This approves the BUSINESS and nothing else. It used to also grant the owner tier 2 while
+          // the identity vendor was off; that was removed on 2026-08-29 (docs/14) because no partner
+          // capability reads a tier — only payer ones do. The Identity column still shows where the
+          // person stands, because admitting a partner the vendor never checked is worth seeing.
+          body:
+            m.ownerKycTier !== undefined && m.ownerKycTier < 2
+              ? 'The business is verified. Note this person has NOT passed an identity check — approve on the strength of the details below, and only if they hold up. Their own payment limits are unchanged.'
+              : 'The business is verified. They can go online themselves whenever they like — approval does NOT put them into routing.',
           confirmLabel: 'Approve',
           onConfirm: async () => {
             await api.merchantKyb(m.id, 'approve');
@@ -124,12 +131,27 @@ export default function Merchants() {
       ) : data.merchants.length === 0 ? (
         <EmptyState text="No merchants yet." />
       ) : (
-        <Table head={['Merchant', 'Rail', 'Status', 'KYB', 'Bond', 'Float', 'Success', 'Disputes', '👍', 'Actions']}>
+        <Table head={['Merchant', 'Contact', 'Identity', 'Rail', 'Status', 'KYB', 'Bond', 'Float', 'Success', 'Disputes', '👍', 'Actions']}>
           {data.merchants.map((m) => (
-            <tr key={m.id} className="hover:bg-surface-low">
+            <Fragment key={m.id}>
+            <tr className="hover:bg-surface-low">
               <Td>
                 <span className="font-medium">{m.name}</span>
                 {!m.real ? <span className="ml-1.5 text-[11px] text-muted">sim</span> : null}
+              </Td>
+              {/* The reviewer's only way to reach a human about the application in front of them. */}
+              <Td>{m.contactPhone ?? <span className="text-muted">—</span>}</Td>
+              {/* Where the person stands, and who decided it. A partner sitting at tier 1 is normal
+                  while the vendor is off — nothing a partner does reads a tier. It is shown so a
+                  reviewer knows an identity check has not happened, not because it blocks anything. */}
+              <Td className="whitespace-nowrap">
+                {m.ownerKycTier === undefined ? (
+                  <span className="text-muted">—</span>
+                ) : (
+                  <Badge tone={m.ownerKycTier >= 2 ? (m.ownerKycProvider === 'manual' ? 'warn' : 'ok') : 'muted'}>
+                    {`tier ${m.ownerKycTier}${m.ownerKycProvider ? ` · ${m.ownerKycProvider}` : ''}`}
+                  </Badge>
+                )}
               </Td>
               <Td>{m.payoutRail}</Td>
               <Td>
@@ -161,6 +183,27 @@ export default function Merchants() {
                 </div>
               </Td>
             </tr>
+            {/* The submission itself. Shown for EVERY decided state, not just open ones: approving a
+                business nobody can read is the first bug this row prevents, and "what did we actually
+                approve this person on?" six weeks later is the second — which matters more now that an
+                approval can also be the identity decision. Labels come from the same shared spec the
+                form rendered, so reviewer and applicant read identical words. */}
+            {m.kybFields ? (
+              <tr className="bg-surface-low/40">
+                <td colSpan={12} className="px-3 pb-2 pt-0">
+                  <div className="flex flex-wrap gap-x-6 gap-y-0.5 text-[12px] text-muted">
+                    {(KYB_FIELDS[m.country] ?? [])
+                      .filter((f) => m.kybFields?.[f.key])
+                      .map((f) => (
+                        <span key={f.key}>
+                          {f.label}: <span className="text-ink">{m.kybFields![f.key]}</span>
+                        </span>
+                      ))}
+                  </div>
+                </td>
+              </tr>
+            ) : null}
+            </Fragment>
           ))}
         </Table>
       )}

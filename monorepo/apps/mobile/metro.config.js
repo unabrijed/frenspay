@@ -28,7 +28,11 @@ const resolveRequestWithPackageExports = (context, moduleName, platform) => {
     return ctx.resolveRequest(ctx, moduleName, platform);
   }
   // `zustand@4` — package exports are incompatible.
-  if (moduleName.startsWith('zustand')) {
+  // `@fpay/*` — the workspace packages map `./*` → `./src/*` in `exports`, and Metro resolves an
+  // exports target as an exact file: no `.native.tsx` twin lookup. Off, Metro falls back to `main`
+  // (`src/index.ts`) and the relative imports inside the barrel get normal platform resolution —
+  // which is why mobile imports the barrels (`@fpay/ui`, `@fpay/app`), never a subpath.
+  if (moduleName.startsWith('zustand') || moduleName.startsWith('@fpay/')) {
     const ctx = { ...context, unstable_enablePackageExports: false };
     return ctx.resolveRequest(ctx, moduleName, platform);
   }

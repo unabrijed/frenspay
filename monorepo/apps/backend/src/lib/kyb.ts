@@ -15,6 +15,8 @@ export interface KybFieldSpec {
   optional?: boolean;
   pattern?: RegExp;
   maxLen?: number;
+  /** Fixed choices — validated as exact membership. The stored value is the label itself. */
+  options?: string[];
 }
 
 const INDIA: KybFieldSpec[] = [
@@ -23,7 +25,6 @@ const INDIA: KybFieldSpec[] = [
   { key: 'pan', pattern: /^[A-Za-z]{5}[0-9]{4}[A-Za-z]$/ },
   { key: 'gstin', optional: true, pattern: /^[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][0-9A-Za-z]{3}$/ },
   { key: 'address', maxLen: 300 },
-  { key: 'contactPhone', maxLen: 20 },
   { key: 'payoutAccount', maxLen: 120 },
 ];
 
@@ -32,12 +33,28 @@ const INDONESIA: KybFieldSpec[] = [
   { key: 'entityType', maxLen: 60 },
   { key: 'nib', pattern: /^[0-9]{13}$/ },
   { key: 'npwp', optional: true, maxLen: 30 },
+  { key: 'nik', pattern: /^[0-9]{16}$/ },
   { key: 'address', maxLen: 300 },
-  { key: 'contactPhone', maxLen: 20 },
   { key: 'payoutAccount', maxLen: 120 },
 ];
 
-export const KYB_FIELDS: Record<string, KybFieldSpec[]> = { IN: INDIA, ID: INDONESIA };
+/** Country-agnostic screening — mirrors SCREENING in shared/kyb.ts. One line per field: check-kyb
+ *  compares each entry's options/optional/maxLen against the shared spec line by line. */
+const SCREENING: KybFieldSpec[] = [
+  { key: 'cryptoExperience', options: ['Just starting', 'Some experience', 'Active user', 'Professional'] },
+  { key: 'profession', options: ['Student', 'Freelancer', 'Full-time employee', 'Business owner', 'Homemaker'] },
+  { key: 'plannedStake', options: ['$2,000 — the minimum', '$2,000–5,000', 'Over $5,000', 'Not sure yet'] },
+  { key: 'commitment', options: ['Under 3 months', '3–6 months', '6–12 months', 'A year or more', 'Not sure yet'] },
+  { key: 'accountDedicated', options: ['Yes, dedicated to this', 'No, I also use it personally', 'I’ll open one before starting'] },
+  { key: 'otherPlatforms', optional: true, maxLen: 200 },
+  { key: 'heardAbout', optional: true, maxLen: 120 },
+  { key: 'contactTelegram', optional: true, maxLen: 64 },
+];
+
+export const KYB_FIELDS: Record<string, KybFieldSpec[]> = {
+  IN: [...INDIA, ...SCREENING],
+  ID: [...INDONESIA, ...SCREENING],
+};
 
 /** Statuses in which the MERCHANT is the one who has to act, so a submission is accepted. */
 export const KYB_SUBMITTABLE: readonly string[] = ['pending', 'more_info'];
@@ -75,6 +92,7 @@ export function validateKybFields(
     }
     if (f.maxLen && v.length > f.maxLen) invalid.push(f.key);
     else if (f.pattern && !f.pattern.test(v)) invalid.push(f.key);
+    else if (f.options && !f.options.includes(v)) invalid.push(f.key);
     else fields[f.key] = v;
   }
   return invalid.length ? { ok: false, invalid } : { ok: true, fields };

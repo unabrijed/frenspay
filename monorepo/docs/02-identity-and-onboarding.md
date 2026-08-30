@@ -30,9 +30,11 @@ Three identities are tracked per person:
 Two optional directory aliases (UPI-mapper style):
 
 - **Phone (E.164)** — strict opt-in: enrolling IS the consent (`users.phone IS NOT NULL` is the
-  flag). The number always comes from the caller's own Privy-verified account (`POST /me/phone`);
-  resolution never returns the phone (reverse lookup structurally impossible); `?phone=` lookups
-  are authed + rate-limited against enumeration.
+  flag). The only number that can be enrolled is one that just received our OTP
+  (`POST /me/phone/start` → `/me/phone/confirm`, `services/phoneOtp.ts`: hashed code or provider
+  ref on the users row, 10-minute expiry, five attempts, 0020) — own-number-only, like UPI's
+  mapper; resolution never returns the phone (reverse lookup structurally impossible); `?phone=`
+  lookups are authed + rate-limited against enumeration.
 - **Country (ISO-2)** — a *dialing default only*: browser locale fills-if-null at sync → verified
   phone's code overwrites on enroll → manual Settings pick overwrites (`POST /me/country`). KYC
   document country is deliberately NOT a source (expats). Also seeds the local display currency —
@@ -111,12 +113,29 @@ objects, not derived strings):
 
 ## KYC
 
-`users.kyc_tier` (0–3) gates money movement server-side against rolling-24h ledger volume
-(structured `limit_exceeded` errors): tier 1 caps P2P (~$100/tx, $300/day), tier 2 unlocks
-merchant cash-out + external-address sends. The vendor seam is real — `services/kyc/`
-(`provider.ts` interface, `didit.ts` vendor, `sim.ts` simulator, `poller.ts` lifecycle) — with
-**Didit the active provider on both stage and prod**. `sim` is local-only: it promotes to tier 2 with
-no documents, and both deployed tiers are mainnet. Testing runbook:
+`users.kyc_tier` gates money movement server-side against rolling-24h ledger volume (structured
+`limit_exceeded` errors). The column defaults to **1**, so in practice the range is **1–3**: tier 0
+`Restricted` exists in the table and nothing outside local dev can ever write it.
+
+| tier | send / tx | send / day | cash out | cash out / tx | cash out / day |
+|---|---|---|---|---|---|
+| 1 Basic | $100 | $300 | ✗ | — | — |
+| 2 Verified | $1,000 | $5,000 | ✓ | $1,000 | $5,000 |
+| 3 Enhanced | $10,000 | $50,000 | ✓ | $10,000 | $50,000 |
+
+Tier 2 is the only jump that changes what is *possible* rather than how much: it unlocks cash-out,
+sends to an external (unhosted) wallet, and cross-chain withdrawal. The cash-out cap is checked
+**twice** — an estimate at `/orders/quote` and the real amount at `POST /orders` under a per-user lock,
+which is what closes quote-stacking. **Every one of these gates is payer-side**; nothing a partner does
+reads a tier ([14](14-manual-onboarding-fallback.md)). The vendor seam is real — `services/kyc/`
+(`provider.ts` interface, `persona.ts` vendor, `sim.ts` simulator, `poller.ts` lifecycle) — with
+**Persona the active provider on both stage and prod** (stage on a sandbox key — force-pass, no real
+documents; prod only with a production key, which Persona issues after its compliance review / Startup
+Program approval). `sim` is local-only, and since 2026-08-29 that is **enforced at the selector** (`getKycProvider`
+returns it only when `isLocal`) rather than by each caller's own guard: it promotes to tier 2 with no
+documents, and both deployed tiers are mainnet. Until then the guard on `/kyc/verify` said
+`isDevelopment`, which includes stage — the hole that wording invited was real. When the vendor's credentials are blank it is **off** rather than broken, and the partner
+funnel switches to human review — [14](14-manual-onboarding-fallback.md). Testing runbook:
 [10-ops-and-roadmap](10-ops-and-roadmap.md).
 
 ## Legalities
@@ -131,11 +150,15 @@ no documents, and both deployed tiers are mainnet. Testing runbook:
 
 - ✅ Privy email-OTP + embedded wallet, `@handle` selection, `/auth/sync` (burn-in-txn invite
   gate), bearer verification, suspension gate, dev fallback.
-- ✅ Directory aliases (phone opt-in, country dialing default). 🟡 Privy-mode phone enrollment
-  waits on the **parked OTP-channel decision** (Privy SMS = US/CA-only; WhatsApp = all regions;
-  the dashboard choice is irreversible — nothing gets enabled without Bridge).
-- ✅ KYC tiers enforced; 🟡 Didit live on stage + prod, but session creation is currently failing
-  (503 `kyc_unavailable`) — diagnosis in the runbook.
+- ✅ Directory aliases (phone opt-in, country dialing default). ✅ Phone enrollment runs on **our
+  own OTP** (0020, `services/phoneOtp.ts`; `console` locally, Message Central on stage/prod —
+  decided 2026-08-22). Privy's phone link is gone: its free plan reaches US/CA only, and WhatsApp
+  or bring-your-own-Twilio both need the $299/mo Scale plan. 🟡 Stage needs the Message Central
+  key set before a real code goes out.
+- ✅ KYC tiers enforced; 🟡 Persona KYC (2026-08-19): stage runs the sandbox key, prod waits
+  on Persona's production approval — runbook in [10](10-ops-and-roadmap.md). ⬜ **Vendor OFF since
+  2026-08-29** — blank credentials are the switch, and partner onboarding falls back to human review
+  that grants tier 2 ([14](14-manual-onboarding-fallback.md), an accepted risk).
 - ✅ Invite codes as real minted objects (0007/0008). ✅ `FREN-` prefix + remint script (🟡 cutover run pending).
 - ✅ Email unique index + 409 collision policy (migration 0010; 🟡 until applied on stage).
 
@@ -143,7 +166,8 @@ no documents, and both deployed tiers are mainnet. Testing runbook:
 
 - Backend: `apps/backend/src/auth.ts`, `services/privy.ts` (`getLinkedEmail`),
   `services/invites.ts` (`mintCode`, `canonicalInviteCode`), `routes/auth.ts` (`/auth/sync`, `/me`,
-  `/me/invites/ack`, `/users/resolve`, `/me/phone`, `/me/country`), `routes/waitlist.ts` (the
+  `/me/invites/ack`, `/users/resolve`, `/me/phone/start|confirm`, `/me/country`),
+  `services/phoneOtp.ts` (the OTP state machine + providers), `routes/waitlist.ts` (the
   f-list door), `db/queries.ts` (`upsertUserByPrivyDid`, `joinWaitlistWithCode`, `mintCodesFor`,
   `canonicalHandle`, `normalizePhone`), `services/kyc/*`.
 - Web: `src/services/privy/PrivyBridge.tsx`, `app/onboarding/{faceid,handle}/page.tsx`,

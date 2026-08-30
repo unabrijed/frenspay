@@ -1,8 +1,7 @@
-// PrivySigner — Signer backed by the Privy embedded Solana wallet.
-// Privy's Expo provider broadcasts via request({ method:'signAndSendTransaction' }), so this
-// conforms to the unified signAndSend(unsignedB64) → signature contract. Only loaded in Privy mode.
-import type { Signer } from '../signer';
-import { loadWeb3 } from '../signer';
+// PrivySigner — Signer backed by the Privy embedded Solana wallet. Privy's Expo provider broadcasts
+// via request({ method: 'signAndSendTransaction' }), so this conforms to the unified
+// signAndSend(unsignedB64) → signature contract. Only loaded in Privy mode.
+import { loadWeb3, type Signer } from '@fpay/app';
 
 // Structural type for the embedded Solana provider's request method (avoids static web3 typing).
 interface SolanaProvider {

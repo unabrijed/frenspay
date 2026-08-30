@@ -29,10 +29,13 @@ const SHARED = 'monorepo/packages/shared/';
 // The design system is its own package, so it needs its own entry — SHARED is literally
 // packages/shared/, and a UI change would otherwise wake nobody.
 const UI = 'monorepo/packages/ui/';
+// The product itself (store, sheets, components) — shared by web and mobile. Mobile has no deploy
+// and lp renders its own screens, so this wakes web alone.
+const APP = 'monorepo/packages/app/';
 
 const SCOPES = {
   admin: [...COMMON, SHARED, 'monorepo/apps/admin/'],
-  web: [...COMMON, SHARED, UI, 'monorepo/apps/web/', 'monorepo/vercel.json'],
+  web: [...COMMON, SHARED, UI, APP, 'monorepo/apps/web/', 'monorepo/vercel.json'],
   lp: [...COMMON, SHARED, UI, 'monorepo/apps/lp/'],
   // Landing consumes neither package, so a shared or UI change must not wake it.
   landing: [...COMMON, 'monorepo/apps/landing/'],
@@ -115,6 +118,9 @@ if (!isMain) {
   // The design system is shared by exactly the two apps that render the product's own UI.
   t(['monorepo/packages/ui/src/primitives.tsx'], { admin: false, web: true, lp: true, landing: false, backend: false }, 'ui wakes web + lp only');
   t(['monorepo/apps/lp/src/app/page.tsx'], { ...none, lp: true }, 'lp code wakes only lp');
+  // The product package is web's alone among the deployables; the phone has no deploy to wake.
+  t(['monorepo/packages/app/src/store.ts'], { ...none, web: true }, 'the product package wakes web only');
+  t(['monorepo/apps/mobile/src/app/_layout.tsx'], none, 'mobile deploys nothing');
   t(['monorepo/yarn.lock'], all, 'a dependency change can move any output');
   t(['monorepo/docs/01-architecture.md'], none, 'docs/ is outside every scope');
   t(['monorepo/DEPLOY.md'], none, 'so are the runbooks');
@@ -129,7 +135,7 @@ if (!isMain) {
   // A typo in the wiring must not silently mute a project.
   assert.equal(shouldBuild('addmin', ['monorepo/apps/admin/README.md']), true, 'unknown app builds');
 
-  console.log('vercel-ignore: OK — 14 cases across 5 targets, docs never deploy, unknowns always build');
+  console.log('vercel-ignore: OK — 16 cases across 5 targets, docs never deploy, unknowns always build');
 } else {
   process.exit(main(process.argv[2]));
 }

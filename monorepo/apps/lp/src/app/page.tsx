@@ -29,6 +29,7 @@ import {
   setMerchantFloat,
   setMerchantOnline,
   setMerchantSpread,
+  setContactPhone,
 } from '@/services/merchant';
 import { useLpStore } from '@/store/useLpStore';
 
@@ -221,11 +222,23 @@ export default function MerchantHome() {
   };
 
   const editSpread = () => {
-    const raw = window.prompt('Your margin, as a percent (0.10 to 3.00)', ((merchant?.spreadBps ?? 50) / 100).toFixed(2));
+    // The ceiling is the tier's, so the prompt names the real bound — a refused edit should read
+    // as "your tier", not as a bug.
+    const capPct = ((merchant?.maxSpreadBps ?? 100) / 100).toFixed(2);
+    const raw = window.prompt(`Your margin, as a percent (0.10 to ${capPct} at your tier)`, ((merchant?.spreadBps ?? 50) / 100).toFixed(2));
     if (raw == null) return;
     const pct = Number(raw);
     if (!Number.isFinite(pct)) return setErr('Enter a percent, like 0.50.');
     return act(() => setMerchantSpread(Math.round(pct * 100)));
+  };
+
+  const editContactPhone = () => {
+    const current = merchant?.contactPhone ?? '+91 ';
+    const raw = window.prompt('The number we call if a payout goes wrong', current);
+    if (raw == null) return;
+    const phone = raw.replace(/\s/g, '');
+    if (!/^\+[1-9]\d{6,14}$/.test(phone)) return setErr('Include the country code, like +919876543210.');
+    return act(() => setContactPhone(phone));
   };
 
   const withdraw = () => {
@@ -240,7 +253,7 @@ export default function MerchantHome() {
   useEffect(() => {
     if (!merchant) return undefined;
     void reload();
-    const t = setInterval(() => void reload(), 8000);
+    const t = setInterval(() => void reload(), 3000);
     return () => clearInterval(t);
   }, [merchant, reload]);
 
@@ -378,6 +391,19 @@ export default function MerchantHome() {
               <Txt style={type.rowName}>Settles to</Txt>
               <Txt style={[type.rowTime, { marginTop: 2 }, clamp1]}>{merchant.treasuryAddress}</Txt>
             </RowMeta>
+          </Row>
+          {/* Everyone who onboarded before this existed has no number on file, and apply refuses an
+              existing provider — so this row is their only way to add one. Nudged, never blocked. */}
+          <Row onPress={editContactPhone}>
+            <RowMeta>
+              <Txt style={type.rowName}>Contact number</Txt>
+              <Txt style={[type.rowTime, { marginTop: 2 }]}>
+                {merchant.contactPhone ?? 'Add a number we can reach you on'}
+              </Txt>
+            </RowMeta>
+            <Txt style={{ ...fonts.body500, fontSize: 14, color: merchant.contactPhone ? colors.muted : colors.accent }}>
+              {merchant.contactPhone ? 'Change' : 'Add'}
+            </Txt>
           </Row>
         </List>
 

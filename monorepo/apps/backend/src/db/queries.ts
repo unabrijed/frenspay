@@ -362,18 +362,84 @@ export async function resolveHandleToFriend(handle: string): Promise<Friend | nu
 }
 
 /** Pay-by-phone mapper lookup. Input must already be normalized E.164. Never returns the phone
- *  itself — reverse lookup (alias → number) is structurally impossible, like UPI's mapper. */
+ *  itself — reverse lookup (alias → number) is structurally impossible, like UPI's mapper.
+ *  status filter for the same reason as resolveHandleToFriend: a suspended or deleted account is
+ *  unresolvable, so money stops at resolve. Existence checks that must count every holder of the
+ *  number (the unique index does) go through phoneInUse instead. */
 export async function findUserByPhone(phone: string): Promise<Friend | null> {
   const { rows } = await getPool().query<{ handle: string; display_name: string | null }>(
-    'select handle, display_name from users where phone = $1',
+    `select handle, display_name from users where phone = $1 and status = 'active'`,
     [phone],
   );
   return rows[0] ? toFriend(rows[0]) : null;
 }
 
-/** Enroll (E.164) or de-enroll (null) the user in pay-by-phone. 23505 = number already enrolled. */
+/** Does ANY row hold this phone, whatever its status — the pre-check twin of uq_users_phone.
+ *  A suspended user's number is still taken; only deletion releases it (deleteUser nulls phone). */
+export async function phoneInUse(phone: string): Promise<boolean> {
+  const { rows } = await getPool().query('select 1 from users where phone = $1', [phone]);
+  return rows.length > 0;
+}
+
+/** De-enroll (null) the user from pay-by-phone. Enrolling goes through enrollPendingPhone. */
 export async function setUserPhone(userId: string, phone: string | null): Promise<void> {
   await getPool().query('update users set phone = $2 where id = $1', [userId, phone]);
+}
+
+// --- pay-by-phone OTP state (0020): one in-flight verification per user, on the users row ---
+
+export interface PhoneOtpPending {
+  phone: string;
+  ref: string;
+  expiresAt: Date;
+  attempts: number;
+}
+
+/** Start/replace — or, with nulls, clear — the in-flight verification. Always resets attempts. */
+export async function setPhoneOtp(
+  userId: string,
+  phone: string | null,
+  ref: string | null,
+  expiresAt: Date | null,
+): Promise<void> {
+  await getPool().query(
+    `update users set phone_pending = $2, phone_otp_ref = $3, phone_otp_expires_at = $4, phone_otp_attempts = 0
+      where id = $1`,
+    [userId, phone, ref, expiresAt],
+  );
+}
+
+/** Count one confirm attempt and return what's pending (null = nothing). Increment-then-judge, so
+ *  two concurrent confirms cannot both read "4 attempts" and both slip under the cap. */
+export async function bumpPhoneOtp(userId: string): Promise<PhoneOtpPending | null> {
+  const { rows } = await getPool().query<{
+    phone_pending: string;
+    phone_otp_ref: string;
+    phone_otp_expires_at: Date;
+    phone_otp_attempts: number;
+  }>(
+    `update users set phone_otp_attempts = phone_otp_attempts + 1
+      where id = $1 and phone_pending is not null
+      returning phone_pending, phone_otp_ref, phone_otp_expires_at, phone_otp_attempts`,
+    [userId],
+  );
+  const r = rows[0];
+  return r
+    ? { phone: r.phone_pending, ref: r.phone_otp_ref, expiresAt: r.phone_otp_expires_at, attempts: r.phone_otp_attempts }
+    : null;
+}
+
+/** Promote the verified pending number to the enrolled alias and clear the verification, in one
+ *  statement. 23505 (uq_users_phone) = enrolled by another account meanwhile. Null = nothing pending. */
+export async function enrollPendingPhone(userId: string): Promise<string | null> {
+  const { rows } = await getPool().query<{ phone: string | null }>(
+    `update users set phone = phone_pending, phone_pending = null, phone_otp_ref = null,
+        phone_otp_expires_at = null, phone_otp_attempts = 0
+      where id = $1 and phone_pending is not null
+      returning phone`,
+    [userId],
+  );
+  return rows[0]?.phone ?? null;
 }
 
 /** Set the dialing-default country (validated ISO alpha-2). Strong sources last-write-wins. */
@@ -651,9 +717,17 @@ export async function countRecentExternalRecipients(fromUserId: string, hours: n
   return Number(rows[0].total);
 }
 
-/** Is this address a merchant settlement treasury? Untracked deposits there are effectively lost. */
+/** Is this address a merchant settlement treasury? Untracked deposits there are effectively lost.
+ *
+ *  APPROVED rows only. This answer REFUSES a send (money.ts), and /merchants/apply takes an arbitrary
+ *  treasury address proven only to be a parseable pubkey — so counting pending rows let one
+ *  never-reviewed application permanently block every fpay send to any address the applicant named.
+ *  The tier-2 gate on apply was the other half of that mitigation and is now conditional (docs/14). */
 export async function isMerchantTreasuryAddress(address: string): Promise<boolean> {
-  const { rowCount } = await getPool().query('select 1 from merchants where treasury_address = $1', [address]);
+  const { rowCount } = await getPool().query(
+    `select 1 from merchants where treasury_address = $1 and kyb_status = 'approved'`,
+    [address],
+  );
   return (rowCount ?? 0) > 0;
 }
 
@@ -827,6 +901,13 @@ export interface MerchantRow {
   alert_address: string | null;
   /** Timed out of LOCKING after repeated abandonment (0015). Not a routing or bond penalty. */
   lock_bans_until: Date | null;
+  /** How we reach the human about a payout that went wrong (0022). E.164. Deliberately NOT
+   *  users.phone — that column is the pay-by-phone directory opt-in, and an LP stored there would
+   *  become findable by every payer. Unverified until a real verification layer lands; the one
+   *  exception is a Telegram contact share, which Telegram itself has verified. */
+  contact_phone: string | null;
+  contact_phone_verified_at: Date | null;
+  contact_phone_verified_via: string | null;
   /** 168 slots (day-of-week × hour, UTC) of historical activity (0017). NULL = never computed,
    *  which scores neutral so a new LP is not punished for having no history. */
   active_hours: number[] | null;
@@ -934,10 +1015,19 @@ export async function updatePayoutProvider(
   return rows[0] ?? null;
 }
 
+/** One leg of a split quote: which LP, how much fiat, and what that LP is owed for it (before the
+ *  platform's cut, which the primary leg's ORDER carries). Stored as `quotes.legs` jsonb. */
+export interface QuoteLeg {
+  merchantId: string;
+  amountFiat: string;
+  amountUsdc: string;
+}
+
 interface QuoteRow {
   id: string;
   user_id: string;
   merchant_id: string | null;
+  legs: QuoteLeg[] | null;
   direction: OrderDirection;
   currency: string;
   amount_inr: string;
@@ -973,6 +1063,9 @@ function toQuote(r: QuoteRow): Quote {
     merchantName: 'Best route',
     payoutDestination: r.payout_destination ?? undefined,
     payoutName: r.payout_name ?? undefined,
+    // How many separate credits the receiver will see. Said before the payer commits — the LPs
+    // behind it stay invisible; the two credits on the shop's side do not.
+    parts: r.legs && r.legs.length > 1 ? r.legs.length : undefined,
     quotedAt: r.created_at.getTime(),
     expiresAt: r.expires_at.getTime(),
   };
@@ -1000,14 +1093,17 @@ export async function insertQuote(input: {
   routeQuality: RouteQuality;
   payoutDestination?: string | null;
   payoutName?: string | null;
+  /** The split plan, when routing had to split — null for a single-LP quote. */
+  legs?: QuoteLeg[] | null;
   expiresAt: Date;
 }): Promise<Quote> {
   const { rows } = await getPool().query<QuoteRow>(
     `with ins as (
        insert into quotes (user_id, merchant_id, direction, currency, amount_inr, amount_usdc, rate,
                            platform_fee_usdc, spread_bps, eta_min_secs, eta_max_secs,
-                           payout_method, route_quality, payout_destination, payout_name, expires_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+                           payout_method, route_quality, payout_destination, payout_name, expires_at,
+                           legs)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb)
        returning *
      )
      select ins.*, m.name as merchant_name
@@ -1029,6 +1125,8 @@ export async function insertQuote(input: {
       input.payoutDestination ?? null,
       input.payoutName ?? null,
       input.expiresAt,
+      // Stringified: pg would otherwise encode a JS array as a Postgres array literal, not JSON.
+      input.legs ? JSON.stringify(input.legs) : null,
     ],
   );
   return toQuote(rows[0]);
@@ -1045,6 +1143,8 @@ export async function getQuoteRowForUser(
   /** Raw numeric string, NOT a number — the deposit split subtracts it exactly (a float difference
    *  can exceed 6dp and parseAmount throws at the chain edge). */
   platformFeeUsdc: string;
+  /** The split plan; null = one LP, the existing columns. */
+  legs: QuoteLeg[] | null;
   expiresAt: Date;
 } | null> {
   const { rows } = await getPool().query<{
@@ -1052,9 +1152,10 @@ export async function getQuoteRowForUser(
     merchant_id: string | null;
     amount_usdc: string;
     platform_fee_usdc: string;
+    legs: QuoteLeg[] | null;
     expires_at: Date;
   }>(
-    'select id, merchant_id, amount_usdc, platform_fee_usdc, expires_at from quotes where id = $1 and user_id = $2',
+    'select id, merchant_id, amount_usdc, platform_fee_usdc, legs, expires_at from quotes where id = $1 and user_id = $2',
     [quoteId, userId],
   );
   const r = rows[0];
@@ -1064,15 +1165,22 @@ export async function getQuoteRowForUser(
         merchantId: r.merchant_id,
         amountUsdc: Number(r.amount_usdc),
         platformFeeUsdc: r.platform_fee_usdc,
+        legs: r.legs,
         expiresAt: r.expires_at,
       }
     : null;
 }
 
-/** The platform's in-rate cut for an order, as the raw numeric string ("0.000000" on pre-fee rows). */
+/**
+ * The platform's in-rate cut for an order, as the raw numeric string ("0.000000" on pre-fee rows).
+ * One fee per conversion, however many legs: it was split off at deposit from the PRIMARY leg's
+ * vault only, so only the primary's release under-records it and only the primary's refund returns
+ * it. A leg answering with the quote's fee would refund it N times over.
+ */
 export async function getOrderPlatformFee(orderId: string): Promise<string> {
   const { rows } = await getPool().query<{ platform_fee_usdc: string }>(
-    'select q.platform_fee_usdc from orders o join quotes q on q.id = o.quote_id where o.id = $1',
+    `select case when o.group_id is null then q.platform_fee_usdc else '0' end as platform_fee_usdc
+       from orders o join quotes q on q.id = o.quote_id where o.id = $1`,
     [orderId],
   );
   return rows[0]?.platform_fee_usdc ?? '0';
@@ -1084,6 +1192,8 @@ interface OrderJoinRow {
   state: OrderState;
   resolution: OrderResolution | null;
   amount_usdc: string;
+  /** This row's own fiat: its leg share, or the quote's whole amount. */
+  amount_fiat: string;
   reference_code: string;
   payout_claimed_at: Date | null;
   payout_utr: string | null;
@@ -1111,6 +1221,7 @@ interface OrderJoinRow {
 const ORDER_SELECT = `
   select o.id, o.user_id, o.state, o.resolution, o.amount_usdc, o.reference_code,
          o.payout_claimed_at, o.payout_utr, o.feedback_up, o.created_at, o.updated_at, o.quote_id,
+         coalesce(o.amount_fiat, q.amount_inr) as amount_fiat,
          q.direction as q_direction, q.currency as q_currency, q.amount_inr as q_amount_inr, q.amount_usdc as q_amount_usdc,
          q.rate as q_rate,
          q.eta_min_secs as q_eta_min_secs, q.eta_max_secs as q_eta_max_secs,
@@ -1151,6 +1262,7 @@ function toOrder(r: OrderJoinRow, events?: OrderEvent[]): Order {
     direction: r.q_direction,
     referenceCode: r.reference_code,
     amountUsdc: r.amount_usdc,
+    amountFiat: r.amount_fiat,
     quote,
     merchantName: quote.merchantName,
     payoutMethod: r.q_payout_method,
@@ -1175,10 +1287,15 @@ export async function insertOrder(input: {
   state: OrderState;
   escrowFundTransferId: string | null;
   note?: string;
+  /** Legs only: the primary leg's id. Null for the primary and for every single-LP order. */
+  groupId?: string | null;
+  /** Legs only: this leg's fiat, canonical string. Null = the quote's whole amount. */
+  amountFiat?: string | null;
 }): Promise<string> {
   const { rows } = await getPool().query<{ id: string }>(
-    `insert into orders (user_id, quote_id, merchant_id, amount_usdc, reference_code, state, escrow_fund_transfer_id, note)
-     values ($1,$2,$3,$4,$5,$6,$7,$8)
+    `insert into orders (user_id, quote_id, merchant_id, amount_usdc, reference_code, state, escrow_fund_transfer_id, note,
+                         group_id, amount_fiat)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      returning id`,
     [
       input.userId,
@@ -1189,9 +1306,53 @@ export async function insertOrder(input: {
       input.state,
       input.escrowFundTransferId,
       input.note ?? null,
+      input.groupId ?? null,
+      input.amountFiat ?? null,
     ],
   );
   return rows[0].id;
+}
+
+/** Every leg of the payment `orderId` belongs to, primary first — `(o.id = $1 or o.group_id = $1)`
+ *  is the whole definition of "the payment". One row for an ordinary single-LP order. */
+export async function listLegsForUser(primaryId: string, userId: string): Promise<Order[]> {
+  const { rows } = await getPool().query<OrderJoinRow>(
+    `${ORDER_SELECT}
+      where (o.id = $1 or o.group_id = $1) and o.user_id = $2
+      order by o.group_id nulls first, o.created_at, o.id`,
+    [primaryId, userId],
+  );
+  return rows.map((r) => toOrder(r));
+}
+
+/** Has every leg of this order's payment settled, and how much of it completed? Drives the one
+ *  "you paid X" notification per payment rather than one per leg. */
+export async function getGroupSettlement(
+  orderId: string,
+): Promise<{ userId: string; completedUsdc: number; allTerminal: boolean } | null> {
+  const { rows } = await getPool().query<{ user_id: string; completed_usdc: string; all_terminal: boolean }>(
+    `with g as (select coalesce(group_id, id) as gid, user_id from orders where id = $1)
+     select g.user_id,
+            coalesce(sum(x.amount_usdc) filter (where x.state = 'completed'), 0)::text as completed_usdc,
+            bool_and(x.state in ('completed','refunded','failed')) as all_terminal
+       from g join orders x on x.id = g.gid or x.group_id = g.gid
+      group by g.user_id`,
+    [orderId],
+  );
+  const r = rows[0];
+  return r ? { userId: r.user_id, completedUsdc: Number(r.completed_usdc), allTerminal: r.all_terminal } : null;
+}
+
+/** pay_instructions → waiting_payment for every leg of the payment: they all ride the one signature
+ *  the payer just broadcast. Returns the ids advanced (empty = nothing was pending). */
+export async function markGroupFundSubmitted(orderId: string, userId: string): Promise<string[]> {
+  const { rows } = await getPool().query<{ id: string }>(
+    `update orders set state = 'waiting_payment', updated_at = now()
+      where (id = $1 or group_id = $1) and user_id = $2 and state = 'pay_instructions'
+      returning id`,
+    [orderId, userId],
+  );
+  return rows.map((r) => r.id);
 }
 
 export async function appendOrderEvent(
@@ -1249,6 +1410,8 @@ export async function listOrdersForUser(
   const { rows } = await getPool().query<OrderJoinRow>(
     `${ORDER_SELECT}
       where o.user_id = $1
+        -- One row per PAYMENT: a split's legs hang off their primary and are not separate history.
+        and o.group_id is null
         and ($3::timestamptz is null or (o.created_at, o.id) < ($3::timestamptz, $4::uuid))
       order by o.created_at desc, o.id desc limit $2`,
     [userId, n + 1, c?.at ?? null, c?.id ?? null],
@@ -1353,7 +1516,7 @@ export async function listWorkerOrders(): Promise<WorkerOrderRow[]> {
             o.payout_provider_id, o.payout_providers_tried, o.payout_provider_ref,
             o.locked_at, o.lock_expires_at,
             m.treasury_address, m.sim_behavior, q.payout_method,
-            q.currency, q.amount_inr, q.payout_destination, q.payout_name,
+            q.currency, coalesce(o.amount_fiat, q.amount_inr) as amount_inr, q.payout_destination, q.payout_name,
             exists (select 1 from disputes d where d.order_id = o.id and d.status = 'open') as dispute_open
        from orders o
        left join merchants m on m.id = o.merchant_id
@@ -1391,17 +1554,19 @@ export async function getOrderByReference(reference: string): Promise<{
   return rows[0] ?? null;
 }
 
-/** Includes the merchant's sim_behavior so the caller can pick a human-sized SLA (NULL = real). */
-export async function getOrderByEscrowFundTransfer(
+/** Every order the one deposit signature funded — one, or every leg of a split payment. Includes the
+ *  merchant's sim_behavior so the caller can pick a human-sized SLA (NULL = real). */
+export async function listOrdersByEscrowFundTransfer(
   transferId: string,
-): Promise<{ id: string; state: OrderState; sim_behavior: string | null } | null> {
+): Promise<{ id: string; state: OrderState; sim_behavior: string | null }[]> {
   const { rows } = await getPool().query<{ id: string; state: OrderState; sim_behavior: string | null }>(
     `select o.id, o.state, m.sim_behavior
        from orders o left join merchants m on m.id = o.merchant_id
-      where o.escrow_fund_transfer_id = $1`,
+      where o.escrow_fund_transfer_id = $1
+      order by o.group_id nulls first, o.created_at`,
     [transferId],
   );
-  return rows[0] ?? null;
+  return rows;
 }
 
 export async function getOrderByEscrowReleaseTransfer(transferId: string): Promise<{ id: string; state: OrderState } | null> {
@@ -1479,16 +1644,18 @@ export async function casOrderState(
 export async function cancelOrder(orderId: string, userId: string): Promise<boolean> {
   // Never fail an order whose escrow deposit was already broadcast (signature set) — that would strand
   // funded USDC on-chain with no release/refund path. Only cancel orders that never funded.
-  const { rowCount } = await getPool().query(
+  // Every leg of the payment goes together: they share the one unsigned deposit being abandoned.
+  const { rows } = await getPool().query<{ id: string }>(
     `update orders set state = 'failed', updated_at = now()
-      where id = $1 and user_id = $2 and state in ('pay_instructions','waiting_payment')
+      where (id = $1 or group_id = $1) and user_id = $2 and state in ('pay_instructions','waiting_payment')
         and not exists (
           select 1 from transfers t where t.id = orders.escrow_fund_transfer_id and t.signature is not null
-        )`,
+        )
+      returning id`,
     [orderId, userId],
   );
-  if ((rowCount ?? 0) > 0) await appendOrderEvent(orderId, null, 'failed', 'canceled_by_user');
-  return (rowCount ?? 0) > 0;
+  for (const r of rows) await appendOrderEvent(r.id, null, 'failed', 'canceled_by_user');
+  return rows.length > 0;
 }
 
 /**
@@ -1619,13 +1786,61 @@ export async function getOrderState(orderId: string): Promise<OrderState | null>
 
 /* ---- M4: merchant lifecycle, live float, performance stats, disputes ---- */
 
-/** Committed (in-flight) float per merchant: sum of amounts on non-terminal assigned orders. */
+/**
+ * Order states in which an LP still owes someone a fiat payout — THE one definition of "in flight".
+ *
+ * Routing, the lock's capacity re-check, the LP console's headroom and the stake-withdrawal gate
+ * all used to carry their own copy, and two of them disagreed: routing also counted
+ * `pay_instructions`/`waiting_payment`, which are a payer's unsigned intent (they expire unfunded
+ * after 15 min). Counting those parked real capacity on abandoned wallet pop-ups. An LP's obligation
+ * starts at `payment_detected` — the escrow is funded and somebody must now be paid — so that is
+ * where the count starts. The only cost: two orders funded inside one 45-s quote window can both be
+ * provisionally assigned to the same LP; the lock CAS refuses the second, which costs that payer the
+ * 20-s head start before the pool takes it, never money.
+ */
+export const LIVE_ORDER_STATE_LIST = ['payment_detected', 'merchant_confirms', 'funds_released'] as const;
+const LIVE_ORDER_STATES = `(${LIVE_ORDER_STATE_LIST.map((s) => `'${s}'`).join(',')})`;
+
+/**
+ * The pair rule, as one SQL fragment (the body of an `exists`): has LP `lp` paid `payee` within
+ * `days`, or are they holding a live order to `payee` right now?
+ *
+ * The history it reads is the claim itself. `claimOrderPayout` is the only writer of
+ * `payout_claimed_at`, and after a claim `merchant_id` can never change (lock and reroute both
+ * require it null) — so `orders ⋈ quotes` IS the complete, atomic who-paid-whom-when ledger, and
+ * the `payee_payments` view (0019) is that same join with a name. The live arm is what keeps two
+ * legs of one payment on two different LPs without a line of extra code.
+ *
+ * One fragment, three attach points (routing's blocked set, the lock CAS, the pool view), because
+ * a rule that lives in two of the three leaks through the third.
+ */
+const payeePaidSql = (p: { lp: string; payee: string; days: string; exceptOrder?: string }) =>
+  `select 1 from orders o2 join quotes q2 on q2.id = o2.quote_id
+    where o2.merchant_id = ${p.lp} and q2.payout_destination = ${p.payee}
+      ${p.exceptOrder ? `and o2.id <> ${p.exceptOrder}` : ''}
+      and (o2.payout_claimed_at > now() - make_interval(days => ${p.days})
+           or o2.state in ${LIVE_ORDER_STATES})`;
+
+/** Human LPs the pair rule bars from `payee` today. Provider (`psp`) and sim rows are exempt: the
+ *  rule is about a personal bank account repeating a receiver, and the platform's one Indonesia row
+ *  pays every warung in the country. A null payee never matches anything — the rule is off for it. */
+export async function blockedMerchantsForPayee(payee: string, days: number): Promise<string[]> {
+  const { rows } = await getPool().query<{ id: string }>(
+    `select m.id from merchants m
+      where m.sim_behavior is null
+        and exists (${payeePaidSql({ lp: 'm.id', payee: '$1', days: '$2' })})`,
+    [payee, days],
+  );
+  return rows.map((r) => r.id);
+}
+
+/** Committed (in-flight) float per merchant: sum of amounts on funded, unsettled orders. */
 export async function committedFloatByMerchant(): Promise<Record<string, number>> {
   const { rows } = await getPool().query<{ merchant_id: string; committed: string }>(
     `select merchant_id, coalesce(sum(amount_usdc), 0) as committed
        from orders
       where merchant_id is not null
-        and state in ('pay_instructions','waiting_payment','payment_detected','merchant_confirms','funds_released')
+        and state in ${LIVE_ORDER_STATES}
       group by merchant_id`,
   );
   const out: Record<string, number> = {};
@@ -1669,19 +1884,30 @@ export async function updateMerchantActivity(id: string, hours: number[]): Promi
   await getPool().query(`update merchants set active_hours = $2::smallint[] where id = $1`, [id, hours]);
 }
 
-/** Released/failed attempt counts per merchant from the routing audit log (drives success_rate). */
-export async function merchantOutcomeCounts(): Promise<Record<string, { released: number; failed: number }>> {
-  const { rows } = await getPool().query<{ merchant_id: string; outcome: string; n: string }>(
-    `select merchant_id, outcome, count(*) as n
+/** Released/failed attempt counts per merchant from the routing audit log. Lifetime AND 90-day
+ *  counts in one pass: the lifetime pair is the tier volume gate (a rung earned by volume must not
+ *  dissolve in a quiet quarter — that would silently cut leverage and strand in-flight capacity),
+ *  while the recent pair drives success_rate, so performance is what you've done lately. */
+export async function merchantOutcomeCounts(): Promise<
+  Record<string, { released: number; failed: number; releasedRecent: number; failedRecent: number }>
+> {
+  const { rows } = await getPool().query<{ merchant_id: string; outcome: string; n: string; n_recent: string }>(
+    `select merchant_id, outcome, count(*) as n,
+            count(*) filter (where created_at > now() - interval '90 days') as n_recent
        from order_routing_attempts
       where outcome in ('released','failed')
       group by merchant_id, outcome`,
   );
-  const out: Record<string, { released: number; failed: number }> = {};
+  const out: Record<string, { released: number; failed: number; releasedRecent: number; failedRecent: number }> = {};
   for (const r of rows) {
-    const e = (out[r.merchant_id] ??= { released: 0, failed: 0 });
-    if (r.outcome === 'released') e.released = Number(r.n);
-    else e.failed = Number(r.n);
+    const e = (out[r.merchant_id] ??= { released: 0, failed: 0, releasedRecent: 0, failedRecent: 0 });
+    if (r.outcome === 'released') {
+      e.released = Number(r.n);
+      e.releasedRecent = Number(r.n_recent);
+    } else {
+      e.failed = Number(r.n);
+      e.failedRecent = Number(r.n_recent);
+    }
   }
   return out;
 }
@@ -1704,6 +1930,9 @@ export async function merchantCompletionStats(): Promise<Record<string, { avgSec
           where a.order_id = o.id order by sequence desc limit 1
        ) att on true
       where o.state = 'completed' and o.merchant_id is not null
+        -- 90-day window on the RELEASE, the event being averaged — an LP who got faster
+        -- should shed their old average within a season, not carry it forever.
+        and rel.created_at > now() - interval '90 days'
       group by o.merchant_id`,
   );
   const out: Record<string, { avgSecs: number; n: number }> = {};
@@ -1711,12 +1940,17 @@ export async function merchantCompletionStats(): Promise<Record<string, { avgSec
   return out;
 }
 
-/** Upheld-dispute + completed-order counts per merchant (drives dispute_rate). */
+/** Upheld-dispute + completed-order counts per merchant (drives dispute_rate). The 90-day bounds
+ *  live INSIDE the filter clauses, each on its own table's timestamp (`resolved_at` for the
+ *  dispute, `updated_at` — the terminal write — for the completed order): a shared bound in the
+ *  WHERE would turn both left joins inner and drop every zero-history merchant from the result. */
 export async function merchantDisputeStats(): Promise<Record<string, { upheld: number; completed: number }>> {
   const { rows } = await getPool().query<{ merchant_id: string; upheld: string; completed: string }>(
     `select m.id as merchant_id,
-            count(distinct d.id) filter (where d.resolution = 'upheld') as upheld,
-            count(distinct o.id) filter (where o.state = 'completed') as completed
+            count(distinct d.id) filter (where d.resolution = 'upheld'
+                                           and d.resolved_at > now() - interval '90 days') as upheld,
+            count(distinct o.id) filter (where o.state = 'completed'
+                                           and o.updated_at > now() - interval '90 days') as completed
        from merchants m
        left join orders o on o.merchant_id = m.id
        left join disputes d on d.merchant_id = m.id
@@ -1728,7 +1962,10 @@ export async function merchantDisputeStats(): Promise<Record<string, { upheld: n
 }
 
 /** 👍/👎 counts per merchant (drives positive_rate). Groups by orders.merchant_id, which reroute
- *  rewrites — so feedback lands on the FINAL merchant, same convention as merchantDisputeStats. */
+ *  rewrites — so feedback lands on the FINAL merchant, same convention as merchantDisputeStats.
+ *  Deliberately LIFETIME while the other rates are 90-day: `feedback_up` is a bare boolean with no
+ *  timestamp of its own, and `orders.created_at` is when the order was born, not when the 👍
+ *  landed — windowing on the wrong clock is worse than not windowing. Needs a column to change. */
 export async function merchantFeedbackStats(): Promise<Record<string, { up: number; n: number }>> {
   const { rows } = await getPool().query<{ merchant_id: string; up: string; n: string }>(
     `select merchant_id, count(*) filter (where feedback_up) as up, count(*) as n
@@ -1741,16 +1978,25 @@ export async function merchantFeedbackStats(): Promise<Record<string, { up: numb
   return out;
 }
 
-/** Write recomputed live signals back to a merchant. */
+/** Write recomputed live signals back to a merchant. `maxSpreadBps` is the new tier's price cap:
+ *  clamping in the same write means a tier downgrade can never leave a stored spread above what
+ *  the tier allows, with no window between the two. */
 export async function updateMerchantStats(
   id: string,
-  s: { successRate: number; avgCompletionSecs: number; disputeRate: number; positiveRate: number; tier: number },
+  s: {
+    successRate: number;
+    avgCompletionSecs: number;
+    disputeRate: number;
+    positiveRate: number;
+    tier: number;
+    maxSpreadBps: number;
+  },
 ): Promise<void> {
   await getPool().query(
     `update merchants set success_rate = $2, avg_completion_secs = $3, dispute_rate = $4, positive_rate = $5,
-                          tier = $6
+                          tier = $6, spread_bps = least(spread_bps, $7)
       where id = $1`,
-    [id, s.successRate, Math.round(s.avgCompletionSecs), s.disputeRate, s.positiveRate, s.tier],
+    [id, s.successRate, Math.round(s.avgCompletionSecs), s.disputeRate, s.positiveRate, s.tier, s.maxSpreadBps],
   );
 }
 
@@ -1809,10 +2055,20 @@ export async function setUserStatus(id: string, status: 'active' | 'suspended'):
  * sharing the prefix, astronomically unlikely at this userbase; widen to the full id if it matters.
  */
 export async function deleteUser(id: string): Promise<void> {
+  // phone and telegram released for the email's reason: every one of those uniques is partial
+  // (`where ... is not null`), so a retained value stays claimed by a row nobody can reach. A kept
+  // number left the deleted account resolvable by phone — payable, even; a kept chat id would make
+  // the Telegram link answer telegram_taken forever, against a dead account, with no release path.
   await getPool().query(
     `update users set status = 'deleted',
                       handle = '@deleted_' || left(replace(id::text, '-', ''), 12),
-                      email  = null
+                      email  = null,
+                      phone  = null,
+                      telegram_chat_id         = null,
+                      telegram_username        = null,
+                      telegram_linked_at       = null,
+                      telegram_link_token_hash = null,
+                      telegram_link_expires_at = null
       where id = $1`,
     [id],
   );
@@ -1831,17 +2087,54 @@ export async function insertMerchantApplication(input: {
   payoutRail: PayoutMethod;
   treasuryAddress: string;
   country: string;
+  contactPhone: string;
 }): Promise<string> {
-  const { rows } = await getPool().query<{ id: string }>(
-    `insert into merchants (user_id, name, payout_rail, status, treasury_address, kyb_status,
-                            sim_behavior, bond_usdc, float_usdc, country)
-     values ($1, $2, $3, 'offline', $4, 'pending', null, 0, 0, $5)
-     returning id`,
-    [input.userId, input.name, input.payoutRail, input.treasuryAddress, input.country],
+  // One transaction: the row and the role mirror are one fact. Un-transacted, a failure between
+  // them left an application whose owner still read as a plain user.
+  // The alert columns are seeded from an ALREADY-LINKED Telegram account, which is the only way
+  // they are ever written outside the link handshake — otherwise someone who connects Telegram
+  // BEFORE applying is never wired up, and nothing later would do it.
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+    const { rows } = await client.query<{ id: string }>(
+      `insert into merchants (user_id, name, payout_rail, status, treasury_address, kyb_status,
+                              sim_behavior, bond_usdc, float_usdc, country, contact_phone,
+                              alert_channel, alert_address)
+       select $1, $2, $3, 'offline', $4, 'pending', null, 0, 0, $5, $6,
+              case when u.telegram_chat_id is not null then 'telegram' end,
+              u.telegram_chat_id
+         from users u where u.id = $1
+       returning id`,
+      [input.userId, input.name, input.payoutRail, input.treasuryAddress, input.country, input.contactPhone],
+    );
+    // Informational role mirror (capability stays merchants.user_id); never demotes an admin.
+    await client.query(`update users set role = 'merchant' where id = $1 and role = 'user'`, [input.userId]);
+    await client.query('commit');
+    return rows[0].id;
+  } catch (err) {
+    await client.query('rollback');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/** Set (or replace) the phone we reach this LP on. `verifiedVia` is null for a typed number — the
+ *  verification layer is stubbed — and 'telegram' when Telegram itself vouched for it. */
+export async function setMerchantContactPhone(
+  merchantId: string,
+  phone: string,
+  verifiedVia?: 'telegram',
+): Promise<void> {
+  await getPool().query(
+    `update merchants
+        set contact_phone = $2,
+            contact_phone_verified_via = $3,
+            contact_phone_verified_at = case when $3::text is null then null else now() end
+      where id = $1`,
+    [merchantId, phone, verifiedVia ?? null],
   );
-  // Informational role mirror (capability stays merchants.user_id); never demotes an admin.
-  await getPool().query(`update users set role = 'merchant' where id = $1 and role = 'user'`, [input.userId]);
-  return rows[0].id;
 }
 
 /** The merchant account this user runs, if any — the entire merchant-role signal. */
@@ -1923,10 +2216,6 @@ export async function creditStakeOnConfirm(transferId: string, stakeTreasuryAddr
   );
   return rows[0] ? Number(rows[0].amount_usdc) : 0;
 }
-
-/** Order states that mean an LP still owes someone a fiat payout — same set committedFloatByMerchant
- *  treats as in-flight. Money backing these is not the LP's to withdraw. */
-const LIVE_ORDER_STATES = `('pay_instructions','waiting_payment','payment_detected','merchant_confirms','funds_released')`;
 
 /**
  * Ask for stake back. ONE statement on purpose: the bond debit and the request row must land
@@ -2038,8 +2327,14 @@ export async function lockOrder(input: {
    *  here. Tier only moves on the ~80s stats tick; bond and float are the volatile halves and are
    *  read fresh inside the statement. */
   leverage: number;
-}): Promise<{ payoutDestination: string | null; payoutName: string | null } | null> {
-  const { rows } = await getPool().query<{ payout_destination: string | null; payout_name: string | null }>(
+  /** How long after paying a receiver this LP is barred from paying them again (routing.PAYEE_COOLDOWN_DAYS). */
+  payeeCooldownDays: number;
+}): Promise<{ payoutDestination: string | null; payoutName: string | null; afterWiden: boolean } | null> {
+  const { rows } = await getPool().query<{
+    payout_destination: string | null;
+    payout_name: string | null;
+    offer_widens_at: Date | null;
+  }>(
     // EVERY eligibility rule is re-checked HERE, inside the CAS. It previously checked only the
     // order's own state plus the LP's online/kyb/ban flags, which meant the pool query in the route
     // was the only thing enforcing rail, country, price and capacity — a check-then-act split
@@ -2081,23 +2376,37 @@ export async function lockOrder(input: {
                      select sum(o2.amount_usdc) from orders o2
                       where o2.merchant_id = $2
                         and o2.id <> o.id
-                        and o2.state in ('payment_detected','merchant_confirms','funds_released')
+                        and o2.state in ${LIVE_ORDER_STATES}
                    ), 0)
                    <= least(m.float_usdc, m.bond_usdc * $5)
+               -- The pair rule. A personal account paying the same receiver again and again is the
+               -- documented account-freeze pattern, so it is a filter, not a score: this LP must not
+               -- have paid q.payout_destination inside the cooldown, and must not be holding another
+               -- live order to them (which is also what puts two legs of one payment on two LPs).
+               -- Re-checked here because the pool path never goes through rankMerchants.
+               and not exists (${payeePaidSql({ lp: '$2', payee: 'q.payout_destination', days: '$6', exceptOrder: 'o.id' })})
           )
-       returning o.quote_id
+       returning o.quote_id, o.offer_widens_at
      )
-     select q.payout_destination, q.payout_name from quotes q join taken t on t.quote_id = q.id`,
+     select q.payout_destination, q.payout_name, t.offer_widens_at
+       from quotes q join taken t on t.quote_id = q.id`,
     [
       input.orderId,
       input.merchantId,
       Math.round(input.ttlMs / 1000),
       input.country,
       input.leverage,
+      input.payeeCooldownDays,
     ],
   );
   if (!rows[0]) return null;
-  return { payoutDestination: rows[0].payout_destination, payoutName: rows[0].payout_name };
+  return {
+    payoutDestination: rows[0].payout_destination,
+    payoutName: rows[0].payout_name,
+    // Whether the head start had already lapsed when this lock won — i.e. a pool LP took it, not
+    // the routed one. Read from the row, not re-derived by the caller, so the answer is the CAS's.
+    afterWiden: rows[0].offer_widens_at != null && rows[0].offer_widens_at.getTime() <= Date.now(),
+  };
 }
 
 /** Hand an order back before the TTL runs out. No penalty: the honest exit has to be cheaper than
@@ -2160,7 +2469,7 @@ export async function getOrderAlertInfo(
   orderId: string,
 ): Promise<{ merchant: MerchantRow | null; amountFiat: string; currency: string } | null> {
   const { rows } = await getPool().query<MerchantRow & { amount_inr: string; currency: string }>(
-    `select m.*, q.amount_inr, q.currency
+    `select m.*, coalesce(o.amount_fiat, q.amount_inr) as amount_inr, q.currency
        from orders o
        join quotes q on q.id = o.quote_id
        left join merchants m on m.id = o.merchant_id
@@ -2208,8 +2517,8 @@ export interface MerchantEarningsRow {
 export async function merchantEarnings(merchantId: string, sinceDays: number): Promise<MerchantEarningsRow> {
   const { rows } = await getPool().query<MerchantEarningsRow>(
     `select count(*)::int as settled,
-            coalesce(sum(t.amount_usd), 0)::text as usdc_in,
-            coalesce(sum(q.amount_inr), 0)::text as fiat_out,
+            coalesce(sum(t.amount_usdc), 0)::text as usdc_in,
+            coalesce(sum(coalesce(o.amount_fiat, q.amount_inr)), 0)::text as fiat_out,
             min(q.currency) as currency
        from orders o
        join quotes q on q.id = o.quote_id
@@ -2434,7 +2743,7 @@ export async function listMerchantOrders(merchantId: string, limit = 50): Promis
     `select o.id, o.reference_code, o.state, o.resolution, o.amount_usdc, o.payout_utr,
             o.payout_claimed_at, o.expires_at, o.created_at,
             o.locked_at, o.lock_expires_at, o.offer_widens_at, true as mine,
-            q.currency, q.amount_inr, q.payout_method,
+            q.currency, coalesce(o.amount_fiat, q.amount_inr) as amount_inr, q.payout_method,
             case when o.locked_at is not null or o.payout_claimed_at is not null
                  then q.payout_destination end as payout_destination,
             case when o.locked_at is not null or o.payout_claimed_at is not null
@@ -2465,14 +2774,21 @@ export async function listMerchantOrders(merchantId: string, limit = 50): Promis
  * field in a mapper — see the `null::text` columns.
  */
 export async function listOpenOffers(
-  filter: { merchantId: string; payoutRail: PayoutMethod; country: string; spreadBps: number; maxAmountUsdc: number },
+  filter: {
+    merchantId: string;
+    payoutRail: PayoutMethod;
+    country: string;
+    spreadBps: number;
+    maxAmountUsdc: number;
+    payeeCooldownDays: number;
+  },
   limit = 25,
 ): Promise<MerchantOrderRow[]> {
   const { rows } = await getPool().query<MerchantOrderRow>(
     `select o.id, o.reference_code, o.state, o.resolution, o.amount_usdc, o.payout_utr,
             o.payout_claimed_at, o.expires_at, o.created_at,
             o.locked_at, o.lock_expires_at, o.offer_widens_at, false as mine,
-            q.currency, q.amount_inr, q.payout_method,
+            q.currency, coalesce(o.amount_fiat, q.amount_inr) as amount_inr, q.payout_method,
             -- The whole point of the lock: nobody sees who to pay until they've committed to
             -- paying them. Redacted in SQL so no caller can forget.
             null::text as payout_destination, null::text as payout_name
@@ -2495,9 +2811,20 @@ export async function listOpenOffers(
         and o.resolution is null
         and (o.expires_at is null or o.expires_at > now() + interval '60 seconds')
         and exists (select 1 from merchants m where m.id = $1 and m.country = $5)
+        -- The pair rule, so the pool never shows work the lock would refuse. A view only — the
+        -- lock re-checks it inside its own CAS.
+        and not exists (${payeePaidSql({ lp: '$1', payee: 'q.payout_destination', days: '$7', exceptOrder: 'o.id' })})
       order by o.created_at asc
       limit $6`,
-    [filter.merchantId, filter.spreadBps, filter.payoutRail, filter.maxAmountUsdc, filter.country, limit],
+    [
+      filter.merchantId,
+      filter.spreadBps,
+      filter.payoutRail,
+      filter.maxAmountUsdc,
+      filter.country,
+      limit,
+      filter.payeeCooldownDays,
+    ],
   );
   return rows;
 }
@@ -2580,10 +2907,10 @@ export async function decideMerchantKyb(
   decision: 'approve' | 'reject' | 'review' | 'more_info',
   note: string | null,
   decidableFrom: readonly string[],
-): Promise<{ from: string } | null> {
+): Promise<{ from: string; userId: string | null } | null> {
   const kyb =
     decision === 'approve' ? 'approved' : decision === 'reject' ? 'rejected' : decision === 'review' ? 'under_review' : 'more_info';
-  const { rows } = await getPool().query<{ from_status: string }>(
+  const { rows } = await getPool().query<{ from_status: string; user_id: string | null }>(
     `with prev as (select kyb_status as from_status from merchants where id = $1)
      update merchants m
         set kyb_status = $2,
@@ -2594,10 +2921,12 @@ export async function decideMerchantKyb(
                           else m.status end
        from prev
       where m.id = $1 and m.kyb_status = any($4::text[])
-      returning prev.from_status`,
+      returning prev.from_status, m.user_id`,
     [id, kyb, note, decidableFrom],
   );
-  return rows[0] ? { from: rows[0].from_status } : null;
+  // user_id comes back because an approval may also have to grant the OWNER tier 2 while the identity
+  // vendor is off (docs/14). Null for platform `psp` rows, which have no human behind them.
+  return rows[0] ? { from: rows[0].from_status, userId: rows[0].user_id } : null;
 }
 
 /** @deprecated Superseded by decideMerchantKyb (0016). Kept only for the dev /sim route, which
@@ -2965,11 +3294,18 @@ export async function getUserByKycSession(
   return rows[0] ? { id: rows[0].id, kycTier: rows[0].kyc_tier, status: rows[0].kyc_status } : null;
 }
 
-/** Apply an approved verification: raise the tier (never lower it) and stamp approval. */
-export async function setKycApproved(userId: string, tier: number): Promise<void> {
+/** Apply an approved verification: raise the tier (never lower it) and stamp approval.
+ *
+ *  `provider` records WHO decided — 'manual' when a human granted it from the admin console because
+ *  the vendor was off (docs/14). It is the only way to find those users again: when the vendor comes
+ *  back, `select id from users where kyc_provider = 'manual'` IS the re-verification list. Omitted by
+ *  the vendor path, which already stamped it at setKycSession, hence coalesce rather than a write. */
+export async function setKycApproved(userId: string, tier: number, provider?: string): Promise<void> {
   await getPool().query(
-    `update users set kyc_tier = greatest(kyc_tier, $2), kyc_status = 'approved', kyc_verified_at = now() where id = $1`,
-    [userId, tier],
+    `update users set kyc_tier = greatest(kyc_tier, $2), kyc_status = 'approved', kyc_verified_at = now(),
+            kyc_provider = coalesce($3, kyc_provider)
+      where id = $1`,
+    [userId, tier, provider ?? null],
   );
 }
 
@@ -3051,6 +3387,26 @@ export async function insertNotification(input: {
     `insert into notifications (user_id, kind, title, body, meta) values ($1,$2,$3,$4,$5)`,
     [input.userId, input.kind, input.title, input.body ?? null, input.meta ? JSON.stringify(input.meta) : null],
   );
+}
+
+/* ---- push tokens (0021): the phone app's device tokens, one user per token ---- */
+
+export async function upsertPushToken(userId: string, token: string, platform: string): Promise<void> {
+  await getPool().query(
+    `insert into push_tokens (token, user_id, platform) values ($1, $2, $3)
+     on conflict (token) do update set user_id = excluded.user_id, platform = excluded.platform, last_seen_at = now()`,
+    [token, userId, platform],
+  );
+}
+
+export async function deletePushTokens(tokens: string[]): Promise<void> {
+  if (tokens.length === 0) return;
+  await getPool().query(`delete from push_tokens where token = any($1::text[])`, [tokens]);
+}
+
+export async function listPushTokens(userId: string): Promise<string[]> {
+  const { rows } = await getPool().query<{ token: string }>(`select token from push_tokens where user_id = $1`, [userId]);
+  return rows.map((r) => r.token);
 }
 
 export async function listNotifications(
@@ -3635,21 +3991,33 @@ export async function listRiskEventsAdmin(limit = 50, cursor?: string): Promise<
   };
 }
 
-/** Thin DTO mapper over listAllMerchants. Money columns pass THROUGH as the decimal strings pg
- *  hands back — numeric(20,6) already carries the scale, so no conversion is needed or wanted. */
+/** Money columns pass THROUGH as the decimal strings pg hands back — numeric(20,6) already carries
+ *  the scale, so no conversion is needed or wanted.
+ *
+ *  Its own query rather than listAllMerchants() because the console needs the OWNER's identity tier
+ *  beside each row: approving KYB while the vendor is off grants that tier, and a reviewer cannot be
+ *  asked to make that call blind. Left join — platform `psp` rows have no user. */
 export async function listMerchantsAdmin(): Promise<AdminMerchant[]> {
-  const rows = await listAllMerchants();
+  const { rows } = await getPool().query<MerchantRow & { owner_kyc_tier: number | null; owner_kyc_provider: string | null }>(
+    `select m.*, u.kyc_tier as owner_kyc_tier, u.kyc_provider as owner_kyc_provider
+       from merchants m left join users u on u.id = m.user_id`,
+  );
   return rows.map((m) => ({
     id: m.id,
     name: m.name,
     status: m.status,
     kybStatus: m.kyb_status,
+    country: m.country,
+    kybFields: m.kyb_fields ?? undefined,
     payoutRail: m.payout_rail,
     bondUsdc: m.bond_usdc,
     floatUsdc: m.float_usdc,
     successRate: Number(m.success_rate),
     disputeRate: Number(m.dispute_rate),
     positiveRate: Number(m.positive_rate),
+    contactPhone: m.contact_phone ?? undefined,
+    ownerKycTier: m.owner_kyc_tier ?? undefined,
+    ownerKycProvider: m.owner_kyc_provider ?? undefined,
     real: m.user_id != null,
   }));
 }

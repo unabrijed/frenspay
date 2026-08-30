@@ -32,7 +32,8 @@ const F: Record<FontRole, CSSProperties> = {
 /** Font family+weight tokens (e.g. `fonts.mono500`) for ad-hoc inline text styles. */
 export const fonts = F;
 
-/* ---- shadows: abstract spec → CSS box-shadow string ---- */
+/* ---- shadows: abstract spec → a spreadable style (`...shadows.card`). An object rather than the
+   bare box-shadow string so the native adapter can hand back RN shadow props under the same name. ---- */
 function hexToRgba(hex: string, a: number): string {
   const h = hex.replace('#', '');
   const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
@@ -42,9 +43,9 @@ function hexToRgba(hex: string, a: number): string {
 export const shadows = Object.fromEntries(
   (Object.entries(shadowSpec) as Array<[string, ShadowSpec]>).map(([k, s]) => {
     const drop = `${s.x}px ${s.y}px ${s.blur}px ${hexToRgba(s.color, s.opacity)}`;
-    return [k, s.inset ? `${drop}, ${s.inset}` : drop];
+    return [k, { boxShadow: s.inset ? `${drop}, ${s.inset}` : drop }];
   }),
-) as Record<ShadowKey, string>;
+) as Record<ShadowKey, CSSProperties>;
 
 /* ---- type scale: shared metrics + web font + px line-height ---- */
 const UP = 'uppercase' as const;

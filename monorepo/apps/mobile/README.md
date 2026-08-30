@@ -1,100 +1,46 @@
 # fpay — mobile
 
-> **PARKED.** This app is not in the yarn workspace: its dependencies cost ~169MB and no mobile
-> work is planned, so it has **no installed `node_modules` and no root script** — `yarn mobile` and
-> `yarn dev:mobile` do not exist. The source is untouched and resumable; see
-> [Mobile app](../../README.md#mobile-app-appsmobile-parked) in the root README for how to bring it
-> back. Everything below describes it as it stood when it was parked, including its in-memory mock
-> providers — the web app has since moved on and is always-real.
+The same product as the web app, on a phone. **Expo SDK 56 / React Native**, rendering
+**`@fpay/app`** (the store, the backend client, the sheets, the product components — the web app
+renders the very same files) over **`@fpay/ui`**'s native renderer. Revived 2026-08-22; the shape
+is written up in [docs/12](../../docs/12-mobile-app.md). Android first; iOS compiles.
 
-A premium, iOS-style mobile payments app for inbound foreign travelers in India.
-Hold a **US-dollar balance**, spend in **rupees** instantly by scanning any UPI QR
-at a rate **locked the moment you pay**, plus send/request with friends. The balance
-is backed by USDC, but no crypto language appears anywhere in the UI.
-
-This is an **Expo / React Native (TypeScript)** implementation of the Claude Design
-handoff in [`design-reference/`](./design-reference) — all 19 screens, built
-pixel-accurately with the prototype's full interaction behavior on local/mock state.
-
-## Run it (free — no paid accounts needed)
+## Run it (free — a local dev build, no EAS, no store accounts)
 
 ```bash
-npm install
-npx expo start
+cp .env.example .env        # Privy app id + the NATIVE client id (Privy dashboard → App clients)
+adb pair <ip>:<port>        # once — Android 11+ wireless debugging, pairing code on the phone
+adb connect <ip>:<port>     # each session
+yarn android                # from apps/mobile: prebuild (once) + Gradle + install + Metro
 ```
 
-Then either:
-- Press **`i`** / **`a`** to open the **iOS Simulator** (needs Xcode) or **Android
-  emulator** (needs Android Studio). Expo CLI auto-installs the SDK-matched Expo Go, so
-  this always works regardless of the stores.
-- Scan the QR code with **Expo Go** on a physical phone — but see the note below first.
+Privy's native modules rule out Expo Go, hence the dev build. After the first install,
+`yarn start` (Metro only) is enough — or `yarn dev:mobile` from the repo root. Clean cache:
+`yarn start -- -c`. The app talks to **stage** by default; a local backend is reached by leaving
+`EXPO_PUBLIC_LOCAL_API_URL` blank (the Mac's LAN IP is read from Metro).
 
-> **Physical phone on Expo Go: the store version may be too old.** This app is on **Expo
-> SDK 56**. Expo ships the SDK-56 build of Expo Go to the App Store / Play Store on a lag,
-> so a phone with the "latest" store Expo Go can fail with *"This project requires a newer
-> version of Expo Go"* — and updating from the store won't help (nothing newer is there
-> yet). On **Android**, sideload the matching build:
-> `https://expo.dev/go?sdkVersion=56&platform=android&device=true` (allow "install unknown
-> apps"; uninstall the store Expo Go first if the install is rejected). On **iOS**, use the
-> Simulator, `eas go`, or a development build. Background:
-> https://expo.dev/changelog/expo-go-and-app-store-may-2026
-
-No EAS, no Apple Developer account, no Google Play account is required to develop
-and test. Those only matter later, when you publish to a store.
-
-First launch runs onboarding (Welcome → Face ID → handle → add first dollars). To
-replay it, go to **Settings → Replay onboarding**. Persisted state lives in
-AsyncStorage; clear the app's data (or reinstall in Expo Go) to reset.
-
-## Architecture
+## What lives here
 
 ```
 src/
-  app/                     # expo-router routes (file-based)
-    _layout.tsx            #   root: font + state-hydration gate, StatusBar, Stack, SheetHost
-    index.tsx              #   entry gate → onboarding (first run) or Home
-    (tabs)/                #   Home + Activity, with a custom tab bar (lifted Pay button)
-    onboarding/            #   Welcome · Face ID · Handle · Fund
-    detail.tsx, settings.tsx  # full screens (slide from right)
-  components/
-    SheetHost.tsx          # store-driven bottom-sheet layer (all 12 sheets)
-    sheets/                # Scan · Amount · Review · Success · Declined · Add · Send · …
-    RateLock.tsx           # the signature element (3 variants; default Columns)
-    TxRow.tsx, ResultBlock.tsx, BottomNav.tsx, icons.tsx
-    ui/                    # Button, Keypad, Segmented, primitives, Txt, BackButton
-  lib/
-    theme.ts               # design tokens (colors, type scale, radii, shadows) ← pay.css
-    money.ts               # RATE = 87.55, inr() / usd() / inrRaw()
-    fonts.ts               # Schibsted Grotesk · Inter · Spline Sans Mono
-  services/
-    wallet.ts              # WalletProvider + SettlementProvider seam (mock impls today)
-  store/
-    usePayStore.ts         # single screen-state controller (zustand + AsyncStorage)
+  app/                    expo-router routes — one per web page (same names, same guards)
+    _layout.tsx           configure(platform) · fonts · hydration gate · Stack · SheetHost/Toast/SuspendedGate/LiveSync
+    index.tsx             entry router (lib/bootRoute) · (tabs)/ home + activity · onboarding/ · detail · settings · invites
+  platform.ts             the phone's Platform: AsyncStorage, in-app browser for KYC, Share, clipboard, AppState, contacts picker
+  push.ts                 Expo push token ↔ backend; a tapped notification opens the inbox
+  services/envConfig.ts   the web's tier block under EXPO_PUBLIC_ (asserted by `yarn check:env`)
+  services/privy/         PrivyRoot (gate), PrivyBridge (publishes what the web bridge does), signer
+  components/Splash.tsx   the loading screen
+  lib/fonts.ts            Spectral + JetBrains Mono — the only two faces
 ```
 
-### The backend seam
-The UI and store talk only to the `WalletProvider` / `SettlementProvider` interfaces
-in `src/services/wallet.ts`, with the contract types shared from `@fpay/shared` (the
-"thin interface" from `backend-architecture.md`). Today these are in-memory mocks. In
-**Phase 1**, the real providers (Privy embedded wallet + Solana USDC transfers via
-Helius, the Railway Fastify API in `apps/backend`) drop in there with no UI changes.
-**Phase 2** (INR merchant settlement via the licensed partner float) becomes the real
-`SettlementProvider` — gated on the partner per the legal brief.
+Everything else — sheets, store, API, the primitives — is in `packages/app` and `packages/ui`.
+A file there with a `.native.tsx` twin is what Metro hands this app; import the **barrels**
+(`@fpay/ui`, `@fpay/app`), never a subpath (see `metro.config.js`).
 
-### Locked design decisions
-Per the design chat: **INR-forward Home · Columns rate-lock card · emerald accent**.
-The prototype's "Tweaks" panel (a design-comparison tool) is intentionally not shipped;
-the Home INR/USD toggle is kept because it is a real product feature.
+## Verification
 
-### Faithful adaptations (vs. the HTML prototype)
-- The OS draws the status bar and device frame — we don't render the prototype's fake
-  `9:41`/battery bar or the 390×844 phone shell. Screens fill the safe area.
-- Bottom sheets dismiss via scrim/× (as in the prototype), so no gesture library is
-  used; transitions use the platform-standard rise+fade / slide-X.
-
-## Verification done
-- `npx tsc --noEmit` — clean.
-- `npx expo-doctor` — 21/21 checks pass.
-- `npx expo export --platform ios` — full module graph bundles to Hermes bytecode.
-
-Run `npx expo start` to walk the flows interactively.
+- `yarn typecheck` (repo root) covers this app; `npx tsc --noEmit` here does the same.
+- `npx expo-doctor` — green except the SDK-56 Hermes V1 memory-regression advisory (fix is SDK 57).
+- `npx expo export --platform android` — the whole graph bundles through the native twins.
+- The device pass is the open item: see the Status section of docs/12.

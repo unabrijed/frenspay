@@ -40,11 +40,25 @@ for (const [country, spec] of Object.entries(KYB_FIELDS)) {
       assert.ok(f.pattern.startsWith('^') && f.pattern.endsWith('$'), `${country}.${f.key}: pattern must be anchored`);
       assert.doesNotThrow(() => new RegExp(f.pattern!), `${country}.${f.key}: pattern does not compile`);
     }
+    if (f.options) {
+      // A single option is not a question, and a pattern over a fixed list is a contradiction —
+      // membership already IS the format check.
+      assert.ok(f.options.length >= 2, `${country}.${f.key}: fewer than two options`);
+      assert.equal(new Set(f.options).size, f.options.length, `${country}.${f.key}: duplicate options`);
+      assert.ok(!f.pattern, `${country}.${f.key}: options and pattern are mutually exclusive`);
+    }
   }
   // The one field every corridor must ask for, whatever else differs. The documented failure mode
   // for this whole business shape is third-party money moving through a personal account; knowing
   // WHICH account before they start is what makes that reviewable rather than discoverable after.
   assert.ok(spec.some((f) => f.key === 'payoutAccount' && !f.optional), `${country}: no required payoutAccount`);
+  // Exactly one required field must name the PERSON. While the identity vendor is off, approving this
+  // form is what grants tier 2 (docs/14) — a spec with no personal identifier would make that
+  // approval a judgment about a business nobody has been asked to identify. Exactly one, not at least
+  // one: two would leave the reviewer guessing which name the decision is actually about.
+  const ids = spec.filter((f) => f.identity);
+  assert.equal(ids.length, 1, `${country}: expected exactly one identity field, found ${ids.length}`);
+  assert.ok(!ids[0].optional, `${country}: the identity field (${ids[0].key}) cannot be optional`);
 }
 
 // --- validation behaviour ------------------------------------------------------------------------
@@ -53,8 +67,13 @@ const IN_OK = {
   entityType: 'Sole proprietor',
   pan: 'ABCDE1234F',
   address: '12 MG Road, Bengaluru 560001',
-  contactPhone: '+919876543210',
   payoutAccount: 'sharma@okaxis',
+  // The country-agnostic screening block (SCREENING) — required alongside the identifiers.
+  cryptoExperience: 'Active user',
+  profession: 'Business owner',
+  plannedStake: '$2,000 — the minimum',
+  commitment: 'A year or more',
+  accountDedicated: 'Yes, dedicated to this',
 };
 
 assert.deepEqual(validateKyb('IN', IN_OK), [], 'a complete India submission passes');
@@ -67,7 +86,7 @@ assert.deepEqual(validateKyb('IN', { ...IN_OK, gstin: '   ' }), [], 'whitespace-
 assert.deepEqual(validateKyb('IN', { ...IN_OK, gstin: 'nonsense' }), ['gstin'], 'a PRESENT optional field is still checked');
 
 // Required fields.
-for (const key of ['legalName', 'entityType', 'pan', 'address', 'contactPhone', 'payoutAccount']) {
+for (const key of ['legalName', 'entityType', 'pan', 'address', 'payoutAccount', 'cryptoExperience', 'profession', 'plannedStake', 'commitment', 'accountDedicated']) {
   const missing = { ...IN_OK, [key]: '' };
   assert.deepEqual(validateKyb('IN', missing), [key], `${key} is required`);
   assert.deepEqual(validateKyb('IN', { ...IN_OK, [key]: '   ' }), [key], `${key} cannot be whitespace`);
@@ -79,24 +98,30 @@ assert.deepEqual(validateKyb('IN', { ...IN_OK, pan: 'XABCDE1234FX' }), ['pan'], 
 assert.deepEqual(validateKyb('IN', { ...IN_OK, pan: 'abcde1234f' }), [], 'PAN is case-insensitive');
 assert.deepEqual(validateKyb('IN', { ...IN_OK, legalName: 'x'.repeat(121) }), ['legalName'], 'maxLen enforced');
 
+// Choice fields are membership, exactly — a free-text answer smuggled into a choice key, or a
+// renamed option lingering in a prefilled form, must be rejected, not stored.
+assert.deepEqual(validateKyb('IN', { ...IN_OK, profession: 'Astronaut' }), ['profession'], 'unknown choice rejected');
+assert.deepEqual(validateKyb('IN', { ...IN_OK, profession: 'student' }), ['profession'], 'membership is exact, not case-insensitive');
+
 // Several problems at once come back together — a form that reveals one error per round trip is how
 // someone gives up on the fourth attempt.
 const manyBad = validateKyb('IN', { ...IN_OK, pan: 'nope', legalName: '', payoutAccount: '' });
 assert.deepEqual(manyBad.sort(), ['legalName', 'pan', 'payoutAccount'], 'all invalid fields reported at once');
 
 // Indonesia is a different spec, not a translation of India's.
-assert.deepEqual(validateKyb('ID', IN_OK).sort(), ['nib'], 'India fields do not satisfy Indonesia');
+assert.deepEqual(validateKyb('ID', IN_OK).sort(), ['nib', 'nik'], 'India fields do not satisfy Indonesia');
 assert.deepEqual(
-  validateKyb('ID', { legalName: 'Warung Sari', entityType: 'Perorangan', nib: '1234567890123', address: 'Jl. Sudirman 1', contactPhone: '+628123456789', payoutAccount: '900012345678' }),
+  validateKyb('ID', { legalName: 'Warung Sari', entityType: 'Perorangan', nib: '1234567890123', nik: '3175031234567890', address: 'Jl. Sudirman 1', payoutAccount: '900012345678', cryptoExperience: 'Some experience', profession: 'Business owner', plannedStake: 'Not sure yet', commitment: 'Not sure yet', accountDedicated: 'I’ll open one before starting' }),
   [],
   'a complete Indonesia submission passes',
 );
 assert.deepEqual(validateKyb('ID', { nib: '123' }).includes('nib'), true, 'NIB must be 13 digits');
+assert.deepEqual(validateKyb('ID', { nik: '123' }).includes('nik'), true, 'NIK must be 16 digits');
 
 // An unknown country cannot submit at all. Failing closed matters: the alternative is accepting a
 // blank submission from a corridor whose identifiers nobody has thought about yet.
 assert.deepEqual(validateKyb('ZZ', IN_OK), ['country'], 'unknown country fails closed');
-assert.deepEqual(validateKyb('IN', {}).length, 6, 'an empty submission reports every required field');
+assert.deepEqual(validateKyb('IN', {}).length, 10, 'an empty submission reports every required field');
 
 // --- lifecycle helper ----------------------------------------------------------------------------
 assert.equal(kybAwaitingMerchant('pending'), true);
@@ -128,6 +153,15 @@ for (const s of ['submitted', 'under_review', 'approved', 'rejected'] as const) 
         assert.ok(
           backend.includes(f.pattern),
           `backend lib/kyb.ts: '${f.key}' pattern drifted from ${f.pattern}`,
+        );
+      }
+      if (f.options) {
+        // Exact serialized list, same order — a missing or renamed option on either side means a
+        // choice the form offers that the server refuses, or one the server takes that no one can tap.
+        const literal = `options: [${f.options.map((o) => `'${o}'`).join(', ')}]`;
+        assert.ok(
+          backend.split('\n').some((l) => l.includes(`key: '${f.key}'`) && l.includes(literal)),
+          `backend lib/kyb.ts: '${f.key}' options drifted from ${literal}`,
         );
       }
     }

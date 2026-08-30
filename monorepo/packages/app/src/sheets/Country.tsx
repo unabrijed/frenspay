@@ -1,0 +1,74 @@
+'use client';
+
+// Country.tsx — pick the dialing-default country (drives local-format phone lookups: type a
+// number without +code and fpay assumes this country's code). Auto-set from locale/enrolled
+// phone; this sheet is the manual override. Names via Intl.DisplayNames — zero deps.
+import { useMemo, useState } from 'react';
+
+import { ISO_TO_DIAL } from '@fpay/shared';
+
+import { colors, Empty, Flag, Grab, Icons, List, Row, RowMeta, SearchBar, SheetBody, SheetHeader, Txt, type, View } from '@fpay/ui';
+import { platform } from '../platform';
+import { usePayStore } from '../store';
+
+export function Country() {
+  const close = usePayStore((s) => s.close);
+  const country = usePayStore((s) => s.country);
+  const setCountry = usePayStore((s) => s.setCountry);
+  const [query, setQuery] = useState('');
+
+  const all = useMemo(() => {
+    let dn: Intl.DisplayNames | undefined;
+    try {
+      dn = new Intl.DisplayNames([platform().locale().language], { type: 'region' }); // Hermes may lack it → ISO codes
+    } catch {
+      /* fall back to ISO codes */
+    }
+    return Object.keys(ISO_TO_DIAL)
+      .map((iso) => ({ iso, name: dn?.of(iso) ?? iso, dial: '+' + ISO_TO_DIAL[iso] }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, []);
+
+  const q = query.trim().toLowerCase();
+  const rows = q
+    ? all.filter((c) => c.name.toLowerCase().includes(q) || c.dial.includes(q) || c.iso.toLowerCase().startsWith(q))
+    : all;
+
+  return (
+    <>
+      <Grab />
+      <SheetHeader title="Country" onClose={close} />
+      {/* Lead + search stay pinned; only the list scrolls (otherwise the search box scrolls away with
+          the full ~240-row list and only reappears once filtering shrinks it). */}
+      <SheetBody>
+        <Txt style={[type.lead, { marginBottom: 12 }]}>
+          Numbers without a +code are treated as local to this country.
+        </Txt>
+        <SearchBar placeholder="Search countries" value={query} onChangeText={setQuery} />
+        <View style={{ flex: 1, minHeight: 0, overflowY: 'auto', overscrollBehavior: 'contain', marginTop: 8 }}>
+          {rows.length === 0 ? (
+            <Empty label="No countries match" />
+          ) : (
+            <List>
+              {rows.map((c) => (
+                <Row
+                  key={c.iso}
+                  onPress={() => {
+                    void setCountry(c.iso);
+                    close();
+                  }}>
+                  <Flag iso={c.iso} />
+                  <RowMeta>
+                    <Txt style={type.rowName}>{c.name}</Txt>
+                    <Txt style={[type.rowTime, { marginTop: 3 }]}>{c.dial}</Txt>
+                  </RowMeta>
+                  {country === c.iso ? <Icons.Check size={18} color={colors.accent} /> : null}
+                </Row>
+              ))}
+            </List>
+          )}
+        </View>
+      </SheetBody>
+    </>
+  );
+}

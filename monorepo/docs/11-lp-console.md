@@ -23,18 +23,26 @@ settles their payment ([06](06-offramp-and-settlement.md) § Why this way), and 
 lived inside the wallet app that promise held only as far as the URL bar. Anyone signed in could
 reach it, and the code shipped in every payer's JavaScript bundle whether they visited or not.
 
-**Who can use it:** existing fpay users only. Applying needs a `users` row and tier-2 identity
-verification, and account creation needs an invite ([02](02-identity-and-onboarding.md)), so the
-console never signs anyone up. Someone arriving without an account gets told to open the wallet app
+**Who can use it:** existing fpay users only. Account creation needs an invite
+([02](02-identity-and-onboarding.md)) — with three carve-outs in `inviteRequired`: an existing user
+(matched on Privy DID *or* verified email), an empty directory, and any address in `ADMIN_EMAILS`.
+The console itself never signs anyone up.
+
+Applying needs a `users` row and **tier-2 identity verification only while the identity vendor is
+live** (`routes/merchant.ts` — `if (config.personaLive && …)`). While it is off, that gate is dropped
+and the human reviewing the business form is the identity check
+([14](14-manual-onboarding-fallback.md)). Approval does **not** grant a KYC tier: nothing a partner
+does reads one. Someone arriving without an account gets told to open the wallet app
 first — the same dead end the admin console gives a non-admin.
 
 ## The lifecycle
 
 ```mermaid
 flowchart TB
-    A["apply<br/>needs tier-2 KYC"] --> B["KYB<br/>business details reviewed by a human"]
-    B --> C["stake<br/>≥ MIN_BOND USDC"]
-    C --> D["go online<br/>their own switch"]
+    A["apply<br/>tier-2 KYC only while the vendor is live"] --> B["submit KYB<br/>13 typed fields, their own screen"]
+    B --> B2["a human decides<br/>approve · reject · ask for more · review"]
+    B2 --> C["stake<br/>≥ $2,000 USDC"]
+    C --> D["go online<br/>their own switch — needs KYB approved AND bond ≥ $2,000"]
     D --> E["an order is offered<br/>alert + in-app inbox"]
     E --> F["take it<br/>payee revealed, 5 min held"]
     F --> G["pay it, out of band<br/>their own banking app"]
@@ -47,13 +55,25 @@ flowchart TB
 Every step is refusable and every step is reversible except the last. An LP can hand an order back
 free of penalty, go offline, or ask for their stake back.
 
+The KYB submission asks more than business identity. Alongside the PAN and the payout account go
+screening questions — experience, profession, intended stake, commitment, and whether the payout
+account is dedicated or shared — the same signal peer platforms collect before letting anyone in.
+Nothing in them is verifiable and nothing gates on them; they exist so the human deciding is reading
+a person with a stated intent, and the dedicated-account question aims straight at the frozen-account
+pattern ([08](08-compliance-and-legalities.md)). One spec drives all of it
+(`packages/shared/src/kyb.ts`): the form renders it, both sides validate it, and the admin review
+shows the answers under the same labels the applicant saw.
+
 ## The score, and what it buys
 
 This is the centre of the product. An LP's pitch is not "settle payouts"; it is **keep your score up
 and you can earn more**, and the console has to make that legible or the incentive doesn't exist.
 
-Four signals, recomputed from real order outcomes and smoothed toward a prior so a low-volume LP
+Four signals, recomputed from real order outcomes over the **last 90 days** (payer 👍/👎 is
+lifetime until it carries its own timestamp) and smoothed toward a prior so a low-volume LP
 isn't volatile: **success rate**, **average completion time**, **dispute rate**, and **payer 👍/👎**.
+The settled *count* behind the tier's volume gate stays lifetime — a rung earned by volume doesn't
+dissolve in a quiet quarter.
 They feed the routing score directly ([06](06-offramp-and-settlement.md) § Routing), so what the
 screen shows and what the router does cannot drift — they read the same columns.
 
@@ -62,8 +82,9 @@ Those signals roll into a **tier**, and the tier is what pays:
 | | buys | costs the platform |
 |---|---|---|
 | **More capacity per dollar staked** | effective float is `bond × leverage`, and leverage rises with tier | more exposure per bond |
-| **First refusal on every order** | the routed LP holds it exclusively for 20s before the pool sees it | nothing |
+| **First refusal on every order** | the routed LP holds it exclusively for 5s before the pool sees it — pushed a deep link the moment the clock starts, while rivals can't even see the order | nothing |
 | **The spread surplus** | an order is offered only to LPs at or below the quoted spread, so a cheaper LP who is faster keeps the difference | nothing |
+| **A wider price envelope** | the platform sets a per-tier ceiling on the margin (`TIER_MAX_SPREAD_BPS`); a higher tier may charge more, and a downgrade clamps a stored margin to the new cap in the same stats write | nothing — the payer-facing quote is still struck competitively |
 
 The screen leads with the number and with **what closes the gap to the next tier** — derived by
 running the same step function against current signals and naming the term that is binding ("12 more
@@ -86,10 +107,38 @@ An LP stakes USDC before they can be routed anything. It is **skin in the game, 
   eligible to work, not back at the desk — they say when).
 - **It bounds exposure.** Effective float is `min(what they declared, bond × leverage)`. Their claim
   about their own capacity was previously unchecked against their stake.
-- **It is slashed only on an upheld dispute**, a flat penalty, once per order.
+### The numbers, in one place
+
+Every constant this doc names by symbol. Enforced values, read from source — if you change one, change
+it here too.
+
+| what | value | where |
+|---|---|---|
+| `MIN_BOND` — stake floor to go online, and to stay routable | **$2,000** | `services/merchantStats.ts` |
+| `DISPUTE_PENALTY_USDC` — flat slash per upheld dispute | **$1,500** | `services/merchantStats.ts` |
+| `MAX_STAKE_DEPOSIT_USD` — cap on one stake deposit | **$50,000** | `routes/merchant.ts` |
+| `LEVERAGE` — effective float multiplier, by partner tier | **1 → 3× · 2 → 5× · 3 → 8×** | `services/merchantStats.ts` |
+| `MIN_SPREAD_BPS` — price floor | **10 bps** | `services/merchantOps.ts` |
+| `TIER_MAX_SPREAD_BPS` — price ceiling, by tier | **1 → 100 · 2 → 200 · 3 → 300 bps** | `services/merchantStats.ts` |
+| tier 2 needs | **10 settled · ≥95% success · ≤3% disputes** | `TIER_RULES` |
+| tier 3 needs | **50 settled · ≥98% success · ≤1% disputes · ≤120s median** | `TIER_RULES` |
+| `PAYEE_COOLDOWN_DAYS` — a partner may not pay the same payee again inside | **180 days** | `services/routing.ts` |
+| `HEAD_START_MS` — the preferred partner's exclusive window | **5s** | `services/orderMachine.ts` |
+| `LOCK_TTL_MS` — how long a taken order is held | **5 min** | `services/orderMachine.ts` |
+| `DISPUTE_WINDOW_MS` — the payer's window to dispute | **2 min** | `services/orderMachine.ts` |
+| lock ban | **3 abandonments in 24h → 1 hour blocked** | `services/orderMachine.ts` |
+
+`settled` (the tier's volume gate) is **lifetime**; the three rates are 90-day, except `positive_rate`
+which is lifetime because 👍 has no timestamp of its own.
+
+- **It is slashed only on an upheld dispute**, a flat penalty, once per order — **$1,500**, against a
+  **$2,000** floor. One upheld dispute against a floor-bonded partner drops them below `MIN_BOND` and
+  the next stats tick auto-suspends them. The two numbers only mean anything together.
 - **It comes back.** Withdrawal is a *request*: the bond is debited immediately (money on its way out
-  must stop backing new orders), preconditions are no in-flight orders and no open disputes, and a
-  human sends the USDC. The stake vault has no signer by design, so automating the release means a
+  must stop backing new orders). **Four** preconditions, all predicates in one statement: enough bond,
+  **no withdrawal already requested**, no in-flight orders, no open disputes — the first two are the
+  ones an LP actually hits (`withdrawal_already_pending`, `insufficient_bond`). Then a human sends the
+  USDC. The stake vault has no signer by design, so automating the release means a
   second hot key in env — a security decision deliberately not made as a side effect.
 
 > **Open decision: staked returns.** The stake earns the LP nothing today. Whether it should — and
@@ -116,8 +165,20 @@ An LP who has to keep a tab open is an LP who misses orders, so the console is a
 
 ## What an LP is asked to pay
 
-We hand over a destination; they pay it however they normally would. Today there is exactly one
-shape per live corridor, and the corridor registry is what decides:
+We hand over a destination; they pay it however they normally would. Two things about the work
+they are handed, both decided 2026-08-21 ([06](06-offramp-and-settlement.md) § Routing, § Legs):
+
+- **They will not be handed the same receiver twice in 180 days** (`PAYEE_COOLDOWN_DAYS` — doubled
+  from 90 on 2026-08-24), nor two live orders to one receiver. This is routing's pair rule, not a score — a personal account paying the same handle
+  repeatedly is the account-freeze pattern — so it never shows in the queue as a refusal; the
+  order simply isn't offered to them and the lock would refuse it if it were.
+- **An order may be one part of a larger payment.** When no single LP can carry a payment it is
+  split across LPs, and each gets an ordinary order for their part: the amount on the screen and in
+  the UPI deep link is *their* part, the reference is theirs, the lock, the claim and the release
+  are theirs. The other parts are other people's orders; the console never shows them.
+
+Today there is exactly one destination shape per live corridor, and the corridor registry is what
+decides:
 
 - **UPI ID** (`name@bank`) — India. Gets a deep link into their UPI app and a "processed by" label
   derived from the handle's suffix.
@@ -144,7 +205,8 @@ accepted into a dead end.
 ## Status
 
 - ✅ Apply, KYB submission with a merchant-visible timeline, staking, self-serve availability and
-  pricing, capacity, the order queue with offer/lock/reveal, reporting a payout, the earnings and
+  pricing (inside the tier's price cap — the platform sets the envelope, the LP prices within it),
+  capacity, the order queue with offer/lock/reveal, reporting a payout, the earnings and
   disputes ledger, and the alert seam with a Telegram adapter.
 - ✅ Its own app (`apps/lp`), with the score leading and distance-to-next-tier computed from the
   same rules routing scores on.

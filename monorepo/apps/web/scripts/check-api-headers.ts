@@ -11,7 +11,13 @@
 // Pure: fetch is stubbed, no network, no DB. Runs in about a second like the other check:* scripts.
 import assert from 'node:assert/strict';
 
+import { configure } from '@fpay/app/configure'; // the subpath: the barrel pulls TSX through tsx's classic runtime
+
+import { webPlatform } from '../src/platform';
 import { req } from '../src/services/api';
+
+// req() reads the API base through the platform seam; boot it the way AppProviders does.
+configure(webPlatform);
 
 type Captured = { url: string; headers: Record<string, string>; init: RequestInit };
 

@@ -30,6 +30,7 @@ export default function Home() {
   const pollKyc = usePayStore((s) => s.pollKyc);
   const kycTier = usePayStore((s) => s.kycTier);
   const kycStatus = usePayStore((s) => s.kycStatus);
+  const identityCheckAvailable = usePayStore((s) => s.identityCheckAvailable);
   const txns = usePayStore((s) => s.transactions);
   const loaded = usePayStore((s) => s.firstLoadDone);
   const handle = usePayStore((s) => s.handle);
@@ -42,13 +43,13 @@ export default function Home() {
   const { symbol, digits, secondary } = useBalanceDisplay();
   const initial = (handle.replace(/^@/, '')[0] ?? 'U').toUpperCase();
 
-  // Returning from the hosted KYC flow: Didit redirects to the callback (/home) with
-  // ?verificationSessionId=…&status=… appended. Poll until the tier lands, then drop the query so a
-  // refresh doesn't re-trigger it. Read from window (client-only effect) to avoid useSearchParams'
+  // Returning from the hosted KYC flow: Persona redirects to the redirect-uri (/home) with
+  // ?inquiry-id=…&reference-id=…&status=… appended. Poll until the tier lands, then drop the query so
+  // a refresh doesn't re-trigger it. Read from window (client-only effect) to avoid useSearchParams'
   // Suspense-boundary requirement at build time. (`kyc=done` kept as a harmless legacy fallback.)
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
-    if (!q.get('verificationSessionId') && q.get('kyc') !== 'done') return;
+    if (!q.get('inquiry-id') && q.get('kyc') !== 'done') return;
     void pollKyc();
     router.replace('/home');
   }, [pollKyc, router]);
@@ -111,7 +112,7 @@ export default function Home() {
             Waits for `loaded` so the persisted tier can't flash a stale prompt at a verified user. */}
         {loaded && kycTier < 2 ? (
           <View style={styles.verify}>
-            <VerifyCard tier={kycTier} status={kycStatus} onPress={() => open('verify')} />
+            <VerifyCard tier={kycTier} status={kycStatus} available={identityCheckAvailable} onPress={() => open('verify')} />
           </View>
         ) : null}
 
@@ -171,7 +172,7 @@ const styles = {
     backgroundColor: colors.accentSoft,
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: shadows.card,
+    ...shadows.card,
   },
 
   // The card carries its own marginBottom (14), so `recent` below tightens from 30 to 16 when it's

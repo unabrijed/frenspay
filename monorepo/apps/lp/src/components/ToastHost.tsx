@@ -56,6 +56,6 @@ const styles = {
     borderRadius: radii.card,
     borderLeft: '3px solid',
     backgroundColor: colors.surface,
-    boxShadow: shadows.card,
+    ...shadows.card,
   },
 } satisfies Record<string, CSSProperties>;

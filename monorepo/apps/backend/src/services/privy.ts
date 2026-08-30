@@ -22,21 +22,13 @@ export async function verifyAccessToken(token: string): Promise<{ privyDid: stri
   return { privyDid: claims.userId };
 }
 
-/** The user's Privy-verified linked phone (raw, pre-normalization), or null if none linked.
- *  This is the ONLY source for pay-by-phone enrollment — the number always comes from the
- *  caller's own Privy account (UPI's own-number-only mapper rule for free). */
-export async function getLinkedPhone(privyDid: string): Promise<string | null> {
-  // ponytail: getUser(id) is the rate-limit-deprecated lookup; switch to identity-token reads
-  // if Privy volume ever matters.
-  const user = await client().getUser(privyDid);
-  return user.phone?.number ?? null;
-}
-
 /** The user's Privy-verified email — the address they actually logged in with, since the web app's
  *  only login method is email + OTP. Persisted to users.email at sync so the admin console can show
  *  it and so ADMIN_EMAILS can match a real, provider-verified address rather than a self-claimed
- *  one. Same rate-limit caveat as getLinkedPhone above. */
+ *  one. (Phone is NOT read from Privy: its free plan only reaches US/CA — services/phoneOtp.ts.) */
 export async function getLinkedEmail(privyDid: string): Promise<string | null> {
+  // ponytail: getUser(id) is the rate-limit-deprecated lookup; switch to identity-token reads
+  // if Privy volume ever matters.
   const user = await client().getUser(privyDid);
   return user.email?.address ?? null;
 }

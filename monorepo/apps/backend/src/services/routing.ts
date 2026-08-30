@@ -5,16 +5,37 @@
 // invisible to the user, who just pays.
 import type { PayoutMethod } from '@fpay/shared';
 
-import { committedFloatByMerchant, listRoutableMerchants, type MerchantRow } from '../db/queries';
+import { blockedMerchantsForPayee, committedFloatByMerchant, listRoutableMerchants, type MerchantRow } from '../db/queries';
+import { amt, USDC_DECIMALS } from '../lib/amount';
 import { CORRIDORS } from '../lib/corridors';
+import { type Amount, BN, divUp, RATE_DECIMALS } from '../lib/units';
 
 import { ACTIVITY_SLOTS, activitySlot, leverageFor, MIN_BOND } from './merchantStats';
+import { metrics } from './metrics';
 
 export interface RankedMerchant {
   merchant: MerchantRow;
   score: number; // composite, [0,1]
   availableFloat: number; // float − in-flight commitments
 }
+
+/**
+ * The pair rule's cooldown: how long after paying a receiver an LP is barred from paying that same
+ * receiver again. A personal account paying the same handle repeatedly is the documented
+ * account-freeze pattern (docs/08), so this is a hard filter at every attach point, never a score.
+ * "Multiple months" — decided 2026-08-21; doubled to half a year 2026-08-24. Raising it re-blocks
+ * pairs whose claims are 91–180 days old the moment it deploys — accepted, watched via the
+ * routing_* metrics rather than softened.
+ */
+export const PAYEE_COOLDOWN_DAYS = 180;
+
+/** Most LPs one payment may be split across. Bounds the deposit tx (each leg is one more escrow
+ *  PDA) and how many separate credits a receiver has to reconcile. */
+export const MAX_LEGS = 3;
+
+/** Smallest leg worth waking a human LP for, in USDC. Applies to splits only — a whole order below
+ *  this is bounded by MIN_ORDER_USD at the route, not here. */
+export const MIN_LEG_USDC = 5;
 
 /**
  * How recently an LP must have been seen for us to believe they'll act on an order now.
@@ -39,21 +60,24 @@ export const isWarm = (m: MerchantRow): boolean =>
 // Reliability-weighted, matching the architecture's "expose certainty". Weights sum to 1. (M4 folded the
 // M3 queue-depth signal into liquidity, since available float already reflects an LP's live load;
 // `rating` is the payer-👍 positive_rate — human-reported, so it gets its own modest term.)
-// Two signals about AVAILABILITY joined the six about quality (0014/0017), and every existing
-// weight shrank proportionally to pay for them rather than one being singled out.
+// Two signals about AVAILABILITY joined the six about quality (0014/0017); the 2026-08-24
+// rebalance then pushed further toward certainty: reliability leads harder and speed matters more.
 //
-// The reasoning: the best LP in the pool is worth nothing to a payer standing in a shop if they are
-// asleep. `warm` (seen in the last two minutes) is the strong one — it is a fact about right now.
-// `activity` (this hour, historically) is the weak one, a prediction, and it is the smallest weight
-// of the eight on purpose: with a handful of LPs per corridor those counts are noise, and it should
-// have to earn any more than that from real data.
+// `cost` was trimmed, not floored. The payer's rate is a pure function of the struck spread — no
+// repricing, no rebate, and a cheaper LP locking under the ceiling keeps the difference — so cost
+// is the ONLY signal in this table that protects the payer's price, and it has to stay big enough
+// to matter. `warm` was deliberately NOT raised: it is written by any authenticated console
+// request, so it measures a polling client, not a willingness to pay — and the head start already
+// rewards ranking first. `activity` (this hour, historically) stays the smallest of the eight:
+// with a handful of LPs per corridor those counts are noise, and it should have to earn any more
+// than that from real data.
 const WEIGHTS = {
-  reliability: 0.26,
-  cost: 0.18,
-  speed: 0.12,
+  reliability: 0.3,
+  cost: 0.14,
+  speed: 0.14,
   dispute: 0.08,
   rating: 0.08,
-  liquidity: 0.12,
+  liquidity: 0.1,
   warm: 0.12,
   activity: 0.04,
 };
@@ -80,6 +104,9 @@ export async function rankMerchants(input: {
   payoutMethod: PayoutMethod;
   amountUsdc: number;
   excludeIds?: string[];
+  /** Who the fiat is for. When set, every LP the pair rule bars from this receiver is excluded —
+   *  same rule the lock re-checks in SQL, so a quote can never promise an LP the lock would refuse. */
+  payee?: string | null;
 }): Promise<RankedMerchant[]> {
   // Country comes from the corridor, which mirrors rails.ts — the only country list (invariant 1).
   // Today this is implied by the rail (UPI is India, QRIS is Indonesia), so the filter is nearly a
@@ -99,7 +126,113 @@ export async function rankMerchants(input: {
     country: corridor.country,
     minBondUsdc: MIN_BOND,
   });
-  return rankPool(eligible, await committedFloatByMerchant(), input);
+  const blocked = input.payee ? await blockedMerchantsForPayee(input.payee, PAYEE_COOLDOWN_DAYS) : [];
+  const ranked = rankPool(eligible, await committedFloatByMerchant(), {
+    amountUsdc: input.amountUsdc,
+    excludeIds: [...(input.excludeIds ?? []), ...blocked],
+  });
+  // M6: the watchdog the 180-day cooldown was shipped with — these are how we see the pair rule
+  // consuming coverage (or not) without weakening it. rankPool itself stays pure (check-routing-math
+  // imports it), so the counting lives here. The empty-pool reason is attributed, approximately:
+  // nothing routable at all → the corridor is the problem; everything routable excluded → the
+  // payee's cooldown history is; otherwise nobody's float covered the amount.
+  metrics.inc('routing_candidates', eligible.length);
+  if (blocked.length) metrics.inc('routing_cooldown_blocked', blocked.length);
+  if (ranked.length === 0) {
+    metrics.inc('routing_no_candidate');
+    const excluded = new Set([...(input.excludeIds ?? []), ...blocked]);
+    const reason =
+      eligible.length === 0 ? 'pool_empty' : eligible.every((m) => excluded.has(m.id)) ? 'payee_cooldown' : 'capacity';
+    metrics.inc(`routing_no_candidate_${reason}`);
+  }
+  return ranked;
+}
+
+/** The LP's rate at a spread: fiat per USDC off the live mid, rounded DOWN (less fiat per USDC, so
+ *  the USDC owed rounds up and the LP is never short — docs/01 money law). */
+export const lpRateAt = (mid: number, spreadBps: number): Amount =>
+  amt(mid)
+    .times(10_000 - spreadBps)
+    .div(10_000)
+    .dp(RATE_DECIMALS, BN.ROUND_DOWN);
+
+export interface Leg {
+  merchant: MerchantRow;
+  /** This leg's fiat, in whole minor units of the currency. */
+  amountFiat: Amount;
+  /** What this LP is owed for it — `divUp(amountFiat, lpRate)`, so no leg is ever short. */
+  amountUsdc: Amount;
+}
+
+export interface LegPlan {
+  legs: Leg[];
+  /** The spread the whole quote is struck at: the dearest leg's. One price per quote, or the lock's
+   *  `m.spread_bps <= q.spread_bps` would refuse a dearer leg's own provisional LP. */
+  spreadBps: number;
+  lpRate: Amount;
+}
+
+/**
+ * Split by necessity only. `ranked` is best-first; the first LP who can carry the whole amount at
+ * their own rate gets it as one leg. Only when nobody can does the payment become N legs on N
+ * distinct LPs, each sized to what that LP's headroom covers, N ≤ MAX_LEGS. Null = refuse the quote.
+ *
+ * Pure, so the money law below can be asserted with no database (check-routing-math.ts):
+ * - every leg's fiat is whole minor units and the legs sum to `amountFiat` exactly;
+ * - every leg's USDC is `divUp(fiat, lpRate)` — the LP is never short, the payer pays at most
+ *   (n−1) µUSDC more than a single leg would have cost;
+ * - every leg's USDC fits that LP's headroom (the cap is walked back one minor unit when rounding
+ *   up would not);
+ * - no split leg is below MIN_LEG_USDC — a sliver is moved off the largest leg, or the plan is refused.
+ *
+ * The rate depends on the set (the dearest spread) and the sizes depend on the rate, so the set is
+ * grown one LP at a time: spread only rises with n, so capacity only falls, so an LP who could not
+ * cover the rest at n−1 still cannot at n, and the n-th leg is always non-empty.
+ */
+export function planLegs(ranked: RankedMerchant[], amountFiat: Amount, mid: number, fdp: number): LegPlan | null {
+  const minor = amt(1).shiftedBy(-fdp);
+  for (let n = 1; n <= Math.min(MAX_LEGS, ranked.length); n++) {
+    // ponytail: best-first greedy. Fewest-legs packing only if MAX_LEGS refusals ever show up in metrics.
+    const set = ranked.slice(0, n);
+    const spreadBps = Math.max(...set.map((r) => r.merchant.spread_bps));
+    const lpRate = lpRateAt(mid, spreadBps);
+    const caps = set.map((r) => {
+      const headroom = amt(r.availableFloat);
+      let cap = headroom.times(lpRate).dp(fdp, BN.ROUND_DOWN);
+      if (divUp(cap, lpRate, USDC_DECIMALS).gt(headroom)) cap = cap.minus(minor);
+      return cap;
+    });
+    if (caps.reduce((s, c) => s.plus(c), amt(0)).lt(amountFiat)) continue;
+
+    const fiat: Amount[] = [];
+    let remaining = amountFiat;
+    for (const cap of caps) {
+      const f = BN.min(remaining, cap);
+      fiat.push(f);
+      remaining = remaining.minus(f);
+    }
+    if (n > 1) {
+      const last = n - 1;
+      const minFiat = amt(MIN_LEG_USDC).times(lpRate).dp(fdp, BN.ROUND_UP);
+      if (fiat[last].lt(minFiat)) {
+        const deficit = minFiat.minus(fiat[last]);
+        const j = fiat.slice(0, last).reduce((best, f, i, arr) => (f.gt(arr[best]) ? i : best), 0);
+        if (fiat[j].minus(deficit).lt(minFiat) || minFiat.gt(caps[last])) return null;
+        fiat[j] = fiat[j].minus(deficit);
+        fiat[last] = minFiat;
+      }
+    }
+    return {
+      legs: set.map((r, i) => ({
+        merchant: r.merchant,
+        amountFiat: fiat[i],
+        amountUsdc: divUp(fiat[i], lpRate, USDC_DECIMALS),
+      })),
+      spreadBps,
+      lpRate,
+    };
+  }
+  return null;
 }
 
 /**
@@ -152,7 +285,13 @@ export function rankPool(
   // where nobody is warm ranks on quality alone rather than collapsing to a tie at zero.
   const warm = normalize(pool.map((m) => (isWarm(m) ? 1 : 0)), false);
   const slot = activitySlot();
-  const activity = normalize(pool.map((m) => m.active_hours?.[slot] ?? 0), false);
+  // No history is not evidence of absence. A merchant with no active_hours yet takes the neutral
+  // midpoint AFTER normalization — the raw values are counts, so splicing a literal 0.5 in among
+  // them would normalize to ~0 and quietly say "never around", the claim NULL exists to avoid.
+  const rawActivity = pool.map((m) => (m.active_hours ? m.active_hours[slot] ?? 0 : null));
+  const historyNorm = normalize(rawActivity.filter((v): v is number => v != null), false);
+  let historyIdx = 0;
+  const activity = rawActivity.map((v) => (v == null ? 0.5 : historyNorm[historyIdx++]));
   // Liquidity headroom: available float relative to the order, capped at 5× (beyond is no real edge).
   const liq = normalize(
     avail.map((a) => Math.min(a / Math.max(input.amountUsdc, 1), 5)),

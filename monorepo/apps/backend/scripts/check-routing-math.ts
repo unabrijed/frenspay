@@ -20,9 +20,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import type { Order } from '@fpay/shared';
+
 import type { MerchantRow } from '../src/db/queries';
+import { amt, USDC_DECIMALS } from '../src/lib/amount';
+import { aggregateLegs } from '../src/lib/legs';
+import { divUp } from '../src/lib/units';
 import { ACTIVITY_SLOTS, activitySlot, leverageFor, MIN_BOND, TIER_RULES, tierProgress } from '../src/services/merchantStats';
-import { rankPool, WARM_WINDOW_MS } from '../src/services/routing';
+import { lpRateAt, MIN_LEG_USDC, planLegs, rankPool, WARM_WINDOW_MS } from '../src/services/routing';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -136,8 +141,8 @@ const ids = (r: ReturnType<typeof rankPool>) => r.map((x) => x.merchant.id);
 // because reliability + cost is 0.44 against warmth's 0.12.
 //
 // That asymmetry is deliberate and it is safe because of the head start's shape: ranking first only
-// buys HEAD_START_MS (20s) of exclusivity, after which the order opens to every eligible LP anyway.
-// So the worst case from preferring a better-but-sleeping LP is twenty seconds, while the worst
+// buys HEAD_START_MS (5s) of exclusivity, after which the order opens to every eligible LP anyway.
+// So the worst case from preferring a better-but-sleeping LP is five seconds, while the worst
 // case from letting "was seen recently" outrank reliability is routing real money to whoever
 // happened to refresh a page.
 {
@@ -193,14 +198,15 @@ assert.ok(activitySlot(new Date('2026-08-13T23:00:00Z')) < ACTIVITY_SLOTS, 'slot
 
 // --- scoring -------------------------------------------------------------------------------------
 
-// Cheaper wins, all else equal — `cost` carries 0.20 and is the LP's only price lever.
+// Cheaper wins, all else equal — `cost` carries 0.14 and is the ONLY signal protecting the
+// payer's price (the rate is a pure function of the struck spread; no repricing, no rebate).
 {
   const dear = lp({ id: 'dear', spread_bps: 200 });
   const cheap = lp({ id: 'cheap', spread_bps: 20 });
   assert.deepEqual(ids(rankPool([dear, cheap], {}, { amountUsdc: 100 })), ['cheap', 'dear']);
 }
 
-// Reliability outranks price: it carries 0.30 to cost's 0.20, so a cheap flake must not win.
+// Reliability outranks price: it carries 0.30 to cost's 0.14, so a cheap flake must not win.
 {
   const flake = lp({ id: 'flake', spread_bps: 10, success_rate: '0.50' });
   const solid = lp({ id: 'solid', spread_bps: 300, success_rate: '0.999' });
@@ -282,9 +288,156 @@ assert.ok(activitySlot(new Date('2026-08-13T23:00:00Z')) < ACTIVITY_SLOTS, 'slot
   assert.ok(leverageFor(TOP) > leverageFor(1), 'the ladder has to be worth climbing');
 }
 
+// --- split by necessity: planLegs ----------------------------------------------------------------
+//
+// Money-shaped and pure. The law: legs sum to the fiat exactly, every leg rounds its own USDC up
+// (no LP is ever short), every leg fits its LP's headroom, no split leg is a sliver, and a split
+// happens only when nobody can carry the whole thing.
+{
+  const ranked = (...items: [string, number, number?][]) =>
+    items.map(([id, avail, spread]) => ({ merchant: lp({ id, spread_bps: spread ?? 50 }), score: 1, availableFloat: avail }));
+  const INR = 2;
+  const mid = 90; // fiat per USDC
+
+  // One LP covers it → one leg, priced exactly as a single order always was.
+  {
+    const plan = planLegs(ranked(['a', 100], ['b', 100]), amt(1000), mid, INR);
+    assert.ok(plan && plan.legs.length === 1 && plan.legs[0].merchant.id === 'a', 'a covering LP means one leg');
+    assert.equal(plan.spreadBps, 50);
+    assert.ok(plan.legs[0].amountFiat.eq(1000));
+    assert.ok(plan.legs[0].amountUsdc.eq(divUp(amt(1000), lpRateAt(mid, 50), USDC_DECIMALS)), 'single leg = divUp(fiat, lpRate)');
+  }
+
+  // Nobody alone, two together → two legs on two LPs; the price is the dearest leg's.
+  {
+    const plan = planLegs(ranked(['a', 7, 50], ['b', 6, 80]), amt(1000), mid, INR);
+    assert.ok(plan && plan.legs.length === 2, 'splits when no single LP covers');
+    assert.deepEqual(plan.legs.map((l) => l.merchant.id), ['a', 'b'], 'distinct LPs, best first');
+    assert.equal(plan.spreadBps, 80, 'struck at the dearest leg');
+    const rate = lpRateAt(mid, 80);
+    assert.ok(plan.legs.reduce((s, l) => s.plus(l.amountFiat), amt(0)).eq(1000), 'fiat legs sum exactly');
+    for (const l of plan.legs) {
+      assert.ok((l.amountFiat.dp() ?? 0) <= INR, 'fiat legs are whole minor units');
+      assert.ok(l.amountUsdc.eq(divUp(l.amountFiat, rate, USDC_DECIMALS)), 'each leg rounds its own USDC up');
+      assert.ok(l.amountUsdc.lte(l.merchant.id === 'a' ? 7 : 6), `leg ${l.merchant.id} fits its headroom`);
+      assert.ok(l.amountUsdc.gte(MIN_LEG_USDC), 'no sliver legs');
+    }
+  }
+
+  // MAX_LEGS: four LPs of 3 USDC could cover ~11 USDC, but not within three legs → refused.
+  assert.equal(planLegs(ranked(['a', 3], ['b', 3], ['c', 3], ['d', 3]), amt(1000), mid, INR), null, 'MAX_LEGS is a ceiling');
+
+  // The floor: a sliver last leg is lifted off the largest leg…
+  {
+    const plan = planLegs(ranked(['a', 11], ['b', 100]), amt(1000), mid, INR);
+    assert.ok(plan && plan.legs.length === 2);
+    assert.ok(plan.legs[1].amountUsdc.gte(MIN_LEG_USDC), 'the last leg is lifted to the floor');
+    assert.ok(plan.legs[0].amountUsdc.lte(11), 'the first still fits');
+    assert.ok(plan.legs.reduce((s, l) => s.plus(l.amountFiat), amt(0)).eq(1000), 'still sums exactly');
+  }
+  // …and refused when the largest leg cannot spare it.
+  assert.equal(planLegs(ranked(['a', 5.2], ['b', 5.2], ['c', 5.2]), amt(1000), mid, INR), null, 'refuse rather than ship a sliver');
+
+  // IDR has no minor unit: legs are integers.
+  {
+    const plan = planLegs(ranked(['a', 7, 50], ['b', 6, 80]), amt(180_000), 16_000, 0);
+    assert.ok(plan && plan.legs.length === 2);
+    for (const l of plan.legs) assert.ok(l.amountFiat.isInteger(), 'IDR legs are whole rupiah');
+    assert.ok(plan.legs.reduce((s, l) => s.plus(l.amountFiat), amt(0)).eq(180_000));
+  }
+
+  assert.equal(planLegs([], amt(1000), mid, INR), null, 'an empty pool is a refusal');
+}
+
+// --- a payment in parts, as one order: aggregateLegs ----------------------------------------------
+{
+  const ord = (over: Partial<Order> & { id: string }): Order =>
+    ({
+      state: 'payment_detected',
+      resolution: null,
+      direction: 'spend',
+      referenceCode: over.id,
+      amountUsdc: '10.000000',
+      amountFiat: '500.00',
+      quote: { amountInr: '1000.00' } as Order['quote'],
+      merchantName: 'Best route',
+      payoutMethod: 'UPI',
+      createdAt: '',
+      updatedAt: '',
+      ...over,
+    }) as Order;
+  const agg = (...legs: Order[]) => aggregateLegs(legs);
+
+  assert.equal(agg(ord({ id: 'solo' })).legs, undefined, 'a single leg is returned as is');
+  assert.equal(agg(ord({ id: 'a', state: 'completed' }), ord({ id: 'b', state: 'completed' })).state, 'completed');
+  assert.equal(agg(ord({ id: 'a', state: 'completed' }), ord({ id: 'b', state: 'refunded' })).state, 'completed', 'part of it reached them');
+  assert.equal(agg(ord({ id: 'a', state: 'refunded' }), ord({ id: 'b', state: 'refunded' })).state, 'refunded');
+  assert.equal(agg(ord({ id: 'a', state: 'payment_detected' }), ord({ id: 'b', state: 'completed' })).state, 'payment_detected', 'least-advanced live leg');
+  assert.equal(agg(ord({ id: 'a', state: 'funds_released' }), ord({ id: 'b', state: 'merchant_confirms' })).state, 'merchant_confirms');
+  assert.equal(agg(ord({ id: 'a' }), ord({ id: 'b' })).amountUsdc, '20.000000', 'the whole payment');
+  assert.equal(agg(ord({ id: 'a' }), ord({ id: 'b' })).amountFiat, '1000.00');
+  assert.equal(agg(ord({ id: 'a', resolution: null }), ord({ id: 'b', resolution: 'delayed' })).resolution, 'delayed', 'any escalating part shows');
+  assert.equal(agg(ord({ id: 'a', payoutClaimedAt: '2026-01-01T00:00:01Z' }), ord({ id: 'b' })).payoutClaimedAt, undefined, 'not claimed until every part is');
+  assert.equal(
+    agg(ord({ id: 'a', payoutClaimedAt: '2026-01-01T00:00:01Z' }), ord({ id: 'b', payoutClaimedAt: '2026-01-01T00:00:09Z' })).payoutClaimedAt,
+    '2026-01-01T00:00:09Z',
+    'claimed when the last part is',
+  );
+  assert.equal(
+    agg(ord({ id: 'a', payoutClaimedAt: '2026-01-01T00:00:01Z' }), ord({ id: 'b', state: 'refunded' })).payoutClaimedAt,
+    '2026-01-01T00:00:01Z',
+    'a refunded part is out of play',
+  );
+  assert.equal(agg(ord({ id: 'a', payoutUtr: 'X' }), ord({ id: 'b', payoutUtr: 'Y' })).payoutUtr, undefined, 'a reference is per credit');
+  assert.equal(agg(ord({ id: 'a' }), ord({ id: 'b' })).legs?.length, 2);
+}
+
 // --- source drift: the filters that only a database can execute ----------------------------------
 {
   const queries = readFileSync(join(ROOT, 'src/db/queries.ts'), 'utf8');
+  const fnBody = (src: string, name: string) => {
+    const from = src.slice(src.indexOf(`export async function ${name}`));
+    return from.slice(0, from.indexOf('\nexport ', 1));
+  };
+
+  // --- the pair rule (0019): one fragment, three attach points ---
+  //
+  // A rule that lives in two of the three leaks through the third. Routing's blocked set covers
+  // quote, reroute and split planning; the lock re-checks it inside its own CAS because the pool
+  // path never calls rankMerchants; the pool view carries it so an LP is never shown work the lock
+  // would refuse.
+  for (const fn of ['lockOrder', 'listOpenOffers', 'blockedMerchantsForPayee']) {
+    assert.ok(fnBody(queries, fn).includes('payeePaidSql('), `${fn} lost the pair rule`);
+  }
+  assert.ok(fnBody(queries, 'blockedMerchantsForPayee').includes('sim_behavior is null'), 'the pair rule is about a PERSON — provider/sim rows are exempt');
+  const routingSrc = readFileSync(join(ROOT, 'src/services/routing.ts'), 'utf8');
+  assert.ok(routingSrc.includes('blockedMerchantsForPayee(input.payee'), 'rankMerchants must fold the blocked set into its exclusions');
+  // Both LP paths (the HTTP routes and the Telegram bot) go through services/merchantOps.ts, so the
+  // drift guard follows the rule to its new home — the routes are a transport now, not the rulebook.
+  const merchantOps = readFileSync(join(ROOT, 'src/services/merchantOps.ts'), 'utf8');
+  assert.ok(merchantOps.includes('payeeCooldownDays: PAYEE_COOLDOWN_DAYS'), 'the lock and pool paths must pass the one cooldown constant');
+
+  // --- one in-flight truth ---
+  for (const fn of ['committedFloatByMerchant', 'lockOrder', 'requestStakeWithdrawal']) {
+    assert.ok(fnBody(queries, fn).includes('${LIVE_ORDER_STATES}'), `${fn} must count in-flight with the ONE state set`);
+  }
+  assert.ok(merchantOps.includes('LIVE_ORDER_STATE_LIST'), 'the LP headroom must use the same in-flight set');
+
+  // --- legs are orders: the fiat a leg shows is its own, the fee is the primary's ---
+  for (const fn of ['listWorkerOrders', 'getOrderAlertInfo', 'merchantEarnings', 'listMerchantOrders', 'listOpenOffers']) {
+    assert.ok(fnBody(queries, fn).includes('coalesce(o.amount_fiat, q.amount_inr)'), `${fn} must read the LEG's fiat, not the quote's whole`);
+  }
+  assert.ok(queries.includes('coalesce(o.amount_fiat, q.amount_inr) as amount_fiat'), 'the payer DTO must carry the leg fiat');
+  assert.ok(fnBody(queries, 'getOrderPlatformFee').includes('o.group_id is null'), 'the platform fee rides the primary leg only — or a refund returns it N times');
+  assert.ok(fnBody(queries, 'listOrdersForUser').includes('o.group_id is null'), 'history is one row per payment');
+  for (const fn of ['cancelOrder', 'markGroupFundSubmitted']) {
+    assert.ok(fnBody(queries, fn).includes('group_id = $1'), `${fn} must move every leg together`);
+  }
+  const machineSrc = readFileSync(join(ROOT, 'src/services/orderMachine.ts'), 'utf8');
+  assert.ok(machineSrc.includes('listOrdersByEscrowFundTransfer'), 'one confirmation must advance every leg');
+  assert.ok(machineSrc.includes('i === 0 ? new BN(l.amountUsdc).plus(fee)'), 'the primary leg carries the fee');
+  const escrowSrc = readFileSync(join(ROOT, 'src/services/escrowProgram.ts'), 'utf8');
+  assert.ok(escrowSrc.includes('(i === 0 ? feeBase : 0n)'), 'the deposit tx takes the fee off the first vault only');
   const routable = queries.slice(queries.indexOf('export async function listRoutableMerchants'));
   // To the next top-level declaration, not the first '\n}' — the signature's inline object type
   // closes with one, which silently truncated the body to above the SQL and made every gate below
@@ -376,7 +529,7 @@ assert.ok(activitySlot(new Date('2026-08-13T23:00:00Z')) < ACTIVITY_SLOTS, 'slot
   // stops releasing and nothing else fails loudly.
   const machine = readFileSync(join(ROOT, 'src/services/orderMachine.ts'), 'utf8');
   assert.ok(
-    machine.includes('const offered = funded.sim_behavior == null'),
+    machine.includes('const offered = f.sim_behavior == null'),
     'orderMachine must decide lockability from sim_behavior — psp/sim orders are born locked',
   );
   assert.ok(machine.includes('lockedAt: offered ? null :'), 'orderMachine must set locked_at for non-offered orders');

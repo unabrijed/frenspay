@@ -40,6 +40,9 @@ interface LpState {
 
   kycTier: number;
   kycStatus: MeResponse['kycStatus'];
+  /** Is the identity vendor switched on for this deployment? Defaults true so a backend that doesn't
+   *  send the flag behaves exactly as before. False ⇒ the reviewer is the identity check (docs/14). */
+  identityCheckAvailable: boolean;
   merchant: MerchantProfile | null;
   balanceUSD: number;
 
@@ -71,6 +74,7 @@ export const useLpStore = create<LpState>((set, get) => ({
   suspended: false,
   kycTier: 0,
   kycStatus: undefined,
+  identityCheckAvailable: true,
   merchant: null,
   balanceUSD: 0,
   toast: null,
@@ -106,6 +110,7 @@ export const useLpStore = create<LpState>((set, get) => ({
         noAccount: false,
         kycTier: me.kycTier,
         kycStatus: me.kycStatus,
+        identityCheckAvailable: me.identityCheckAvailable ?? true,
         merchant: me.merchant ?? null,
         walletAddress: me.walletAddress || get().walletAddress,
       });

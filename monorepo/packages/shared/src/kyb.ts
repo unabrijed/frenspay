@@ -9,9 +9,14 @@
 // check theatre. A corridor with no entry here cannot submit at all, which is the correct failure:
 // we should not be onboarding businesses in a country whose identifiers we haven't thought about.
 //
-// The identity of the PERSON is already established elsewhere: /merchants/apply requires the same
-// tier-2 vendor KYC that gates cash-out. Everything here is about the BUSINESS and, most
+// The identity of the PERSON is USUALLY established elsewhere: /merchants/apply requires the same
+// tier-2 vendor KYC that gates cash-out. Everything else here is about the BUSINESS and, most
 // importantly, the account the fiat will actually leave from.
+//
+// The exception is why `identity: true` exists. When the vendor is switched off (config.personaLive
+// false — its credentials are blank on this deployment) that gate is dropped and the human reading
+// THIS form is the identity check: approving it grants tier 2 (docs/14). So every country spec must
+// carry one required field naming the person, not just the business.
 
 export interface KybField {
   key: string;
@@ -25,6 +30,14 @@ export interface KybField {
    *  registry lookup does that, and we don't have one — which is why a human still reads these. */
   pattern?: string;
   maxLen?: number;
+  /** Fixed choices. Renders as a one-tap pick; validated on BOTH sides as exact membership. The
+   *  stored value is the label itself — what the applicant tapped is what the reviewer reads. */
+  options?: string[];
+  /** Marks the one field that identifies the PERSON, not the business. Load-bearing while the
+   *  identity vendor is off: the reviewer's approval grants tier 2 itself (docs/14), so if the form
+   *  carries no personal identifier the "a human checked" story is empty. check-kyb enforces exactly
+   *  one required identity field per country, so a new corridor cannot quietly ship without one. */
+  identity?: boolean;
 }
 
 /**
@@ -38,7 +51,13 @@ const INDIA: KybField[] = [
   { key: 'legalName', label: 'Registered business name', hint: 'Exactly as it appears on your registration', maxLen: 120 },
   { key: 'entityType', label: 'Business type', hint: 'Sole proprietor, partnership, LLP, private limited', maxLen: 60 },
   // Ten characters, five letters, four digits, one letter. Every Indian taxpayer has one.
-  { key: 'pan', label: 'PAN', hint: 'Of the business, or yours if you trade as an individual', pattern: '^[A-Za-z]{5}[0-9]{4}[A-Za-z]$' },
+  {
+    key: 'pan',
+    label: 'PAN',
+    hint: 'Of the business, or yours if you trade as an individual — this is the name we check you against',
+    pattern: '^[A-Za-z]{5}[0-9]{4}[A-Za-z]$',
+    identity: true,
+  },
   {
     key: 'gstin',
     label: 'GSTIN',
@@ -47,7 +66,6 @@ const INDIA: KybField[] = [
     pattern: '^[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][0-9A-Za-z]{3}$',
   },
   { key: 'address', label: 'Registered address', maxLen: 300 },
-  { key: 'contactPhone', label: 'Contact number', hint: 'Where we reach you about a payout that went wrong', maxLen: 20 },
   {
     key: 'payoutAccount',
     label: 'Which account you’ll pay from',
@@ -62,8 +80,10 @@ const INDONESIA: KybField[] = [
   // Nomor Induk Berusaha — 13 digits, the single business identifier since OSS replaced SIUP/TDP.
   { key: 'nib', label: 'NIB', hint: 'Your 13-digit business identification number', pattern: '^[0-9]{13}$' },
   { key: 'npwp', label: 'NPWP', hint: 'Tax number — leave blank if you don’t have one', optional: true, maxLen: 30 },
+  // NIB and NPWP both describe the BUSINESS. NIK is the 16-digit number on the KTP and the only
+  // thing here that names a person — required for the same reason PAN is on the India spec.
+  { key: 'nik', label: 'NIK', hint: 'The 16-digit number on your KTP', pattern: '^[0-9]{16}$', identity: true },
   { key: 'address', label: 'Registered address', maxLen: 300 },
-  { key: 'contactPhone', label: 'Contact number', maxLen: 20 },
   {
     key: 'payoutAccount',
     label: 'Which account you’ll pay from',
@@ -72,12 +92,73 @@ const INDONESIA: KybField[] = [
   },
 ];
 
+/**
+ * Country-agnostic screening, asked in the same submission as the business identifiers — modelled
+ * on what peer platforms ask before letting anyone in. Nothing here is verifiable and nothing
+ * gates on it by itself; it exists so the human reviewing is judging a person with a stated
+ * intent, not a PAN in a vacuum. Appended after each country's fields so `accountDedicated`
+ * lands right under the `payoutAccount` it is asking about.
+ */
+const SCREENING: KybField[] = [
+  {
+    key: 'cryptoExperience',
+    label: 'Your experience with digital money',
+    hint: 'USDC, wallets, moving value on-chain — how familiar is this world to you?',
+    options: ['Just starting', 'Some experience', 'Active user', 'Professional'],
+  },
+  {
+    key: 'profession',
+    label: 'What you do today',
+    options: ['Student', 'Freelancer', 'Full-time employee', 'Business owner', 'Homemaker'],
+  },
+  {
+    // The dollar figure mirrors MIN_BOND (apps/backend/src/services/merchantStats.ts) — update
+    // this copy if that number ever moves.
+    key: 'plannedStake',
+    label: 'How much you plan to stake',
+    hint: 'Your stake sits idle, bounds how much you can carry, and comes back when you leave.',
+    options: ['$2,000 — the minimum', '$2,000–5,000', 'Over $5,000', 'Not sure yet'],
+  },
+  {
+    key: 'commitment',
+    label: 'How long you plan to stay active',
+    options: ['Under 3 months', '3–6 months', '6–12 months', 'A year or more', 'Not sure yet'],
+  },
+  {
+    // The load-bearing one, for the same reason payoutAccount exists: the documented failure mode
+    // is third-party money moving through a personal account (docs/08). Dedicated is what we
+    // want; an honest "shared" is a review conversation, not an auto-reject.
+    key: 'accountDedicated',
+    label: 'Is that account only for this work?',
+    hint: 'A dedicated account, separate from your personal spending, is far less likely to be frozen.',
+    options: ['Yes, dedicated to this', 'No, I also use it personally', 'I’ll open one before starting'],
+  },
+  {
+    key: 'otherPlatforms',
+    label: 'Where else you do this',
+    hint: 'Binance P2P, p2p.me, anywhere you settle payouts — leave blank if nowhere',
+    optional: true,
+    maxLen: 200,
+  },
+  { key: 'heardAbout', label: 'How you found us', optional: true, maxLen: 120 },
+  {
+    // Optional because /merchants/apply already takes a contact number and refuses without one, so
+    // nobody is ever unreachable. It is here because when the identity vendor is off the review turns
+    // into a conversation, and this is the channel peer platforms actually hold that conversation on.
+    key: 'contactTelegram',
+    label: 'Your Telegram, if you use it',
+    hint: 'Where we follow up if the review needs anything else. Blank is fine — we’ll use your number.',
+    optional: true,
+    maxLen: 64,
+  },
+];
+
 /** ISO 3166-1 alpha-2 → the fields that country's LPs must supply. Countries come from rails.ts,
  *  which is the only country list (invariant 1); this says nothing about which countries exist,
  *  only what we ask the ones that do. */
 export const KYB_FIELDS: Record<string, KybField[]> = {
-  IN: INDIA,
-  ID: INDONESIA,
+  IN: [...INDIA, ...SCREENING],
+  ID: [...INDONESIA, ...SCREENING],
 };
 
 /** Lifecycle of a business check. `more_info` is the one that matters: without it the only replies
@@ -115,6 +196,7 @@ export function validateKyb(country: string, fields: Record<string, unknown>): s
     }
     if (f.maxLen && v.length > f.maxLen) bad.push(f.key);
     else if (f.pattern && !new RegExp(f.pattern).test(v)) bad.push(f.key);
+    else if (f.options && !f.options.includes(v)) bad.push(f.key);
   }
   return bad;
 }

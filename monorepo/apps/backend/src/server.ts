@@ -11,16 +11,23 @@ import { startConfirmer } from './services/confirmer';
 import { startFxRefresher } from './services/fxRate';
 import { registerHeliusWebhook } from './services/helius';
 import { assertKycConfig } from './services/kyc';
+import { probePersona } from './services/kyc/persona';
 import { startKycPoller } from './services/kyc/poller';
 import { metrics } from './services/metrics';
 import { assertPayoutConfig } from './services/payout/provider';
+import { assertPhoneOtpConfig } from './services/phoneOtp';
 import { startRateLimitSweeper } from './services/rateLimit';
+import { assertTelegramConfig } from './services/telegram/assert';
 
 async function start() {
   // Fail fast on a misconfigured real KYC provider before accepting traffic.
   assertKycConfig();
   // Same for payouts: a typo'd platform treasury must not wait for the first escrow release.
   assertPayoutConfig();
+  // Phone OTP: fatal only for console-on-prod; a missing SMS key just warns (enrollment is optional).
+  assertPhoneOtpConfig();
+  // Telegram: never fatal (a bot misconfig must not crash-loop a payments backend) — warns by name.
+  assertTelegramConfig();
 
   // Serving another tier's data is worse than not serving at all, so this one IS fatal (0013).
   // Verify only — claiming an unstamped database belongs to db:deploy, never to a booting server.
@@ -87,6 +94,8 @@ async function start() {
   // M7: reconcile real-vendor KYC decisions (no-op with the sim provider). Reliable path even when
   // the webhook can't reach us locally; the webhook just makes approval instant.
   startKycPoller(15_000, (m) => app.log.info(m));
+  // Boot self-check: a bad deployed Persona key shows up here, not on the first Verify click.
+  void probePersona((m) => app.log.info(m));
 }
 
 start().catch((err) => {

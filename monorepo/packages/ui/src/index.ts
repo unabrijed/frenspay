@@ -1,6 +1,12 @@
 // @fpay/ui — the product's design system: an RN-flavoured shim over the DOM, the primitives built
 // on it, and the web adapter over @fpay/shared's design tokens.
 //
+// Two renderers, one API: every module with a `.native.tsx` twin (rn, theme, icons, Screen, leaf)
+// is what apps/mobile gets from Metro instead. Shared components are written once against the
+// web-typed `St`; the native `sx()` strips the browser-only keys on the way into RN. Import the
+// BARREL from native code — Metro resolves the twins through the barrel's relative imports, not
+// through the `./*` subpaths (see apps/mobile/metro.config.js).
+//
 // Split out of apps/web when the LP console became its own app. Nothing here knows about payers,
 // merchants, money or routing — it is presentation only, which is what makes it safe to share.
 //

@@ -3,7 +3,7 @@
 // PrivyBridge — the ONE place Privy hooks are called. Bridges Privy's hook state into the
 // imperative zustand store (so screens never import Privy) and registers the PrivySigner.
 // Web SDK: @privy-io/react-auth (+ /solana for the embedded Solana wallet).
-import { useLinkPhone, useLinkWithPasskey, useLoginWithEmail, usePrivy } from '@privy-io/react-auth';
+import { useLinkWithPasskey, useLoginWithEmail, usePrivy } from '@privy-io/react-auth';
 import { useSmartWallets } from '@privy-io/react-auth/smart-wallets';
 import { useCreateWallet, useSignAndSendTransaction, useWallets } from '@privy-io/react-auth/solana';
 import { useEffect, useRef } from 'react';
@@ -29,11 +29,10 @@ const SOLANA_CHAIN = IS_MAINNET ? ('solana:mainnet' as const) : ('solana:devnet'
 export function PrivyBridge(): null {
   const { user, ready, getAccessToken, logout } = usePrivy();
   const { sendCode, loginWithCode } = useLoginWithEmail();
-  const { wallets } = useWallets();
+  const { wallets, ready: walletsReady } = useWallets();
   const { createWallet } = useCreateWallet();
   const { signAndSendTransaction } = useSignAndSendTransaction();
   const { linkWithPasskey } = useLinkWithPasskey();
-  const { sendCode: sendPhoneCode, linkWithCode: linkPhoneWithCode } = useLinkPhone();
   const { client: smartClient, getClientForChain } = useSmartWallets();
 
   // Register imperative auth actions into the store (screens call these, not Privy hooks).
@@ -55,15 +54,10 @@ export function PrivyBridge(): null {
       linkPasskey: async () => {
         await linkWithPasskey();
       },
-      // Pay-by-phone: Privy owns the SMS OTP; the backend then reads the linked number.
-      sendPhoneCode: async (phoneNumber) => {
-        await sendPhoneCode({ phoneNumber });
-      },
-      linkPhoneCode: async (code) => {
-        await linkPhoneWithCode({ code });
-      },
+      // Pay-by-phone is NOT linked through Privy (its free plan only reaches US/CA numbers) — the
+      // backend runs its own OTP; see store.startPhoneLink / services/phoneOtp.ts.
     });
-  }, [sendCode, loginWithCode, logout, linkWithPasskey, sendPhoneCode, linkPhoneWithCode]);
+  }, [sendCode, loginWithCode, logout, linkWithPasskey]);
 
   // "Signed out" is only an ANSWER once Privy has resolved and found no session. PrivyGate already
   // holds a splash until `ready`, but `ready` arriving with a user is not the end of it: authStatus
@@ -115,15 +109,21 @@ export function PrivyBridge(): null {
   }, [user]);
 
   // Once authenticated: ensure an embedded Solana wallet, then publish token + signer + address.
+  // Gated on the wallet list being READY, not just `ready`+`user`: on a cold return Privy resolves
+  // the session before it has listed the wallets, so `wallets` is briefly [] for a user who has
+  // one. Without the gate that read as "no wallet" → createWallet → "User already has an embedded
+  // wallet" → the catch below published authReady with authStatus still signedOut → the entry
+  // router sent a signed-in user to the marketing screen.
   const wallet = wallets?.[0];
   const creatingRef = useRef(false);
   useEffect(() => {
-    if (!ready || !user) return undefined;
+    if (!ready || !user || !walletsReady) return undefined;
     let cancelled = false;
     (async () => {
       if (!wallet) {
-        // Create the embedded Solana wallet at most once — Privy errors on a second call
-        // (or if one already exists). Reset only on failure so a later run can retry.
+        // Privy has confirmed the list is empty (brand-new signup). Create the embedded Solana
+        // wallet at most once — Privy errors on a second call. Reset only on failure so a later
+        // run can retry.
         if (!creatingRef.current) {
           creatingRef.current = true;
           try {
@@ -168,7 +168,7 @@ export function PrivyBridge(): null {
     return () => {
       cancelled = true;
     };
-  }, [ready, user, wallet, createWallet, getAccessToken, signAndSendTransaction]);
+  }, [ready, user, walletsReady, wallet, createWallet, getAccessToken, signAndSendTransaction]);
 
   return null;
 }

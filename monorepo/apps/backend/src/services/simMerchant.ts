@@ -318,6 +318,7 @@ export async function runOrderWorkerOnce(log?: (m: string) => void): Promise<voi
           payoutMethod: o.payout_method ?? 'UPI',
           amountUsdc,
           currentMerchantId: o.merchant_id,
+          payee: o.payout_destination,
         });
         if (rerouted) {
           log?.(`order ${o.id} → rerouted (failover)`);

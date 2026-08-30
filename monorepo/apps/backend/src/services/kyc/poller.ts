@@ -49,13 +49,26 @@ let running = false; // re-entrancy guard
 
 async function pollPendingOnce(log?: (m: string) => void): Promise<void> {
   const pending = await getPendingKycSessions();
-  for (const p of pending) await applyKycForSession(p.sessionId, log);
+  // Per-session isolation, not decoration. `pollDecision` throws on any non-2xx from the vendor, and
+  // one stale session id — a provider swap, a deleted inquiry — used to abort the whole pass, every
+  // 15s, for EVERY user. Migration 0018 is the scar from the last time that happened (Didit rows
+  // 404ing at Persona). One bad row must cost one row.
+  for (const p of pending) {
+    try {
+      await applyKycForSession(p.sessionId, log);
+    } catch (e) {
+      log?.(`kyc poller: session ${p.sessionId} failed: ${String(e)}`);
+    }
+  }
 }
 
 /** Start the KYC reconciler. No-op without a DB, or when the sim provider is active (no async leg). */
 export function startKycPoller(intervalMs = 15_000, log?: (m: string) => void): void {
   if (timer || !hasDatabase()) return;
-  if (config.kycProvider !== 'didit') return; // sim resolves synchronously in the route
+  if (getKycProvider().name === 'sim') return; // sim resolves synchronously in the route
+  // Vendor off (credentials blanked): there is nobody to reconcile WITH, and asking would 401 every
+  // open session on a 15s loop. Nothing is stranded — no session row is ever created while it is off.
+  if (!config.personaLive) return;
   timer = setInterval(() => {
     if (running) return;
     running = true;

@@ -70,9 +70,13 @@ environment's bare `CORS_ORIGIN`. Details and the reasoning: `apps/admin/README.
      which reads like a broken token and is not.
   4. **Variables, bare names, before the first deploy.** Three asserts run before the server accepts
      traffic and every one of them is fatal:
-     - `assertKycConfig` (`services/kyc/index.ts`) — prod runs **didit**, needing `DIDIT_API_KEY`,
-       `DIDIT_WORKFLOW_ID` and `DIDIT_WEBHOOK_SECRET`; placeholder-looking values count as missing.
-       Stage runs didit too — it is mainnet, so `sim` there would instant-promote to tier 2 with no
+     - `assertKycConfig` (`services/kyc/index.ts`) — prod runs **persona**. It now throws for exactly
+       one config: a `persona_production_…` key is what belongs here, and a `persona_sandbox_…` key is
+       refused outright. **Leaving `PERSONA_API_KEY` / `PERSONA_TEMPLATE_ID` blank is legal** — it
+       means identity verification is off (`config.personaLive`), `/kyc/verify` 503s, and partner
+       onboarding falls back to a human reading the business form (docs/14, an accepted risk).
+       Placeholder-looking values count as blank.
+       Stage runs persona too — it is mainnet, so `sim` there would instant-promote to tier 2 with no
        documents against real money. `sim` is a local-only convenience: on **either** deployed tier it
        means no real identity verification on real funds.
      - `assertPayoutConfig` (`services/payout/provider.ts`)

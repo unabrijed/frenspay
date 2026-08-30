@@ -8,7 +8,7 @@ can claim it, saved QR codes follow the claimant. That risk was weighed explicit
 
 ## What it is
 
-`users.role` (`user | merchant | admin`) gates the console; `users.status` (`active | suspended`)
+`users.role` (`user | merchant | admin`) gates the console; `users.status` (`active | suspended | deleted`)
 gates the app. Both are plain columns with a CHECK constraint, both are enforced at one choke point
 each, and both are written only through audited `/admin/*` routes — never client-editable. The
 console itself is `apps/admin`, a separate Next.js app the backend treats like any other client: it
@@ -59,7 +59,8 @@ denied state (`<Denied/>`) on a 403 rather than gating on anything client-held.
 
 `authPreHandler` (`apps/backend/src/auth.ts`) already fetches the user row on every authed request
 (Privy bearer path *and* the dev `x-dev-user-id` fallback), so the suspension gate lives there and
-nowhere else: `status !== 'active'` → **403 `{error:'account_suspended'}`**. Every route, current and
+nowhere else: `status !== 'active'` → **403** — `{error:'account_deleted'}` when the row is deleted, otherwise
+`{error:'account_suspended'}`. Two codes, not one.. Every route, current and
 future, is covered at once — including `/auth/sync`.
 
 - **403, never 401** — clients sign out on `no_account`; a suspended user is signed in, just refused.
@@ -96,16 +97,27 @@ Every write below records an `insertAdminAction` audit row (`admin_user_id`, `ac
   exists to stop outsiders probing the list). Display names go through `sanitizeDisplayName` (strip
   control/format chars, collapse whitespace, ≤50) because `display_name` feeds the payee-confirm
   screen; admin is currently its only writer.
-- `POST /admin/users/:id/status` `{status, reason}` — **reason mandatory both ways.** Guards: 409
-  self-suspend, 409 suspending an effective admin.
+- `POST /admin/users/:id/status` `{status, reason}` — three statuses (`active | suspended | deleted`),
+  **reason mandatory in every direction.** Guards: 409 self-suspend, 409 self-delete, 409 suspending
+  an effective admin, 409 deleting one.
 - `POST /admin/users/:id/role` `{role}` — see Roles model above.
-- Plus the pre-existing surface: KYB approve/reject, merchant status, dispute resolve, denylist
+- Plus the pre-existing surface: KYB (**four** decisions — approve · reject · ask for more · claim for
+  review, detailed below), merchant status, dispute resolve, denylist
   add/remove, payout-provider enable/priority — all audited the same way.
+
+### The one unguarded write
+
+`POST /admin/merchants/:id/status` is the exception to everything above and worth knowing before you
+use it. Unlike every other write on this page it takes **no reason**, checks **no state**, and does not
+verify the row exists — an admin can set a partner straight to `online`, bypassing the KYB-approved +
+bond ≥ $2,000 conditions the partner's own switch enforces on them. It is not a routing hole
+(`listRoutableMerchants` re-checks both in its SELECT), but it is an asymmetry: the console can put a
+partner in a state they could not put themselves in, and the audit row will not say why.
 
 ## Invite administration
 
 **Schema** (migration `0007_invite_codes.sql`): `invite_codes` is real rows, not a counter. `code`
-(PK, `'FP-XXXX-XXXX'`, Crockford base32 minus I/L/O/U, canonicalized by `canonicalInviteCode` in
+(PK, `'FREN-XXXXXXXX'`, Crockford base32 minus I/L/O/U, canonicalized by `canonicalInviteCode` in
 `apps/backend/src/services/invites.ts`) is stored in **plain text** on purpose — the owner sees it
 exactly once at signup (`users.invites_revealed_at` gates the reveal), but an operator has to be
 able to read one back, so it isn't hashed. `owner_id` nullable: `null` is a **house code**, minted
@@ -128,17 +140,18 @@ still points at something real. Status (`unused | burned | revoked`) is **derive
 `scripts/remint-invites.ts` (Bridge-run, rerun-safe: the revoke filters `code like 'FP-%'`)
 performs the one-shot cutover — reminting from `FP-XXXX-XXXX` to `FREN-XXXX-XXXX`,
 alongside a bulk-revoke of every outstanding `FP-` code and a reissue of 3 per user + fresh house
-codes. Today's code still mints and validates `FP-` (`invites.ts` `PREFIX = 'FP'`); the migration
-and reissue haven't landed.
+codes. **The cutover landed on 2026-08-13**: `invites.ts` has `PREFIX = 'FREN'`, every outstanding `FP-`
+code was bulk-revoked and 3 per user reminted. This section said otherwise until 2026-08-29.
 
 ## Soft-delete — ✅ shipped 2026-08-13 (🟡 until migration 0012 applies on stage)
 
 **Decision:** delete is allowed anytime, even with a balance — funds are the user's own custody via
 Privy (see [03-custody-money-in-and-confirmation](03-custody-money-in-and-confirmation.md)), never
 the platform's, so there is no balance-based reason to block it. "Delete" means **app access
-removed**, not fund seizure or account destruction: extend `users.status` with a `'deleted'` value
-(or add a separate `deleted_at` column — mechanism TBD, not yet decided which) and route it through
-the same enforcement the suspension gate already provides in `authPreHandler`.
+removed**, not fund seizure or account destruction. **Decided and shipped** (migration 0012): a third
+`users.status` value, `'deleted'`, not a separate `deleted_at` column — routed through the same
+enforcement the suspension gate already provides in `authPreHandler`, which answers
+`account_deleted` rather than `account_suspended` for it.
 
 **Ledger rows are retained — hard delete is not an option**, verified against the FK topology in
 `apps/backend/src/db/migrations/0001_baseline.sql`:
@@ -164,8 +177,8 @@ Consequences that follow from "app access removed, funds untouched":
 - **"Ban" = suspend + a denylist entry**, not a third status. Suspend (`users.status='suspended'`)
   blocks the account; a `denylist` row (`kind='handle'` or `'address'`) blocks the *person* from
   re-onboarding under a new Privy identity. Deliberately two existing primitives composed, not a new
-  enum value — `users.status` stays exactly `active | suspended` (+ the deletion mechanism above),
-  never `banned`.
+  enum value — `users.status` stays exactly `active | suspended | deleted` (0012 settled the
+  mechanism), never `banned`.
 
 ## Admin rows must never be hard-deleted
 
