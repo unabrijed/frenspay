@@ -12,12 +12,11 @@ commitment, not a UX toggle — it's the second half of this doc.
 The LP-facing product — what an LP actually sees, and why the score is the centre of it — is
 [11](11-lp-console.md). This doc is the machine; that one is the console.
 
-**This is 503-gated on every deployed environment today.** `config.isMainnet` (`envConfig.ts`) is
-true whenever the configured SPL mint is Circle's real mainnet USDC — which it is on both stage and
-prod (mainnet-lite, [01](01-architecture.md)). `routes/orders.ts` checks it first thing on both
-`POST /orders/quote` and `POST /orders` and returns `503 payments_unavailable`: the Anchor escrow
-program isn't deployed to mainnet yet, so merchant-pay can't run there. Everything below is real,
-tested, and running on **devnet** in local dev; nothing here moves real money yet.
+**Gated on `config.escrowLive` until the program is on mainnet.** `routes/orders.ts` checks it
+first thing on both `POST /orders/quote` and `POST /orders` and returns `503 payments_unavailable`
+whenever the escrow program id, the fee-payer or the fee destination is not configured. The Anchor
+program is being deployed to mainnet under a new id ([15](15-pilot-escrow-and-bond.md)); there is
+no devnet any more, so "tested on devnet" is history — the closed pilot in docs/15 is the test.
 
 ## Flow — quote → escrow → routing → offer → claim → confirm
 
@@ -508,7 +507,7 @@ ships **disabled** — inert until its env key exists *and* an operator turns it
   `quotes.spread_bps`) · `0016` (KYB evidence + timeline) · `0017` (activity histogram) · `0019`
   (legs: `orders.group_id`/`amount_fiat`, `quotes.legs`; the pair rule's indexes + `payee_payments`)
 - `apps/backend/scripts/{check-routing-math,check-lock}.ts`
-- `apps/backend/src/envConfig.ts` (`isMainnet` gate, `platformFeeBps`, `payoutSecretKeys`,
+- `apps/backend/src/envConfig.ts` (`escrowLive`, `platformFeeBps`, `payoutSecretKeys`,
   `payoutCallbackTokens`, `platformTreasuryAddress`)
 - `apps/backend/src/db/migrations/{0001_baseline.sql,0005_payout_providers.sql,0006_platform_fee.sql}`,
   `db/seed.ts` (5 sim LPs + the fixed-UUID QRIS platform row + the seeded `payout_providers` rows)

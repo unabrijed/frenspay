@@ -65,7 +65,7 @@ release/refund an order's escrow; see [06](06-offramp-and-settlement.md)). It is
 authority: devnet now uses Circle's *official* devnet USDC (see Money In below), so the fee-payer
 can't create USDC out of thin air on any tier — it can only move what's already in an account it
 controls. Its secret is `FEE_PAYER_SECRET_KEY`, loaded once and cached
-(`apps/backend/scripts/setup-devnet.ts` generates a devnet one).
+(a keypair you generate with `solana-keygen`; there is no devnet).
 
 ### Drain guards
 
@@ -130,19 +130,10 @@ watches the **fee-payer's** address (see Confirmation below), and a wallet-to-wa
 never touches the fee-payer. A user who deposits this way sees their balance jump with no matching
 activity row.
 
-**Local dev only — the faucet.** `POST /devnet/faucet` (`apps/backend/src/routes/money.ts:318`) is
-gated `403 faucet_disabled` unless `config.isDevelopment && !config.isMainnet` — the `isMainnet`
-half of that gate is derived from the configured USDC mint, not `NODE_ENV`, so it can never turn on
-by accident on a mainnet-pointed backend regardless of tier. It calls `sendUsdcFromTreasury`
-(`solana.ts:165-186`), which transfers **from the fee-payer's own ATA** (a pre-funded treasury,
-seeded manually from `faucet.circle.com`) — it does **not** mint. This changed from an earlier
-self-minted-devnet-USDC design once cross-chain (CCTP) landed: CCTP only burns Circle's *official*
-USDC mint, so devnet now runs on that official mint end-to-end and the fee-payer is just another
-holder, not the mint authority. `sendUsdcFromTreasury` throws `faucet_empty` when the treasury can't
-cover the request (a drained devnet treasury — reseed at faucet.circle.com; not a bug). The
-onboarding "Add your first dollars" step (`apps/web/src/app/onboarding/fund/page.tsx`) drives this
-same faucet and is skipped entirely on mainnet (`IS_MAINNET` check, line 56) — funding is optional
-there and "Skip for now" always works, because a drained treasury must never hold signup hostage.
+**There is no faucet.** `POST /devnet/faucet`, `sendUsdcFromTreasury` and the onboarding "Add
+your first dollars" step were deleted on 2026-08-30 when the testnet tier went away: a faucet on
+mainnet is a drain on the fee-payer's ATA, and there is no other tier. Money-in is deposit-only —
+Add money shows the deposit address; the handle step finishes onboarding.
 
 **Also exists, ops-gated off — CCTP smart-wallet inbound deposit.** `apps/backend/src/routes/crosschain.ts`
 and the `AddMoney` sheet's EVM chips (Base/Arbitrum/Ethereum) implement a real inbound rail: the
@@ -275,19 +266,17 @@ in-app "X sent you $Y" notification for a confirmed P2P send.
 
 ## Key files
 
-- `apps/backend/src/services/solana.ts` (`feePayer`, `buildUsdcTransfer`, `sendUsdcFromTreasury`,
-  `getUsdcBalance`, `getTransferStatus`)
+- `apps/backend/src/services/solana.ts` (`feePayer`, `buildUsdcTransfer`, `getUsdcBalance`, `getTransferStatus`)
 - `apps/backend/src/services/escrowProgram.ts` (fee-payer = escrow authority)
-- `apps/backend/src/routes/money.ts` (`/balance`, `/transfer/prepare|submit`, `/devnet/faucet`, drain
+- `apps/backend/src/routes/money.ts` (`/balance`, `/transfer/prepare|submit`, drain
   guards), `apps/backend/src/routes/crosschain.ts` (CCTP inbound/outbound)
 - `apps/backend/src/services/confirmer.ts` (`confirmPendingOnce`, `startConfirmer`)
 - `apps/backend/src/services/helius.ts` (webhook registration), `apps/backend/src/routes/webhooks.ts`
   (`/webhooks/helius`)
 - `apps/backend/src/services/orderMachine.ts` (`onTransferConfirmed`, `onTransferConfirmedAndNotify`)
 - `apps/backend/src/db/queries.ts` (`getPendingSignatures`, `setTransferStatus[BySignature]`,
-  `expireStaleUnsignedTransfers`, `recordDeposit`, `listTransactionsForUser`,
+  `expireStaleUnsignedTransfers`, `listTransactionsForUser`,
   `countRecentExternalRecipients`)
-- `apps/backend/src/envConfig.ts` (`FEE_PAYER_SECRET_KEY`, `isMainnet` from the configured USDC mint)
-- `apps/backend/scripts/setup-devnet.ts` (fee-payer + official devnet USDC treasury setup)
+- `apps/backend/src/envConfig.ts` (`FEE_PAYER_SECRET_KEY`, `USDC_MINT` — defaults to Circle's mainnet mint)
 - Web: `apps/web/src/components/sheets/AddMoney.tsx`, `apps/web/src/app/onboarding/fund/page.tsx`,
-  `apps/web/src/services/privy/PrivyRoot.tsx`, `apps/web/src/services/envConfig.ts` (`IS_MAINNET`)
+  `apps/web/src/services/privy/PrivyRoot.tsx`, `apps/web/src/services/envConfig.ts`

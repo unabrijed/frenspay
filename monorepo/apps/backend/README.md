@@ -2,7 +2,7 @@
 
 The Pay API — a **Fastify** (TypeScript) service that deploys on **Railway**, run via `tsx`
 (no build step). Phase-1 endpoints from `backend-architecture.md` §2 are wired: DB-backed
-reads, real Solana **devnet** USDC transfers (fee-payer sponsored), and Privy auth.
+reads, real Solana **mainnet** USDC transfers (fee-payer sponsored), and Privy auth.
 
 ## Run locally
 
@@ -41,8 +41,6 @@ IP-keyed rate limiter. See [20 · Waitlist & referral loop](../../docs/20-waitli
   `db:new <name>` — stamp the next migration file · `db:reset` — drop + remigrate (refuses on prod) ·
   `db:seed` — dev users/activity. Schema changes are new files in `src/db/migrations/`, never edits
   to applied ones (`db:status` warns if one was edited in place).
-- `devnet:setup` — provision a fee-payer + USDC mint + funded test wallets (writes `.devnet/keys.json`);
-  copy the printed `STAGE_USDC_MINT` + `STAGE_FEE_PAYER_SECRET_KEY` into `.env`
 - `check:waitlist` — self-check for the f-list share codes + confirm tokens (pure logic; no DB, no
   network, no framework — plain `assert`)
 

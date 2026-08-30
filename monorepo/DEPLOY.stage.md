@@ -1,21 +1,20 @@
-# Stage deploy — backend → Railway, frontends → Vercel (Solana **mainnet-lite**)
+# Stage deploy — backend → Railway, frontends → Vercel (Solana **mainnet**)
 
-Backend: Fastify (`apps/backend`) on Railway, stage environment, **real mainnet USDC** in
-mainnet-lite mode. DB is Supabase Postgres. Frontends: per-environment Vercel projects (the OMS
+Backend: Fastify (`apps/backend`) on Railway, stage environment, **real mainnet USDC**. DB is Supabase Postgres. Frontends: per-environment Vercel projects (the OMS
 model — see §Frontends). Prod is a separate doc: `DEPLOY.md`.
 
-## Mainnet-lite: what's ON and OFF
+## What's ON and OFF — capability-derived, never tier-derived
 
-Money-realness derives from the **mint**, not NODE_ENV: setting `STAGE_USDC_MINT` to Circle's
-mainnet mint flips `config.isMainnet`, which hard-gates every dev money convenience regardless of
-tier (envConfig.ts). Local dev keeps devnet — it reads the repo `.env`, not these dashboard vars.
+There is no testnet tier (2026-08-30): local, stage and prod are all Solana mainnet with real USDC,
+and the faucet, the `/sim/orders/*` controls and the Sepolia contract table are gone rather than
+gated. What remains switchable is a **capability** the backend derives from its own config at boot:
 
-| ON (real mainnet USDC)                             | OFF on stage                                   |
-| -------------------------------------------------- | ---------------------------------------------- |
-| Balance + on-chain deposit address (Solana)        | Faucet (403; UI hidden, onboarding skips fund) |
-| P2P sends (@handle) + external sends               | Merchant-pay orders (503 `payments_unavailable` — escrow program not on mainnet yet) |
-| Helius push confirmation (see §Helius)             | Cross-chain CCTP (routes unregistered — EVM side is Sepolia on dev tiers) |
-|                                                    | `/sim/orders/*` (403), staking (leave stake treasury unset → 503) |
+| Capability | Derived from | Off ⇒ |
+| --- | --- | --- |
+| Merchant-pay orders (`escrowLive`) | `STAGE_ESCROW_PROGRAM_ID` + `STAGE_FEE_PAYER_SECRET_KEY` + `STAGE_PLATFORM_FEE_DESTINATION` all usable | `503 payments_unavailable` on quote + order |
+| Identity verification (`personaLive`) | `STAGE_PERSONA_API_KEY` + `STAGE_PERSONA_TEMPLATE_ID` real | `/kyc/verify` 503s, every tier gate lifts (docs/14) |
+| LP staking | `STAGE_STAKE_TREASURY_ADDRESS` set (public key, no signer) | `503 staking_unavailable` |
+| Cross-chain CCTP | `STAGE_EVM_MINTER_PRIVATE_KEY` + the three EVM RPC urls | `503 crosschain_unavailable` (routes always registered) |
 
 `/sim/kyc` stays live (tier gating only — acceptable behind the access gate). Money-in is
 deposit-only: send USDC (Solana) to the address shown in Add money.
@@ -143,7 +142,8 @@ Use it to redeploy the current commit, or to recover after a failed run.
    STAGE_LP_BASE_URL=https://provider.frenspay.xyz   # LP console — alert deep links lose their button if unset
    # STAGE_TELEGRAM_BOT_TOKEN / STAGE_TELEGRAM_WEBHOOK_SECRET — one bot per tier, docs/13 §Setup.
    # Unset ⇒ the bot and its alert adapter are inert; the webhook fails closed.
-   # leave STAGE_STAKE_TREASURY_ADDRESS and STAGE_ESCROW_PROGRAM_ID unset (staking 503s, orders are gated)
+   # STAGE_STAKE_TREASURY_ADDRESS / STAGE_ESCROW_PROGRAM_ID / STAGE_PLATFORM_FEE_DESTINATION — the capability
+   # switches in the table above; unset = that capability answers 503, nothing else changes
    # STAGE_PLATFORM_FEE_BPS optional (default 50) — dormant until merchant-pay ships on mainnet
    ```
    Do **NOT** set `PORT` — Railway injects it and the server binds `process.env.PORT` (host-level
@@ -311,7 +311,7 @@ Ship to prod by merging `stage` → `sacred` (PR).
    ```
    NEXT_PUBLIC_APP_ENV=stage
    NEXT_PUBLIC_STAGE_API_URL=https://stage.api.frenspay.xyz   # or the *.up.railway.app URL until the API domain exists
-   NEXT_PUBLIC_STAGE_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com   # cluster switch: drives IS_MAINNET (hides faucet UI, Privy chain id)
+   NEXT_PUBLIC_STAGE_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com   # RPC provider only — every tier is mainnet
    NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<privy app id>
    NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<privy client id>
    NEXT_PUBLIC_STAGE_LANDING_URL=https://frenspay.xyz

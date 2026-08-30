@@ -38,9 +38,9 @@ Then **allow `http://localhost:3000` as an origin in your Privy dashboard app** 
 `yarn dev:web` already runs the backend. The Privy **App Secret is backend-only** — it lives in
 `apps/backend/.env`, never here.
 
-**Or a seeded devnet wallet**, which is faster for local work — set
+**Or a seeded dev wallet**, which is faster for local work — set
 `NEXT_PUBLIC_STAGE_DEV_USER_ID` + `NEXT_PUBLIC_STAGE_DEV_SECRET_KEY` from
-`apps/backend/.devnet/keys.json` after `db:seed` + `devnet:setup`. It runs under `next dev` only:
+`apps/backend/.devnet/keys.json` after `db:seed`. It runs under `next dev` only:
 the key is a raw private key, so `envConfig.ts` reads it inside a branch every production build
 strips. Full notes in `.env.example` and the [root README](../../README.md#web-app-appsweb).
 

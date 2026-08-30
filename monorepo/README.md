@@ -85,7 +85,6 @@ Ctrl-C stops the whole group; nothing is left holding a port.
 | `yarn check:deploy` | The path gate that decides what a push deploys — see [Deploy](#deploy) |
 | `yarn db:migrate` | Apply pending DB migrations (`yarn db:status` to inspect, `db:seed` · `db:reset` · `db:new` · `db:init` · `db:deploy` all exist too) |
 | `yarn db:seed` | Insert 2 test users (@bridge, @neha) + sample activity (prints ids) |
-| `yarn devnet:setup` | Provision fee-payer + USDC mint + funded devnet wallets |
 | `yarn check:env` | Tier block identical across the Next apps, nothing reads `process.env` outside an `envConfig.ts` |
 | `yarn check:paytarget` | The pay-target parser — handles, VPAs, phones, addresses |
 | `yarn check:rails` | Chain-registry invariants + suffix resolution |
@@ -134,8 +133,8 @@ NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<your Privy app id>
 Then **allow `http://localhost:3000` as an origin in your Privy dashboard app** and reload —
 `yarn dev:web` is already running the backend. (The App **Secret** is backend-only — never put it here.)
 
-**No Privy — sign as a seeded devnet wallet.** Faster for local work; needs `db:seed` +
-`devnet:setup` to have run, and reads the keypair out of `apps/backend/.devnet/keys.json`:
+**No Privy — sign as a seeded dev wallet.** Faster for local work; needs `db:seed` to have run
+and a keypair in `apps/backend/.devnet/keys.json` (mainnet, so it holds real USDC or none):
 
 ```bash
 NEXT_PUBLIC_STAGE_DEV_USER_ID=<a seeded user id>
@@ -191,9 +190,9 @@ yarn dev:backend                                 # → http://localhost:3001
 curl localhost:3001/health                       # → {"status":"ok","database":"configured"}
 ```
 
-On-chain **balance + Send** also need a one-time devnet provisioning (fund the fee-payer,
-then `devnet:setup`, then copy the printed `STAGE_USDC_MINT` into `.env`). Details +
-endpoints + deploy steps live in [`apps/backend/README.md`](./apps/backend/README.md).
+On-chain **balance + Send** need a funded mainnet fee-payer (`STAGE_FEE_PAYER_SECRET_KEY`); without
+one local is read-only for money. There is no testnet. Details + endpoints + deploy steps live in
+[`apps/backend/README.md`](./apps/backend/README.md).
 
 ---
 
@@ -286,10 +285,8 @@ backend with `curl localhost:3001/health` plus the endpoints in the backend READ
   (unset = gate off, the local default). On a stage/prod domain that form is correct behavior.
 - **Privy login rejected on web** — add `http://localhost:3000` as an allowed origin in the
   Privy dashboard app; confirm `NEXT_PUBLIC_STAGE_PRIVY_APP_ID` is set.
-- **`/balance` is 0 / Send errors with "no mint"** — `devnet:setup` hasn't run (or
-  `STAGE_USDC_MINT` isn't in `apps/backend/.env`).
-- **Faucet `429 Too Many Requests`** — the public devnet faucet is rate-limited; fund the
-  fee-payer via https://faucet.solana.com or a Helius devnet RPC.
+- **`/balance` is 0** — the wallet holds no mainnet USDC yet; deposit some to the address in Add money.
+- **Send 503s `solana_unavailable`** — no `STAGE_FEE_PAYER_SECRET_KEY` locally (money is read-only) or the RPC is rate-limiting; use a Helius RPC url.
 
 Mobile app:
 
@@ -324,7 +321,7 @@ you deploy:
   both Vercel and the backend. A docs-only push deploys nothing.
 
 ## Cost note
-Everything here is free to develop with: Solana **devnet**, Helius free RPC, Privy free
+Everything here is free to develop with: Solana mainnet reads, Helius free RPC, Privy free
 tier, Railway's Hobby plan, GitHub Actions (metered on a private repo — 2,000 min/month — but this
 workflow only uploads, so it barely registers), Vercel's free Hobby tier for the frontends, and the
 free **web** workflow (no EAS needed — the Android dev build is local + free; Expo's push service
