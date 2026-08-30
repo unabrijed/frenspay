@@ -12,9 +12,20 @@
 import Constants from 'expo-constants';
 
 const isProduction = process.env.NODE_ENV === 'production';
-const APP_ENV = process.env.EXPO_PUBLIC_APP_ENV || (isProduction ? 'production' : 'local');
+// A value pasted into a host's variable panel carries baggage — a trailing newline, the quotes it was
+// copied inside. The backend launders every read through clean(); this is that twin, and it matters
+// more here: an untrimmed tier name matches nothing and drops to the stage chain below.
+const APP_ENV = (process.env.EXPO_PUBLIC_APP_ENV || (isProduction ? 'production' : 'local'))
+  .trim()
+  .replace(/^(['"])([\s\S]*)\1$/, '$2');
 const isProdEnv = APP_ENV === 'production';
 const isStageEnv = APP_ENV === 'stage';
+// An unrecognised tier used to fall out of pick() into the STAGE chain — a production build quietly
+// signing in against the stage Privy app while its own bare vars sat there unread. EXPO_PUBLIC_* is
+// inlined, so this folds at build time: a mistyped tier fails the build instead of shipping.
+if (!isProdEnv && !isStageEnv && APP_ENV !== 'local') {
+  throw new Error(`EXPO_PUBLIC_APP_ENV must be local | stage | production — got ${JSON.stringify(APP_ENV)}`);
+}
 
 /** Tier chain. Args must be literal process.env.EXPO_PUBLIC_* references (Expo inlines). */
 function pick(local?: string, stage?: string, prod?: string): string | undefined {
