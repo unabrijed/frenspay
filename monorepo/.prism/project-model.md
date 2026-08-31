@@ -169,6 +169,10 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     (`lib/gate.ts` `sameOriginDest`, web + lp byte-for-byte; `check:gate`). A prefix test is an open
     redirect: the WHATWG parser reads `/\evil.com` as protocol-relative. Both branches (right AND wrong key)
     redirect, so both validate. `apps/lp`'s four gate files are copies of `apps/web`'s — change them together.
+47. **Every `COPY --from=builder /app/<path>` in `payments/Dockerfile` names a path that exists in the tree**
+    (build outputs `node_modules`, `*/dist` excepted) — asserted by `.githooks/pre-push` "Dockerfile copy
+    sources". The hook cannot build the image; this is the half it can check. The flat bundle resolves
+    runtime files off `import.meta.url`, so vendored IDLs go to `dist/idl`, migrations to `dist/migrations`.
 
 ## Danger zones
 
@@ -246,6 +250,12 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   in Node. Verify a security-shaped fix the way you verify a claim — run the counterexample — before shipping.
 - **Line numbers drift between agent reads** — three sessions commit to this tree in one evening; anchor doc
   edits by quoted text and assert the match, never by `sed -n 373p` (L3's 373 was my 369 an hour earlier).
+- **Prose is not a gate** (2026-08-31, night). `.githooks/pre-push` said in its header for weeks that it
+  never builds the Dockerfile; the shelving commit deleted `src/idl`, the Dockerfile still copied it, every
+  local gate passed, and the stage image failed AFTER the push — the backend stayed on the old Privy app
+  while Vercel shipped the new frontends (a 401 window). A deletion commit must be checked against every
+  consumer of the path, including ones outside the monorepo (`payments/Dockerfile`); the hook now asserts
+  COPY sources exist (`c1`… see decision log). When a gate admits a gap in a comment, close the cheap half.
 
 ## Counsel flags & open questions (from 2026-08-24 routing plan — for prism-retro)
 - FLAG-1: the pair rule has TWO recorded rationales (LP bank-freeze protection, docs/06 §pair rule; payee data-minimisation, docs/06 §privacy). Under the second, lock→see VPA→unlock→re-lock is a harvesting path (unlock is penalty-free and writes no `lock_expired`). Counsel decides which governs; that decides whether A3 gets fixed.
@@ -386,7 +396,10 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   one push is shortest); cut mobile `loginMethods` (not in the Expo SDK's config type), a `@fpay/shared/tokens`
   subpath import, an LP README. Bridge's hands: confirm the survivor app + sweep old embedded wallets;
   dashboard (origins, email-only, Solana wallets, Gas Sponsorship ON); host vars incl. lp `STAGE_ACCESS_KEY`;
-  one push.
+  one push. **Post-push (same night):** Bridge pushed; the backend image failed on a stale
+  `COPY …/src/idl` (deleted with the program in `56be186`); hotfix removes it, copies the CCTP IDLs to
+  `dist/idl` where the flat bundle reads them, and the pre-push hook now asserts every Dockerfile copy
+  source exists (invariant 47).
 
 ## Telemetry (2026-08-31 Privy-one-app + LP-gate plan)
 - divergence: 0.77 (evidence 0.83, conclusion 0.67) | threshold 0.30 UNCALIBRATED
