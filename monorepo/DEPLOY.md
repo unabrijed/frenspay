@@ -9,6 +9,7 @@ per project" list in `DEPLOY.stage.md` with these substitutions:
 | project | Production Branch | Root Directory | domain |
 | ------- | ----------------- | -------------- | ------ |
 | web (prod) | `sacred` | **`monorepo`** | app.frenspay.xyz (TBD) |
+| lp (prod) | `sacred` | `monorepo/apps/lp` | the partner console's prod domain (TBD) — gated by its own `ACCESS_KEY` |
 | landing (prod) | `sacred` | `monorepo/apps/landing` | frenspay.xyz |
 
 **Admin has no prod twin — on purpose.** There is one admin project (`DEPLOY.stage.md` §Frontends)
@@ -28,11 +29,13 @@ environment's bare `CORS_ORIGIN`. Details and the reasoning: `apps/admin/README.
   (production is the build default), plus `NEXT_PUBLIC_API_URL=https://api.frenspay.xyz`,
   `NEXT_PUBLIC_SOLANA_RPC_URL=<mainnet RPC>` (drives web's `IS_MAINNET`; a deployed build fails
   CLOSED to mainnet if unset — envConfig.ts — so this var only picks WHICH mainnet RPC),
-  `NEXT_PUBLIC_PRIVY_APP_ID`, `NEXT_PUBLIC_PRIVY_CLIENT_ID`, `NEXT_PUBLIC_LANDING_URL` (web only —
-  landing gets `NEXT_PUBLIC_API_URL`; admin reads neither, see above), and web's **`ACCESS_KEY`** — the
-  deploy access gate, a fresh `openssl rand -hex 32`, **different from stage's key**. The prod
-  project is gated from its first deploy, not just at mainnet; unsetting `ACCESS_KEY` later is the
-  "open to the public" launch switch.
+  `NEXT_PUBLIC_PRIVY_APP_ID`, `NEXT_PUBLIC_PRIVY_CLIENT_ID` (the SAME values stage uses — the one
+  Privy app has no tiered twins, on any app or the backend), `NEXT_PUBLIC_LANDING_URL` (web only —
+  landing gets `NEXT_PUBLIC_API_URL`; admin reads neither, see above), and web's and lp's own
+  **`ACCESS_KEY`** — the deploy access gate, a fresh `openssl rand -hex 32` per project, **different
+  from each other and from stage's keys**. Each project is gated from its first deploy, not just at
+  mainnet; unsetting web's `ACCESS_KEY` later is the "open to the public" launch switch (lp stays
+  gated — partners are onboarded by hand and get the key with their approval).
 - **Domains**: attach per the table (CNAME from Vercel), API domain `api.frenspay.xyz` on the
   Railway prod service (same steps as stage's step 6), then set the backend's bare `CORS_ORIGIN`
   to the full prod origin list.
@@ -107,8 +110,8 @@ environment's bare `CORS_ORIGIN`. Details and the reasoning: `apps/admin/README.
 `NODE_ENV=production` + the **bare** (unprefixed) names — the full backend list lives in
 `apps/backend/.env.production.example`. Host-level vars stay unprefixed everywhere (`PORT` is
 injected by Railway — never set it; `PUBLIC_BASE_URL=https://api.frenspay.xyz`). Frontend
-variables live per Vercel project (see the block above); web's `ACCESS_KEY` is documented in
-`apps/web/.env.example`.
+variables live per Vercel project (see the block above); web's and lp's `ACCESS_KEY` are documented in
+`apps/web/.env.example` and `apps/lp/.env.example`.
 
 ## Keys
 
@@ -168,12 +171,13 @@ key does not own.
 - `CORS_ORIGIN` must list EVERY prod browser origin (see the CORS section in `DEPLOY.stage.md` —
   same rule, bare variable name).
 - A **security review** before handling real funds (key custody, rate-limits, abuse).
-- **Decide the door — there are now two, and they don't stack well.** `ACCESS_KEY` is one shared
+- **Decide the door — there are now two, and they don't stack well.** Web's `ACCESS_KEY` is one shared
   secret checked in `apps/web/src/middleware.ts` (device cookie, no identity); invite codes are
   per-person and enforced at `/auth/sync`. Since the landing gate hands a valid-code holder to the
   web app, they hit the access-key wall *anyway* and still can't get in unless you also send them
   the shared key — two secrets per invited user, which defeats the invite.
-  - Recommended at launch: **unset `ACCESS_KEY`** and let the invite code be the only door. That is
+  - Recommended at launch: **unset web's `ACCESS_KEY`** and let the invite code be the only door
+    (lp keeps its own key — the console is for hand-picked partners). That is
     what it is for, and it is the same launch switch described in the Vercel block above.
   - Keep both only while the deploy itself is meant to be private (a build nobody outside the team
     should reach), and accept that invites are inert until you unset it.
@@ -188,8 +192,8 @@ key does not own.
 
   The order is load-bearing: the invite gate exempts root admins by checking `ADMIN_EMAILS` **during
   that sync**, so if the variable isn't live yet, your own signup is treated as an ordinary one and
-  is refused with `invite_required` on any non-empty directory. Note web sits behind `ACCESS_KEY`
-  until you unset it, so you need that key to do step 2 at all. Why this exists at all:
+  is refused with `invite_required` on any non-empty directory. Note web sits behind its `ACCESS_KEY`
+  until you unset it, so you need that key (web's — lp's is a separate one) to do step 2 at all. Why this exists at all:
   the root-admins section in `DEPLOY.stage.md`.
 - Landing needs only `NEXT_PUBLIC_API_URL`. `NEXT_PUBLIC_APP_URL` is no longer read — a code is spent
   joining the f list, not handed off to the app — so remove it if it is already set.

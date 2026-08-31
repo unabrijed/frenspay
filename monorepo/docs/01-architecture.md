@@ -32,7 +32,7 @@ monorepo/
 | Backend | **Fastify 5 + tsx** (no build step), ESM | one process; several background pollers run inside it |
 | Web | **Next.js App Router + Zustand + Privy web SDK** | mobile-first browser UI; ships as a Next **server**, not a static export (see Environments) |
 | Admin / Landing | **Next.js** console / **static export** marketing site | admin role-gated by the backend; landing hosts the f-list |
-| LP | **Next.js + Privy web SDK** | the LP console ([11](11-lp-console.md)) — its own app and domain, so the marketplace never ships in a payer's bundle. Auth depth matches web, not admin: staking signs a real USDC transfer |
+| LP | **Next.js + Privy web SDK** | the LP console ([11](11-lp-console.md)) — its own app and domain, so the marketplace never ships in a payer's bundle. Auth depth matches web, not admin: staking signs a real USDC transfer; behind its own deploy access gate, like web |
 | Shared | raw TS (`main: ./src/index.ts`), one runtime dep (bignumber.js) | backend imports **types only** — `import type` (runtime value imports fail under tsx) |
 | UI | raw TSX, same source-only pattern; `react`/`react-dom` are **peer** deps | shared by `web`, `lp` and `mobile`. Consumers must list it in `transpilePackages`; `apps/web`'s own `components/ui/*` are one-line re-export shims, so its ~40 import sites never moved. Every module with a `.native.tsx` twin is what Metro hands the phone instead |
 | App | raw TSX, source-only; the store (Zustand), the API client, the sheets and product components | shared by `web` and `mobile` — one product, two renderers. What a platform does differently goes through ONE seam (`src/platform.ts`) each app fills in at boot; the store hydrates from `configure()`, never at import |
@@ -40,7 +40,7 @@ monorepo/
 | Chain | **Solana, SPL USDC** (6 dp), Anchor | **mainnet** on deployed envs (stage + prod); devnet only in local dev |
 | Data | **Postgres on Supabase** (session pooler — advisory locks) | access control in the API layer, no RLS; local dev also writes to the shared stage DB |
 | Infra | Privy (wallets), Helius (RPC + webhooks) | both have free tiers |
-| Hosting | **Railway** (backend — **GitHub Actions** uploads the checkout, Railway builds it; nothing is published to a registry) + **Vercel** (frontends, one project per app per env) | web gated by a shared access key until public launch |
+| Hosting | **Railway** (backend — **GitHub Actions** uploads the checkout, Railway builds it; nothing is published to a registry) + **Vercel** (frontends, one project per app per env) | web and lp each gated by their own access key until public launch |
 
 ---
 
@@ -56,7 +56,7 @@ a fee-payer key it is read-only for money.
 |---|---|---|
 | local | — | `NODE_ENV` local/development; shared stage Postgres (no local DB); no fee-payer ⇒ money is read-only |
 | stage | `stage` | Railway stage env + Vercel stage projects; real USDC |
-| production | `sacred` | same shapes, bare env var names, separate access key; the Railway service needs its **own** database — the tier stamp makes sharing stage's fatal at boot |
+| production | `sacred` | same shapes, bare env var names, separate access keys (one per gated project); the Railway service needs its **own** database — the tier stamp makes sharing stage's fatal at boot |
 
 > The Branch column means two different mechanisms: for Vercel it is the project's Production
 > Branch, for the backend it is the CI workflow's trigger. They are kept in step by hand, not by a
@@ -67,10 +67,10 @@ from `NODE_ENV` and never from a cluster flag: `escrowLive` (merchant-pay), `per
 (identity), the stake treasury (LP staking), the EVM minter (cross-chain). Each answers a clean 503
 when its config is absent — `DEPLOY.stage.md` has the table.
 
-**Deployment quirk:** the web app ships server-side code — the access-key deploy gate
-(`apps/web/src/middleware.ts` + `/gate`) — so it deploys as a **Next server**, not a static export,
-unlike `landing`. Until a device presents the key, every route serves the gate form instead of the
-app; this is a door-lock for unreleased/pre-launch builds, not the real auth (Privy is).
+**Deployment quirk:** the web app and the LP console ship server-side code — the access-key deploy
+gate (`src/middleware.ts` + `/gate`, byte-for-byte in `apps/web` and `apps/lp`) — so they deploy as
+**Next servers**, not static exports, unlike `landing`. Until a device presents that project's key,
+every route serves the gate form instead of the app; this is a door-lock for unreleased/pre-launch builds, not the real auth (Privy is).
 
 ---
 

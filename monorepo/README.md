@@ -126,8 +126,8 @@ mounts, requests go out unauthenticated and come back 401, and the first send th
 ```bash
 NEXT_PUBLIC_APP_ENV=stage
 NEXT_PUBLIC_STAGE_API_URL=http://localhost:3001
-NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<your Privy app id>
-# NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<optional>
+NEXT_PUBLIC_PRIVY_APP_ID=<your Privy app id>   # bare on every tier — one Privy app everywhere
+# NEXT_PUBLIC_PRIVY_CLIENT_ID=<optional>
 ```
 
 Then **allow `http://localhost:3000` as an origin in your Privy dashboard app** and reload —
@@ -215,8 +215,9 @@ three tiers:
 
 | Surface | Stage selector | Var pattern | Read in |
 |---|---|---|---|
-| Backend | `NODE_ENV=stage` | `STAGE_DATABASE_URL`, `STAGE_PRIVY_APP_SECRET`, … | `apps/backend/src/envConfig.ts` |
+| Backend | `NODE_ENV=stage` | `STAGE_DATABASE_URL`, `STAGE_HELIUS_API_KEY`, … | `apps/backend/src/envConfig.ts` |
 | Web | `NEXT_PUBLIC_APP_ENV=stage` | `NEXT_PUBLIC_STAGE_*` | `apps/web/src/services/envConfig.ts` |
+| LP | `NEXT_PUBLIC_APP_ENV=stage` | `NEXT_PUBLIC_STAGE_*` | `apps/lp/src/services/envConfig.ts` |
 | Admin | `NEXT_PUBLIC_APP_ENV=stage` | `NEXT_PUBLIC_STAGE_*` | `apps/admin/src/services/envConfig.ts` |
 | Landing | `NEXT_PUBLIC_APP_ENV=stage` | `NEXT_PUBLIC_STAGE_*` | `apps/landing/src/lib/envConfig.ts` |
 | Mobile | `EXPO_PUBLIC_APP_ENV=stage` | `EXPO_PUBLIC_STAGE_*` | `apps/mobile/src/services/envConfig.ts` |
@@ -226,11 +227,13 @@ Next only inlines **literal** `process.env.NEXT_PUBLIC_*` references appearing i
 source, and the backend may only `import type` from `@fpay/shared`. `yarn check:env` asserts the
 blocks stay identical and that nothing reads `process.env` outside an `envConfig.ts`.
 
-Two kinds of vars sit outside the `NEXT_PUBLIC_*` pattern: host-level ones (`PORT` — the platform
-injects it, `PUBLIC_BASE_URL`), and the web deploy access gate's server-only keys
-(`STAGE_ACCESS_KEY` on the stage Vercel project / bare `ACCESS_KEY` on prod — read by
-`apps/web/src/middleware.ts`, never inlined into a browser bundle). See each app's `.env.example`
-and `DEPLOY.stage.md`.
+Three kinds of vars sit outside the `NEXT_PUBLIC_*` pattern: host-level ones (`PORT` — the platform
+injects it, `PUBLIC_BASE_URL`); the deploy access gates' server-only keys (`STAGE_ACCESS_KEY` on a
+stage Vercel project / bare `ACCESS_KEY` on prod — one per project, read by `src/middleware.ts` in
+`apps/web` and `apps/lp`, never inlined into a browser bundle); and the Privy app, which is ONE value
+on every tier and so is read bare everywhere — `NEXT_PUBLIC_PRIVY_APP_ID` / `_CLIENT_ID` in every
+frontend, `PRIVY_APP_ID` / `_APP_SECRET` on the backend — never through the tier chain (a stale
+`STAGE_PRIVY_*` twin is read by nothing). See each app's `.env.example` and `DEPLOY.stage.md`.
 
 ---
 
@@ -281,10 +284,11 @@ backend with `curl localhost:3001/health` plus the endpoints in the backend READ
 - **Env changes don't take effect** — `NEXT_PUBLIC_*` is inlined at start, not read at runtime;
   restart `yarn dev:web`.
 - **Every route shows an "Enter your access key" form** — the deploy access gate is on because
-  `STAGE_ACCESS_KEY` is set in `apps/web/.env.local`. Enter that value once, or remove the line
+  `STAGE_ACCESS_KEY` is set in `apps/web/.env.local` (or `apps/lp/.env.local` for the LP console).
+  Enter that value once, or remove the line
   (unset = gate off, the local default). On a stage/prod domain that form is correct behavior.
 - **Privy login rejected on web** — add `http://localhost:3000` as an allowed origin in the
-  Privy dashboard app; confirm `NEXT_PUBLIC_STAGE_PRIVY_APP_ID` is set.
+  Privy dashboard app; confirm `NEXT_PUBLIC_PRIVY_APP_ID` is set (bare — the `STAGE_` name is read by nothing).
 - **`/balance` is 0** — the wallet holds no mainnet USDC yet; deposit some to the address in Add money.
 - **Send 503s `solana_unavailable`** — no `STAGE_FEE_PAYER_SECRET_KEY` locally (money is read-only) or the RPC is rate-limiting; use a Helius RPC url.
 
@@ -302,8 +306,8 @@ Mobile app:
 ## Deploy
 
 Backend on **Railway** (Supabase Postgres), frontends on **Vercel** — one project per app per
-environment (`stage` branch → stage projects, `sacred` → prod). The deployed web app sits behind a
-shared **access-key gate** until launch. The runbooks — every dashboard setting, variable, domain
+environment (`stage` branch → stage projects, `sacred` → prod). The deployed web app and LP console each sit
+behind their own **access-key gate** until launch. The runbooks — every dashboard setting, variable, domain
 step, and test — are [`DEPLOY.stage.md`](./DEPLOY.stage.md) (start here) and
 [`DEPLOY.md`](./DEPLOY.md) (prod/mainnet).
 

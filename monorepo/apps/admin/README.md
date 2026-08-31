@@ -114,7 +114,7 @@ collectively. The working copy of this list is `apps/admin/.env.deploy` (gitigno
 ```bash
 NEXT_PUBLIC_STAGE_API_URL=https://stage.api.frenspay.xyz   # the "stage" target
 NEXT_PUBLIC_API_URL=https://api.frenspay.xyz               # the "prod" target — unset ⇒ no switch
-NEXT_PUBLIC_PRIVY_APP_ID=<privy app id>                    # one app, both targets
+NEXT_PUBLIC_PRIVY_APP_ID=<privy app id>                    # one app — every app, every tier
 NEXT_PUBLIC_PRIVY_CLIENT_ID=<optional — see below>
 ```
 
@@ -122,10 +122,11 @@ NEXT_PUBLIC_PRIVY_CLIENT_ID=<optional — see below>
 `APP_ENV` governs only the dev shim now, and is best left unset on the deployment — nothing else
 reads it.
 
-**One Privy app, both backends.** A token minted by one Privy app does not verify against a backend
-configured with another (`services/privy.ts` → `verifyAuthToken`), so the one id here must also be
-set as `STAGE_PRIVY_APP_ID` on the stage backend and `PRIVY_APP_ID` on the prod backend. Whichever
-backend disagrees refuses every token before a row is ever looked up.
+**One Privy app, both backends — and, since 2026-08-31, every frontend on every tier.** A token
+minted by one Privy app does not verify against a backend configured with another
+(`services/privy.ts` → `verifyAuthToken`), so the one id here must also be set as `PRIVY_APP_ID` on
+every backend (bare on every tier — `STAGE_PRIVY_APP_ID` is read by nothing). Whichever backend
+disagrees refuses every token before a row is ever looked up.
 
 It used to be one app per target, and the switch swapped the id under its reload. Privy's stored
 token keys (`privy:token`, `privy:refresh_token`) are **not** app-scoped, so the incoming provider

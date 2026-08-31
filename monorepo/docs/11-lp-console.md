@@ -217,7 +217,8 @@ accepted into a dead end.
   disputes ledger, and the alert seam with a Telegram adapter.
 - ✅ Its own app (`apps/lp`), with the score leading and distance-to-next-tier computed from the
   same rules routing scores on.
-- 🟡 No domain or Vercel project yet; the working name is `@fpay/lp`.
+- ✅ Its own Vercel project and domain (`provider.frenspay.xyz`, `DEPLOY.stage.md`), behind the same
+  deploy access gate as the wallet app — its own key, its own cookie.
 - ⬜ Web/mobile push. **Bank and phone destinations** (above). Staked returns. An admin surface for
   releasing a stake withdrawal ([07](07-admin-and-moderation.md)).
 
@@ -228,3 +229,4 @@ accepted into a dead end.
 - `apps/backend/src/services/alert/{index,provider,telegram}.ts` — the notifier seam
 - `packages/shared/src/kyb.ts` (+ `apps/backend/src/lib/kyb.ts`, its enforcing mirror)
 - `packages/ui` — the design system the console shares with the wallet app
+- `apps/lp/src/{middleware.ts,lib/gate.ts,lib/gateHtml.ts,app/gate/route.ts}` — the deploy access gate, byte-for-byte `apps/web`'s

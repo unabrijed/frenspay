@@ -65,8 +65,9 @@ Flow docs follow the **same six-part shape**, so you always know where to look:
 
 **Deployment is not a numbered doc** — the runbooks live at the repo root, next to the code they
 deploy: [`DEPLOY.stage.md`](../DEPLOY.stage.md) and [`DEPLOY.md`](../DEPLOY.md). One architecture
-fact worth knowing from them: the web app ships server-side code (the access-key gate —
-`src/middleware.ts` + `/gate`), so it deploys as a Next server, not a static export.
+fact worth knowing from them: the web app and the LP console ship server-side code (the access-key
+gate — `src/middleware.ts` + `/gate`, one key per project), so they deploy as Next servers, not
+static exports.
 
 **One-line mental model:** the **client** asks the **backend** to *build* a transaction, the
 **user** signs it (via Privy), the **fee-payer** sponsors the gas, the **chain** executes it, and

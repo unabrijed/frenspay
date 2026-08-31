@@ -7,9 +7,9 @@
   triggers on `stage` and `sacred`, picking the Railway environment from the branch (`DEPLOY.md`).
   **Every tier runs Solana MAINNET** — there is no testnet (docs/16); the RPC var only picks the
   provider.
-- **Frontends — Vercel** (web, admin `admin.frenspay.xyz`, landing). The web app ships as a **Next
-  server**, not a static export — the access-key gate (`src/middleware.ts` + `/gate`) is
-  server-side.
+- **Frontends — Vercel** (web, lp `provider.frenspay.xyz`, admin `admin.frenspay.xyz`, landing). Web
+  and lp ship as **Next servers**, not static exports — the access-key gate (`src/middleware.ts` +
+  `/gate`, one key per project) is server-side.
 - **Path-scoped deploys (HARD RULE):** a push deploys only the app whose files changed; a
   docs-only push deploys **nothing**. When a deploy misfires, debug the path filters — never
   remove them. There is exactly **one** implementation, `monorepo/scripts/vercel-ignore.mjs`, with

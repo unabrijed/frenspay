@@ -16,7 +16,7 @@ gated. What remains switchable is a **capability** the backend derives from its 
 | LP staking | `STAGE_STAKE_TREASURY_ADDRESS` set (public key, no signer) | `503 staking_unavailable` |
 | Cross-chain CCTP | `STAGE_EVM_MINTER_PRIVATE_KEY` + the three EVM RPC urls | `503 crosschain_unavailable` (routes always registered) |
 
-`/sim/kyc` stays live (tier gating only — acceptable behind the access gate). Money-in is
+`/sim/kyc` stays live (tier gating only — acceptable behind the access gates). Money-in is
 deposit-only: send USDC (Solana) to the address shown in Add money.
 
 ## How a deploy happens
@@ -137,8 +137,9 @@ Use it to redeploy the current commit, or to recover after a failed run.
    STAGE_ESCROW_SECRET_KEY=[ ... ]                       # the escrow POOL's key — see §Keys below. Same JSON-array shape; ~0.05 SOL only when no fee-payer is set
    STAGE_PLATFORM_FEE_DESTINATION=<cold wallet pubkey>   # where the platform's cut lands on release. PUBLIC KEY ONLY
    STAGE_USDC_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v   # Circle's MAINNET USDC — this is the real-money switch
-   STAGE_PRIVY_APP_ID=<privy app id>
-   STAGE_PRIVY_APP_SECRET=<privy app secret>            # backend-only, never in a web build
+   PRIVY_APP_ID=<privy app id>                          # UNPREFIXED on every tier — one Privy app everywhere; STAGE_PRIVY_* is read by nothing (§One Privy app)
+   PRIVY_APP_SECRET=<privy app secret>                  # backend-only, never in a web build; unprefixed too
+   # PRIVY_VERIFICATION_KEY=<optional>                  # skips a network fetch per verify — same rule, unprefixed
    PUBLIC_BASE_URL=https://<this-railway-service>.up.railway.app   # → https://stage.api.frenspay.xyz once the custom domain is attached (step 6)
    STAGE_CORS_ORIGIN=<see below>
    STAGE_LP_BASE_URL=https://provider.frenspay.xyz   # LP console — alert deep links lose their button if unset
@@ -334,23 +335,25 @@ Ship to prod by merging `stage` → `sacred` (PR).
    NEXT_PUBLIC_APP_ENV=stage
    NEXT_PUBLIC_STAGE_API_URL=https://stage.api.frenspay.xyz   # or the *.up.railway.app URL until the API domain exists
    NEXT_PUBLIC_STAGE_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com   # RPC provider only — every tier is mainnet
-   NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<privy app id>
-   NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<privy client id>
+   NEXT_PUBLIC_PRIVY_APP_ID=<privy app id>                    # BARE on every tier — one Privy app everywhere; NEXT_PUBLIC_STAGE_PRIVY_* is read by nothing
+   NEXT_PUBLIC_PRIVY_CLIENT_ID=<privy client id>
    NEXT_PUBLIC_STAGE_LANDING_URL=https://frenspay.xyz
-   STAGE_ACCESS_KEY=<openssl rand -hex 32>                    # deploy access gate — see below
+   STAGE_ACCESS_KEY=<openssl rand -hex 32>                    # deploy access gate — this project's OWN key; see below
    ```
    admin (the only admin project — it serves both environments):
    ```
    # NEXT_PUBLIC_APP_ENV is deliberately UNSET here — nothing but the dev shim reads it
    NEXT_PUBLIC_STAGE_API_URL=<same as web>                    # the "stage" target
    NEXT_PUBLIC_API_URL=https://api.frenspay.xyz               # the "prod" target
-   NEXT_PUBLIC_PRIVY_APP_ID=<privy app id>                    # ONE app, both targets
+   NEXT_PUBLIC_PRIVY_APP_ID=<privy app id>                    # ONE app — every app, every tier
    NEXT_PUBLIC_PRIVY_CLIENT_ID=<privy client id>              # optional
    ```
    Admin's API **hosts** are targets, not tiers: both are inlined and the operator picks one in the
-   sidebar, which is why there is no admin twin project. The **Privy app is not per-target** — the
-   same app id must also be the backend's `STAGE_PRIVY_APP_ID` on stage and `PRIVY_APP_ID` on prod,
-   or whichever backend disagrees refuses every token before a row is looked up. It used to be one
+   sidebar, which is why there is no admin twin project. The **Privy app is not per-target, and not per-tier** — there is
+   exactly one, so every frontend reads it under its BARE name on every tier and the same id must be
+   the backend's `PRIVY_APP_ID` on every tier (unprefixed; `STAGE_PRIVY_APP_ID` is read by nothing
+   since 2026-08-31 — §One Privy app below), or whichever backend disagrees refuses every token
+   before a row is looked up. It used to be one
    app per target; the switch swapped the id under its reload, the incoming app inherited the
    outgoing app's stored token (Privy's keys are not app-scoped), and the console hung on
    "Signing in…". Full reasoning: `apps/admin/README.md` §Deploy.
@@ -367,10 +370,11 @@ Ship to prod by merging `stage` → `sacred` (PR).
    NEXT_PUBLIC_APP_ENV=stage
    NEXT_PUBLIC_STAGE_API_URL=<same as web>
    NEXT_PUBLIC_STAGE_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com   # deployed tiers fail closed to mainnet anyway; set it for parity
-   NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<same privy app id as web>              # staking signs a real USDC transfer, so it needs the embedded wallet
-   NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<privy client id>                    # optional
+   NEXT_PUBLIC_PRIVY_APP_ID=<same privy app id as web>                    # bare on every tier; staking signs a real USDC transfer, so it needs the embedded wallet
+   NEXT_PUBLIC_PRIVY_CLIENT_ID=<privy client id>                          # optional
+   STAGE_ACCESS_KEY=<openssl rand -hex 32>                                # deploy access gate — its OWN key, not web's (rotating one must not evict the other)
    ```
-   Nothing else: there is no access gate (`STAGE_ACCESS_KEY`), no landing link, and the dev
+   Nothing else: no landing link, and the dev
    identity (`*_DEV_USER_ID`) is only read when `NODE_ENV !== 'production'` — never in a build.
 6. **Deploy**: push `stage` (or Deployments → Redeploy). Watch the log: install and build must run
    the `vercel.json` commands verbatim, and web must get past the post-build step (the historical
@@ -394,17 +398,57 @@ Ship to prod by merging `stage` → `sacred` (PR).
      means only what it says — that database has no row for the account yet.
    - **landing**: static pages render; a waitlist signup round-trips (needs the Resend block
      above, otherwise it accepts silently without mail — that's the documented safe state).
+   - **lp**: the domain serves the access-key form (HTTP 401) on every route — a different key than
+     web's, and a device that passed web's gate still sees this one once (the cookie is per-origin).
+     The right key lands on the path that was asked for: open `/identity?inquiry-id=x` on a fresh
+     device, enter the key, and the URL must keep its query (the vendor return polls only while it is
+     there); a Telegram alert button (`/orders/:id`) behaves the same. Then Privy email login (same
+     app as web — an account created on web signs straight in) → apply → stake.
 
-### Deploy access gate (web only)
+### Deploy access gate (web + lp)
 
-`apps/web/src/middleware.ts` + the `/gate` route. Until a device presents the key, every route
-serves a key form; the right key sets a year-long `fpay_gate` cookie (the key's SHA-256, httpOnly)
-and that device never sees the form again. Unset key = gate off — the local-dev default. Rotate
-`STAGE_ACCESS_KEY` to evict every device on the environment. The middleware matcher deliberately
-skips `_next/*`, `icon.svg`, `apple-icon.png`, `favicon*`, `manifest*`, so a gated tab still gets
-its icon — that asymmetry is expected, not a leak. The prod twin sets bare `ACCESS_KEY` with a
-**different** key (`DEPLOY.md`). Because of the gate, web ships middleware — it is a server app on
+`src/middleware.ts` + the `/gate` route, in `apps/web` and — byte-for-byte, headers aside — in
+`apps/lp`. Until a device presents the key, every route serves a key form; the right key sets a
+year-long `fpay_gate` cookie (the key's SHA-256, httpOnly) and that device never sees the form
+again — and lands on the path it asked for, provided it resolves to the same origin (`/\evil.com`
+goes home; `yarn check:gate` asserts the cases). Unset key = gate off — the local-dev default; a
+deployed tier with no key fails CLOSED (503), never open. Each project has its OWN key — four in all
+(web·stage, web·prod, lp·stage, lp·prod), all different; the cookie is per-origin, so passing one
+gate opens no other. Rotate a project's key to evict every device on that project. The middleware
+matcher deliberately skips `_next/*`, `icon.svg`, `apple-icon.png`, `favicon*`, `manifest*`, so a
+gated tab still gets its icon — that asymmetry is expected, not a leak. The prod twins set bare
+`ACCESS_KEY` (`DEPLOY.md`). Because of the gate, web and lp ship middleware — they are server apps on
 Vercel and can never become a static export like landing.
+
+### One Privy app, every tier — and what changing it does to existing accounts
+
+There is exactly one Privy app. Every frontend reads it under its bare name on every tier
+(`NEXT_PUBLIC_PRIVY_APP_ID` / `_CLIENT_ID`; `EXPO_PUBLIC_…` on the phone) and the backend verifies
+with the bare `PRIVY_APP_ID` / `PRIVY_APP_SECRET` on every tier — none of them go through the tier
+chain, so a `STAGE_PRIVY_*` twin is read by nothing. (They used to; a stale one is how stage kept
+mailing OTPs from a retired app.) The backend boot line prints `privy=<app id>`; `(unset)` means
+Privy is off, loudly, with no fallback.
+
+**Pointing a tier at a different Privy app is an identity migration, not a variable edit.** Privy
+DIDs and embedded wallets are per-app. An account minted under the old app comes back under the new
+one with a NEW `did:privy:…` and a NEW embedded Solana address:
+
+- `/auth/sync` adopts the existing row by its Privy-verified email (`upsertUserByPrivyDid`) — handle,
+  ledger, partner row and invite lineage survive — then the wallets upsert **overwrites the Solana
+  address**; `wallets` keeps no history, only `transfers` remembers the old one. **USDC at the old
+  address is reachable only through the old app.** Snapshot `select user_id, address from wallets`
+  and sweep balances BEFORE flipping the variables.
+- What people see: web signs them out (their DID is unknown → 401), the next sign-in lands on the
+  handle step where their own handle reads as taken — they type any free one, and adoption hands back
+  the old account under its old handle. The LP console cannot adopt (it never calls `/auth/sync`):
+  every partner signs into web once first, then the console works.
+- Before any deploy, on the surviving app's dashboard: allowed origins (web, lp, admin, the
+  localhost ports), email-only login, Solana embedded wallets ON, **Gas Sponsorship → Solana ON**
+  (stage runs in sponsored mode — with it off, login works and every send fails), and an app client
+  for `com.bridge.fpay` if the phone matters on that tier.
+- Flip every host variable while nothing is deployed (they are inert until the next build), then ONE
+  push — Railway and Vercel build in parallel and the 1–2 minute skew is a pure 401 window; nothing
+  reaches the database without a verified token, in either order.
 
 ### Why web's include-outside-root toggle is OFF (the `noop.js` crash)
 
@@ -423,7 +467,7 @@ root above it) and WILL hit the same crash on its first deploy. Fix then: set ad
 ## Pre-push build gate
 
 `monorepo/.githooks/pre-push` builds EVERYTHING on every push — only successful builds leave the
-machine: `yarn install --frozen-lockfile`, then the landing/web/admin builds (each app's Vercel
+machine: `yarn install --frozen-lockfile`, then the landing/web/admin/lp builds (each app's Vercel
 buildCommand verbatim), then `yarn workspace @fpay/backend tsc --noEmit` and
 `yarn workspace @fpay/backend build` — the typecheck catches what would otherwise crash the server
 at boot, and the bundle catches what only bundling can break (a *value* import of `@fpay/shared`,
