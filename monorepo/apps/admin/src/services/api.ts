@@ -20,6 +20,7 @@ import type {
   AdminUsersResponse,
   AdminWaitlistResponse,
   MeResponse,
+  AdminStakeWithdrawalsResponse,
 } from '@fpay/shared';
 
 import { apiHost } from './apiMode';
@@ -111,6 +112,8 @@ export const api = {
   invites: (cursor?: string) => req<AdminInvitesResponse>(cursored('/admin/invites', cursor)),
   actions: (cursor?: string) => req<AdminActionsResponse>(cursored('/admin/actions', cursor)),
   payoutProviders: () => req<AdminPayoutProvidersResponse>('/admin/payout-providers'),
+  stakeWithdrawals: (status: 'requested' | 'released' = 'requested') =>
+    req<AdminStakeWithdrawalsResponse>(`/admin/stake/withdrawals?status=${status}`),
 
   // writes (every one lands in the admin_actions audit trail server-side)
   // `note` is shown to the MERCHANT verbatim and is required for anything but an approval — a
@@ -120,11 +123,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ decision, note }),
     }),
-  merchantStatus: (id: string, status: 'online' | 'offline' | 'suspended') =>
+  // Never 'online' from here: only the LP's own switch may write that (it enforces KYB + bond).
+  merchantStatus: (id: string, status: 'offline' | 'suspended') =>
     req<{ ok: true; status: string }>(`/admin/merchants/${id}/status`, {
       method: 'POST',
       body: JSON.stringify({ status }),
     }),
+  // Record-only: the USDC was sent by hand from the cold stake treasury; this is its signature.
+  releaseStakeWithdrawal: (id: string, signature: string) =>
+    req<{ ok: true }>(`/admin/stake/withdrawals/${id}/release`, { method: 'POST', body: JSON.stringify({ signature }) }),
   resolveDispute: (id: string, resolution: 'upheld' | 'rejected', note?: string) =>
     req<{ ok: true; resolution: string }>(`/admin/disputes/${id}/resolve`, {
       method: 'POST',
