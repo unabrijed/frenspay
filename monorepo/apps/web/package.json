@@ -9,6 +9,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "check:api": "tsx scripts/check-api-headers.ts",
+    "check:gate": "tsx scripts/check-gate.ts",
     "check:boot": "tsx scripts/check-boot.ts"
   },
   "dependencies": {

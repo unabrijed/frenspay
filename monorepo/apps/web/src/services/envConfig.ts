@@ -101,7 +101,7 @@ export const USE_PRIVY = PRIVY_APP_ID.length > 0;
 // sign up still lands somewhere that explains what fpay is. Also the f-list exit from the invite gate.
 export const LANDING_URL = (E.landingUrl || 'https://frenspay.xyz').replace(/\/$/, '');
 
-// Deploy access gate (src/middleware.ts): one shared key per environment, no NEXT_PUBLIC_ prefix —
+// Deploy access gate (src/middleware.ts): one key per project per environment, no NEXT_PUBLIC_ prefix —
 // it's server-side only (middleware + /gate route), so it resolves undefined in browser bundles and
 // can never be inlined. Unset = gate off on the local tier only; deployed tiers fail CLOSED (the
 // middleware locks the build) so a missing key can never silently expose the app.

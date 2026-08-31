@@ -1,4 +1,5 @@
-// gateHtml.ts — the access-gate document middleware.ts serves with status 401. Hand-written
+// gateHtml.ts — the access-gate document middleware.ts serves with status 401 (apps/lp carries a
+// byte-for-byte copy — change both). Hand-written
 // standalone HTML on purpose (a page would boot the whole provider tree for strangers), so the
 // mark geometry and the few keyframes it uses are COPIED from primitives.tsx / globals.css /
 // the landing's glance pattern rather than imported — nothing from the app tree loads here.
@@ -16,7 +17,11 @@ const LINK = 'M60 136 C82 132 98 184 128 192 C158 184 174 132 196 136';
 const GRAIN =
   "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E\")";
 
-export function gateHtml(err: boolean): string {
+/** `next` is the path the device asked for; it rides along as a hidden field and /gate honours it only
+ *  when it resolves to this origin (lib/gate.ts sameOriginDest). Attribute-escaped here because the
+ *  form is the trust boundary — the value came off the request line. */
+export function gateHtml(err: boolean, next: string): string {
+  const attr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -97,6 +102,7 @@ export function gateHtml(err: boolean): string {
   <h1>frenspay</h1>
   <p class="sub"></p>
   <form method="post" action="/gate">
+    <input type="hidden" name="next" value="${attr(next)}">
     <input type="password" name="key" placeholder="Access key" aria-label="Access key" autocomplete="off" required${err ? ' class="shake"' : ''}>
     <button type="submit">Continue</button>
     ${err ? '<p class="err">That key didn&#8217;t work. Check it and try again.</p>' : ''}
