@@ -101,17 +101,20 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
 33. **A `transfers` row the DB will credit is verified against the chain BEFORE its status flips**
     (`services/transferVerify.ts`, on both the poller and the Helius webhook): a plain send must parse
     to one SPL transfer of the exact base-unit amount to the recipient's ATA from the sender; an
-    `escrow_fund` row (one row, N legs, `to_address` = the escrow PDA) is checked by reading each leg's
-    vault. Only rows a client could have attached a signature to get the check; escrow_release and
-    the bridge legs bypass by shape. A parsed contradiction fails the row + `risk_events`; an RPC that
+    `escrow_fund` row (one row, N legs, `to_address` = the escrow POOL's owner) must be that transfer
+    to the pool's ATA **carrying the primary leg's reference as an SPL Memo**; an `escrow_release` row
+    (ours) is parsed the same way — pool owner as authority, the recipient's ATA, the exact amount.
+    Only the bridge legs bypass, by shape. A parsed contradiction fails the row + `risk_events`; an RPC that
     cannot answer returns 'pending' — never fail a real deposit on a bad minute. Status flips are
     gated `status = 'pending'`, so a failed row can never be re-confirmed (docs/15, 2026-08-30).
 34. **A settlement (release / refund) is written when it LANDS, not when it is sent** (`settleEscrow`,
     orderMachine.ts): an order with a settlement tx in flight never broadcasts another; a prior pending
-    tx younger than `SETTLE_DROPPED_MS` is 'in_flight', older is written off unless the escrow PDA is
-    already gone — the PDA being closed is the one idempotency truth a release and a refund share.
-    The confirmer finishes late landings from the transfer row's `note` ('refund' / 'order release').
-    `reconcileFundedVaults` reads vaults every tick for orders the DB never saw funded.
+    tx younger than `SETTLE_DROPPED_MS` (3 min) is 'in_flight'; older is written off ONLY when
+    transaction history has no record of it (`getTransferStatus`) — landed-but-unseen stays in flight
+    and is finished by the confirmer; a confirmed settlement row is 'already_settled'. Age alone is not
+    a guard (docs/16, replaces the PDA-closed check). The confirmer finishes late landings from the
+    transfer row's `note` ('refund' / 'order release'). A deposit the DB never saw is recovered by
+    memo — webhook first, `reconcilePoolDeposits` only while a signature-less row waits.
 35. **`merchant_bond_events` is written in the SAME STATEMENT as every `bond_usdc` mutation**
     (credit, request, cancel, penalty); for every merchant `bond_usdc = Σ events` (`scripts/check-bond.ts`,
     by hand — DB). `drawDownBond` records what was actually drawn, never the nominal fine (0024).
@@ -136,6 +139,14 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     the mainnet id is new and holds zero escrows.
 40. **Admin reinstate targets `offline`, never `online`** — only the LP's own switch
     (`setMerchantOnlineSelf`) writes `online`, because it is the one that enforces KYB + the bond floor.
+41. **Every escrow deposit carries its order reference as an SPL Memo, and is verified against it**
+    (`buildUsdcTransfer({ memo })`, `instructionsMove(…, { memo })`, docs/16): one transfer can confirm
+    exactly one order. A deposit with no memo, or another order's, never verifies — whatever else matches.
+42. **A settlement tx is written off only when older than `SETTLE_DROPPED_MS` AND absent from
+    transaction history** (`settleEscrow`); a pool never "closes", so this is the double-payout guard.
+43. **The escrow pool key signs only as token authority and holds no SOL** (`sendFromEscrowPool`: the
+    fee-payer is `tx.feePayer` and pays ATA rent). `escrowLive` = escrow key ∧ fee-payer ∧ fee destination,
+    shape-checked (`usableKeypair`, `usablePubkey`); payments 503 when false. Prod's key is Bridge's own.
 
 ## Danger zones
 
@@ -191,6 +202,17 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
 - **A half-fixed bug class is more dangerous than an unfixed one**, because the commit message says it
   is closed. Locking `/sim/kyc/:tier` and declaring the sim-on-stage doctrine moot left the identical
   hole one route over, and the next reader had a written reason not to look.
+
+- **A component removed is a set of guarantees to re-implement, not a file to delete** (2026-08-31). The
+  escrow PDA was doing two jobs nobody had named — binding one deposit to one order by seed, and making a
+  second payout impossible by being closed. Swapping it for a pooled key looked like "delete the client";
+  the skeptics found both jobs missing. Before removing anything that holds money, list what it silently
+  guarantees and where each guarantee goes.
+- **"Our own signature" is not proof** (2026-08-31). `needsChainCheck` skipped rows we signed; under a pool
+  that made every payout a fact only our DB asserted. Verify outbound rows exactly like inbound ones.
+- **Price a deploy as rent vs sunk, in today's SOL, before calling it expensive** (2026-08-31). "$300 for a
+  program" was ~$213 refundable + ~$2–3 sunk; the decision still went the other way, but on custody and
+  the client's real shape — not on a number that was wrong.
 
 ## Counsel flags & open questions (from 2026-08-24 routing plan — for prism-retro)
 - FLAG-1: the pair rule has TWO recorded rationales (LP bank-freeze protection, docs/06 §pair rule; payee data-minimisation, docs/06 §privacy). Under the second, lock→see VPA→unlock→re-lock is a harvesting path (unlock is penalty-free and writes no `lock_expired`). Counsel decides which governs; that decides whether A3 gets fixed.
@@ -294,6 +316,15 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   the LP is a polling tab; re-application after exit; counsel on India settlement, stake custody,
   PAN retention after exit; whether the 72 h claw window is the number; `settleEscrow` blocks a
   worker tick up to 60 s per settling order.
+
+- 2026-08-31 · **The escrow program is audited and SHELVED; the pilot's escrow is a backend-held pool** under a dedicated key (`ESCROW_SECRET_KEY`, no SOL; fee-payer pays gas) — Bridge: "Backend key, program later." Audit: CRITICAL dust-lock (`close_account` needs a zero balance; anyone can dust a vault), HIGH refund-to-anyone, upgrade-authority dominance; the deploy was a refundable ~2.07 SOL with ~$2–3 sunk, not "$300". The PDA's two silent jobs are re-implemented explicitly: attribution = an SPL Memo with the order reference, required by the verifier; idempotency = a settlement is written off only when 3 min old AND absent from tx history. Recovery is webhook-first (Helius pushes every fee-payer-signed tx; unknown signature → memo → attach), the poller reads pool history only while a signature-less row waits. Our own `escrow_release` rows are chain-parsed. `escrowLive` = escrow key ∧ fee-payer ∧ fee destination. Prod's escrow key is Bridge's own (DEPLOY.md §Keys); stage's is `5w9H…vWUR`. → `docs/16-escrow-pool-and-the-shelved-program.md`
+
+## Telemetry (2026-08-31 escrow audit + pool plan)
+- divergence: 0.62 (evidence 0.85, conclusion 0.27) | threshold 0.30 UNCALIBRATED — conclusions converged on the program before Bridge chose otherwise; evidence sets did not
+- models: draft=opus · skeptics round 1 = 2x-opus · round 2 = 1x-opus + 1x-sonnet (cross-tier; version axis unavailable)
+- claims: V1 grounded · V2 grounded-after-correction · V3 grounded-after-correction · V4 refuted · B1 grounded-after-fix · B2 grounded-after-fix · B3 grounded-after-fix · B4 grounded-after-correction
+- grounding: round 1 16/20 verified, 4 corrected, 0 struck · round 2 7/12 verified, 5 corrected, 0 struck
+- fleet: 6 lenses + 2 grounding verifiers + 4 skeptics; loop stopped at round 2
 
 ## Telemetry (2026-08-30 pilot plan)
 - divergence: round 1 0.88 (evidence 0.94, conclusion 0.80) · round 2 0.77 (evidence 0.88, conclusion 0.60) | threshold 0.30 UNCALIBRATED
