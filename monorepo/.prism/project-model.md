@@ -152,6 +152,11 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     gas (`gasKeypair()`). `escrowLive` = escrow key ∧ fee destination — the fee-payer is optional;
     `feePayerConfigured` picks the mode. `composeUsdcTransfer` is pure; `check-gas-modes` asserts both
     shapes. Prod's escrow key is Bridge's own.
+44. **A deploy gate diffs the range the push MOVED, never `HEAD^..HEAD`** (`scripts/vercel-ignore.mjs`):
+    GitHub Actions passes `github.event.before`; Vercel exposes `VERCEL_GIT_PREVIOUS_SHA` (last successful
+    deployment of the project + branch) to the ignored build step. A push deploys ONCE, at its tip — read
+    against the parent, a docs-last push redeployed the backend and skipped the web build. The parent is the
+    fallback only when neither exists (`1587c95`, 2026-08-31).
 
 ## Danger zones
 
@@ -218,6 +223,12 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
 - **Price a deploy as rent vs sunk, in today's SOL, before calling it expensive** (2026-08-31). "$300 for a
   program" was ~$213 refundable + ~$2–3 sunk; the decision still went the other way, but on custody and
   the client's real shape — not on a number that was wrong.
+- **A fix that isn't on `origin/*` isn't a fix** (2026-08-31). "Prod still asks for KYC" was answered by one
+  `git log origin/stage..stage` (27 unpushed commits, every KYC-lift among them); three lenses then spent their
+  budget confirming it. For any "still happening on a deployed tier" report, check the remote before reading source.
+- **A deploy gate that judges the tip commit turns "commit docs last" into "deploy nothing"** (2026-08-31).
+  `vercel-ignore.mjs` read `HEAD^..HEAD` on Vercel believing Vercel deploys every commit; a push deploys once.
+  Its `--check` self-test covers `shouldBuild` and could never catch a wrong base — test the range, not just the rules.
 
 ## Counsel flags & open questions (from 2026-08-24 routing plan — for prism-retro)
 - FLAG-1: the pair rule has TWO recorded rationales (LP bank-freeze protection, docs/06 §pair rule; payee data-minimisation, docs/06 §privacy). Under the second, lock→see VPA→unlock→re-lock is a harvesting path (unlock is penalty-free and writes no `lock_expired`). Counsel decides which governs; that decides whether A3 gets fixed.
@@ -325,6 +336,30 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
 - 2026-08-31 · **The escrow program is audited and SHELVED; the pilot's escrow is a backend-held pool** under a dedicated key (`ESCROW_SECRET_KEY`, no SOL; fee-payer pays gas) — Bridge: "Backend key, program later." Audit: CRITICAL dust-lock (`close_account` needs a zero balance; anyone can dust a vault), HIGH refund-to-anyone, upgrade-authority dominance; the deploy was a refundable ~2.07 SOL with ~$2–3 sunk, not "$300". The PDA's two silent jobs are re-implemented explicitly: attribution = an SPL Memo with the order reference, required by the verifier; idempotency = a settlement is written off only when 3 min old AND absent from tx history. Recovery is webhook-first (Helius pushes every fee-payer-signed tx; unknown signature → memo → attach), the poller reads pool history only while a signature-less row waits. Our own `escrow_release` rows are chain-parsed. `escrowLive` = escrow key ∧ fee-payer ∧ fee destination. Prod's escrow key is Bridge's own (DEPLOY.md §Keys); stage's is `5w9H…vWUR`. → `docs/16-escrow-pool-and-the-shelved-program.md`
 
 - 2026-08-31 (later) · **Who pays gas is one variable — the fee-payer is optional.** Bridge: "we keep both, but currently only Privy directly does it; we don't have a fee payer right now." Grounded first: nothing in the code asked Privy to sponsor (every user tx was fee-payer-signed; no fee-payer ⇒ 503 on every send). Now `feePayerConfigured` picks the mode: set ⇒ as before; unset ⇒ sponsored mode — user txs built unsigned with the sender as placeholder fee payer, web passes `sponsor: true` (Privy rewrites fee payer + blockhash), a missing recipient token account is created first in its own tx, the escrow key pays its own gas (`gasKeypair()`), Helius watches the pool's token account, mobile refuses with copy (Expo SDK cannot sponsor). `escrowLive` no longer needs the fee-payer. Invariant 43 rewritten; `check-gas-modes` asserts both shapes offline. Three stage falsifiers recorded in docs/16 (S1 placeholder accepted, S2 TEE wallets, S3 Helius token-account match). → `docs/16 §Who pays gas`
+
+- 2026-08-31 (evening) · **app.frenspay.xyz "still asks for KYC / no transactions" — the fix had never left the
+  laptop** (plan: `~/.claude/plans/app-frenspay-xyz-main-app-is-sorted-teapot.md`). `origin/stage` and
+  `origin/sacred` sat at PR #17, before every KYC-lift commit; prod additionally 503'd every quote/order on the
+  retired `isMainnet` switch (sacred `orders.ts:67/:117`) and its client sent every tier-<2 payer into a dead-end
+  verify sheet (sacred `store.ts:917`). Live probe: both APIs 200 on Railway — prod IS wired; DEPLOY.md/docs/10
+  said otherwise (corrected `f47c7d2`); the 401 on app.frenspay.xyz is our own invite gate. The critique round
+  found the Vercel gate diffing `HEAD^..HEAD` — a docs-last multi-commit push would have shipped the backend and
+  skipped the web build (fixed `1587c95`, invariant 44). Deploy is Bridge's: pool vars per tier
+  (`ESCROW_SECRET_KEY`, `PLATFORM_FEE_DESTINATION`, `STAKE_TREASURY_ADDRESS`; `KYC_PROVIDER` unset), one
+  approved ≥$100-bonded online UPI partner per tier (else 503 `no_merchant`), push stage → soak → PR stage→sacred
+  (runs 0024 on prod at boot; "Create a merge commit"). **Open for retro:** did Vercel BUILD (not "skipped by
+  ignore command") on the first stage push; fee-payer vs sponsored on prod; raw `payments_unavailable` copy;
+  `smallestTierFor` still advertising tier 2 with the vendor off.
+
+## Telemetry (2026-08-31 KYC-still-asked / deploy-gap plan)
+- divergence: 0.80 (evidence 0.89, conclusion 0.67) | threshold 0.30 UNCALIBRATED
+- models: draft=fable · critic=1× Plan agent · skeptics NOT RUN (plan mode: Explore/Plan only) — claims grounded
+  by source, live probe (`/health` on both tiers) and vendor docs (Vercel system env vars, 2026-07-15)
+- claims: C1 unpushed grounded · C2 isMainnet-503 grounded · C3 client-verify-gate grounded · C4 escrowLive-prereq
+  grounded · C5 KYC_PROVIDER-unset grounded · C6 migration-in-container grounded (corrected) · C7 keypairs-unignored
+  superseded (`6ae48fd`) · C8 prod-backend-absent STRUCK · C9 persona-live-by-fallback unresolved, fix-invariant ·
+  C10 vercel-gate-tip-only grounded · C11 no_merchant-precondition grounded
+- fleet: 3 lenses + 1 critic; loop stopped after round 1 (material change; remaining unknowns are dashboard state)
 
 ## Telemetry (2026-08-31 escrow audit + pool plan)
 - divergence: 0.62 (evidence 0.85, conclusion 0.27) | threshold 0.30 UNCALIBRATED — conclusions converged on the program before Bridge chose otherwise; evidence sets did not
