@@ -8,6 +8,12 @@ skip-lint = false
 [programs.localnet]
 escrow = "9UfJyNduUw6hJexd7zbwc6ivqPLs2ie2edQrqYAYVv3i"
 
+# The mainnet id is minted fresh (the devnet keypair is gone; a first deploy needs the program
+# keypair, not just the upgrade authority): `solana-keygen new -o target/deploy/escrow-keypair.json`
+# then `anchor keys sync` rewrites declare_id! and this entry. Back the keypair up offline.
+[programs.mainnet]
+escrow = "9UfJyNduUw6hJexd7zbwc6ivqPLs2ie2edQrqYAYVv3i"
+
 [registry]
 url = "https://api.apr.dev"
 
