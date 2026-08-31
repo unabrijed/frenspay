@@ -46,11 +46,13 @@ environment's bare `CORS_ORIGIN`. Details and the reasoning: `apps/admin/README.
   scope as stage.
 - Same repo-root `Dockerfile` (`node:24-slim`) and start command everywhere: `envConfig` keys off
   `NODE_ENV` (stage→`STAGE_*` prefix, prod→bare names). No per-env scripts.
-- **CI is wired for prod; the service is not.** `.github/workflows/backend-image.yml` now triggers on
-  both `stage` and `sacred`, selecting the token, service and Railway environment from the branch.
-  So **a `sacred` push deploys the backend automatically — and runs migrations against the
-  production database before the server starts.** Everything below must exist first, or the deploy
-  fails loudly (deliberately: the prod frontends ship from the same push, and a quietly-skipped
+- **CI and the service are both wired** (the `production` service answers `api.frenspay.xyz/health`).
+  `.github/workflows/backend-image.yml` triggers on both `stage` and `sacred`, selecting the token,
+  service and Railway environment from the branch. So **a `sacred` push deploys the backend
+  automatically — and the container runs migrations against the production database before the
+  server starts** (`Dockerfile` CMD; a failed migration is a crash-looping deploy in Railway, not a
+  red Actions run). Verify everything below before the first push that carries a migration; a missing
+  item fails loudly (deliberately: the prod frontends ship from the same push, and a quietly-skipped
   backend would hide a version split behind a green run).
 
   1. **A separate production database — not stage's.** `apps/backend/src/db/tier.ts` stamps every

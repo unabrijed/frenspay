@@ -127,7 +127,7 @@ Use it to redeploy the current commit, or to recover after a failed run.
    ```
    NODE_ENV=stage
    STAGE_DATABASE_URL=<Supabase session pooler URL — step 2>
-   STAGE_KYC_PROVIDER=persona                           # optional — stage/prod already default to persona. NEVER `sim` here: stage is mainnet, and sim promotes to tier 2 with no documents
+   STAGE_KYC_PROVIDER=persona                           # unset ⇒ identity verification OFF — a deployed tier has no default. Set it only to exercise the Persona sandbox; payers then meet the tier-2 gate again. NEVER `sim` here: stage is mainnet, and sim promotes to tier 2 with no documents
    STAGE_PERSONA_API_KEY=<persona_sandbox_… is fine on stage>   # BLANK BOTH = identity verification off (docs/14), NOT a boot failure
    STAGE_PERSONA_TEMPLATE_ID=<itmpl_… from Persona → Inquiry Templates>
    STAGE_SOLANA_RPC_URL=https://mainnet.helius-rpc.com/?api-key=<KEY>   # mainnet RPC (Helius free tier)

@@ -3,11 +3,10 @@
 ## Deploy model
 
 - **Backend — Railway**, one service per environment, driven by `NODE_ENV`: stage
-  (`stage.api.frenspay.xyz`) and prod (`api.frenspay.xyz`). Only **stage** is wired — the CI
-  workflow triggers on `stage` alone, so a `sacred` push currently deploys no backend at all; prod
-  wiring is deliberately deferred to mainnet (`DEPLOY.md`). **Both deployed envs run Solana
-  MAINNET**; devnet exists only in local dev (the web app fails closed to mainnet when no RPC var
-  is set).
+  (`stage.api.frenspay.xyz`) and prod (`api.frenspay.xyz`). Both are wired: the CI workflow
+  triggers on `stage` and `sacred`, picking the Railway environment from the branch (`DEPLOY.md`).
+  **Every tier runs Solana MAINNET** — there is no testnet (docs/16); the RPC var only picks the
+  provider.
 - **Frontends — Vercel** (web, admin `admin.frenspay.xyz`, landing). The web app ships as a **Next
   server**, not a static export — the access-key gate (`src/middleware.ts` + `/gate`) is
   server-side.
