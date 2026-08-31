@@ -116,11 +116,16 @@ const platformFeeDestinationValue = env('PLATFORM_FEE_DESTINATION');
 const escrowLiveValue =
   usableKeypair(escrowSecretKeyValue) && usableKeypair(env('FEE_PAYER_SECRET_KEY')) && usablePubkey(platformFeeDestinationValue);
 
-// KYC credentials are read before the config object so `personaLive` can be DERIVED from them rather
-// than restated. Blanking either variable in the host's panel is the documented way to turn identity
-// verification off (docs/14) — which is why emptiness must be a first-class state here and not an
-// error thrown at boot.
-const kycProviderValue = env('KYC_PROVIDER', isLocal ? 'sim' : 'persona');
+// KYC config is read before the config object so `personaLive` can be DERIVED from it rather than
+// restated. All three variables are switches: leaving KYC_PROVIDER unset, or blanking either
+// credential, turns identity verification off (docs/14). Emptiness is a first-class state here, never
+// an error thrown at boot.
+//
+// No 'persona' fallback on a deployed tier: the provider name IS the front-door switch — name it to
+// turn checks on — and a fallback would deny it the ability to say "off". The cost is that a
+// FORGOTTEN variable reads as off rather than on, which is why the boot warning at the bottom of this
+// file names it alongside the credentials.
+const kycProviderValue = env('KYC_PROVIDER', isLocal ? 'sim' : '');
 const personaApiKeyValue = env('PERSONA_API_KEY');
 const personaTemplateIdValue = env('PERSONA_TEMPLATE_ID');
 
@@ -203,18 +208,18 @@ export const config = {
   privyVerificationKey: env('PRIVY_VERIFICATION_KEY'),
 
   // M7: KYC vendor. 'sim' = the dev instant-promote (no documents); 'persona' = real document+selfie
-  // via Persona's hosted flow, decisions read back by the reconciler poller. NODE_ENV decides:
-  // local → sim, stage/prod → persona (prod must never self-promote). Override per tier via
-  // <PREFIX>_KYC_PROVIDER if needed. A persona_sandbox_ key is refused outside dev/stage (assertKycConfig).
+  // via Persona's hosted flow, decisions read back by the reconciler poller. Local defaults to sim;
+  // a deployed tier defaults to NOTHING and must name 'persona' through <PREFIX>_KYC_PROVIDER to run
+  // checks at all. A persona_sandbox_ key is refused outside dev/stage (assertKycConfig).
   kycProvider: kycProviderValue,
   personaApiKey: personaApiKeyValue,
   personaTemplateId: personaTemplateIdValue,
   personaBaseUrl: env('PERSONA_BASE_URL', 'https://api.withpersona.com'),
-  // THE switch. Persona is live only when it is selected AND both credentials are real. Blanking
-  // either one in Railway turns identity verification off everywhere — the route 503s, the poller
-  // and the boot probe stand down, and merchant onboarding falls back to manual KYB review
-  // (docs/14). Deliberately NOT `kycProvider !== 'persona'`: an empty KYC_PROVIDER resolves back to
-  // 'persona' through env()'s fallback, so the provider name alone can never express "off".
+  // THE switch, and all three parts of it are load-bearing: Persona is live only when it is NAMED and
+  // both credentials are real. Unsetting KYC_PROVIDER, or blanking either credential in Railway,
+  // turns identity verification off everywhere — the route 503s, the poller and the boot probe stand
+  // down, the payer app drops its verification surface entirely rather than explaining itself, and
+  // merchant onboarding falls back to manual KYB review (docs/14).
   personaLive:
     kycProviderValue === 'persona' &&
     usableSecret(personaApiKeyValue, /^persona_(sandbox|production)_/) &&
@@ -347,8 +352,9 @@ if (config.adminEmails.length === 0) {
 // actually being read so a mis-prefixed one is obvious.
 if (!config.personaLive && !config.isLocal) {
   console.warn(
-    `[config] WARNING: ${envSource('PERSONA_API_KEY')} / ${envSource('PERSONA_TEMPLATE_ID')} are unset or ` +
-      'placeholders — identity verification is OFF. /kyc/verify returns 503 and partner onboarding ' +
+    `[config] WARNING: ${envSource('KYC_PROVIDER')} is not 'persona', or ${envSource('PERSONA_API_KEY')} / ` +
+      `${envSource('PERSONA_TEMPLATE_ID')} are unset or placeholders — identity verification is OFF. ` +
+      '/kyc/verify returns 503, the payer app hides its verification surface, and partner onboarding ' +
       'falls back to manual review of the business form.',
   );
 }
