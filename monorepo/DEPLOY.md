@@ -110,16 +110,16 @@ variables live per Vercel project (see the block above); web's `ACCESS_KEY` is d
 
 ## Keys
 
-Three secrets and two public addresses make payments work (`docs/16`). All are **bare** names on
-prod (no prefix), pasted as Railway variables on the production backend service. Payments
-(`/orders/quote`, `POST /orders`) answer `503 payments_unavailable` until the first three are all
-usable — a missing or malformed one is a boot **warning**, never a crash — so the order below is safe
-to do across several sittings.
+Two secrets (a third is optional) and two public addresses make payments work (`docs/16`). All are
+**bare** names on prod (no prefix), pasted as Railway variables on the production backend service.
+Payments (`/orders/quote`, `POST /orders`) answer `503 payments_unavailable` until the escrow key and
+the earnings address are both usable — a missing or malformed one is a boot **warning**, never a
+crash — so the order below is safe to do across several sittings.
 
 | Variable | What it is | Shape | Holds / needs |
 |---|---|---|---|
-| `ESCROW_SECRET_KEY` | the escrow **pool**'s owner: every payer deposit sits in its USDC token account until the order is released or refunded; it signs the transfers out | JSON byte array (`[12,34,…]`, 64 numbers) — base58 is rejected | **no SOL** — the fee-payer pays its gas |
-| `FEE_PAYER_SECRET_KEY` | pays every transaction fee and ATA rent | same | **~0.1 SOL**, monitored |
+| `ESCROW_SECRET_KEY` | the escrow **pool**'s owner: every payer deposit sits in its USDC token account until the order is released or refunded; it signs the transfers out | JSON byte array (`[12,34,…]`, 64 numbers) — base58 is rejected | **no SOL** with a fee-payer; **~0.05 SOL** without one (it then pays its own gas) |
+| `FEE_PAYER_SECRET_KEY` | **optional** — who pays gas. Set: it co-signs every user transaction and pays every fee. Unset: **sponsored mode** — Privy pays user transactions (dashboard → Gas Sponsorship → Solana ON; web only), the escrow key pays its own | same | **~0.1 SOL**, monitored (when set) |
 | `PLATFORM_FEE_DESTINATION` | where the platform's cut lands on each release | base58 **public** key | a cold wallet; nothing signs from it |
 | `STAKE_TREASURY_ADDRESS` | where partner bond is deposited | base58 **public** key | a cold wallet; withdrawals are sent by hand |
 | `USDC_MINT` | Circle's mainnet USDC — the default; set only to override | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` | — |
@@ -138,9 +138,12 @@ to do across several sittings.
    plaintext. A lost escrow key loses whatever the pool holds at that moment: there is no self-refund
    under this design (`docs/16`). The pool is small because settlements take minutes, but it is not
    zero while an order is open.
-5. Do the same for `FEE_PAYER_SECRET_KEY` (`prod-feepayer.json`) and fund **that** address with
-   ~0.1 SOL. The escrow key gets nothing: its USDC token account is created by the fee-payer with the
-   first deposit.
+5. **Choose who pays gas** (`docs/16 §Who pays gas`). Either set `FEE_PAYER_SECRET_KEY`
+   (`prod-feepayer.json`, same format) and fund **that** address with ~0.1 SOL — then the escrow key
+   needs no SOL — **or** leave it unset for sponsored mode: turn on **Gas Sponsorship → Solana** in the
+   Privy dashboard (web only; the phone app cannot pay in this mode) and send the **escrow** address
+   ~0.05 SOL, because it then pays for release, refund and every new token account itself. The boot
+   log names the mode every start.
 6. Set `PLATFORM_FEE_DESTINATION` and `STAKE_TREASURY_ADDRESS` to two **cold** public keys (a
    hardware wallet's receive addresses are fine). Never a secret here — the backend only ever
    sends *to* them.

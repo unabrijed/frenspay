@@ -56,13 +56,35 @@ each is re-implemented explicitly:
 
 | Key | Holds | Signs | Lives | Leak = |
 |---|---|---|---|---|
-| **Escrow** (new, hot) | the pool: every deposit not yet settled | token transfers OUT of the pool. **No SOL** — the fee-payer pays | `ESCROW_SECRET_KEY` (JSON byte array, the fee-payer's shape). **Stage:** generated on the dev machine, set in Railway's stage env. **Prod:** Bridge generates and sets it himself — [DEPLOY.md §Keys](../DEPLOY.md) | the pool (in-flight deposits) — the same set a leaked program authority could take |
-| Fee-payer (hot) | SOL gas | tx fees; ATA rent | `FEE_PAYER_SECRET_KEY` | gas |
+| **Escrow** (new, hot) | the pool: every deposit not yet settled | token transfers OUT of the pool. **No SOL while a fee-payer is configured; ~0.05 SOL without one** (it then pays its own gas + new token accounts — §Who pays gas) | `ESCROW_SECRET_KEY` (JSON byte array, the fee-payer's shape). **Stage:** generated on the dev machine, set in Railway's stage env. **Prod:** Bridge generates and sets it himself — [DEPLOY.md §Keys](../DEPLOY.md) | the pool (in-flight deposits) — the same set a leaked program authority could take |
+| Fee-payer (hot, **optional**) | SOL gas | tx fees; ATA rent; co-signs every user tx | `FEE_PAYER_SECRET_KEY` — absent ⇒ sponsored mode | gas |
 | Stake treasury (cold) | partner bond | nothing | `STAKE_TREASURY_ADDRESS` | nothing from a server breach |
 | Earnings (cold) | fees | nothing | `PLATFORM_FEE_DESTINATION` | nothing from a server breach |
 
 **Loss** of the escrow key loses the pool, full stop — no self-refund exists under B. The controls
 are the backup Bridge keeps and a pool that is small because settlements are minutes long.
+
+### Who pays gas — two modes, chosen by one variable
+
+Users never hold SOL. Who pays for their transactions is decided at boot by whether
+`FEE_PAYER_SECRET_KEY` is usable (`config.feePayerConfigured`), and the prepare response tells the
+client which world it is in (`sponsored: boolean`, [`PrepareTransferResponse`](../packages/shared/src/contracts.ts)):
+
+| | **Fee-payer mode** (key configured) | **Sponsored mode** (no key — stage as of 2026-08-31) |
+|---|---|---|
+| User tx (send, stake, escrow deposit) | our fee-payer is the tx's fee payer and has **already signed** it; it may create the recipient's token account inside the same tx | built with **no backend signature**, the sender as a placeholder fee payer; the web client passes `sponsor: true` and **Privy's fee payer rewrites the fee-payer field + blockhash**, then the user signs. A missing recipient token account is created **first, in a separate tx** paid by the escrow key and awaited — Privy pays the message fee, not a second signer's rent |
+| Backend tx (release, refund, account creation) | paid and co-signed by the fee-payer | paid by **the escrow key itself** (`gasKeypair()`), which therefore keeps ~0.05 SOL |
+| Helius watch | the pool's token account **and** the fee-payer | the pool's token account (it is in every deposit and every payout) |
+| Mobile | works | **not available** — `@privy-io/expo` has no `sponsor` option; the phone app refuses with plain copy and points at the web app |
+| Preconditions we cannot check in code | the key holds SOL | Privy dashboard → Gas Sponsorship → Solana **on**; the app's Solana wallets on Privy's **TEE** stack (the SDK refuses otherwise); the escrow key funded |
+
+The two modes never mix inside one transaction: Privy's rewrite would invalidate any signature of
+ours. `composeUsdcTransfer` is pure and both shapes are asserted offline by `check-gas-modes`;
+`check-escrow-switch` asserts that a missing fee-payer is **sponsored mode, not payments off**.
+Privy's own "Sponsoring transactions on Solana" guide describes the fee-payer mode; its native
+sponsorship ("a Privy-managed fee payer wallet funded with SOL … updates the transaction's `feePayer`
+field and latest blockhash", billed through Privy) is the sponsored mode. Nothing here "handles gas
+automatically": the backend selects the mode and the client asks for it.
 
 **`escrowLive`** — payments are a capability, not a tier: `envConfig.ts` derives it as _escrow key
 usable ∧ fee-payer usable ∧ earnings address a valid pubkey_ (shape-checked; a base58 secret, a
@@ -144,7 +166,15 @@ platform-signed — accepted, mitigated by memo attribution (an unsolicited depo
 
 ### Assumptions, with what would falsify them
 - **P1** Only the fee account (message index 0) is charged; the escrow key signs as token authority
-  and holds no SOL. Falsifier: a `transferChecked` whose authority is charged — none exists.
+  and, in fee-payer mode, holds no SOL. Falsifier: a `transferChecked` whose authority is charged —
+  none exists.
+- **S1** Privy sponsorship accepts a tx whose placeholder fee payer is the sender's own wallet and
+  rewrites it. Falsifier: the first sponsored $1 send fails on the fee payer → fall back to fee-payer
+  mode (set the key) while asking Privy which placeholder they expect.
+- **S2** The app's Solana embedded wallets are on Privy's TEE stack. Falsifier: _"Sponsoring
+  transactions is only supported for wallets on the TEE stack"_ → fee-payer mode only.
+- **S3** Helius matches the pool's token-account address in `accountAddresses`. Falsifier: no push
+  for a deposit → the poller (`reconcilePoolDeposits`) is the backstop; add the owner address too.
 - **P2** A tx whose blockhash is older than ~151 blocks is not processed; with no durable nonce, a
   settlement absent from history after 3 min cannot land. Falsifier: any durable-nonce use.
 - **P3** Helius pushes every tx the fee-payer signs (`transactionTypes: ['Any']`), so a deposit whose

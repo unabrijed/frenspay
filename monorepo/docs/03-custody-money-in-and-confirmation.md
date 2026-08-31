@@ -60,13 +60,15 @@ tx.partialSign(payer);                 // fee-payer sponsors
 const unsignedTx = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64');
 ```
 
-The fee-payer holds gas and nothing else. A **second** backend key, the escrow pool's
-(`ESCROW_SECRET_KEY`, `escrowKeypair()` in the same file), owns the one token account every
-scan-and-pay deposit waits in and signs the transfers out of it — release to the partner, refund to
-the payer — with the fee-payer paying those fees too ([06](06-offramp-and-settlement.md),
-[16](16-escrow-pool-and-the-shelved-program.md)). Neither is a mint authority: the mint is Circle's,
-so neither key can create USDC — only move what is already in an account it controls. Both secrets
-are `solana-keygen` JSON arrays, loaded once and cached; there is no devnet.
+The fee-payer holds gas and nothing else — and it is **optional**: without `FEE_PAYER_SECRET_KEY` the
+backend runs in *sponsored mode*, where user transactions are built with no backend signature and the
+web client asks Privy to pay their fees (`sponsor: true`), while a **second** backend key, the escrow
+pool's (`ESCROW_SECRET_KEY`, `escrowKeypair()` in the same file), pays for what the backend signs
+itself. That key owns the one token account every scan-and-pay deposit waits in and signs the
+transfers out of it — release to the partner, refund to the payer ([06](06-offramp-and-settlement.md),
+[16 §Who pays gas](16-escrow-pool-and-the-shelved-program.md)). Neither is a mint authority: the mint
+is Circle's, so neither key can create USDC — only move what is already in an account it controls.
+Both secrets are `solana-keygen` JSON arrays, loaded once and cached; there is no devnet.
 
 ### Drain guards
 

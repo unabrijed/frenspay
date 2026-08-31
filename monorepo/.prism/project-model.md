@@ -144,9 +144,14 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     exactly one order. A deposit with no memo, or another order's, never verifies — whatever else matches.
 42. **A settlement tx is written off only when older than `SETTLE_DROPPED_MS` AND absent from
     transaction history** (`settleEscrow`); a pool never "closes", so this is the double-payout guard.
-43. **The escrow pool key signs only as token authority and holds no SOL** (`sendFromEscrowPool`: the
-    fee-payer is `tx.feePayer` and pays ATA rent). `escrowLive` = escrow key ∧ fee-payer ∧ fee destination,
-    shape-checked (`usableKeypair`, `usablePubkey`); payments 503 when false. Prod's key is Bridge's own.
+43. **Who pays gas is one variable, and the two modes never mix inside a transaction** (docs/16 §Who
+    pays gas). `FEE_PAYER_SECRET_KEY` set ⇒ the fee-payer co-signs every user tx and pays every backend tx;
+    unset ⇒ sponsored mode: user txs carry NO backend signature (the sender is a placeholder fee payer,
+    Privy rewrites it — any signature of ours would be invalidated), the client passes `sponsor: true`,
+    a missing recipient token account is created first in its own tx, and the escrow key pays its own
+    gas (`gasKeypair()`). `escrowLive` = escrow key ∧ fee destination — the fee-payer is optional;
+    `feePayerConfigured` picks the mode. `composeUsdcTransfer` is pure; `check-gas-modes` asserts both
+    shapes. Prod's escrow key is Bridge's own.
 
 ## Danger zones
 
@@ -318,6 +323,8 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   worker tick up to 60 s per settling order.
 
 - 2026-08-31 · **The escrow program is audited and SHELVED; the pilot's escrow is a backend-held pool** under a dedicated key (`ESCROW_SECRET_KEY`, no SOL; fee-payer pays gas) — Bridge: "Backend key, program later." Audit: CRITICAL dust-lock (`close_account` needs a zero balance; anyone can dust a vault), HIGH refund-to-anyone, upgrade-authority dominance; the deploy was a refundable ~2.07 SOL with ~$2–3 sunk, not "$300". The PDA's two silent jobs are re-implemented explicitly: attribution = an SPL Memo with the order reference, required by the verifier; idempotency = a settlement is written off only when 3 min old AND absent from tx history. Recovery is webhook-first (Helius pushes every fee-payer-signed tx; unknown signature → memo → attach), the poller reads pool history only while a signature-less row waits. Our own `escrow_release` rows are chain-parsed. `escrowLive` = escrow key ∧ fee-payer ∧ fee destination. Prod's escrow key is Bridge's own (DEPLOY.md §Keys); stage's is `5w9H…vWUR`. → `docs/16-escrow-pool-and-the-shelved-program.md`
+
+- 2026-08-31 (later) · **Who pays gas is one variable — the fee-payer is optional.** Bridge: "we keep both, but currently only Privy directly does it; we don't have a fee payer right now." Grounded first: nothing in the code asked Privy to sponsor (every user tx was fee-payer-signed; no fee-payer ⇒ 503 on every send). Now `feePayerConfigured` picks the mode: set ⇒ as before; unset ⇒ sponsored mode — user txs built unsigned with the sender as placeholder fee payer, web passes `sponsor: true` (Privy rewrites fee payer + blockhash), a missing recipient token account is created first in its own tx, the escrow key pays its own gas (`gasKeypair()`), Helius watches the pool's token account, mobile refuses with copy (Expo SDK cannot sponsor). `escrowLive` no longer needs the fee-payer. Invariant 43 rewritten; `check-gas-modes` asserts both shapes offline. Three stage falsifiers recorded in docs/16 (S1 placeholder accepted, S2 TEE wallets, S3 Helius token-account match). → `docs/16 §Who pays gas`
 
 ## Telemetry (2026-08-31 escrow audit + pool plan)
 - divergence: 0.62 (evidence 0.85, conclusion 0.27) | threshold 0.30 UNCALIBRATED — conclusions converged on the program before Bridge chose otherwise; evidence sets did not
