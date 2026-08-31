@@ -27,6 +27,7 @@ export default function Identity() {
   const kycStatus = useLpStore((s) => s.kycStatus);
   const identityCheckAvailable = useLpStore((s) => s.identityCheckAvailable);
   const pollKyc = useLpStore((s) => s.pollKyc);
+  const loaded = useLpStore((s) => s.loaded);
   const load = useLpStore((s) => s.load);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -52,6 +53,15 @@ export default function Identity() {
     void pollKyc().finally(() => setWaiting(false));
   }, [returned]);
 
+  // Vendor off: there is no check to run, and /kyc/verify would only 503. This screen has nothing to
+  // do, so it says nothing — the application form, which a person reads instead, is the whole flow.
+  // /apply renders that form directly on the same flag, so this is only reached by a deep link, a
+  // browser-back, or the stale tab the load() above exists for. Gated on `loaded`: the flag defaults
+  // true until /me lands, and bouncing someone off this screen on a default would be worse.
+  useEffect(() => {
+    if (loaded && kycTier < 2 && !identityCheckAvailable) router.replace('/apply');
+  }, [loaded, kycTier, identityCheckAvailable, router]);
+
   const start = async () => {
     setBusy(true);
     setErr(null);
@@ -75,9 +85,6 @@ export default function Identity() {
   };
 
   const done = kycTier >= 2;
-  // Vendor off: there is no check to start, and /kyc/verify would only 503. Say so plainly and send
-  // them to the application, where a person reviews the same form instead.
-  const off = !done && !identityCheckAvailable;
   const pending = kycStatus === 'pending' || kycStatus === 'in_review' || waiting;
 
   return (
@@ -87,20 +94,18 @@ export default function Identity() {
       </View>
       <View style={styles.scroll}>
         <Txt style={type.handle}>
-          {done ? 'You’re verified' : off ? 'We’ll check this by hand' : 'Verify your identity'}
+          {done ? 'You’re verified' : 'Verify your identity'}
         </Txt>
         <Txt style={[type.lead, { marginTop: 10 }]}>
           {done
             ? 'Nothing else needed here — you can apply now.'
-            : off
-              ? 'The automatic check is unavailable right now, so a person reviews your application instead. Go ahead and apply — we’ll be in touch on the number you give us if we need anything else.'
-              : 'You’ll be handling other people’s money, so we check who you are first. Passport or ID, about two minutes.'}
+            : 'You’ll be handling other people’s money, so we check who you are first. Passport or ID, about two minutes.'}
         </Txt>
 
         {err ? <Txt style={[type.lead, { color: colors.danger, marginTop: 12 }]}>{err}</Txt> : null}
 
         <Spacer />
-        {done || off ? (
+        {done ? (
           <Btn label="Continue" variant="ink" onPress={() => router.push('/apply')} />
         ) : (
           <Btn
