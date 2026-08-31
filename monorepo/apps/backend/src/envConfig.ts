@@ -108,13 +108,17 @@ const MAINNET_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const usdcMintValue = env('USDC_MINT', MAINNET_USDC_MINT);
 
 // Payments are a CAPABILITY derived from the keys that make a settlement possible (docs/16): the
-// escrow pool's key, the fee-payer that pays its gas, and a real earnings address. Any one missing
-// or a placeholder ⇒ escrowLive is false and the order routes answer 503 rather than build a
-// deposit nobody could ever pay out of.
+// escrow pool's key and a real earnings address. Either missing or a placeholder ⇒ escrowLive is
+// false and the order routes answer 503 rather than build a deposit nobody could ever pay out of.
+//
+// The fee-payer is OPTIONAL and selects who pays gas (docs/16 §Who pays gas): configured ⇒ it
+// co-signs every user tx and pays every backend tx; absent ⇒ "sponsored mode" — user txs are built
+// unsigned and the client asks Privy to sponsor them, and the escrow key pays its own gas.
 const escrowSecretKeyValue = env('ESCROW_SECRET_KEY');
 const platformFeeDestinationValue = env('PLATFORM_FEE_DESTINATION');
-const escrowLiveValue =
-  usableKeypair(escrowSecretKeyValue) && usableKeypair(env('FEE_PAYER_SECRET_KEY')) && usablePubkey(platformFeeDestinationValue);
+const feePayerSecretKeyValue = env('FEE_PAYER_SECRET_KEY');
+const feePayerConfiguredValue = usableKeypair(feePayerSecretKeyValue);
+const escrowLiveValue = usableKeypair(escrowSecretKeyValue) && usablePubkey(platformFeeDestinationValue);
 
 // KYC config is read before the config object so `personaLive` can be DERIVED from it rather than
 // restated. All three variables are switches: leaving KYC_PROVIDER unset, or blanking either
@@ -150,11 +154,15 @@ export const config = {
   solanaRpcUrl: env('SOLANA_RPC_URL', 'https://api.mainnet-beta.solana.com'),
   heliusApiKey: env('HELIUS_API_KEY'),
   // Fee-payer secret as a JSON array of bytes (solana-keygen format) — parseSecretKey rejects
-  // base58, so a base58 key here fails at first use.
-  feePayerSecretKey: env('FEE_PAYER_SECRET_KEY'),
+  // base58, so a base58 key here fails at first use. OPTIONAL: see feePayerConfigured.
+  feePayerSecretKey: feePayerSecretKeyValue,
+  // False ⇒ sponsored mode (docs/16 §Who pays gas): user txs carry no backend signature and the
+  // client asks Privy to sponsor them; the escrow key pays its own gas. True ⇒ the fee-payer pays.
+  feePayerConfigured: feePayerConfiguredValue,
   // The escrow POOL's owner (docs/16): one token account under this key holds every payer deposit
-  // until it is released or refunded; the key signs transfers OUT and holds no SOL. Same JSON-array
-  // shape as the fee-payer. Prod's is Bridge's own key (DEPLOY.md §Keys); stage's is in Railway.
+  // until it is released or refunded; the key signs transfers OUT. It holds no SOL while a fee-payer
+  // is configured, ~0.05 SOL otherwise (it then pays its own gas). Same JSON-array shape as the
+  // fee-payer. Prod's is Bridge's own key (DEPLOY.md §Keys); stage's is in Railway.
   escrowSecretKey: escrowSecretKeyValue,
   // Where the platform's cut lands on release. PUBLIC KEY ONLY — a cold wallet; nothing signs from it.
   platformFeeDestination: platformFeeDestinationValue,
@@ -326,9 +334,19 @@ console.log(`[config] env=${node_env} database=${dbSource} host=${dbHost}`);
 // nothing says why. Name the tier-prefixed variables actually being read.
 if (!config.escrowLive && !config.isLocal) {
   console.warn(
-    `[config] WARNING: ${envSource('ESCROW_SECRET_KEY')} / ${envSource('FEE_PAYER_SECRET_KEY')} / ` +
-      `${envSource('PLATFORM_FEE_DESTINATION')} — one is unset, a placeholder or the wrong shape — ` +
-      'payments are OFF. /orders/quote and POST /orders answer 503 payments_unavailable.',
+    `[config] WARNING: ${envSource('ESCROW_SECRET_KEY')} / ${envSource('PLATFORM_FEE_DESTINATION')} — ` +
+      'one is unset, a placeholder or the wrong shape — payments are OFF. /orders/quote and POST /orders ' +
+      'answer 503 payments_unavailable.',
+  );
+}
+// Who pays gas is a deployment choice, and the sponsored one has two preconditions this process
+// cannot check (docs/16 §Who pays gas): Privy's Gas Sponsorship toggle for Solana, and SOL on the
+// escrow key. Say which mode this is, every boot.
+if (!config.feePayerConfigured) {
+  console.warn(
+    `[config] ${envSource('FEE_PAYER_SECRET_KEY')} is unset — SPONSORED MODE: user transactions rely on Privy ` +
+      'gas sponsorship (Privy dashboard → Gas Sponsorship → Solana must be ON; web only), and the escrow key ' +
+      'pays its own gas for release, refund and new token accounts — keep ~0.05 SOL on it.',
   );
 }
 if (isLocal && dbSource.startsWith('STAGE_')) {

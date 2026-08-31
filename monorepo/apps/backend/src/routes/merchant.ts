@@ -437,7 +437,7 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
     const wallet = await getWalletForUser(merchant.user_id!);
     if (!wallet) return reply.code(404).send({ error: 'wallet_not_found' });
 
-    let built: { unsignedTx: string; feePayer: string };
+    let built: { unsignedTx: string; feePayer: string; sponsored: boolean };
     try {
       built = await buildUsdcTransfer({
         fromOwner: wallet.address,
@@ -457,7 +457,7 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
       kind: 'send',
       note: 'merchant stake',
     });
-    return { unsignedTx: built.unsignedTx, feePayer: built.feePayer, transferId } satisfies PrepareTransferResponse;
+    return { unsignedTx: built.unsignedTx, feePayer: built.feePayer, sponsored: built.sponsored, transferId } satisfies PrepareTransferResponse;
   });
 
   /**

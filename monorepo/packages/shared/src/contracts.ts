@@ -525,9 +525,14 @@ export interface PrepareTransferRequest {
 }
 
 export interface PrepareTransferResponse {
-  /** Unsigned transaction (base64) the client signs via Privy; gas sponsored by the fee-payer. */
+  /** Unsigned transaction (base64) the client signs via Privy. */
   unsignedTx: string;
+  /** The fee payer the tx names: the backend fee-payer, or — when `sponsored` — the sender itself, a
+   *  placeholder Privy replaces. */
   feePayer: string;
+  /** True ⇒ the tx carries no backend signature and the client must ask Privy to sponsor it
+   *  (`sponsor: true`); false ⇒ the backend fee-payer has already signed and pays. */
+  sponsored: boolean;
   /** Pending transfers row id; echoed back to /transfer/submit to attach the signature. */
   transferId: string;
 }
@@ -675,6 +680,8 @@ export interface CreateOrderResponse {
   order: Order;
   unsignedTx: string;
   feePayer: string;
+  /** See PrepareTransferResponse.sponsored. */
+  sponsored: boolean;
   transferId: string;
   referenceCode: string;
 }

@@ -130,6 +130,7 @@ export async function registerOrderRoutes(app: FastifyInstance) {
       order: result.order,
       unsignedTx: result.unsignedTx,
       feePayer: result.feePayer,
+      sponsored: result.sponsored,
       transferId: result.transferId,
       referenceCode: result.referenceCode,
     } satisfies CreateOrderResponse;

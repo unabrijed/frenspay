@@ -1,12 +1,16 @@
 // helius.ts — register the transfer-confirmation webhook with Helius at boot (backend-architecture
-// §2 Indexer). The fee-payer signs every sponsored transfer, so watching its address catches all
-// transfers; Helius then pushes to POST /webhooks/helius. Idempotent.
+// §2 Indexer). The escrow POOL's token account is in every deposit and every payout, so watching it
+// catches all of those whoever paid the gas; the fee-payer is watched too when configured, because it
+// co-signs every user tx in that mode (P2P sends, stakes). Helius pushes to POST /webhooks/helius.
+// Idempotent.
 //
 // No-op unless HELIUS_API_KEY + PUBLIC_BASE_URL are set (i.e. a deployed backend on Helius RPC).
 // Locally / on public devnet RPC it's skipped — the confirmer poller is the working fallback.
+import { getAssociatedTokenAddress } from '@solana/spl-token';
+
 import { config } from '../envConfig';
 
-import { feePayer } from './solana';
+import { escrowKeypair, feePayerAddress, usdcMint } from './solana';
 
 const HELIUS_API = 'https://api.helius.xyz/v0/webhooks';
 
@@ -21,11 +25,13 @@ export async function registerHeliusWebhook(log: (m: string) => void = console.l
     return;
   }
 
-  let watched: string;
+  let watched: string[];
   try {
-    watched = feePayer().publicKey.toBase58();
+    const poolAta = (await getAssociatedTokenAddress(usdcMint(), escrowKeypair().publicKey)).toBase58();
+    const fp = feePayerAddress(); // '' in sponsored mode — then the pool is the only address of ours in a deposit
+    watched = fp ? [poolAta, fp] : [poolAta];
   } catch {
-    log('helius webhook: skipped (fee-payer not configured)');
+    log('helius webhook: skipped (escrow key not configured)');
     return;
   }
 
@@ -39,7 +45,7 @@ export async function registerHeliusWebhook(log: (m: string) => void = console.l
   const body = JSON.stringify({
     webhookURL,
     transactionTypes: ['Any'],
-    accountAddresses: [watched],
+    accountAddresses: watched,
     webhookType: 'enhanced',
     ...(config.heliusWebhookSecret ? { authHeader: config.heliusWebhookSecret } : {}),
   });
@@ -65,7 +71,7 @@ export async function registerHeliusWebhook(log: (m: string) => void = console.l
       log(`helius webhook: registration failed (${res.status} ${await res.text().catch(() => '')})`);
       return;
     }
-    log(`helius webhook: ${existing ? 'updated' : 'registered'} for fee-payer ${watched}`);
+    log(`helius webhook: ${existing ? 'updated' : 'registered'} for ${watched.join(', ')}`);
   } catch (e) {
     log(`helius webhook: registration error ${String(e)} — poller covers confirmation`);
   }

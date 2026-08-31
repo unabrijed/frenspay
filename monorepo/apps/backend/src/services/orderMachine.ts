@@ -125,7 +125,7 @@ const LOCK_ABANDON_WINDOW_H = 24;
 const LOCK_BAN_MINUTES = 60;
 
 type ConfirmResult =
-  | { ok: true; order: Order; unsignedTx: string; feePayer: string; transferId: string; referenceCode: string }
+  | { ok: true; order: Order; unsignedTx: string; feePayer: string; sponsored: boolean; transferId: string; referenceCode: string }
   | { error: 'limit_exceeded'; limit: Extract<LimitCheck, { ok: false }> }
   | { error: 'quote_not_found' | 'quote_expired' | 'wallet_not_found' | 'solana_unavailable' };
 
@@ -231,7 +231,7 @@ export async function confirmOrderFromQuote(userId: string, quoteId: string): Pr
 
   const order = await getOrderForUser(primaryId, userId);
   if (!order) return { error: 'quote_not_found' };
-  return { ok: true, order, unsignedTx: built.unsignedTx, feePayer: built.feePayer, transferId, referenceCode: refs[0] };
+  return { ok: true, order, unsignedTx: built.unsignedTx, feePayer: built.feePayer, sponsored: built.sponsored, transferId, referenceCode: refs[0] };
 }
 
 /** pay_instructions → waiting_payment: the user broadcast the escrow-funding tx; record + advance

@@ -224,6 +224,7 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
           return {
             unsignedTx: rebuilt.unsignedTx,
             feePayer: rebuilt.feePayer,
+            sponsored: rebuilt.sponsored,
             transferId: existing.id,
           } satisfies PrepareTransferResponse;
         } catch (e) {
@@ -281,7 +282,7 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
         if ((e as { code?: string }).code === '23505') return { kind: 'duplicate' as const };
         throw e;
       }
-      return { kind: 'ok' as const, unsignedTx: built.unsignedTx, feePayer: built.feePayer, transferId };
+      return { kind: 'ok' as const, unsignedTx: built.unsignedTx, feePayer: built.feePayer, sponsored: built.sponsored, transferId };
     });
 
     if (outcome.kind === 'limit') {
@@ -299,7 +300,7 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
     if (outcome.kind === 'blocked') return reply.code(403).send({ error: 'blocked', reason: outcome.reason });
     if (outcome.kind === 'solana_unavailable') return reply.code(503).send({ error: 'solana_unavailable' });
     if (outcome.kind === 'duplicate') return reply.code(409).send({ error: 'duplicate_request' });
-    return { unsignedTx: outcome.unsignedTx, feePayer: outcome.feePayer, transferId: outcome.transferId } satisfies PrepareTransferResponse;
+    return { unsignedTx: outcome.unsignedTx, feePayer: outcome.feePayer, sponsored: outcome.sponsored, transferId: outcome.transferId } satisfies PrepareTransferResponse;
   });
 
   app.post<{ Body: SubmitTransferRequest }>('/transfer/submit', async (req, reply) => {
