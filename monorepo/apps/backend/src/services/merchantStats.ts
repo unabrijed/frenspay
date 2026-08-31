@@ -17,21 +17,47 @@ import {
 
 const PRIOR_WEIGHT = 10; // k: pseudo-count of the seed prior (Bayesian smoothing)
 const POSITIVE_PRIOR = 0.9; // payer-👍 prior — a code constant, unlike the per-merchant base_* seeds
-export const MIN_BOND = 2000; // below this, an LP is suspended (out of routing)
-export const DISPUTE_PENALTY_USDC = 1500; // flat bond fine drawn per upheld dispute
+/**
+ * The stake floor: to go online, and to stay routable. Below it an LP is suspended (out of routing).
+ *
+ * $100 on purpose (docs/15, 2026-08-30): it equals the tier-1 payer's per-transaction cap
+ * (compliance.ts KYC_TIERS[1].sendPerTx), and with tier-1 leverage at 1× a floor-bonded LP is
+ * therefore fully collateralised for any single order they can be routed. The old $2,000 made the
+ * bond do three jobs on one number — access price, loss cover, exposure cap — that only cohered
+ * because it was large.
+ */
+export const MIN_BOND = 100;
+
+/**
+ * An upheld dispute draws `min(bond, the order's USDC amount)` from the LP's bond — order-sized,
+ * bond-bounded, and at tier 1 always fully collectable (in-flight ≤ bond). The draw is the
+ * `greatest(bond − amount, 0)` clamp in queries.ts drawDownBond, passed the order amount; there is
+ * no flat fine any more. The old flat $1,500 against a $100–300 floor floored to zero and turned
+ * one dispute into a permanent exit.
+ */
+
+/**
+ * How long after an order COMPLETES its bond stays claimable: a withdrawal (or an exit) is refused
+ * while any of the LP's orders completed inside this window, and — the same constant, the other
+ * side — a completed order can no longer be disputed once it is older than this. One number, so a
+ * payer's right to dispute and an LP's right to leave can never disagree. Disclosed to both.
+ */
+export const DISPUTE_CLAW_WINDOW_H = 72;
 
 /**
  * How much an LP may carry in flight per USDC of bond, by tier.
  *
  * `float_usdc` is self-declared and, until now, unrelated to `bond_usdc` — an LP with the minimum
- * 2,000 bond could declare a million of float and take on exposure their stake could never cover.
+ * bond could declare a million of float and take on exposure their stake could never cover.
  * Capping effective float at bond × leverage is the fix, and it doubles as the reward that costs
  * nothing: a proven LP's same stake carries more work, so their capital turns over faster.
  *
  * A code table, not a column: it is policy, and policy that lives in a row is policy an admin can
  * quietly change on one merchant.
  */
-export const LEVERAGE: Record<number, number> = { 1: 3, 2: 5, 3: 8 };
+// Tier 1 is 1× — in flight ≤ bond — which is what makes MIN_BOND a real collateral floor rather
+// than an entry fee (docs/15). The higher rungs remain the reward that costs nothing.
+export const LEVERAGE: Record<number, number> = { 1: 1, 2: 3, 3: 5 };
 export const leverageFor = (tier: number): number => LEVERAGE[tier] ?? LEVERAGE[1];
 
 /**

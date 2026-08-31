@@ -71,7 +71,7 @@ const IN_OK = {
   // The country-agnostic screening block (SCREENING) — required alongside the identifiers.
   cryptoExperience: 'Active user',
   profession: 'Business owner',
-  plannedStake: '$2,000 — the minimum',
+  plannedStake: '$100 — the minimum',
   commitment: 'A year or more',
   accountDedicated: 'Yes, dedicated to this',
 };

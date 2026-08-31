@@ -64,7 +64,7 @@ export interface Corridor {
  *           `destinationRe` means `!undefined?.test(x)` is always true, so any destination was an
  *           unconditional 400, while a destination-less quote would have created a funded order
  *           with nobody to pay the moment a bank LP existed. Meanwhile `acceptsLps` said yes, so a
- *           person could stake 2,000 USDC against a rail that would never route them anything.
+ *           person could stake against a rail that would never route them anything.
  *
  *           Unblocking it needs a STRUCTURED destination (account number + IFSC + beneficiary name
  *           are three fields; `payout_destination` is one text column) and an answer to the

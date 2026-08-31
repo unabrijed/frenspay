@@ -70,7 +70,7 @@ const ids = (r: ReturnType<typeof rankPool>) => r.map((x) => x.merchant.id);
 // stake, so this LP — minimum bond, million-dollar claim — was routable for the whole million.
 {
   const overclaimer = lp({ id: 'over', bond_usdc: String(MIN_BOND), float_usdc: '1000000', tier: 1 });
-  const cap = MIN_BOND * leverageFor(1); // 2000 × 3 = 6000
+  const cap = MIN_BOND * leverageFor(1); // the floor × tier-1 leverage (1× — in flight ≤ bond)
   assert.equal(rankPool([overclaimer], {}, { amountUsdc: cap }).length, 1, 'an order at exactly the cap fits');
   assert.equal(
     rankPool([overclaimer], {}, { amountUsdc: cap + 1 }).length,

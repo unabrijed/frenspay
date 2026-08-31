@@ -27,7 +27,8 @@
     "check:phone": "tsx scripts/check-phone-otp.ts",
     "check:balance": "tsx scripts/check-balance.ts",
     "check:kyc": "tsx scripts/check-kyc-switch.ts",
-    "check:verify": "tsx scripts/check-transfer-verify.ts"
+    "check:verify": "tsx scripts/check-transfer-verify.ts",
+    "check:bond": "tsx scripts/check-bond.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

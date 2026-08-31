@@ -35,6 +35,7 @@ import { fiatDecimals, positiveAmount } from '../lib/amount';
 import { CORRIDORS } from '../lib/corridors';
 import { checkCashOutLimit } from '../services/compliance';
 import { getMidRate } from '../services/fxRate';
+import { DISPUTE_CLAW_WINDOW_H } from '../services/merchantStats';
 import { metrics } from '../services/metrics';
 import { aggregateLegs } from '../lib/legs';
 import { confirmOrderFromQuote, markFundSubmitted } from '../services/orderMachine';
@@ -194,7 +195,7 @@ export async function registerOrderRoutes(app: FastifyInstance) {
     // lock first decides; if the worker got there, the re-check below sees a released state and 409s
     // (the payer can still dispute post-completion, which is the unchanged path).
     return withUserLock(userId, async () => {
-      const order = await getOrderForDispute(req.params.id, userId);
+      const order = await getOrderForDispute(req.params.id, userId, DISPUTE_CLAW_WINDOW_H);
       if (!order) return reply.code(404).send({ error: 'order_not_found' });
       // Disputable once the money is out of the payer's hands: either the order completed, or a real
       // merchant has CLAIMED to have paid and the release window is still running.

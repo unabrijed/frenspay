@@ -26,6 +26,7 @@ import type {
   AdminUserStatusRequest,
   AdminUsersResponse,
   AdminWaitlistResponse,
+  AdminStakeWithdrawalsResponse,
 } from '@fpay/shared';
 
 import { effectiveRole, isRootAdminEmail, requireAdmin } from '../auth';
@@ -65,6 +66,8 @@ import {
   setUserStatus,
   updatePayoutProvider,
   updateUserProfileAdmin,
+  listStakeWithdrawalsAdmin,
+  releaseStakeWithdrawal,
 } from '../db/queries';
 import { screenHandle } from '../services/compliance';
 import { canonicalInviteCode } from '../services/invites';
@@ -245,7 +248,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     const note = req.body?.note?.trim() || null;
     if (decision !== 'approve' && !note) return reply.code(400).send({ error: 'note_required' });
 
-    const moved = await decideMerchantKyb(req.params.id, decision!, note, KYB_DECIDABLE);
+    let moved: Awaited<ReturnType<typeof decideMerchantKyb>>;
+    try {
+      moved = await decideMerchantKyb(req.params.id, decision!, note, KYB_DECIDABLE);
+    } catch (e) {
+      if (String((e as Error).message).includes('merchant_exited')) return reply.code(409).send({ error: 'merchant_exited' });
+      throw e;
+    }
     // 409 rather than 404: the row exists, it just isn't in a state a reviewer can decide from
     // (nothing submitted yet, or already terminal).
     if (!moved) return reply.code(409).send({ error: 'kyb_not_decidable' });
@@ -277,10 +286,18 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const adminId = await requireAdmin(req);
       const status = req.body?.status;
-      if (status !== 'online' && status !== 'offline' && status !== 'suspended') {
+      // An admin may suspend, or hand a suspended LP back to 'offline'. Never 'online': the LP's own
+      // switch is the only writer of that, and it is the one that enforces KYB + bond
+      // (setMerchantOnlineSelf) — this route used to bypass both.
+      if (status !== 'offline' && status !== 'suspended') {
         return reply.code(400).send({ error: 'invalid_status' });
       }
-      await setMerchantStatus(req.params.id, status);
+      try {
+        await setMerchantStatus(req.params.id, status);
+      } catch (e) {
+        if (String((e as Error).message).includes('merchant_exited')) return reply.code(409).send({ error: 'merchant_exited' });
+        throw e;
+      }
       await insertAdminAction({
         adminUserId: adminId,
         action: status === 'suspended' ? 'merchant_suspend' : 'merchant_reinstate',
@@ -289,6 +306,61 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         note: `status=${status}`,
       });
       return { ok: true, status };
+    },
+  );
+
+  /** What is waiting to be paid out by hand, and where each one goes. */
+  app.get<{ Querystring: { status?: string } }>('/admin/stake/withdrawals', async (req): Promise<AdminStakeWithdrawalsResponse> => {
+    await requireAdmin(req);
+    const status = req.query.status === 'released' || req.query.status === 'cancelled' ? req.query.status : 'requested';
+    const rows = await listStakeWithdrawalsAdmin(status);
+    return {
+      withdrawals: rows.map((w) => ({
+        id: w.id,
+        merchantId: w.merchant_id,
+        merchantName: w.merchant_name,
+        amountUsdc: w.amount_usdc,
+        status: w.status,
+        exit: w.exit,
+        payoutWallet: w.payout_wallet ?? undefined,
+        requestedAt: w.requested_at.toISOString(),
+        settledAt: w.settled_at?.toISOString(),
+        releaseSignature: w.release_signature ?? undefined,
+      })),
+    };
+  });
+
+  /**
+   * Record that a stake withdrawal was paid: the USDC left the cold stake treasury by hand, and
+   * this is the signature. Record-only — nothing here signs (docs/15: no hot key over every LP's
+   * bond for one admin action). ROOT admin only: requireAdmin is flat, and a route that stands in
+   * for a money movement must not inherit the whole console-granted admin set.
+   */
+  app.post<{ Params: { id: string }; Body: { signature?: string; note?: string } }>(
+    '/admin/stake/withdrawals/:id/release',
+    async (req, reply) => {
+      const adminId = await requireAdmin(req);
+      const admin = await findUserById(adminId);
+      if (!isRootAdminEmail(admin?.email)) return reply.code(403).send({ error: 'root_admin_required' });
+      const signature = req.body?.signature?.trim();
+      if (!signature || !/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(signature)) return reply.code(400).send({ error: 'invalid_signature' });
+      let released: boolean;
+      try {
+        released = await releaseStakeWithdrawal(req.params.id, signature, adminId, req.body?.note?.trim() || undefined);
+      } catch (e) {
+        // One signature is good for one release: the unique index says so.
+        if ((e as { code?: string }).code === '23505') return reply.code(409).send({ error: 'signature_already_used' });
+        throw e;
+      }
+      if (!released) return reply.code(409).send({ error: 'withdrawal_not_releasable' });
+      await insertAdminAction({
+        adminUserId: adminId,
+        action: 'stake_release',
+        targetKind: 'stake_withdrawal',
+        targetId: req.params.id,
+        note: signature,
+      });
+      return { ok: true };
     },
   );
 

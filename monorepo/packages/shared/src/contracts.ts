@@ -176,8 +176,18 @@ export interface MerchantProfile {
     /** Only the terms not yet met. Empty would mean the tier is already earned. */
     needs: Array<{ key: string; have: number; need: number }>;
   };
-  /** An open stake-withdrawal request. The bond is already debited; a human releases the USDC. */
-  pendingWithdrawal?: { id: string; amountUsdc: string; requestedAt: string };
+  /** An open stake-withdrawal request. The bond is already debited; a human releases the USDC to
+   *  `payoutWallet`. `exit` = the whole bond on the way out, which cannot be cancelled. */
+  pendingWithdrawal?: { id: string; amountUsdc: string; requestedAt: string; exit: boolean };
+  /** The wallet a released stake goes back to — the one it was staked from. Fixed, never typed. */
+  payoutWallet?: string;
+  /** Why `status` is 'suspended': 'exited' is the partner's own final decision; 'bond' is the floor;
+   *  anything else a human. */
+  suspendReason?: string;
+  exitedAt?: string;
+  /** Hours after an order completes during which its bond stays claimable (and it stays
+   *  disputable) — the same number on both sides. Shown before the first deposit. */
+  clawWindowHours: number;
   /** The LP's take off the mid rate, in basis points. Also the routing `cost` signal. */
   spreadBps: number;
   /** The most their TIER lets them charge, in bps — the platform's price envelope. Surfaced for the
@@ -792,6 +802,9 @@ export interface AdminMerchant {
   id: string;
   name: string;
   status: 'online' | 'offline' | 'suspended';
+  /** 'exited' = left for good (frozen by trigger); 'bond' = under the floor; else a human. */
+  suspendReason?: string;
+  exitedAt?: string;
   kybStatus: KybStatus;
   /** ISO 3166-1 alpha-2 — which country's KYB_FIELDS spec labels kybFields. */
   country: string;
@@ -818,6 +831,25 @@ export interface AdminMerchant {
 
 export interface AdminMerchantsResponse {
   merchants: AdminMerchant[];
+}
+
+/** A stake withdrawal as the admin console sees it: who, how much, where it goes, and — once a
+ *  root admin has sent the USDC by hand — the signature that proves it. */
+export interface AdminStakeWithdrawal {
+  id: string;
+  merchantId: string;
+  merchantName: string;
+  amountUsdc: string;
+  status: 'requested' | 'released' | 'cancelled';
+  exit: boolean;
+  payoutWallet?: string;
+  requestedAt: string;
+  settledAt?: string;
+  releaseSignature?: string;
+}
+
+export interface AdminStakeWithdrawalsResponse {
+  withdrawals: AdminStakeWithdrawal[];
 }
 
 export interface AdminRiskEvent {

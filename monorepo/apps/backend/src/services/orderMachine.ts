@@ -53,7 +53,6 @@ import { alertLockLost, alertOrderIncoming, alertOrderReady } from './alert';
 import { onBridgeCompanionConfirmed } from './bridge/machine';
 import { checkCashOutLimit, scoreAndRecord, type LimitCheck } from './compliance';
 import { buildDepositTx, escrowAddress, escrowPda, escrowSettled, refundEscrow, releaseEscrow, vaultPda } from './escrowProgram';
-import { DISPUTE_PENALTY_USDC } from './merchantStats';
 import { metrics } from './metrics';
 import { notifyPaymentSent, notifyReceived, notifyRefunded } from './notify';
 import { rankMerchants } from './routing';
@@ -619,7 +618,9 @@ export async function settleDispute(
         });
       }
     } else {
-      await drawDownBond(dispute.merchantId, DISPUTE_PENALTY_USDC); // fine the LP's bond
+      // min(bond, the order's amount) — order-sized, bond-bounded (merchantStats.ts). The clamp in
+      // drawDownBond is the rule; the ledger records what was actually drawn.
+      await drawDownBond(dispute.merchantId, order?.amountUsdc ?? 0, disputeId);
     }
     if (order && order.state === 'payment_detected') {
       await refundToUser({
