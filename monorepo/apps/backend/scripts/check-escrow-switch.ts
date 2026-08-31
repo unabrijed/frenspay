@@ -1,11 +1,12 @@
 // check-escrow-switch.ts — payments' on/off switch, asserted end to end.
 //
 // WHY THIS EXISTS. Payments are ON only when the backend can pay a deposit back out (docs/16): the
-// escrow pool's key, the fee-payer that pays its gas, and a real earnings address. `escrowLive` is
-// DERIVED from those three at boot, and /orders/quote + POST /orders answer 503 when it is false.
-// Two regressions hide here and neither is visible to tsc: a shape that should read as "off" reading
-// as "on" (a base58 key, a placeholder — parseSecretKey then throws on the first order), and a valid
-// trio reading as "off" (every quote 503s on a correctly configured stage).
+// escrow pool's key and a real earnings address. `escrowLive` is DERIVED from those at boot, and
+// /orders/quote + POST /orders answer 503 when it is false. The fee-payer is OPTIONAL and selects who
+// pays gas: configured ⇒ it signs; absent ⇒ SPONSORED MODE (Privy pays user txs, the escrow key pays
+// its own). Two regressions hide here and neither is visible to tsc: a shape that should read as
+// "off" reading as "on" (a base58 key, a placeholder — parseSecretKey then throws on the first
+// order), and a valid pair reading as "off" (every quote 503s on a correctly configured stage).
 //
 // envConfig reads process.env once, at module load, so each scenario is its own process. No DB, no
 // network (invariant 10). Run: yarn workspace @fpay/backend check:escrow
@@ -24,10 +25,10 @@ const BASE58_SECRET = '4NMwxzmYj2uvHuq8xoqhY8RXg63KSVJM1DXkpbmkUY7YQWuoyQgFnnzn6
 const PUBKEY = '5w9Hdzm7KJLZanhWoAY2r9WM1PaP3Njwb82SVwqzvWUR';
 
 const PROBE = `import('./src/envConfig.ts').then((m) => {
-  console.log('RESULT=' + JSON.stringify({ live: m.config.escrowLive }));
+  console.log('RESULT=' + JSON.stringify({ live: m.config.escrowLive, sponsored: !m.config.feePayerConfigured }));
 });`;
 
-function probe(env: Record<string, string>): { live: boolean } {
+function probe(env: Record<string, string>): { live: boolean; sponsored: boolean } {
   const out = execFileSync('npx', ['tsx', '-e', PROBE], {
     cwd: BACKEND,
     encoding: 'utf8',
@@ -59,20 +60,29 @@ const ON = { STAGE_ESCROW_SECRET_KEY: KEYPAIR, STAGE_FEE_PAYER_SECRET_KEY: KEYPA
 check('stage · all three blank → payments OFF, and the config still LOADS', () => {
   assert.equal(probe({ NODE_ENV: 'stage', ...OFF }).live, false);
 });
-check('stage · escrow key + fee-payer + earnings address → payments ON', () => {
-  assert.equal(probe({ NODE_ENV: 'stage', ...ON }).live, true);
+check('stage · escrow key + fee-payer + earnings address → payments ON, fee-payer mode', () => {
+  const r = probe({ NODE_ENV: 'stage', ...ON });
+  assert.equal(r.live, true);
+  assert.equal(r.sponsored, false, 'a configured fee-payer means it pays, not Privy');
 });
 check('prod · same trio, unprefixed → ON; prefixed on prod → OFF (the prefix rule)', () => {
   assert.equal(probe({ NODE_ENV: 'production', ESCROW_SECRET_KEY: KEYPAIR, FEE_PAYER_SECRET_KEY: KEYPAIR, PLATFORM_FEE_DESTINATION: PUBKEY }).live, true);
   assert.equal(probe({ NODE_ENV: 'production', ...ON, ESCROW_SECRET_KEY: '', FEE_PAYER_SECRET_KEY: '', PLATFORM_FEE_DESTINATION: '' }).live, false);
 });
 
-// --- any one of the three is enough to turn it off -----------------------------------------------
+// --- either of the two is enough to turn it off; the fee-payer only picks the gas mode ------------
 check('stage · escrow key missing → OFF', () => {
   assert.equal(probe({ NODE_ENV: 'stage', ...ON, STAGE_ESCROW_SECRET_KEY: '' }).live, false);
 });
-check('stage · fee-payer missing → OFF (nothing would pay the gas)', () => {
-  assert.equal(probe({ NODE_ENV: 'stage', ...ON, STAGE_FEE_PAYER_SECRET_KEY: '' }).live, false);
+check('stage · fee-payer missing → still ON, in SPONSORED mode (Privy pays user txs, the escrow key its own)', () => {
+  const r = probe({ NODE_ENV: 'stage', ...ON, STAGE_FEE_PAYER_SECRET_KEY: '' });
+  assert.equal(r.live, true, 'no fee-payer must not switch payments off — that is what sponsored mode is for');
+  assert.equal(r.sponsored, true);
+});
+check('stage · base58 fee-payer → sponsored mode too (set-but-unusable is not set)', () => {
+  const r = probe({ NODE_ENV: 'stage', ...ON, STAGE_FEE_PAYER_SECRET_KEY: BASE58_SECRET });
+  assert.equal(r.live, true);
+  assert.equal(r.sponsored, true);
 });
 check('stage · earnings address missing → OFF (a release would have nowhere to pay the fee)', () => {
   assert.equal(probe({ NODE_ENV: 'stage', ...ON, STAGE_PLATFORM_FEE_DESTINATION: '' }).live, false);

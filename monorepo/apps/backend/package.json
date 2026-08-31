@@ -30,7 +30,8 @@
     "check:verify": "tsx scripts/check-transfer-verify.ts",
     "check:bond": "tsx scripts/check-bond.ts",
     "check:escrow": "tsx scripts/check-escrow-switch.ts",
-    "check:pool": "tsx scripts/check-escrow-pool.ts"
+    "check:pool": "tsx scripts/check-escrow-pool.ts",
+    "check:gas": "tsx scripts/check-gas-modes.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
