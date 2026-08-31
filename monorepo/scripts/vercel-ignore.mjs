@@ -77,9 +77,11 @@ function main(app) {
   // more than one: a backend fix followed by a docs commit looked like a docs-only push and
   // deployed nothing. That happened twice in one afternoon before this existed.
   //
-  // Vercel sets no DIFF_BASE, so it keeps comparing against the parent — which is right there,
-  // because Vercel evaluates one deployment per commit.
-  const base = process.env.DIFF_BASE;
+  // Vercel sets no DIFF_BASE but exposes VERCEL_GIT_PREVIOUS_SHA — the last successful deployment
+  // of this project + branch — to the ignored build step. A push deploys ONCE, at its tip, not once
+  // per commit: read against the parent, a 31-commit push whose last two commits were docs skipped
+  // the web build (2026-08-31). Neither variable set ⇒ the parent, the best we have.
+  const base = process.env.DIFF_BASE || process.env.VERCEL_GIT_PREVIOUS_SHA;
   const from = base && !/^0+$/.test(base) ? base : 'HEAD^';
 
   // Unreachable base — a first deploy, a force-push that orphaned it, or a clone too shallow to
