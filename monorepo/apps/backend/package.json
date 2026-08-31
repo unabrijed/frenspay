@@ -28,7 +28,9 @@
     "check:balance": "tsx scripts/check-balance.ts",
     "check:kyc": "tsx scripts/check-kyc-switch.ts",
     "check:verify": "tsx scripts/check-transfer-verify.ts",
-    "check:bond": "tsx scripts/check-bond.ts"
+    "check:bond": "tsx scripts/check-bond.ts",
+    "check:escrow": "tsx scripts/check-escrow-switch.ts",
+    "check:pool": "tsx scripts/check-escrow-pool.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

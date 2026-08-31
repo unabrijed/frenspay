@@ -7,7 +7,7 @@
 // invariant 10). Run: yarn workspace @fpay/backend check:verify
 import assert from 'node:assert/strict';
 
-import { instructionsMove, type ParsedIx } from '../src/services/transferVerify';
+import { instructionsMove, memoOf, type ParsedIx } from '../src/services/transferVerify';
 
 const MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const DEST = 'DestAta1111111111111111111111111111111111111';
@@ -57,6 +57,30 @@ check('an unparsed (partially decoded) instruction → no, never throws', !instr
 // Amounts are compared as base-unit STRINGS: "100000000" is not 1e8 the number, and a float never
 // gets near this comparison.
 check('numeric amount of the right value does not match a string expectation', !instructionsMove([plain({ amount: 100000000 })], expect));
+
+// --- the escrow pool (docs/16) -----------------------------------------------------------------------
+// A deposit is bound to its order by an SPL Memo carrying the reference, since no PDA seed does it any
+// more. The RPC parses the Memo program's data as a bare string: `{ program: 'spl-memo', parsed: 'PAY-…' }`.
+const POOL_OWNER = 'PoolOwner1111111111111111111111111111111111';
+const memo = (text: string): ParsedIx => ({ program: 'spl-memo', parsed: text });
+const deposit = { ...expect, memo: 'PAY-0000ABCD' };
+check('escrow deposit: the right transfer + the right memo → matches', instructionsMove([checked(), memo('PAY-0000ABCD')], deposit));
+check('escrow deposit: memo first, transfer second — order does not matter', instructionsMove([memo('PAY-0000ABCD'), checked()], deposit));
+check('escrow deposit: the right transfer with NO memo → no (one deposit must name one order)', !instructionsMove([checked()], deposit));
+check('escrow deposit: the right transfer under another order\'s memo → no', !instructionsMove([checked(), memo('PAY-0000FFFF')], deposit));
+check('escrow deposit: a memo shaped as an object (not the memo program) does not count', !instructionsMove([checked(), { program: 'spl-memo', parsed: { type: 'memo', info: { text: 'PAY-0000ABCD' } } }], deposit));
+check('a plain send is unaffected by a memo it did not ask for', instructionsMove([checked(), memo('anything')], expect));
+check('memoOf: reads the string, null when absent', memoOf([checked(), memo('PAY-0000ABCD')]) === 'PAY-0000ABCD' && memoOf([checked()]) === null);
+
+// Our OWN settlement out of the pool is checked too (needsChainCheck now includes escrow_release):
+// the row's from_address is the pool OWNER — the parsed `authority` — and to_address the recipient.
+const payout = { mint: MINT, destination: DEST, amount: '99999000', authority: POOL_OWNER };
+check('escrow release: pool owner as authority, partner ATA as destination, amount − fee → matches',
+  instructionsMove([checked({ authority: POOL_OWNER, tokenAmount: { amount: '99999000', decimals: 6 } })], payout));
+check('escrow release: the fee leg in the same tx does not satisfy the partner row',
+  !instructionsMove([checked({ authority: POOL_OWNER, destination: 'EarningsAta11111111111111111111111111111111', tokenAmount: { amount: '1000', decimals: 6 } })], payout));
+check('escrow release: signed by the fee-payer instead of the pool → no',
+  !instructionsMove([checked({ tokenAmount: { amount: '99999000', decimals: 6 } })], payout));
 
 console.log(failures === 0 ? 'check-transfer-verify: ok' : `check-transfer-verify: ${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);
