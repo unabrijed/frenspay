@@ -48,11 +48,14 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/apps/backend/dist ./dist
 
 # Both bundles are flat in dist/, so both resolve these at runtime off import.meta.url:
-#   src/db/migrations.ts    -> <dir of the bundle>/migrations   (server AND migrate read it)
-#   src/services/escrowProgram.ts -> <dir of the bundle>/../idl/escrow.json
+#   src/db/migrations.ts               -> <dir of the bundle>/migrations   (server AND migrate read it)
+#   src/services/bridge/cctp/solana.ts -> <dir of the bundle>/idl/<vendored CCTP idl>.json
 # Move either bundle a directory deeper and these paths break silently. Keep them side by side.
+# (The escrow program's IDL was copied here too until 2026-08-31; the program is shelved and its
+# client deleted. A COPY whose source has left the tree fails the build AFTER the push — which is why
+# the pre-push hook now asserts every source below exists.)
 COPY --from=builder /app/apps/backend/src/db/migrations ./dist/migrations
-COPY --from=builder /app/apps/backend/src/idl ./idl
+COPY --from=builder /app/apps/backend/src/services/bridge/cctp/idl ./dist/idl
 
 # NODE_ENV + secrets come from Railway variables; PORT is injected by the platform.
 # Migrations run before the server so it can never boot against a stale schema.

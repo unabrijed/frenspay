@@ -467,8 +467,10 @@ root above it) and WILL hit the same crash on its first deploy. Fix then: set ad
 ## Pre-push build gate
 
 `monorepo/.githooks/pre-push` builds EVERYTHING on every push — only successful builds leave the
-machine: `yarn install --frozen-lockfile`, then the landing/web/admin/lp builds (each app's Vercel
-buildCommand verbatim), then `yarn workspace @fpay/backend tsc --noEmit` and
+machine: a secret scan; a check that every path the root `Dockerfile` copies out of the builder still
+exists in the tree (the hook does not build the image — a deleted IDL directory failed the stage image
+after a push on 2026-08-31); `yarn install --frozen-lockfile`; then the landing/web/admin/lp builds (each
+app's Vercel buildCommand verbatim); then `yarn workspace @fpay/backend tsc --noEmit` and
 `yarn workspace @fpay/backend build` — the typecheck catches what would otherwise crash the server
 at boot, and the bundle catches what only bundling can break (a *value* import of `@fpay/shared`,
 which is external in the bundle and would fail to resolve inside the container).
