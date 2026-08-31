@@ -118,6 +118,14 @@ export async function cancelStakeWithdrawal(id: string): Promise<void> {
 }
 
 /**
+ * Leave fpay as a partner: the whole stake becomes one withdrawal, sent by hand like any other,
+ * and the account is marked as left — never deleted, and not reversible from here.
+ */
+export async function exitMerchant(): Promise<{ withdrawalId: string | null }> {
+  return req<{ ok: true; withdrawalId: string | null }>('/merchants/exit', { method: 'POST' });
+}
+
+/**
  * Stake USDC as a bond. Same prepare → sign → submit shape as every other money movement: the server
  * builds a fee-payer-sponsored transfer to the stake vault, the merchant's own wallet signs it, and
  * the EXISTING /transfer/submit records the signature. The bond is credited when it confirms — which

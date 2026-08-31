@@ -6,6 +6,9 @@
 import { ApiError } from '@/services/api';
 
 const BY_CODE: Record<string, string> = {
+  // stake withdrawals + leaving (docs/15)
+  recent_payout: 'Not yet — a payout you handled is still inside its dispute window. Try again in a few days.',
+  already_exited: 'You’ve already left.',
   // Applying, and the identity gate in front of it.
   kyc_required: 'Verify your identity first — we need that before you can settle payouts.',
   already_a_merchant: 'You already have a partner account.',

@@ -87,9 +87,10 @@ export default function MerchantStake() {
         <Keypad onPress={press} />
 
         {err ? <Txt style={[type.lead, { color: colors.danger, marginBottom: 10 }]}>{err}</Txt> : null}
+        {/* The penalty rule and the claw window, before the first deposit — not on a page nobody
+            reads. Both numbers come from the server (docs/15). */}
         <Txt style={[type.inst, { marginBottom: 12 }]}>
-          Held while you’re a partner. If someone you were meant to pay doesn’t get their money, this
-          is what makes them whole.
+          {`Held while you’re a partner. If a payment you handled is upheld against you, we take that payment’s amount from your stake — never more than your stake. It can’t leave for ${merchant.clawWindowHours} hours after a payout, while that payout can still be disputed. Ask for it back any time after that; we send it by hand to the wallet you staked from, usually within a day.`}
         </Txt>
 
         <Spacer />
