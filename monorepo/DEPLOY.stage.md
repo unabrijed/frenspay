@@ -171,10 +171,10 @@ Use it to redeploy the current commit, or to recover after a failed run.
    **~0.05 SOL**. The boot log says which mode it is. Stage's key was generated on the dev machine:
    ```
    solana-keygen new --no-bip39-passphrase -o stage-escrow.json      # never the fee-payer, never the stake treasury
-   solana address -k stage-escrow.json                                # → 5w9Hdzm7KJLZanhWoAY2r9WM1PaP3Njwb82SVwqzvWUR is stage's
+   solana address -k stage-escrow.json                                # → EEvwiwTXQCaGpmF8BfYQzo9udbg1TNuyYmK7ob45vLEz is stage's (Bridge's key, 2026-08-31)
    ```
-   Paste the file's contents — the `[ … ]` JSON array — as `STAGE_ESCROW_SECRET_KEY`, keep the file
-   offline (a lost key loses whatever is in the pool at that moment; there is no self-refund), and
+   Paste the file's contents — the `[ … ]` JSON array — as `STAGE_ESCROW_SECRET_KEY`, then move the file
+   OUT of the repo and keep it offline (`*-escrow.json` and friends are gitignored, but a checkout is not a vault) (a lost key loses whatever is in the pool at that moment; there is no self-refund), and
    set `STAGE_PLATFORM_FEE_DESTINATION` to a cold wallet's public key. After the first deposit:
    `yarn workspace @fpay/backend check:pool` (DB + RPC) asserts _pool balance = Σ open orders_.
    Prod's key is Bridge's own — `DEPLOY.md §Keys`.

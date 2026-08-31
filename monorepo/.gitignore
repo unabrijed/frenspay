@@ -31,3 +31,11 @@ yarn-error.*
 
 # Vercel CLI local artifacts
 .vercel
+
+# Solana keypairs generated next to the code (solana-keygen -o <name>.json): NEVER tracked.
+# The public address goes into Railway; the file goes offline (DEPLOY.md §Keys).
+*-escrow.json
+*-feepayer.json
+*-platform-fee.json
+*-stake-treasury.json
+*keypair*.json
