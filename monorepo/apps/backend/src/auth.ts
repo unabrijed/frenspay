@@ -48,7 +48,7 @@ export async function authPreHandler(req: FastifyRequest, reply: FastifyReply): 
   }
   // Dev fallback, LOCAL only, and only when Privy is unconfigured — this header is spoofable, so it
   // names any user id you like. It said `isDevelopment` until 2026-08-29, and `isDevelopment` is
-  // `isStage || isLocal`: blanking STAGE_PRIVY_APP_ID or _SECRET would have turned mainnet stage into
+  // `isStage || isLocal`: blanking PRIVY_APP_ID or _SECRET would have turned mainnet stage into
   // a no-token impersonation endpoint, silently, on a server that boots healthy. Blanking a variable
   // to switch a vendor off is a normal gesture here (docs/14), which is exactly why this can't key on
   // a flag that includes a deployed tier. rateLimit.ts already keys the same header on isLocal.

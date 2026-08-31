@@ -4,7 +4,9 @@
 //   local (default under `next dev`)      → NEXT_PUBLIC_LOCAL_<KEY> → NEXT_PUBLIC_STAGE_<KEY>
 //   stage (a stage deploy sets APP_ENV)   → NEXT_PUBLIC_STAGE_<KEY>
 //   production (default in a build)       → NEXT_PUBLIC_<KEY>
-// Bare NEXT_PUBLIC_* names exist ONLY in production builds/hosts — dev tiers never read them.
+// Bare NEXT_PUBLIC_* names exist ONLY in production builds/hosts — dev tiers never read them. ONE
+// exception: the Privy app is not tiered (exactly one app, every tier mounts it), so its two names are
+// read bare on every tier — see the PRIVY_APP_ID export below.
 //
 // This file is the REFERENCE implementation of the tier block. apps/admin and apps/landing carry a
 // byte-identical copy of it, asserted by `yarn check:env`. It deliberately is NOT imported from
@@ -45,16 +47,6 @@ const E = {
     process.env.NEXT_PUBLIC_STAGE_SOLANA_RPC_URL,
     process.env.NEXT_PUBLIC_SOLANA_RPC_URL,
   ),
-  privyAppId: pick(
-    process.env.NEXT_PUBLIC_LOCAL_PRIVY_APP_ID,
-    process.env.NEXT_PUBLIC_STAGE_PRIVY_APP_ID,
-    process.env.NEXT_PUBLIC_PRIVY_APP_ID,
-  ),
-  privyClientId: pick(
-    process.env.NEXT_PUBLIC_LOCAL_PRIVY_CLIENT_ID,
-    process.env.NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID,
-    process.env.NEXT_PUBLIC_PRIVY_CLIENT_ID,
-  ),
   landingUrl: pick(
     process.env.NEXT_PUBLIC_LOCAL_LANDING_URL,
     process.env.NEXT_PUBLIC_STAGE_LANDING_URL,
@@ -93,8 +85,15 @@ export const DEV_SECRET_KEY = isProduction
   : process.env.NEXT_PUBLIC_LOCAL_DEV_SECRET_KEY || process.env.NEXT_PUBLIC_STAGE_DEV_SECRET_KEY || '';
 
 // Privy. When the app id is set the app mounts Privy and uses email-OTP + the embedded Solana wallet.
-export const PRIVY_APP_ID = E.privyAppId ?? '';
-export const PRIVY_CLIENT_ID = E.privyClientId ?? '';
+//
+// ONE Privy app, every tier — deliberately NOT routed through pick(): there is exactly one app, so
+// tiering it would mean two variable names holding one value, and a stale STAGE_ twin silently
+// winning over the bare name is exactly how stage kept mailing OTPs from a retired app (2026-08-31).
+// Same reasoning apps/admin/src/services/envConfig.ts gives. Empty is a supported, LOUD state
+// (USE_PRIVY false); there is no fallback to a prefixed name — missing beats wrong.
+export const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID || '';
+/** Optional Privy app-client. Belongs to the app id above and to no other. */
+export const PRIVY_CLIENT_ID = process.env.NEXT_PUBLIC_PRIVY_CLIENT_ID || '';
 export const USE_PRIVY = PRIVY_APP_ID.length > 0;
 
 // The marketing site. Invite links point HERE, not at the app origin: the landing page reads `?ref=`,

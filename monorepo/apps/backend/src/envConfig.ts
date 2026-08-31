@@ -23,6 +23,8 @@ if (envPath) loadDotenv({ path: envPath });
 //   production           → <KEY>  (bare names exist ONLY on the production host, never in a local
 //                          file — so dev tiers never fall back to them and a stray prod var in the
 //                          shell can't leak into a dev run)
+//   EXCEPTION — the Privy trio (PRIVY_APP_ID / _APP_SECRET / _VERIFICATION_KEY) is read BARE on every
+//   tier: there is exactly one Privy app, so it has no tiered twins (see the Privy block below).
 // Every backend env read must go through `config`.
 export enum Environment {
   LOCAL = 'local',
@@ -209,11 +211,15 @@ export const config = {
   // just carry no button.
   lpBaseUrl: env('LP_BASE_URL'),
 
-  // Privy (M3).
-  privyAppId: env('PRIVY_APP_ID'),
-  privyAppSecret: env('PRIVY_APP_SECRET'),
+  // Privy (M3). ONE app on every tier, read BARE and never through env(): every frontend mounts the
+  // same app and both backends verify with it, so a tiered name would be two variables holding one
+  // value — and a stale STAGE_ twin winning silently is how stage kept mailing OTPs from a retired
+  // app (2026-08-31). Raw process.env reads stay in this file (the one place allowed to); clean()
+  // still launders the paste. Unset ⇒ privyConfigured() false, loudly, with no fallback.
+  privyAppId: clean(process.env.PRIVY_APP_ID),
+  privyAppSecret: clean(process.env.PRIVY_APP_SECRET),
   // Optional: paste the verification key from the Privy dashboard to skip a network fetch per verify.
-  privyVerificationKey: env('PRIVY_VERIFICATION_KEY'),
+  privyVerificationKey: clean(process.env.PRIVY_VERIFICATION_KEY),
 
   // M7: KYC vendor. 'sim' = the dev instant-promote (no documents); 'persona' = real document+selfie
   // via Persona's hosted flow, decisions read back by the reconciler poller. Local defaults to sim;
@@ -329,7 +335,8 @@ const dbHost = (() => {
     return '(unset)';
   }
 })();
-console.log(`[config] env=${node_env} database=${dbSource} host=${dbHost}`);
+// The Privy app id is public and is the one credential a retired twin can silently shadow — name it.
+console.log(`[config] env=${node_env} database=${dbSource} host=${dbHost} privy=${config.privyAppId || '(unset)'}`);
 // Payments being OFF is a deployment state, not a bug — but silent otherwise: every quote 503s and
 // nothing says why. Name the tier-prefixed variables actually being read.
 if (!config.escrowLive && !config.isLocal) {

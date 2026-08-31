@@ -9,8 +9,8 @@
 //
 // The exception is the reason this file differs from its siblings: admin ships as ONE deployment
 // that drives EITHER backend, so the API host belongs to the TARGET rather than to the build — both
-// are inlined and one is chosen in the browser (API_HOSTS). The Privy app is NOT per-target; both
-// backends verify with the same one. Only the dev shim still resolves by tier.
+// are inlined and one is chosen in the browser (API_HOSTS). The Privy app is NOT per-target, and since
+// 2026-08-31 not per-tier anywhere: every app reads it bare, both backends verify with the same one. Only the dev shim still resolves by tier.
 /** A BUILT bundle (any `next build`), not the prod tier — see isProdEnv for that. Exported because
  *  it is also the line between "no Privy configured means use the dev shim" and "no Privy configured
  *  means somebody forgot a variable", which Providers.tsx has to tell apart. */

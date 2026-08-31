@@ -4,7 +4,9 @@
 //   local (default under expo start)       → EXPO_PUBLIC_LOCAL_<KEY> → EXPO_PUBLIC_STAGE_<KEY>
 //   stage (a stage build sets APP_ENV)     → EXPO_PUBLIC_STAGE_<KEY>
 //   production (default in a release)      → EXPO_PUBLIC_<KEY>
-// Bare EXPO_PUBLIC_* names exist ONLY in release builds — dev tiers never read them.
+// Bare EXPO_PUBLIC_* names exist ONLY in release builds — dev tiers never read them. ONE exception:
+// the Privy app is not tiered (exactly one app, every tier mounts it), so its two names are read bare
+// on every tier — see the PRIVY_APP_ID export below.
 //
 // The tier block below is byte-for-byte the web's (apps/web/src/services/envConfig.ts) with the
 // prefix swapped, asserted by `yarn check:env`. It cannot live in a package: Expo, like Next, only
@@ -45,16 +47,6 @@ const E = {
     process.env.EXPO_PUBLIC_STAGE_SOLANA_RPC_URL,
     process.env.EXPO_PUBLIC_SOLANA_RPC_URL,
   ),
-  privyAppId: pick(
-    process.env.EXPO_PUBLIC_LOCAL_PRIVY_APP_ID,
-    process.env.EXPO_PUBLIC_STAGE_PRIVY_APP_ID,
-    process.env.EXPO_PUBLIC_PRIVY_APP_ID,
-  ),
-  privyClientId: pick(
-    process.env.EXPO_PUBLIC_LOCAL_PRIVY_CLIENT_ID,
-    process.env.EXPO_PUBLIC_STAGE_PRIVY_CLIENT_ID,
-    process.env.EXPO_PUBLIC_PRIVY_CLIENT_ID,
-  ),
   landingUrl: pick(
     process.env.EXPO_PUBLIC_LOCAL_LANDING_URL,
     process.env.EXPO_PUBLIC_STAGE_LANDING_URL,
@@ -91,8 +83,15 @@ export const DEV_SECRET_KEY = isProduction
 
 // Privy. When the app id is set the app mounts Privy and uses email-OTP + the embedded Solana wallet.
 // A native build ALSO needs the client id (the dashboard's app client for com.bridge.fpay).
-export const PRIVY_APP_ID = E.privyAppId ?? '';
-export const PRIVY_CLIENT_ID = E.privyClientId ?? '';
+//
+// ONE Privy app, every tier — deliberately NOT routed through pick(): there is exactly one app, so
+// tiering it would mean two variable names holding one value, and a stale STAGE_ twin silently
+// winning over the bare name is exactly how stage kept mailing OTPs from a retired app (2026-08-31).
+// Same reasoning apps/admin/src/services/envConfig.ts gives. Empty is a supported, LOUD state
+// (USE_PRIVY false); there is no fallback to a prefixed name — missing beats wrong.
+export const PRIVY_APP_ID = process.env.EXPO_PUBLIC_PRIVY_APP_ID || '';
+/** The NATIVE app-client of the app id above (a different client than the web's) — and no other app's. */
+export const PRIVY_CLIENT_ID = process.env.EXPO_PUBLIC_PRIVY_CLIENT_ID || '';
 export const USE_PRIVY = PRIVY_APP_ID.length > 0;
 
 // The marketing site: share/invite links point here, and it is the passkey relying party.

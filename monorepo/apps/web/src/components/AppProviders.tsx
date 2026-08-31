@@ -1,6 +1,6 @@
 'use client';
 
-// AppProviders — mounts Privy only when USE_PRIVY (NEXT_PUBLIC_STAGE_PRIVY_APP_ID set). The
+// AppProviders — mounts Privy only when USE_PRIVY (NEXT_PUBLIC_PRIVY_APP_ID set). The
 // dynamic import keeps the Privy SDK out of the bundle when it isn't configured (the dev-wallet
 // path signs locally and never loads it), mirroring the mobile lazy-load.
 import { configure, LiveSync } from '@fpay/app';
