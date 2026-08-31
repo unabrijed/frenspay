@@ -105,14 +105,25 @@ Every write below records an `insertAdminAction` audit row (`admin_user_id`, `ac
   review, detailed below), merchant status, dispute resolve, denylist
   add/remove, payout-provider enable/priority — all audited the same way.
 
-### The one unguarded write
+### The status write, and what it may no longer do
 
-`POST /admin/merchants/:id/status` is the exception to everything above and worth knowing before you
-use it. Unlike every other write on this page it takes **no reason**, checks **no state**, and does not
-verify the row exists — an admin can set a partner straight to `online`, bypassing the KYB-approved +
-bond ≥ $2,000 conditions the partner's own switch enforces on them. It is not a routing hole
-(`listRoutableMerchants` re-checks both in its SELECT), but it is an asymmetry: the console can put a
-partner in a state they could not put themselves in, and the audit row will not say why.
+`POST /admin/merchants/:id/status` used to be the one unguarded write on this page: no reason, no
+state check, and it could set a partner straight to `online`, bypassing the KYB-approved + bond-floor
+conditions the partner's own switch enforces. Since 2026-08-30 it accepts only `suspended` and
+`offline` — an admin can pull a partner out, or hand a suspended one back to *offline*; **only the
+partner's own switch writes `online`**, and it is the one that enforces KYB + bond. A partner who has
+**left** (`suspend_reason = 'exited'`) is frozen by a database trigger against every status writer,
+this one included; the route answers `409 merchant_exited` and the console shows "exited" with no
+Reinstate. It still takes no reason — that asymmetry with the other writes stands.
+
+### Stake withdrawals
+
+A partner's withdrawal (or exit) debits their bond immediately and waits for a human. The console
+lists what is owed — who, how much, the wallet it goes to (the one they staked from; never typed) —
+and one action, **Record as sent**: a **root** admin moves the USDC from the cold stake treasury by
+hand and records the transaction signature here. Record-only, root-only (`requireAdmin` is flat, and
+a route that stands in for a money movement must not inherit every console-granted admin), one
+signature good for one release (unique), and an `admin_actions` row. Docs/15 has the reasoning.
 
 ## Invite administration
 

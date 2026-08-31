@@ -299,9 +299,11 @@ requires `locked_at is not null` — **you cannot report paying an order you nev
 transfers and ticks the order worker; `onTransferConfirmed` is what advances `funds_released →
 completed`. A payer can dispute a completed order, or one still inside its release window
 (`POST /orders/:id/dispute`), which freezes the escrow (`expires_at → NULL`, so no SLA fires) until
-`settleDispute` resolves it — the **one** implementation shared by the admin console
-([07](07-admin-and-moderation.md)) and the dev `/sim` route. Upheld: an LP's bond is fined
-(`DISPUTE_PENALTY_USDC` 1500) and the payer is refunded; a `psp` (platform) row is **exempt** from
+`settleDispute` resolves it — the **one** implementation, used by the admin console
+([07](07-admin-and-moderation.md)). A completed order is disputable only inside the 72-hour claw
+window (`DISPUTE_CLAW_WINDOW_H`, the same constant that keeps the LP's bond from leaving; docs/15).
+Upheld: the LP's bond is drawn `min(bond, the order's amount)` — ledgered as what was actually
+drawn — and the payer is refunded from the escrow; a `psp` (platform) row is **exempt** from
 its own bond draw — fining yourself is fiction, and the only top-up path is user-gated — so the
 platform just eats the loss and a `risk_events` row records it for the admin dashboard.
 

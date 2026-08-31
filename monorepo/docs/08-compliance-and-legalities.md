@@ -48,13 +48,24 @@ flowchart TB
 
 ## Topic by topic
 
-### 1. Custody & money transmission — ✅ *lightened by design*
+### 1. Custody & money transmission — 🟡 *non-custodial for payers; partner stakes ARE held*
 Holding customer funds/keys is what triggers the heaviest rules (US state **MTL** / FinCEN **MSB**, EU
-**VASP/EMI**). The app is **non-custodial**: the user signs every movement of their own funds; the
-platform only sponsors gas. This is the **single biggest lever** keeping us in a lighter
-classification. **Caveat:** the per-order escrow does put funds under *program* control briefly — see
-#3. *(The custody/MTL line is fact-specific and jurisdiction-specific; confirm with counsel before
-real funds move at scale.)* See [03-custody-money-in-and-confirmation](03-custody-money-in-and-confirmation.md).
+**VASP/EMI**). For **payers** the app is non-custodial: the user signs every movement of their own
+funds; the platform only sponsors gas. That is still the biggest lever keeping the payer side in a
+lighter classification. **But it is not the whole picture, and this section used to say it was.** A
+**partner's stake is money we hold**: it sits in a platform-controlled treasury and is owed back on
+request. That is client money, whatever the wallet is called. Since 2026-08-30 ([15](15-pilot-escrow-and-bond.md))
+it is held the way client money has to be held to be defensible: a **cold** treasury with no server
+key (`STAKE_TREASURY_ADDRESS` is a public key), **segregated** from the platform's earnings (their own
+cold wallet, paid at release by the escrow program itself), and a **per-partner ledger**
+(`merchant_bond_events`, written in the same statement as every balance change) that sums to the
+balance and is reconciled by `check-bond`. Withdrawal is a request the partner sees, released by a
+root admin who sends the USDC by hand and records the signature — the SLA in the console ("usually
+within a day") is a promise the system can now keep. Leaving is a flag; nothing is deleted. The
+per-order escrow puts payer funds under *program* control briefly — see #3. *(The custody/MTL line
+is fact-specific and jurisdiction-specific; whether holding a friend's $100 bond differs in kind
+from holding the public's is exactly the question for counsel before a third party stakes.)* See
+[03-custody-money-in-and-confirmation](03-custody-money-in-and-confirmation.md).
 
 ### 2. KYC / customer identification — 🟡 *tiers enforced; the vendor is currently OFF*
 The tiered model is **enforced**: `users.kyc_tier` gates money movement (tier 1 ≈ $100/tx, $300/day
@@ -112,10 +123,13 @@ model a corridor uses is a licensing decision, not a code detail**:
 > **⚠️ And the registry currently contradicts the first bullet.** Every corridor also lists `'lp'`,
 > and on India — the corridor this research rules out — `lp` is the entry that actually *resolves*,
 > because no INR provider is configured yet. Stated plainly rather than smoothed: this is the live
-> position. It is survivable only because merchant-pay is **503-gated on every deployed
-> environment** and the marketplace runs on devnet alone. Enabling an India-licensed partner flips
-> the corridor to provider-first with no code change — that is the intended resolution, and it is
-> ops work, not a build.
+> position. Until 2026-08-30 it was survivable because merchant-pay was 503-gated everywhere and the
+> marketplace ran on devnet. **Neither is true any more** — there is no devnet, and the gate is a
+> capability (`escrowLive`) that is being switched on for a **closed pilot**: two accounts, both
+> Bridge's, paying Bridge's own VPA, partner float capped at $100. That framing — and the line at
+> which it stops being honest, the first stranger on either leg — is written down in
+> [15](15-pilot-escrow-and-bond.md). Enabling an India-licensed partner still flips the corridor to
+> provider-first with no code change; that remains the intended resolution for anything public.
 
 Full per-country comparison, the provider registry, and its safety invariants:
 [06-offramp-and-settlement](06-offramp-and-settlement.md).
@@ -184,9 +198,12 @@ documents already sit with the KYC vendor. Typed fields plus a human reading the
 first rung; the alternative would have been a document vault nobody had designed.
 
 Bonds gate routing **in the query that picks LPs** rather than in a background job, and cap an LP's
-in-flight exposure at a multiple of their stake. Still no real KYB vendor, no contracts, no
-arbitration, and no real fiat — so no live counterparty risk yet, but the shape is now specific
-enough to be argued about with counsel rather than described in the abstract.
+in-flight exposure at a multiple of their stake — **1× at tier 1** since 2026-08-30, so a
+floor-bonded partner is fully collateralised for anything they can be routed, and an upheld dispute
+draws `min(bond, the order's amount)` rather than a flat fine the bond could not cover. Bond cannot
+leave while a completed order is inside its 72-hour claw window, and a completed order cannot be
+disputed after it — one constant, both sides, disclosed to both. Still no real KYB vendor, no
+contracts, no arbitration; the first real fiat is the closed pilot in [15](15-pilot-escrow-and-bond.md).
 
 ### 11. LP payment metadata leaves the system — ⬜ *unaddressed*
 Out-of-band alerting sends an LP the amount and timing of work available, through **Telegram**. That
