@@ -106,15 +106,58 @@ injected by Railway — never set it; `PUBLIC_BASE_URL=https://api.frenspay.xyz`
 variables live per Vercel project (see the block above); web's `ACCESS_KEY` is documented in
 `apps/web/.env.example`.
 
+## Keys
+
+Three secrets and two public addresses make payments work (`docs/16`). All are **bare** names on
+prod (no prefix), pasted as Railway variables on the production backend service. Payments
+(`/orders/quote`, `POST /orders`) answer `503 payments_unavailable` until the first three are all
+usable — a missing or malformed one is a boot **warning**, never a crash — so the order below is safe
+to do across several sittings.
+
+| Variable | What it is | Shape | Holds / needs |
+|---|---|---|---|
+| `ESCROW_SECRET_KEY` | the escrow **pool**'s owner: every payer deposit sits in its USDC token account until the order is released or refunded; it signs the transfers out | JSON byte array (`[12,34,…]`, 64 numbers) — base58 is rejected | **no SOL** — the fee-payer pays its gas |
+| `FEE_PAYER_SECRET_KEY` | pays every transaction fee and ATA rent | same | **~0.1 SOL**, monitored |
+| `PLATFORM_FEE_DESTINATION` | where the platform's cut lands on each release | base58 **public** key | a cold wallet; nothing signs from it |
+| `STAKE_TREASURY_ADDRESS` | where partner bond is deposited | base58 **public** key | a cold wallet; withdrawals are sent by hand |
+| `USDC_MINT` | Circle's mainnet USDC — the default; set only to override | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` | — |
+
+**Generating the prod escrow key — your machine, never the server, never CI:**
+
+1. `solana-keygen new --no-bip39-passphrase -o prod-escrow.json` — a fresh keypair; not the
+   fee-payer, not the stake treasury, not any wallet that has ever been on a laptop shared with a
+   browser extension.
+2. `solana address -k prod-escrow.json` — the public address. Write it down; it is what Solscan
+   shows every pilot deposit landing in, and what `check:pool` reads.
+3. `cat prod-escrow.json` → the `[ … ]` array. Railway → production backend service → **Variables**
+   → `ESCROW_SECRET_KEY` = paste the whole array, brackets included, no quotes. Railway stores it
+   encrypted; it never appears in a build log (`envConfig` only ever prints the variable's *name*).
+4. **Back the file up** — an encrypted volume or a password manager's secure note, then delete the
+   plaintext. A lost escrow key loses whatever the pool holds at that moment: there is no self-refund
+   under this design (`docs/16`). The pool is small because settlements take minutes, but it is not
+   zero while an order is open.
+5. Do the same for `FEE_PAYER_SECRET_KEY` (`prod-feepayer.json`) and fund **that** address with
+   ~0.1 SOL. The escrow key gets nothing: its USDC token account is created by the fee-payer with the
+   first deposit.
+6. Set `PLATFORM_FEE_DESTINATION` and `STAKE_TREASURY_ADDRESS` to two **cold** public keys (a
+   hardware wallet's receive addresses are fine). Never a secret here — the backend only ever
+   sends *to* them.
+7. Redeploy (Railway restarts on a variable change). The boot log should carry **no**
+   `[config] WARNING … ESCROW_SECRET_KEY …` line. Confirm with a `$1` order: fund it, let the
+   10-minute claim window lapse, watch the refund come back from the pool
+   (`yarn workspace @fpay/backend check:pool` reconciles to zero). Order zero is a refund on purpose.
+
+**Rotating the escrow key:** generate a new one, wait until `check:pool` shows an empty pool (no open
+orders), swap the variable, redeploy. In-flight orders would otherwise be paid out of a pool the new
+key does not own.
+
 ## Mainnet checklist
 
-- Use **Circle's mainnet USDC mint** (`EPjFWdd5...`) and a **mainnet RPC** (Helius mainnet).
-- **Disable the faucet** — `/devnet/faucet` is gated to `config.isDevelopment`; ensure prod isn't
-  flagged development. The web UI also fails closed: `IS_MAINNET` defaults true in prod/stage
-  builds, hiding the faucet block. Funding becomes **deposit-only** (the existing USDC deposit
-  address in Add money).
+- **Circle's mainnet USDC mint** is the default; use a **mainnet RPC** (Helius mainnet).
+- There is no faucet and no testnet anywhere (`docs/15`); funding is **deposit-only** (the USDC
+  deposit address in Add money). Nothing to disable.
 - Fund the **fee-payer with real SOL** (and monitor/alert on its balance — it sponsors every
-  transfer + ATA rent).
+  transfer + ATA rent). The escrow key needs none — §Keys above.
 - `CORS_ORIGIN` must list EVERY prod browser origin (see the CORS section in `DEPLOY.stage.md` —
   same rule, bare variable name).
 - A **security review** before handling real funds (key custody, rate-limits, abuse).

@@ -60,12 +60,13 @@ tx.partialSign(payer);                 // fee-payer sponsors
 const unsignedTx = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64');
 ```
 
-The same fee-payer key is also the **escrow-program authority** (`escrowProgram.ts` — it can
-release/refund an order's escrow; see [06](06-offramp-and-settlement.md)). It is **not** a mint
-authority: devnet now uses Circle's *official* devnet USDC (see Money In below), so the fee-payer
-can't create USDC out of thin air on any tier — it can only move what's already in an account it
-controls. Its secret is `FEE_PAYER_SECRET_KEY`, loaded once and cached
-(a keypair you generate with `solana-keygen`; there is no devnet).
+The fee-payer holds gas and nothing else. A **second** backend key, the escrow pool's
+(`ESCROW_SECRET_KEY`, `escrowKeypair()` in the same file), owns the one token account every
+scan-and-pay deposit waits in and signs the transfers out of it — release to the partner, refund to
+the payer — with the fee-payer paying those fees too ([06](06-offramp-and-settlement.md),
+[16](16-escrow-pool-and-the-shelved-program.md)). Neither is a mint authority: the mint is Circle's,
+so neither key can create USDC — only move what is already in an account it controls. Both secrets
+are `solana-keygen` JSON arrays, loaded once and cached; there is no devnet.
 
 ### Drain guards
 
@@ -267,7 +268,7 @@ in-app "X sent you $Y" notification for a confirmed P2P send.
 ## Key files
 
 - `apps/backend/src/services/solana.ts` (`feePayer`, `buildUsdcTransfer`, `getUsdcBalance`, `getTransferStatus`)
-- `apps/backend/src/services/escrowProgram.ts` (fee-payer = escrow authority)
+- `apps/backend/src/services/solana.ts` also: `escrowKeypair`, `escrowPoolAddress`, `sendFromEscrowPool`, `memoInstruction` (the escrow pool, docs/16)
 - `apps/backend/src/routes/money.ts` (`/balance`, `/transfer/prepare|submit`, drain
   guards), `apps/backend/src/routes/crosschain.ts` (CCTP inbound/outbound)
 - `apps/backend/src/services/confirmer.ts` (`confirmPendingOnce`, `startConfirmer`)

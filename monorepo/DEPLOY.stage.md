@@ -11,7 +11,7 @@ gated. What remains switchable is a **capability** the backend derives from its 
 
 | Capability | Derived from | Off ⇒ |
 | --- | --- | --- |
-| Merchant-pay orders (`escrowLive`) | `STAGE_ESCROW_PROGRAM_ID` + `STAGE_FEE_PAYER_SECRET_KEY` + `STAGE_PLATFORM_FEE_DESTINATION` all usable | `503 payments_unavailable` on quote + order |
+| Merchant-pay orders (`escrowLive`) | `STAGE_ESCROW_SECRET_KEY` + `STAGE_FEE_PAYER_SECRET_KEY` + `STAGE_PLATFORM_FEE_DESTINATION` all usable (§Keys, docs/16) | `503 payments_unavailable` on quote + order |
 | Identity verification (`personaLive`) | `STAGE_PERSONA_API_KEY` + `STAGE_PERSONA_TEMPLATE_ID` real | `/kyc/verify` 503s, every tier gate lifts (docs/14) |
 | LP staking | `STAGE_STAKE_TREASURY_ADDRESS` set (public key, no signer) | `503 staking_unavailable` |
 | Cross-chain CCTP | `STAGE_EVM_MINTER_PRIVATE_KEY` + the three EVM RPC urls | `503 crosschain_unavailable` (routes always registered) |
@@ -134,6 +134,8 @@ Use it to redeploy the current commit, or to recover after a failed run.
    STAGE_HELIUS_API_KEY=<KEY>                            # push confirmation — see §Helius. Same key as the RPC URL above
    STAGE_HELIUS_WEBHOOK_SECRET=<openssl rand -hex 32>    # real values live in apps/backend/.env — NEVER paste one into this tracked file
    STAGE_FEE_PAYER_SECRET_KEY=[ ... ]                    # FRESH mainnet keypair — see below. JSON byte array ONLY (base58 is rejected)
+   STAGE_ESCROW_SECRET_KEY=[ ... ]                       # the escrow POOL's key — see §Keys below. Same JSON-array shape; needs NO SOL
+   STAGE_PLATFORM_FEE_DESTINATION=<cold wallet pubkey>   # where the platform's cut lands on release. PUBLIC KEY ONLY
    STAGE_USDC_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v   # Circle's MAINNET USDC — this is the real-money switch
    STAGE_PRIVY_APP_ID=<privy app id>
    STAGE_PRIVY_APP_SECRET=<privy app secret>            # backend-only, never in a web build
@@ -142,9 +144,9 @@ Use it to redeploy the current commit, or to recover after a failed run.
    STAGE_LP_BASE_URL=https://provider.frenspay.xyz   # LP console — alert deep links lose their button if unset
    # STAGE_TELEGRAM_BOT_TOKEN / STAGE_TELEGRAM_WEBHOOK_SECRET — one bot per tier, docs/13 §Setup.
    # Unset ⇒ the bot and its alert adapter are inert; the webhook fails closed.
-   # STAGE_STAKE_TREASURY_ADDRESS / STAGE_ESCROW_PROGRAM_ID / STAGE_PLATFORM_FEE_DESTINATION — the capability
-   # switches in the table above; unset = that capability answers 503, nothing else changes
-   # STAGE_PLATFORM_FEE_BPS optional (default 50) — dormant until merchant-pay ships on mainnet
+   # STAGE_STAKE_TREASURY_ADDRESS — the stake capability switch; unset = /stake answers 503, nothing else changes.
+   # Payments (quote → order) are ON only when ESCROW_SECRET_KEY + FEE_PAYER_SECRET_KEY + PLATFORM_FEE_DESTINATION
+   # are all usable (`escrowLive`, docs/16); any one missing ⇒ 503 payments_unavailable and one boot warning.
    ```
    Do **NOT** set `PORT` — Railway injects it and the server binds `process.env.PORT` (host-level
    vars stay unprefixed by convention, like `PUBLIC_BASE_URL`).
@@ -152,10 +154,26 @@ Use it to redeploy the current commit, or to recover after a failed run.
    **The fee-payer is a fresh keypair, never the devnet one** (that key lives in plaintext local
    files): `solana-keygen new --no-bip39-passphrase -o stage-mainnet-feepayer.json`, paste the JSON
    byte array as the value, fund the address with **~0.1 real SOL** (it sponsors every tx fee +
-   ATA rent), and keep the file offline. Its ATA also collects the platform fee, so monitor both
-   balances. One-time flip chores: delete the old devnet-era Helius webhook in the Helius dashboard
-   (registration is idempotent **by URL**, so the stale one blocks re-registration), and optionally
-   mark any pending devnet-era bridge rows failed in SQL (the poller retries them harmlessly).
+   ATA rent), and keep the file offline. It holds gas and nothing else — the platform's cut goes to
+   `PLATFORM_FEE_DESTINATION`. One-time flip chores: delete the old devnet-era Helius webhook in the
+   Helius dashboard (registration is idempotent **by URL**, so the stale one blocks re-registration),
+   and optionally mark any pending devnet-era bridge rows failed in SQL (the poller retries them
+   harmlessly).
+
+   **§Keys — the escrow pool (docs/16).** Every payer deposit sits in ONE USDC token account owned by
+   the escrow key until its order is released (partner gets `amount − fee`, the earnings wallet `fee`)
+   or refunded (the payer gets it all back). The key signs those transfers out and **holds no SOL** —
+   the fee-payer pays their gas — so nothing funds it; USDC arrives in its ATA with the first deposit
+   (the fee-payer creates the ATA). Stage's key was generated on the dev machine:
+   ```
+   solana-keygen new --no-bip39-passphrase -o stage-escrow.json      # never the fee-payer, never the stake treasury
+   solana address -k stage-escrow.json                                # → 5w9Hdzm7KJLZanhWoAY2r9WM1PaP3Njwb82SVwqzvWUR is stage's
+   ```
+   Paste the file's contents — the `[ … ]` JSON array — as `STAGE_ESCROW_SECRET_KEY`, keep the file
+   offline (a lost key loses whatever is in the pool at that moment; there is no self-refund), and
+   set `STAGE_PLATFORM_FEE_DESTINATION` to a cold wallet's public key. After the first deposit:
+   `yarn workspace @fpay/backend check:pool` (DB + RPC) asserts _pool balance = Σ open orders_.
+   Prod's key is Bridge's own — `DEPLOY.md §Keys`.
 4. Deploy. Migrations auto-apply at boot — the image's `CMD` runs `db:deploy` before `start`, so the
    server can never come up against a stale schema. To apply by hand instead:
    ```

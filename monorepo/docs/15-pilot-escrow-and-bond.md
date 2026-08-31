@@ -5,6 +5,12 @@ passes, six skeptics); the verification record and telemetry are at the end. Com
 [06](06-offramp-and-settlement.md) (the machine), [11](11-lp-console.md) (the console) and
 [14](14-manual-onboarding-fallback.md) (the vendor-off posture)._
 
+> **Superseded in part, 2026-08-31.** Decision 2 — deploy the program — did not happen: the program was
+> audited (a CRITICAL dust-lock, a HIGH refund-to-anyone) and **shelved**; the pilot's escrow is a
+> backend-held **pool** under a dedicated key. Everything that mentions a vault, a PDA or the program
+> id below is history; [16](16-escrow-pool-and-the-shelved-program.md) is current. Decisions 1, 3, 4
+> (as re-implemented for the pool) and 5 stand.
+
 ## What was decided
 
 fpay goes live for a **closed pilot** on mainnet — two accounts, both Bridge's, one payer and one

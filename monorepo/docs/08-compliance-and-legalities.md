@@ -20,21 +20,30 @@ the regulated parts turn on last, corridor by corridor. See
 [06-offramp-and-settlement](06-offramp-and-settlement.md) for the payout seam and
 [10-ops-and-roadmap](10-ops-and-roadmap.md) for sequencing.
 
+**Custody, stated exactly (2026-08-31).** The wallet is non-custodial at rest — the user's embedded
+key signs every deposit and every send. A scan-and-pay order is **custodial in flight**: the payer's
+USDC is sent to a pooled token account controlled by one platform-held key, from which the backend
+pays the partner or returns it — for the minutes an order takes, longer under a dispute. The on-chain
+escrow program that would have made this program-controlled rather than key-controlled was audited
+and shelved ([16](16-escrow-pool-and-the-shelved-program.md)). Whether "minutes, in a pool, under
+one key" is custody in the regulated sense is counsel's question; this doc no longer says the
+platform never holds funds.
+
 ## The risk map
 
 ```mermaid
 flowchart TB
     subgraph green["✅ Handled by design (lowers exposure)"]
-      C1["Self-custody — user holds key,<br/>platform never holds funds/keys"]
+      C1["Self-custody at rest — user holds key;<br/>the platform holds no wallet keys"]
       C2["Gas sponsorship — product cost,<br/>not a regulated activity"]
-      C3["On-chain escrow — trust-minimized<br/>conditional settlement + audit events"]
+      C3["Chain-verified movement — every row, ours included,<br/>is parsed against the chain before it flips"]
       C4["Audit substrate — full ledger +<br/>routing trail + on-chain proofs"]
       C5["Account deletion — soft-delete revokes<br/>app access, never custody"]
     end
     subgraph gray["🟡 Gray (exists but simulated/partial)"]
       G1["KYC vendor — Persona on stage + prod<br/>(tiers enforced; stage sandbox, prod awaits production key)"]
       G2["FX — live per-currency rate;<br/>no regulated provider SLA"]
-      G3["Escrow release authority —<br/>platform-held (operationally trusted)"]
+      G3["Escrow — a POOL under one platform key<br/>(custodial in flight; program shelved, docs/16)"]
       G4["PII/data — minimal, NO<br/>retention policy exists today"]
     end
     subgraph red["⬜ Deferred to real rails"]
@@ -238,7 +247,8 @@ routing happened to pick saw every payee assigned to them whether or not they ev
 
 ## Bottom line
 
-The app is intentionally on the **light side of regulation** today because it holds no customer funds
+The app is intentionally on the **light side of regulation** today because it holds customer funds only
+**in flight** — the escrow pool, minutes per order ([16](16-escrow-pool-and-the-shelved-program.md)) —
 and moves no real fiat on the payout side. **KYC enforcement and sanctions screening are built (against
 simulated/seeded data);** the remaining **gray** items (FX provider SLA, escrow authority, PII
 retention) are known and seamed, and the **deferred** items (licensing, real payout rails, real

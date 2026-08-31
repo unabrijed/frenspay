@@ -87,7 +87,7 @@ flowchart TB
     subgraph Backend["Backend API (Fastify + tsx)"]
       AUTH["auth · Privy verify"]
       SOL["solana.ts — fee-payer, transfers"]
-      ESC["escrowProgram.ts — deposit/release/refund ix"]
+      ESC["solana.ts — the escrow pool: deposit memo, release/refund"]
       QE["quoteEngine.ts → routing.ts"]
       OM["orderMachine.ts — order lifecycle"]
       CF["confirmer.ts ⏱ 8s"]
@@ -131,8 +131,9 @@ flowchart TB
   variable prefix.
 - **`solana.ts`** owns the chain primitives: `connection()`, `feePayer()`, `buildUsdcTransfer`,
   `getUsdcBalance`, `getTransferStatus`.
-- **`escrowProgram.ts`** owns the Anchor program: `buildDepositTx`, `releaseEscrow`,
-  `refundEscrow` — detailed in 03 and 06.
+- **`solana.ts`** also owns the **escrow pool** (`escrowKeypair`, `escrowPoolAddress`,
+  `sendFromEscrowPool`, the deposit memo) — detailed in 06 and 16. The Anchor program in `anchor/`
+  is audited and shelved, not deployed.
 - **`orderMachine.ts`** runs the order lifecycle and is the *only* writer of order state.
 
 ---

@@ -12,11 +12,12 @@ commitment, not a UX toggle — it's the second half of this doc.
 The LP-facing product — what an LP actually sees, and why the score is the centre of it — is
 [11](11-lp-console.md). This doc is the machine; that one is the console.
 
-**Gated on `config.escrowLive` until the program is on mainnet.** `routes/orders.ts` checks it
-first thing on both `POST /orders/quote` and `POST /orders` and returns `503 payments_unavailable`
-whenever the escrow program id, the fee-payer or the fee destination is not configured. The Anchor
-program is being deployed to mainnet under a new id ([15](15-pilot-escrow-and-bond.md)); there is
-no devnet any more, so "tested on devnet" is history — the closed pilot in docs/15 is the test.
+**Gated on `config.escrowLive`.** `routes/orders.ts` checks it first thing on both `POST
+/orders/quote` and `POST /orders` and returns `503 payments_unavailable` whenever the escrow pool's
+key, the fee-payer or the fee destination is not configured. The Anchor program was audited and
+**shelved** ([16](16-escrow-pool-and-the-shelved-program.md)); the pilot's escrow is a pool under a
+backend-held key. There is no devnet any more — the closed pilot in [15](15-pilot-escrow-and-bond.md)
+is the test.
 
 ## Flow — quote → escrow → routing → offer → claim → confirm
 
@@ -39,64 +40,31 @@ awake to take. The payer sees that *before* they commit, which is the only momen
 anything. The LP's identity is **not** on the quote — `merchantName` no longer reaches any
 payer-facing DTO, and under the offer it would be wrong anyway, naming only a provisional holder.
 
-**2 · Escrow deposit (Anchor PDA).** Confirming a quote builds one user-signed `deposit` tx on the
-same prepare/sign/submit seam as everything else in [01](01-architecture.md):
+**2 · Escrow deposit (the pool).** Confirming a quote builds one user-signed USDC transfer on the
+same prepare/sign/submit seam as everything else in [01](01-architecture.md): the **gross** amount
+(the platform's flat cut inside it) from the payer's ATA to the **escrow pool** — one token account
+owned by the backend's escrow key — with the primary leg's `reference_code` riding along as an
+**SPL Memo**.
 
 ```mermaid
-flowchart TB
-    REF["reference_code (PAY-xxxxxxxx)"] --> ESCROW
-    subgraph perOrder["Per-order, created on deposit, closed on release/refund"]
-      ESCROW["Escrow PDA<br/>seeds [escrow, reference]<br/>{ user, authority, mint, amount, bump }"]
-      VAULT["Vault PDA<br/>seeds [vault, escrow]<br/>holds amount − platform fee"]
-    end
-    ESCROW --- VAULT
-    FEE["fee-payer's own ATA<br/>(not the vault)"]
-    U["user"] -- "deposit: amount − fee → vault, fee → fee-payer ATA<br/>(one tx)" --> VAULT
-    U -.-> FEE
-    AUTH["authority = fee-payer (the platform)"] -.->|release / refund only| ESCROW
+flowchart LR
+    U["payer"] -- "transferChecked: amount (fee inside)<br/>+ memo PAY-xxxxxxxx" --> POOL["escrow pool<br/>one USDC ATA, owner = ESCROW_SECRET_KEY<br/>holds every unsettled deposit"]
+    POOL -- "release: amount − fee" --> LP["partner treasury"]
+    POOL -- "release: fee" --> EARN["earnings wallet<br/>(PLATFORM_FEE_DESTINATION, cold)"]
+    POOL -- "refund: the whole amount" --> U
+    FP["fee-payer"] -. "pays gas for all of it;<br/>the escrow key holds no SOL" .-> POOL
 ```
 
-Program id (devnet): `9UfJyNduUw6hJexd7zbwc6ivqPLs2ie2edQrqYAYVv3i`, Anchor 0.32. `deposit` /
-`release` / `refund` are the only three instructions; escrow + vault are PDAs that get **closed**
-on release or refund, so a second release/refund is impossible on-chain — no backend lock needed.
-The platform's in-rate cut splits off **atomically in the deposit tx itself**: the vault only ever
-holds the LP's portion (`amount − platform_fee_usdc`), and the fee rides a plain transfer to the
-fee-payer's own ATA in the same transaction — not a cold treasury, specifically so a refund can pull
-it back atomically too (`refundEscrow` sends both the vault portion and the fee back to the user in
-one tx; `releaseToMerchant` sends the vault only, since the fee already left at deposit). 4/4
-localnet Anchor tests pass (deposit→release, deposit→refund, double-release rejected, non-authority
-release rejected).
-
-The order itself runs a 7-state machine, the only writer of which is `orderMachine.ts`, using
-CAS (`casOrderState`) so the worker, the confirmer, a human LP's HTTP call, and dev `/sim` routes
-can't race each other:
-
-```mermaid
-stateDiagram-v2
-    [*] --> quote_locked
-    quote_locked --> pay_instructions: confirm order (build deposit tx)
-    pay_instructions --> waiting_payment: user signs + broadcasts
-    waiting_payment --> payment_detected: deposit confirmed on-chain
-    payment_detected --> merchant_confirms: LP claims + release broadcasts
-    merchant_confirms --> funds_released: release confirmed
-    funds_released --> completed: onTransferConfirmed
-    completed --> [*]
-    payment_detected --> refunded: LP/provider fails out (made whole)
-    refunded --> [*]
-    pay_instructions --> failed: never funded (expired)
-    failed --> [*]
-    note right of payment_detected
-      TWO orthogonal overlays on this state,
-      neither of which changes it:
-      · resolution: delayed · needs_action · under_review
-      · lock: offered → locked → (lapsed → offered)
-        human-LP orders start offered;
-        provider/sim orders are born locked
-    end note
-```
-
-Release/refund **broadcast first, then transition** — a failed broadcast leaves the order in its
-actionable state for the worker to retry, so there's no stuck order with a dangling on-chain intent.
+There is no per-order account on-chain. What the escrow PDA used to guarantee by construction is
+done explicitly ([16](16-escrow-pool-and-the-shelved-program.md)): the **memo** binds one deposit to
+one order — `transferVerify.ts` refuses to confirm an `escrow_fund` row whose tx does not carry the
+row's reference, so a payer who opened two quotes and paid once funds exactly the one they paid;
+and `settleEscrow` never broadcasts a second settlement while an earlier one is younger than three
+minutes or still present in transaction history. Our own release and refund rows are chain-parsed
+like every other row (pool owner as authority, the recipient's ATA, the exact amount). A deposit
+whose `/fund-submit` dropped is recovered **by memo**: Helius pushes every fee-payer-signed tx to
+`/webhooks/helius`, an unknown signature is parsed and attached to the waiting row it names; the
+poller reads the pool's history only while such a row exists.
 
 **3 · Routing and scoring — the LP marketplace.** `routing.rankMerchants` applies **seven hard
 filters** — five in the SELECT (`listRoutableMerchants`: online, KYB-approved, same rail, same country,
@@ -241,18 +209,17 @@ leg what that LP's headroom covers and none below `MIN_LEG_USDC` (5); if even th
 the quote is refused (`no_merchant` → 503, the payer sees "not available right now").
 
 - **A leg is an ordinary `orders` row.** N legs share one quote, each with its own
-  `reference_code` → its own escrow PDA → its own lock, claim, release, refund, reroute and
+  `reference_code` → its own lock, claim, release, refund, reroute and
   dispute. Nothing downstream learned the word "leg": a leg points at the primary via `group_id`,
   carries its own `amount_fiat`, and the LP console, the worker, the stats and the admin all see
   an order. The pair rule's live arm is what keeps two legs of one payment on two LPs — no
   leg-specific code.
-- **One signature, N deposits.** The platform fee is not a program argument — it is a plain SPL
-  transfer ahead of `deposit(amount, reference)` — so `buildDepositTx` emits one fee transfer and
-  one `deposit` per leg in one user-signed tx (~550 B for one leg, ~109 B per extra; three fit well
-  under the 1232 B cap). One `transfers` row carries the total; every leg points at it, and one
-  confirmation advances them all. **The fee rides the primary leg only**: its order is lp-owed +
-  fee, its deposit is net of the fee, and `getOrderPlatformFee` answers `'0'` for the others — a
-  leg answering with the quote's fee would have refunded it N times over.
+- **One signature, one deposit, N legs.** However many legs, the payer signs ONE transfer of the
+  gross amount to the pool with the primary leg's reference as the memo ([16](16-escrow-pool-and-the-shelved-program.md)).
+  One `transfers` row carries the total; every leg points at it, and one confirmation advances them
+  all. **The fee rides the primary leg only**: its order is lp-owed + fee, its release pays the fee
+  out, and `getOrderPlatformFee` answers `'0'` for the others — a leg answering with the quote's fee
+  would have paid it N times over.
 - **Money law for legs.** Fiat legs are whole minor units and sum to the amount exactly; each
   leg's USDC is `divUp(fiat, lpRate)` on its own, so no LP is ever short and the payer pays at
   most (n−1) µUSDC more than a single leg would have cost. The quote is struck at the **dearest**
@@ -490,8 +457,9 @@ ships **disabled** — inert until its env key exists *and* an operator turns it
   payout vendor is live anywhere (Xendit sandbox-only, gated on licensing/counsel); interactive E2E
   on a funded devnet wallet pending a human; release authority is platform-held, not further
   constrained; a provider corridor's own working-capital float model is an open business decision.
-- ⬜ **503-gated on every deployed (mainnet) environment** until the Anchor escrow program deploys
-  there. UPI payout to a non-onboarded handle is roadmap ([10](10-ops-and-roadmap.md)).
+- ⬜ **503-gated wherever `escrowLive` is false** — no escrow key, no fee-payer or no earnings
+  address configured ([16](16-escrow-pool-and-the-shelved-program.md)). UPI payout to a
+  non-onboarded handle is roadmap ([10](10-ops-and-roadmap.md)).
   **Stake-withdrawal release has no admin surface** — the request debits the bond, and releasing the
   USDC is manual SQL today ([07](07-admin-and-moderation.md)). REVERSED auto-resolution semantics,
   cross-account vendor idempotency, and a per-settler order-viability floor remain open.
