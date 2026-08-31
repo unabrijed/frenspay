@@ -157,6 +157,18 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     deployment of the project + branch) to the ignored build step. A push deploys ONCE, at its tip — read
     against the parent, a docs-last push redeployed the backend and skipped the web build. The parent is the
     fallback only when neither exists (`1587c95`, 2026-08-31).
+45. **The Privy app is ONE value on every tier** (2026-08-31): every frontend reads `NEXT_PUBLIC_PRIVY_APP_ID` /
+    `_CLIENT_ID` (`EXPO_PUBLIC_` on the phone) bare; the backend reads `PRIVY_APP_ID` / `_APP_SECRET` /
+    `_VERIFICATION_KEY` bare — never through `pick()` / `env()`, never with a `bare || STAGE_` fallback. A
+    stale prefixed twin must be UNREADABLE: on a stage build `pick()` returns only the `STAGE_` argument, which
+    is how stage mailed OTPs from a retired app while the bare var sat on the host unread. Admin had it right
+    first (`apps/admin/src/services/envConfig.ts`). Changing the app on a tier is an identity migration: DIDs
+    and embedded wallets are per-app; `/auth/sync` adopts by verified email, then OVERWRITES `wallets.address`
+    (`queries.ts` upsert) — sweep before flipping (DEPLOY.stage.md §One Privy app).
+46. **A gate redirect honours `next` only when `new URL(next, req.url).origin` equals the request origin**
+    (`lib/gate.ts` `sameOriginDest`, web + lp byte-for-byte; `check:gate`). A prefix test is an open
+    redirect: the WHATWG parser reads `/\evil.com` as protocol-relative. Both branches (right AND wrong key)
+    redirect, so both validate. `apps/lp`'s four gate files are copies of `apps/web`'s — change them together.
 
 ## Danger zones
 
@@ -229,12 +241,22 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
 - **A deploy gate that judges the tip commit turns "commit docs last" into "deploy nothing"** (2026-08-31).
   `vercel-ignore.mjs` read `HEAD^..HEAD` on Vercel believing Vercel deploys every commit; a push deploys once.
   Its `--check` self-test covers `shouldBuild` and could never catch a wrong base — test the range, not just the rules.
+- **The plan's own fix can be the vulnerability** (2026-08-31). Draft v2 proposed `next.startsWith('/') &&
+  !next.startsWith('//')` for the gate redirect; the critique round reproduced `/\evil.com` → `https://evil.com/`
+  in Node. Verify a security-shaped fix the way you verify a claim — run the counterexample — before shipping.
+- **Line numbers drift between agent reads** — three sessions commit to this tree in one evening; anchor doc
+  edits by quoted text and assert the match, never by `sed -n 373p` (L3's 373 was my 369 an hour earlier).
 
 ## Counsel flags & open questions (from 2026-08-24 routing plan — for prism-retro)
 - FLAG-1: the pair rule has TWO recorded rationales (LP bank-freeze protection, docs/06 §pair rule; payee data-minimisation, docs/06 §privacy). Under the second, lock→see VPA→unlock→re-lock is a harvesting path (unlock is penalty-free and writes no `lock_expired`). Counsel decides which governs; that decides whether A3 gets fixed.
 - FLAG-2: a forced split is "one payment, ≤3 source accounts, one receiver, same day" — deliberately generated. Explainability question for counsel; per-leg cooldown holds in code.
 - Unverified: is the compliance cash-out cap checked per PAYMENT or per LEG? If per-leg, splits multiply a payer's effective cap. Check before real-money scale.
 - Open: real `TIER_MAX_SPREAD_BPS` values (placeholders 100/200/300 shipped); a feedback timestamp column (so `positive_rate` can window); check-lock has no CI story (invariant 10 keeps check:all no-DB); no distinct payer-facing error for `no_merchant` (bare 503); A2 coverage-DoS via min-size live orders; A7 lock churn writes no attempt rows so "max 3 attempts" is bounded only by `expires_at`.
+- Open (2026-08-31, Privy/gate plan): which Privy app survives (assumed admin's `cmsozz…`; the retired stage
+  app is `cmqm9n…`); whether any stage embedded wallet under the retired app holds USDC (sweep before the
+  flip); same `STAGE_ACCESS_KEY` value on lp as web or its own; does lp get a prod Vercel project (DEPLOY.md
+  now lists one, TBD); Gas Sponsorship → Solana ON on the survivor app before any deploy; lp is the first
+  middleware under include-outside-root ON — budget one failed deploy.
 
 ## Decision log
 
@@ -350,6 +372,31 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   (runs 0024 on prod at boot; "Create a merge commit"). **Open for retro:** did Vercel BUILD (not "skipped by
   ignore command") on the first stage push; fee-payer vs sponsored on prod; raw `payments_unavailable` copy;
   `smallestTierFor` still advertising tier 2 with the vendor off.
+
+- 2026-08-31 (night) · **One Privy app on every tier; the LP console behind the deploy gate** (plan:
+  `~/.claude/plans/provider-merchant-access-key-thing-is-humming-tide.md`; commits `1ab4293` `5eec785`
+  `f906501` + docs, on `stage`, unpushed). Bridge: "the OTP is still coming from the stage privy app id, which
+  we are no longer using anywhere at all… same privy is used everywhere" + "Provider/Merchant ACCESS_KEY thing
+  is missing". Code cause, not host: `pick()` on stage returns only the `STAGE_` argument. Shipped: bare Privy
+  names in web/lp/mobile/backend (admin's pattern), boot log `privy=`, no fallback (invariant 45); web's gate
+  lands the device on the path it asked for, origin-checked on both branches (invariant 46; `check:gate` 10
+  cases, in check:all); lp gains byte-for-byte copies + `ACCESS_KEY`; ~40 doc anchors incl. a new
+  `DEPLOY.stage.md §One Privy app` migration note. The critique round REFUTED the draft's own `next` guard
+  (open redirect) and its "backend first or duplicate rows" ordering (a mismatched backend is a plain 401 —
+  one push is shortest); cut mobile `loginMethods` (not in the Expo SDK's config type), a `@fpay/shared/tokens`
+  subpath import, an LP README. Bridge's hands: confirm the survivor app + sweep old embedded wallets;
+  dashboard (origins, email-only, Solana wallets, Gas Sponsorship ON); host vars incl. lp `STAGE_ACCESS_KEY`;
+  one push.
+
+## Telemetry (2026-08-31 Privy-one-app + LP-gate plan)
+- divergence: 0.77 (evidence 0.83, conclusion 0.67) | threshold 0.30 UNCALIBRATED
+- models: draft=fable · lenses=3× Explore + 1× Plan critique (plan mode: skeptic panel NOT RUN; every
+  load-bearing claim grounded by re-opening source, which outranks cross-tier survival; version axis unavailable)
+- claims: C1 grounded · C2 grounded · C3 grounded-after-correction · C4 refuted-then-fixed · 9 struck
+  (pre-push-gap, header-in-block, email-collision, mobile-loginMethods, subpath-import, lp-readme,
+  backend-first-or-duplicates, check-env-comment, next-prefix-guard)
+- grounding: 14 anchors after fan-out (0 struck) · 7 after critique (0 struck) · pairwise Jaccard 0.08/0.18/0.26
+- fleet: 3 lenses + 1 critique
 
 ## Telemetry (2026-08-31 KYC-still-asked / deploy-gap plan)
 - divergence: 0.80 (evidence 0.89, conclusion 0.67) | threshold 0.30 UNCALIBRATED
