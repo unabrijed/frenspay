@@ -72,10 +72,12 @@ environment's bare `CORS_ORIGIN`. Details and the reasoning: `apps/admin/README.
      traffic and every one of them is fatal:
      - `assertKycConfig` (`services/kyc/index.ts`) — prod runs **persona**. It now throws for exactly
        one config: a `persona_production_…` key is what belongs here, and a `persona_sandbox_…` key is
-       refused outright. **Leaving `PERSONA_API_KEY` / `PERSONA_TEMPLATE_ID` blank is legal** — it
-       means identity verification is off (`config.personaLive`), `/kyc/verify` 503s, and partner
-       onboarding falls back to a human reading the business form (docs/14, an accepted risk).
-       Placeholder-looking values count as blank.
+       refused outright. **`KYC_PROVIDER=persona` must be set explicitly** — there is no default on a
+       deployed tier, so an unset variable means identity verification is off. **Leaving it, or
+       `PERSONA_API_KEY` / `PERSONA_TEMPLATE_ID`, blank is legal** — it means identity verification is
+       off (`config.personaLive`), `/kyc/verify` 503s, the payer app hides its verification surface
+       instead of explaining itself, and partner onboarding falls back to a human reading the business
+       form (docs/14, an accepted risk). Placeholder-looking values count as blank.
        Stage runs persona too — it is mainnet, so `sim` there would instant-promote to tier 2 with no
        documents against real money. `sim` is a local-only convenience: on **either** deployed tier it
        means no real identity verification on real funds.
