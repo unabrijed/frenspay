@@ -49,9 +49,9 @@ const MIN_ORDER_USD = 1;
 export async function registerOrderRoutes(app: FastifyInstance) {
   // Quote Engine: a locked rate+fee+ETA, valid 45s. Routing picks the best simulated merchant/LP.
   app.post<{ Body: QuoteRequest }>('/orders/quote', async (req, reply) => {
-    // Mainnet-lite: the escrow program isn't deployed to mainnet, so merchant-pay is off wherever
-    // the mint is real. Remove this gate (and its twin on POST /orders) when the program ships.
-    if (config.isMainnet) return reply.code(503).send({ error: 'payments_unavailable' });
+    // Payments are a capability (docs/16): without the escrow pool's key, the fee-payer and an
+    // earnings address there is nothing a deposit could ever be paid out of. Twin on POST /orders.
+    if (!config.escrowLive) return reply.code(503).send({ error: 'payments_unavailable' });
     const userId = requireUserId(req);
     const { direction, payoutDestination, payoutName } = req.body ?? ({} as QuoteRequest);
     // The RAIL is the currency authority (docs/21; never the user's country, never the QR's own
@@ -101,7 +101,7 @@ export async function registerOrderRoutes(app: FastifyInstance) {
 
   // Confirm a quote → create the order + the unsigned escrow-funding tx (user signs via the client).
   app.post<{ Body: CreateOrderRequest }>('/orders', async (req, reply) => {
-    if (config.isMainnet) return reply.code(503).send({ error: 'payments_unavailable' });
+    if (!config.escrowLive) return reply.code(503).send({ error: 'payments_unavailable' });
     const userId = requireUserId(req);
     const { quoteId } = req.body ?? ({} as CreateOrderRequest);
     if (!quoteId) return reply.code(400).send({ error: 'missing_fields' });

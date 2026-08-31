@@ -63,6 +63,16 @@ export function usableSecret(value: string, prefix?: RegExp): boolean {
   return prefix ? prefix.test(v) : true;
 }
 
+/** A solana-keygen secret: a JSON array of exactly 64 bytes — the only shape parseSecretKey accepts. */
+export function usableKeypair(value: string): boolean {
+  return usableSecret(value, /^\s*\[\s*(\d{1,3}\s*,\s*){63}\d{1,3}\s*\]\s*$/);
+}
+
+/** A base58 public key by shape (32–44 chars of the base58 alphabet); the RPC rejects the rest at use. */
+export function usablePubkey(value: string): boolean {
+  return usableSecret(value, /^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
+}
+
 /** Read an env var through the tier chain (see header). */
 function env(key: string, fallback = ''): string {
   const raw = isLocal
@@ -93,12 +103,18 @@ function num(key: string, def: number, range?: { min?: number; max?: number }): 
   return n;
 }
 
-// Circle's canonical mainnet USDC mint. Money-realness derives from the MINT, not NODE_ENV:
-// `isMainnet` hard-gates the faucet, the /sim order routes, order creation (until the escrow
-// program deploys to mainnet), and cross-chain — so no tier's dev conveniences can touch real funds
-// even on a stage backend pointed at mainnet.
+// Circle's canonical mainnet USDC mint — the default on every tier; there is no testnet (docs/15).
 const MAINNET_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-const usdcMintValue = env('USDC_MINT');
+const usdcMintValue = env('USDC_MINT', MAINNET_USDC_MINT);
+
+// Payments are a CAPABILITY derived from the keys that make a settlement possible (docs/16): the
+// escrow pool's key, the fee-payer that pays its gas, and a real earnings address. Any one missing
+// or a placeholder ⇒ escrowLive is false and the order routes answer 503 rather than build a
+// deposit nobody could ever pay out of.
+const escrowSecretKeyValue = env('ESCROW_SECRET_KEY');
+const platformFeeDestinationValue = env('PLATFORM_FEE_DESTINATION');
+const escrowLiveValue =
+  usableKeypair(escrowSecretKeyValue) && usableKeypair(env('FEE_PAYER_SECRET_KEY')) && usablePubkey(platformFeeDestinationValue);
 
 // KYC credentials are read before the config object so `personaLive` can be DERIVED from them rather
 // than restated. Blanking either variable in the host's panel is the documented way to turn identity
@@ -125,19 +141,22 @@ export const config = {
   // CORS allowlist (comma-separated origins). Empty = allow all (dev).
   corsOrigin: env('CORS_ORIGIN'),
 
-  // Solana (devnet by default; Helius RPC recommended for reliability + webhooks).
-  solanaRpcUrl: env('SOLANA_RPC_URL', 'https://api.devnet.solana.com'),
+  // Solana mainnet (a Helius RPC is recommended for reliability + webhooks).
+  solanaRpcUrl: env('SOLANA_RPC_URL', 'https://api.mainnet-beta.solana.com'),
   heliusApiKey: env('HELIUS_API_KEY'),
   // Fee-payer secret as a JSON array of bytes (solana-keygen format) — parseSecretKey rejects
   // base58, so a base58 key here fails at first use.
   feePayerSecretKey: env('FEE_PAYER_SECRET_KEY'),
-  // On-chain escrow program id (M2). Defaults to the deployed devnet program; the order machine
-  // builds deposit/release/refund instructions against it. Falls back to the IDL's address if unset.
-  escrowProgramId: env('ESCROW_PROGRAM_ID'),
-  // SPL mint used as "USDC" (Circle's devnet USDC in dev; Circle's mainnet mint = real money).
+  // The escrow POOL's owner (docs/16): one token account under this key holds every payer deposit
+  // until it is released or refunded; the key signs transfers OUT and holds no SOL. Same JSON-array
+  // shape as the fee-payer. Prod's is Bridge's own key (DEPLOY.md §Keys); stage's is in Railway.
+  escrowSecretKey: escrowSecretKeyValue,
+  // Where the platform's cut lands on release. PUBLIC KEY ONLY — a cold wallet; nothing signs from it.
+  platformFeeDestination: platformFeeDestinationValue,
+  // Quote → order → deposit is ON only while the pool can be paid out of (see escrowLiveValue).
+  escrowLive: escrowLiveValue,
+  // Circle's USDC mint — real money on every tier.
   usdcMint: usdcMintValue,
-  // TRUE ⇒ this backend moves real USDC, whatever NODE_ENV says. The gates above key off this.
-  isMainnet: usdcMintValue === MAINNET_USDC_MINT,
   // (The platform's cut is no longer configured here: it's a flat $0.001 per conversion, a
   // constant in quoteEngine.ts — decided 2026-08-13, docs/05. PLATFORM_FEE_BPS is retired.)
   // Where merchant/LP stake (their bond — skin in the game) is held. PUBLIC KEY ONLY: nothing in
@@ -298,6 +317,15 @@ const dbHost = (() => {
   }
 })();
 console.log(`[config] env=${node_env} database=${dbSource} host=${dbHost}`);
+// Payments being OFF is a deployment state, not a bug — but silent otherwise: every quote 503s and
+// nothing says why. Name the tier-prefixed variables actually being read.
+if (!config.escrowLive && !config.isLocal) {
+  console.warn(
+    `[config] WARNING: ${envSource('ESCROW_SECRET_KEY')} / ${envSource('FEE_PAYER_SECRET_KEY')} / ` +
+      `${envSource('PLATFORM_FEE_DESTINATION')} — one is unset, a placeholder or the wrong shape — ` +
+      'payments are OFF. /orders/quote and POST /orders answer 503 payments_unavailable.',
+  );
+}
 if (isLocal && dbSource.startsWith('STAGE_')) {
   console.warn(
     `[config] WARNING: NODE_ENV=${node_env} is using the STAGE database (${dbHost}). ` +

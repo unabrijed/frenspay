@@ -6,7 +6,7 @@ import { hasDatabase } from '../db/pool';
 import { expireStaleUnsignedTransfers, listPendingSolanaTransfers, setTransferStatus } from '../db/queries';
 
 import { recomputeMerchantStats } from './merchantStats';
-import { onTransferConfirmedAndNotify, reconcileFundedVaults } from './orderMachine';
+import { onTransferConfirmedAndNotify, reconcilePoolDeposits } from './orderMachine';
 import { runOrderWorkerOnce } from './simMerchant';
 import { verifiedStatus } from './transferVerify';
 
@@ -39,7 +39,7 @@ export async function confirmPendingOnce(log?: (m: string) => void): Promise<voi
   }
   // Money the chain holds that the DB has not seen: read the vaults BEFORE anything below can expire
   // an order as unfunded.
-  await reconcileFundedVaults(log);
+  await reconcilePoolDeposits(log);
 
   // Retire transfers prepared but never signed (user abandoned before broadcast).
   const expired = await expireStaleUnsignedTransfers();

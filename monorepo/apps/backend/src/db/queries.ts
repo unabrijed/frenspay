@@ -1500,6 +1500,8 @@ export interface WorkerOrderRow {
   escrow_release_transfer_id: string | null;
   merchant_id: string | null;
   treasury_address: string | null;
+  /** The partner's user id — what a release row records as to_user_id. */
+  merchant_user_id: string | null;
   /** NULL = a real (human) merchant — the sim behaviours must not be applied to it.
    *  'psp' = the payout provider (services/payout) executes the fiat leg via API. */
   sim_behavior: 'happy' | 'slow' | 'no_receipt' | 'timeout' | 'psp' | null;
@@ -1528,7 +1530,7 @@ export async function listWorkerOrders(): Promise<WorkerOrderRow[]> {
             o.expires_at, o.escrow_release_transfer_id, o.merchant_id, o.payout_claimed_at,
             o.payout_provider_id, o.payout_providers_tried, o.payout_provider_ref,
             o.locked_at, o.lock_expires_at,
-            m.treasury_address, m.sim_behavior, q.payout_method,
+            m.treasury_address, m.user_id as merchant_user_id, m.sim_behavior, q.payout_method,
             q.currency, coalesce(o.amount_fiat, q.amount_inr) as amount_inr, q.payout_destination, q.payout_name,
             exists (select 1 from disputes d where d.order_id = o.id and d.status = 'open') as dispute_open
        from orders o
@@ -1621,22 +1623,49 @@ export async function getEscrowReleaseTransfer(
  * vaults (services/orderMachine.ts reconcileFundedVaults). Bounded by age and count — this runs
  * every tick and each row is an RPC read.
  */
-export async function listPossiblyFundedOrders(maxAgeHours: number, limit = 50): Promise<
-  { id: string; state: OrderState; reference_code: string; amount_usdc: string; sim_behavior: string | null }[]
-> {
-  const { rows } = await getPool().query<{ id: string; state: OrderState; reference_code: string; amount_usdc: string; sim_behavior: string | null }>(
-    `select o.id, o.state, o.reference_code, o.amount_usdc, m.sim_behavior
-       from orders o
-       left join merchants m on m.id = o.merchant_id
-       left join transfers t on t.id = o.escrow_fund_transfer_id
-      where o.state in ('pay_instructions', 'waiting_payment', 'failed')
-        and o.created_at > now() - make_interval(hours => $1)
-        and t.status is distinct from 'confirmed'
-      order by o.created_at
+/**
+ * Deposit rows still waiting for a signature — the set the pool's history is read for
+ * (orderMachine.ts reconcilePoolDeposits). A `failed` order stays a candidate for one hour: after
+ * that a deposit against it is a refund case a human handles, not something to keep paying an RPC
+ * call per tick to look for.
+ */
+export async function listUnattributedDeposits(maxAgeHours: number, limit = 50): Promise<{ id: string; reference_code: string }[]> {
+  const { rows } = await getPool().query<{ id: string; reference_code: string }>(
+    `select t.id, o.reference_code
+       from transfers t
+       join orders o on o.escrow_fund_transfer_id = t.id and o.group_id is null
+      where t.kind = 'escrow_fund' and t.status = 'pending' and t.signature is null
+        and t.created_at > now() - make_interval(hours => $1)
+        and (o.state in ('pay_instructions', 'waiting_payment')
+             or (o.state = 'failed' and o.created_at > now() - interval '1 hour'))
+      order by t.created_at
       limit $2`,
     [maxAgeHours, limit],
   );
   return rows;
+}
+
+/**
+ * Bind a signature to the escrow_fund row of the PRIMARY order under `reference` — only while that
+ * row has none and is still pending. Not owner-scoped like attachTransferSignature: the caller has
+ * already read the memo off the chain, and the chain check that follows is what decides whether the
+ * row flips. False when nothing matched, or when another row already carries this signature (23505).
+ */
+export async function attachSignatureByReference(reference: string, signature: string): Promise<boolean> {
+  try {
+    const { rowCount } = await getPool().query(
+      `update transfers t
+          set signature = $2
+         from orders o
+        where o.escrow_fund_transfer_id = t.id and o.group_id is null and o.reference_code = $1
+          and t.kind = 'escrow_fund' and t.status = 'pending' and t.signature is null`,
+      [reference, signature],
+    );
+    return (rowCount ?? 0) > 0;
+  } catch (err) {
+    if ((err as { code?: string }).code === '23505') return false;
+    throw err;
+  }
 }
 
 export async function getOrderEscrowFundTransferId(orderId: string): Promise<string | null> {

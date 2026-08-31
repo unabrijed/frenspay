@@ -2,11 +2,12 @@
 // Happy path: quote_locked → pay_instructions → waiting_payment → payment_detected →
 // merchant_confirms → funds_released → completed. Failure branches overlay a transient resolution
 // (delayed / needs_action / under_review) and terminate at refunded. All escrow movement is real
-// on devnet (backend-custodied; M2 swaps in an on-chain PDA program); the simulated merchant/LP and
+// in a backend-custodied escrow pool (docs/16 — the on-chain program is shelved); the simulated merchant/LP and
 // escalation timers live in simMerchant.ts.
 import { randomBytes } from 'node:crypto';
 
-import { getAccount, TokenAccountNotFoundError } from '@solana/spl-token';
+import { getAssociatedTokenAddress } from '@solana/spl-token';
+import { PublicKey, type ParsedInstruction } from '@solana/web3.js';
 
 import type { Order, OrderResolution, OrderState, PayoutMethod } from '@fpay/shared';
 
@@ -15,6 +16,7 @@ import { amt, USDC_DECIMALS } from '../lib/amount';
 import { BN, formatAmount } from '../lib/units';
 import {
   appendOrderEvent,
+  attachSignatureByReference,
   casOrderState,
   countRecentLockAbandons,
   createPendingTransfer,
@@ -32,12 +34,13 @@ import {
   getOrderSimRow,
   getQuoteRowForUser,
   getSendNotifyInfo,
+  getTransferBySignature,
   getWalletForUser,
   insertOrder,
   insertRiskEvent,
   insertRoutingAttempt,
   listOrdersByEscrowFundTransfer,
-  listPossiblyFundedOrders,
+  listUnattributedDeposits,
   listRoutingAttempts,
   markGroupFundSubmitted,
   markLatestAttemptOutcome,
@@ -52,11 +55,11 @@ import {
 import { alertLockLost, alertOrderIncoming, alertOrderReady } from './alert';
 import { onBridgeCompanionConfirmed } from './bridge/machine';
 import { checkCashOutLimit, scoreAndRecord, type LimitCheck } from './compliance';
-import { buildDepositTx, escrowAddress, escrowPda, escrowSettled, refundEscrow, releaseEscrow, vaultPda } from './escrowProgram';
 import { metrics } from './metrics';
 import { notifyPaymentSent, notifyReceived, notifyRefunded } from './notify';
 import { rankMerchants } from './routing';
-import { confirmSignature, connection, toUsdcBaseUnits } from './solana';
+import { buildUsdcTransfer, confirmSignature, connection, escrowPoolAddress, getTransferStatus, sendFromEscrowPool, usdcMint } from './solana';
+import { memoOf } from './transferVerify';
 
 /** Time a stuck order sits in a state before the worker begins escalating it. Demo-tuned. */
 export const ORDER_SLA_MS = 30_000;
@@ -79,11 +82,12 @@ export const DISPUTE_WINDOW_MS = 120_000; // 2 min
  */
 export const PROVIDER_SLA_MS = 120_000;
 
-/** How long a settlement (release / refund) broadcast is waited on before the caller moves on. Well
- *  inside a worker tick's patience at pilot volume.
- *  ponytail: this blocks the tick for up to a minute per settling order — move to transfer-row
- *  polling when volume makes that visible. */
-const SETTLE_CONFIRM_MS = 60_000;
+/**
+ * How long a release/refund waits inline for its tx to land before the worker moves on. Most land in
+ * under ten seconds; the rest are finished by the confirmer from the recorded row, so this is a
+ * ceiling on how long three settling orders can hold one worker tick — not the deadline to land.
+ */
+const SETTLE_CONFIRM_MS = 15_000;
 
 /** A settlement tx that has not landed this long after broadcast is written off as dropped: a
  *  blockhash is valid for ~60–90 s, so past this it cannot land any more. Until then the order
@@ -143,10 +147,10 @@ export async function confirmOrderFromQuote(userId: string, quoteId: string): Pr
 
   // The legs. One when a single LP can carry the payment; N when routing had to split it
   // (quote.legs: each an LP and what they are owed). Each leg is an ordinary order with its own
-  // reference, escrow PDA, lock, claim, release and dispute — the rest of the machine never learns
-  // the word "leg". The platform's flat cut rides the PRIMARY leg: one fee per conversion, however
-  // many vaults, so its order carries lp-owed + fee and its deposit is net of the fee, exactly as a
-  // single order always was (getOrderPlatformFee answers '0' for the others).
+  // reference, lock, claim, release and dispute — the rest of the machine never learns the word
+  // "leg". The platform's flat cut rides the PRIMARY leg: one fee per conversion, however many legs,
+  // so its order carries lp-owed + fee and its release pays the fee out (getOrderPlatformFee answers
+  // '0' for the others).
   const fee = new BN(quote.platformFeeUsdc);
   const legs = quote.legs
     ? quote.legs.map((l, i) => ({
@@ -157,16 +161,14 @@ export async function confirmOrderFromQuote(userId: string, quoteId: string): Pr
     : [{ merchantId: quote.merchantId, amountFiat: null, amountUsdc: quote.amountUsdc }];
   const refs = legs.map(() => 'PAY-' + randomBytes(4).toString('hex').toUpperCase());
 
-  // The escrow-funding tx: one program `deposit` per leg under ONE user signature (token authority;
-  // fee-payer sponsors). Same prepare/submit shape as /transfer/prepare, so the web client signs it
-  // via the existing signer and never learns how many vaults it funded.
+  // The escrow-funding tx: ONE transfer of the gross amount from the payer to the escrow pool (one
+  // token account, docs/16), carrying the primary leg's reference as an SPL Memo — the binding
+  // between this deposit and these orders that transferVerify.ts requires before the row may flip.
+  // Same prepare/submit shape as /transfer/prepare, so the web client signs it via the existing
+  // signer and never learns how many legs it funded.
   let built;
   try {
-    built = await buildDepositTx({
-      userOwner: wallet.address,
-      deposits: legs.map((l, i) => ({ amountUsd: l.amountUsdc, reference: refs[i] })),
-      platformFeeUsd: quote.platformFeeUsdc,
-    });
+    built = await buildUsdcTransfer({ fromOwner: wallet.address, toOwner: escrowPoolAddress(), amountUsd: quote.amountUsdc, memo: refs[0] });
   } catch {
     return { error: 'solana_unavailable' };
   }
@@ -177,7 +179,7 @@ export async function confirmOrderFromQuote(userId: string, quoteId: string): Pr
     fromUserId: userId,
     toUserId: null,
     fromAddress: wallet.address,
-    toAddress: escrowAddress(refs[0]),
+    toAddress: escrowPoolAddress(),
     amountUsd: quote.amountUsdc,
     kind: 'escrow_fund',
     note: refs.join(' '),
@@ -243,7 +245,7 @@ export async function markFundSubmitted(orderId: string, userId: string): Promis
 /** Called by the confirmer when any escrow transfer confirms on-chain; advances the linked order(s). */
 /**
  * A funded leg becomes a live order. Shared by the two ways funding is learned: the deposit
- * transfer confirming (onTransferConfirmed) and the vault being read directly (reconcileFundedVaults).
+ * transfer confirming (onTransferConfirmed) and a deposit attributed by its memo (attachDepositByMemo).
  * The CAS is what makes the two safe to race.
  */
 async function advanceFundedLeg(
@@ -313,30 +315,44 @@ export async function onTransferConfirmed(transferId: string): Promise<void> {
 }
 
 /**
- * The deposit that landed but the DB never saw: a /fund-submit call that dropped after the user
- * signed, a signature the poller cannot see. The order would expire "unfunded" with USDC sitting in
- * its vault and no path out. The vault is the truth — read it. Runs every tick over a bounded set.
+ * The deposit that landed but the DB never saw: a /fund-submit call that dropped after the payer
+ * signed, so the row has no signature and nothing ever asks the chain about it. The Helius webhook
+ * is the first line — the fee-payer co-signs every deposit, so every one is pushed to
+ * routes/webhooks.ts, which attributes it by memo through attachDepositByMemo. This is the backstop,
+ * and it costs nothing at idle: the pool's history is read only while a signature-less row waits.
  */
-export async function reconcileFundedVaults(log?: (m: string) => void): Promise<void> {
-  const candidates = await listPossiblyFundedOrders(24);
-  for (const o of candidates) {
+export async function reconcilePoolDeposits(log?: (m: string) => void): Promise<void> {
+  const waiting = await listUnattributedDeposits(24);
+  if (waiting.length === 0) return;
+  const poolAta = await getAssociatedTokenAddress(usdcMint(), new PublicKey(escrowPoolAddress()));
+  const recent = await connection().getSignaturesForAddress(poolAta, { limit: 25 }, 'confirmed');
+  for (const { signature } of recent) {
+    if (seenPoolSignatures.has(signature)) continue;
     try {
-      // ponytail: the vault holds amount − platform fee until the fee moves inside the escrow (docs/15).
-      const want = (await toUsdcBaseUnits(o.amount_usdc)) - (await toUsdcBaseUnits(await getOrderPlatformFee(o.id)));
-      let held: bigint;
-      try {
-        held = (await getAccount(connection(), vaultPda(escrowPda(o.reference_code)))).amount;
-      } catch (e) {
-        if (e instanceof TokenAccountNotFoundError) continue; // no vault: really unfunded
-        throw e;
-      }
-      if (held < want) continue;
-      await advanceFundedLeg(o, 'fund_reconciled');
-      log?.(`order ${o.reference_code} funded on-chain but unseen → payment_detected (reconciled)`);
+      const reference = await attachDepositByMemo(signature);
+      seenPoolSignatures.add(signature);
+      if (reference) log?.(`deposit ${signature.slice(0, 8)}… is order ${reference}'s → signature attached (reconciled)`);
     } catch (e) {
-      log?.(`reconcile ${o.reference_code}: ${String(e)}`);
+      log?.(`reconcile ${signature.slice(0, 8)}…: ${String(e)}`);
     }
   }
+}
+// ponytail: grows with pool traffic (~0.03 tx/tick at pilot load); an LRU when the pilot is not one.
+const seenPoolSignatures = new Set<string>();
+
+/**
+ * Bind a chain signature to the waiting deposit row its memo names. Returns the reference on success;
+ * null when the tx is not a memo'd deposit we are waiting for (already ours, failed, no memo, or no
+ * signature-less escrow_fund row under that reference). Verification is NOT done here: the row only
+ * gains its signature, and the confirmer asks the chain about it exactly as if the client had posted it.
+ */
+export async function attachDepositByMemo(signature: string): Promise<string | null> {
+  if (await getTransferBySignature(signature)) return null;
+  const tx = await connection().getParsedTransaction(signature, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' });
+  if (!tx || tx.meta?.err) return null;
+  const memo = memoOf(tx.transaction.message.instructions.filter((ix): ix is ParsedInstruction => 'parsed' in ix));
+  if (!memo || !/^PAY-[0-9A-F]{8}$/.test(memo)) return null;
+  return (await attachSignatureByReference(memo, signature)) ? memo : null;
 }
 
 /** "You paid X" once per PAYMENT, not once per leg: fires when the last leg has settled either way,
@@ -417,21 +433,25 @@ export async function flagResolution(
   await appendOrderEvent(orderId, fromState, fromState, event, { resolution });
 }
 
-type SettleOutcome = 'confirmed' | 'failed' | 'pending' | 'in_flight' | 'already_closed';
+type SettleOutcome = 'confirmed' | 'failed' | 'pending' | 'in_flight' | 'already_settled';
 
 /**
  * Broadcast an escrow settlement — a release or a refund — and wait, bounded, for it to land.
  *
  * The rule this enforces: an order with a settlement tx in flight never broadcasts another. Before
  * 2026-08-30 release wrote funds_released and refund wrote refunded on the SIGNATURE, not on the
- * landing, so a tx that dropped after broadcast left a "settled" order with USDC still in the vault
+ * landing, so a tx that dropped after broadcast left a "settled" order with USDC still in the pool
  * that nothing ever looked at again.
  *
  * - an earlier tx recorded and younger than SETTLE_DROPPED_MS → 'in_flight': nothing is sent; the
  *   confirmer finishes it from its row when it lands (onTransferConfirmed)
- * - an earlier tx older than that → written off as dropped, unless the escrow PDA is already gone,
- *   which means it landed late → 'already_closed'
- * - the PDA gone with no tx known → 'already_closed' too (a human reads the chain)
+ * - an earlier tx older than that → the chain's HISTORY is asked (getTransferStatus): landed ⇒ still
+ *   'in_flight' — the confirmer's next tick flips its row and finishes the order, and nothing is
+ *   re-broadcast; failed or unknown ⇒ written off as dropped and a new tx goes out. Age alone is not
+ *   a guard; age + "the chain has no record of it" is, because a blockhash older than ~151 blocks
+ *   (60–90 s) is no longer processed and no durable nonce exists here (docs/16). This is what the
+ *   escrow PDA being closed used to answer for free.
+ * - a CONFIRMED settlement row → 'already_settled': a second payout never leaves the pool
  * - otherwise broadcast, record the row FIRST (the signature must survive whatever happens next),
  *   then wait: 'confirmed' / 'failed' (on-chain error) / 'pending' (unknown after the wait)
  */
@@ -443,13 +463,12 @@ async function settleEscrow(input: {
   record: (signature: string) => Promise<{ id: string }>;
 }): Promise<SettleOutcome> {
   const prior = await getEscrowReleaseTransfer(input.orderId);
+  if (prior?.status === 'confirmed') return 'already_settled';
   if (prior?.status === 'pending') {
     if (Date.now() - prior.created_at.getTime() < SETTLE_DROPPED_MS) return 'in_flight';
-    if (await escrowSettled(input.reference)) return 'already_closed';
+    if (prior.signature && (await getTransferStatus(prior.signature)) === 'confirmed') return 'in_flight';
     await setTransferStatus(prior.id, 'failed');
     await appendOrderEvent(input.orderId, input.fromState, input.fromState, 'settle_dropped', { transferId: prior.id, signature: prior.signature });
-  } else if (prior?.status === 'confirmed' || (await escrowSettled(input.reference))) {
-    return 'already_closed';
   }
   const signature = await input.send();
   const { id } = await input.record(signature);
@@ -472,24 +491,29 @@ export async function releaseToMerchant(input: {
   reference: string;
   amountUsdc: number;
   treasuryAddress: string;
+  /** The partner's user — the row's to_user_id, so a payout the chain contradicts has someone to write a risk_event against. */
+  merchantUserId: string | null;
 }): Promise<void> {
   // Atomically claim the order so two workers can't both release it.
   const claimed = await casOrderState(input.orderId, ['payment_detected'], 'merchant_confirms');
   if (!claimed) return;
 
-  // The vault only ever held the LP's portion — the platform's in-rate cut split off at deposit —
-  // so the release transfer records amount − fee, not the order's full user debit.
+  // The pool holds the gross deposit (fee inside). Release pays the partner amount − fee and the
+  // earnings wallet the fee in ONE tx; the row records the partner's leg — that is what the
+  // verifier checks — and the fee leg has no row of its own (accepted, docs/16).
   const platformFee = await getOrderPlatformFee(input.orderId);
+  const partnerAmount = formatAmount(amt(input.amountUsdc).minus(platformFee), USDC_DECIMALS);
   const outcome = await settleEscrow({
     orderId: input.orderId,
     fromState: 'merchant_confirms',
     reference: input.reference,
-    send: () => releaseEscrow({ reference: input.reference, merchantOwner: input.treasuryAddress }),
+    send: () => sendFromEscrowPool({ toOwner: input.treasuryAddress, amountUsd: partnerAmount, feeUsd: platformFee }),
     record: (signature) =>
       recordEscrowTransfer({
-        fromAddress: escrowAddress(input.reference),
+        fromAddress: escrowPoolAddress(),
         toAddress: input.treasuryAddress,
-        amountUsd: Number(formatAmount(amt(input.amountUsdc).minus(platformFee), USDC_DECIMALS)),
+        toUserId: input.merchantUserId,
+        amountUsd: Number(partnerAmount),
         kind: 'escrow_release',
         signature,
         note: 'order release',
@@ -508,7 +532,7 @@ export async function releaseToMerchant(input: {
       await appendOrderEvent(input.orderId, 'merchant_confirms', 'payment_detected', 'release_failed');
       return;
     default:
-      // pending / in_flight / already_closed: the order stays in merchant_confirms with a tx the
+      // pending / in_flight / already_settled: the order stays in merchant_confirms with a tx the
       // confirmer will finish from its row. Nothing to write but the fact.
       await appendOrderEvent(input.orderId, 'merchant_confirms', 'merchant_confirms', `release_${outcome}`);
   }
@@ -530,8 +554,8 @@ export async function refundToUser(input: {
   if (!wallet?.address) return false;
 
   // Atomically claim the order BEFORE broadcasting — mutually exclusive with releaseToMerchant's CAS
-  // from payment_detected, so a concurrent release + refund can't both broadcast. (The on-chain
-  // close is the ultimate single-settle guard; this keeps our records consistent under concurrency.)
+  // from payment_detected, so a concurrent release + refund can't both broadcast; settleEscrow's
+  // shared settlement pointer + status check is the single-settle guard behind it (docs/16).
   const claimed = await casOrderState(input.orderId, ['payment_detected'], 'refunded');
   if (!claimed) return false;
 
@@ -541,16 +565,11 @@ export async function refundToUser(input: {
       orderId: input.orderId,
       fromState: 'refunded',
       reference: input.reference,
-      // Make-whole: vault portion + the platform fee back from the fee-payer's ATA, one atomic tx.
-      send: async () =>
-        refundEscrow({
-          reference: input.reference,
-          userOwner: wallet.address,
-          platformFeeUsd: await getOrderPlatformFee(input.orderId),
-        }),
+      // Make-whole: the whole deposit back from the pool — the fee is inside it and never left.
+      send: () => sendFromEscrowPool({ toOwner: wallet.address, amountUsd: input.amountUsdc }),
       record: (signature) =>
         recordEscrowTransfer({
-          fromAddress: escrowAddress(input.reference),
+          fromAddress: escrowPoolAddress(),
           toAddress: wallet.address,
           toUserId: input.userId,
           amountUsd: input.amountUsdc,
@@ -597,7 +616,7 @@ export async function settleDispute(
   if (!(await resolveDispute(disputeId, resolution))) return 'already_resolved';
 
   // The order was frozen mid-flight by the dispute; resolving it has to unfreeze the escrow too,
-  // or the money sits in the vault forever. (A dispute opened on an already-completed order has
+  // or the money sits in the pool forever. (A dispute opened on an already-completed order has
   // no escrow left to move — the refund branch simply finds no claimable state.)
   const order = await getOrderSimRow(dispute.orderId);
   if (resolution === 'upheld') {

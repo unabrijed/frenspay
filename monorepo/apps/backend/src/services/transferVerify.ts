@@ -9,26 +9,27 @@
 // levered 3× against real payer escrow. This module asks the second question, and it runs BEFORE
 // the status flips, so nothing downstream (the order advance, the bond credit, the notify) can ever
 // see a confirmed row the chain does not back. Both confirmation paths — the poller and the Helius
-// webhook — come through here.
-import { getAccount, getAssociatedTokenAddress, TokenAccountNotFoundError } from '@solana/spl-token';
+// webhook — come through here. Since the escrow moved off-program into a pool (docs/16), our own
+// settlements are checked the same way: a payout is a chain fact, not our row.
+import { getAssociatedTokenAddress } from '@solana/spl-token';
 import { PublicKey, type ParsedInstruction } from '@solana/web3.js';
 
-import { getOrderPlatformFee, insertRiskEvent, listOrdersByEscrowFundTransfer, type PendingTransfer } from '../db/queries';
+import { insertRiskEvent, listOrdersByEscrowFundTransfer, type PendingTransfer } from '../db/queries';
 
-import { escrowPda, vaultPda } from './escrowProgram';
 import { connection, getTransferStatus, toUsdcBaseUnits, usdcMint } from './solana';
 
 export type TransferStatus = 'pending' | 'confirmed' | 'failed';
 
 /**
- * Which rows get the second question. Exactly the ones a client could have attached a signature to
- * AND that move USDC on Solana: an escrow deposit, or a plain send (P2P, outside wallet, stake).
- * Everything else was signed by us (escrow_release, the bridge's inbound mint leg — no client can
- * attach to a row it doesn't own) or is not an SPL transfer at all (the bridge's burn leg: its
- * to_address is the EVM 0x… destination, and Iris attests the burn or nothing ever mints).
+ * Which rows get the second question. Everything that moves USDC on Solana and that a DB credit or
+ * a payer's refund depends on: an escrow deposit (client-attached signature), a plain send (P2P,
+ * outside wallet, stake — client-attached), AND our own settlements out of the escrow pool
+ * (escrow_release — we signed them, but "the pool paid the right person the right amount" should be
+ * a chain fact, not our own row). What is skipped is not an SPL transfer at all: the bridge's burn
+ * leg (to_address is an EVM 0x… destination; Iris attests it or nothing mints) and its mint leg.
  */
 function needsChainCheck(row: PendingTransfer): boolean {
-  if (row.kind === 'escrow_fund') return true;
+  if (row.kind === 'escrow_fund' || row.kind === 'escrow_release') return true;
   return row.kind === 'send' && row.from_user_id != null && !row.to_address.startsWith('0x');
 }
 
@@ -39,7 +40,11 @@ export async function verifiedStatus(row: PendingTransfer): Promise<TransferStat
 
   let matched: boolean | null;
   try {
-    matched = row.kind === 'escrow_fund' ? await vaultsFunded(row) : await splTransferMatches(row);
+    // A deposit must also carry its order reference as a memo — the binding between one deposit and
+    // one order that a PDA seed used to provide. Without it, two pending orders of the same amount
+    // from the same payer could both be "verified" by one transfer.
+    const memo = row.kind === 'escrow_fund' ? await expectedDepositMemo(row) : undefined;
+    matched = row.kind === 'escrow_fund' && memo === null ? false : await splTransferMatches(row, memo ?? undefined);
   } catch {
     matched = null;
   }
@@ -63,28 +68,10 @@ export async function verifiedStatus(row: PendingTransfer): Promise<TransferStat
   return 'failed';
 }
 
-/**
- * Escrow deposits: one row funds every leg of a payment under one signature, and the row's
- * to_address is the escrow PDA, not the vault — so the tx is not parsed; each leg's vault balance is
- * read instead. The vault is the truth, whatever the signature was.
- */
-async function vaultsFunded(row: PendingTransfer): Promise<boolean> {
+/** The reference the deposit's memo must carry: the primary leg's (`group_id` null, ordered first). */
+async function expectedDepositMemo(row: PendingTransfer): Promise<string | null> {
   const legs = await listOrdersByEscrowFundTransfer(row.id);
-  if (legs.length === 0) return false;
-  for (const leg of legs) {
-    // ponytail: the vault holds amount − platform fee until the fee moves inside the escrow (docs/15,
-    // the program rebuild); tighten to the full amount when that lands.
-    const want = (await toUsdcBaseUnits(leg.amount_usdc)) - (await toUsdcBaseUnits(await getOrderPlatformFee(leg.id)));
-    let held: bigint;
-    try {
-      held = (await getAccount(connection(), vaultPda(escrowPda(leg.reference_code)))).amount;
-    } catch (e) {
-      if (e instanceof TokenAccountNotFoundError) return false; // no vault — nothing was deposited
-      throw e;
-    }
-    if (held < want) return false;
-  }
-  return true;
+  return legs[0]?.reference_code ?? null;
 }
 
 /**
@@ -92,7 +79,7 @@ async function vaultsFunded(row: PendingTransfer): Promise<boolean> {
  * from the row's sender to the recipient's associated token account. `parsed` is `any` in web3.js,
  * hence the runtime narrowing; CPI transfers surface parsed under meta.innerInstructions.
  */
-async function splTransferMatches(row: PendingTransfer): Promise<boolean> {
+async function splTransferMatches(row: PendingTransfer, memo?: string): Promise<boolean> {
   const tx = await connection().getParsedTransaction(row.signature, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' });
   if (!tx) throw new Error('transaction not returned'); // → 'pending', asked again next tick
   if (tx.meta?.err) return false;
@@ -105,14 +92,23 @@ async function splTransferMatches(row: PendingTransfer): Promise<boolean> {
     ...tx.transaction.message.instructions,
     ...(tx.meta?.innerInstructions ?? []).flatMap((inner) => inner.instructions),
   ].filter((ix): ix is ParsedInstruction => 'parsed' in ix);
-  return instructionsMove(instructions, { mint, destination, amount: want, authority: row.from_address });
+  return instructionsMove(instructions, { mint, destination, amount: want, authority: row.from_address, memo });
+}
+
+/** The memo a parsed tx carries, if any — the RPC parses the Memo program's data as a bare string. */
+export function memoOf(instructions: readonly ParsedIx[]): string | null {
+  for (const ix of instructions) {
+    if (ix.program === 'spl-memo' && typeof ix.parsed === 'string') return ix.parsed;
+  }
+  return null;
 }
 
 /** The shape web3.js gives back for a parsed instruction; `parsed` is `any` upstream, so the
  *  narrowing lives here and nowhere else. */
 export interface ParsedIx {
   program?: string;
-  parsed?: { type?: string; info?: Record<string, unknown> };
+  /** spl-token parses to an object; spl-memo parses to the memo string itself. */
+  parsed?: string | { type?: string; info?: Record<string, unknown> };
 }
 
 /**
@@ -122,10 +118,13 @@ export interface ParsedIx {
  */
 export function instructionsMove(
   instructions: readonly ParsedIx[],
-  expect: { mint: string; destination: string; amount: string; authority: string },
+  expect: { mint: string; destination: string; amount: string; authority: string; memo?: string },
 ): boolean {
+  // When a memo is expected, the tx must carry exactly that one — a deposit for a different order
+  // (or with no memo at all) does not verify this row, whatever else matches.
+  if (expect.memo !== undefined && memoOf(instructions) !== expect.memo) return false;
   return instructions.some((ix) => {
-    if (ix.program !== 'spl-token' || !ix.parsed) return false;
+    if (ix.program !== 'spl-token' || !ix.parsed || typeof ix.parsed === 'string') return false;
     const { type, info = {} } = ix.parsed;
     const amount =
       type === 'transferChecked'

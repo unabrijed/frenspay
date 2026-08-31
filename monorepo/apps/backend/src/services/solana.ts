@@ -10,7 +10,7 @@ import {
   getMint,
   TokenAccountNotFoundError,
 } from '@solana/spl-token';
-import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
+import { Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
 
 import { config } from '../envConfig';
 import { BN, formatAmount, fromBaseUnits, parseAmount, toBaseUnits as toBase } from '../lib/units';
@@ -63,6 +63,33 @@ let _feePayer: Keypair | null = null;
 export function feePayer(): Keypair {
   if (!_feePayer) _feePayer = Keypair.fromSecretKey(parseSecretKey(config.feePayerSecretKey, 'FEE_PAYER_SECRET_KEY'));
   return _feePayer;
+}
+
+/**
+ * The escrow POOL's owner: one token account, under this key, holds every payer deposit that has not
+ * settled yet (docs/16 — the on-chain program is shelved for the pilot). This key signs transfers OUT
+ * of the pool (release to the partner, refund to the payer) and nothing else; it holds no SOL — the
+ * fee-payer pays for every tx it signs. Never the fee-payer, never the stake treasury: prod's is a
+ * key Bridge generates and holds himself.
+ */
+let _escrow: Keypair | null = null;
+export function escrowKeypair(): Keypair {
+  if (!_escrow) _escrow = Keypair.fromSecretKey(parseSecretKey(config.escrowSecretKey, 'ESCROW_SECRET_KEY'));
+  return _escrow;
+}
+
+/** The pool OWNER's address (not its token account) — what `transfers.to_address` records for a
+ *  deposit and `from_address` for a settlement, because the verifier derives the ATA from the owner. */
+export function escrowPoolAddress(): string {
+  return escrowKeypair().publicKey.toBase58();
+}
+
+/** SPL Memo v2. A deposit carries its order reference here, which is what binds one deposit to one
+ *  order now that no PDA seed does (transferVerify.ts requires it). No signer keys: the memo is a
+ *  label, not an authorisation. */
+export const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
+export function memoInstruction(text: string): TransactionInstruction {
+  return new TransactionInstruction({ programId: MEMO_PROGRAM_ID, keys: [], data: Buffer.from(text, 'utf8') });
 }
 
 export function usdcMint(): PublicKey {
@@ -200,6 +227,8 @@ export async function buildUsdcTransfer(input: {
   toOwner: string;
   /** Canonical decimal string preferred; a `number` is accepted and validated the same way. */
   amountUsd: string | number;
+  /** An SPL Memo added to the tx — an escrow deposit carries its order reference. */
+  memo?: string;
 }): Promise<{ unsignedTx: string; feePayer: string }> {
   const fromPk = new PublicKey(input.fromOwner);
   const toPk = new PublicKey(input.toOwner);
@@ -226,6 +255,7 @@ export async function buildUsdcTransfer(input: {
   tx.add(
     createTransferCheckedInstruction(fromAta, mint, toAta, fromPk, toBaseUnits(input.amountUsd, dec), dec),
   );
+  if (input.memo) tx.add(memoInstruction(input.memo));
 
   tx.feePayer = payer.publicKey;
   tx.recentBlockhash = (await connection().getLatestBlockhash()).blockhash;
@@ -238,6 +268,51 @@ export async function buildUsdcTransfer(input: {
     .serialize({ requireAllSignatures: false, verifySignatures: false })
     .toString('base64');
   return { unsignedTx, feePayer: payer.publicKey.toBase58() };
+}
+
+/**
+ * Move USDC OUT of the escrow pool and broadcast: `amountUsd` to `toOwner`, plus (release only)
+ * `feeUsd` to the earnings wallet, in ONE transaction signed by the escrow key as token authority and
+ * by the fee-payer for the fee + any ATA rent. Returns the signature; settling on it is the caller's
+ * job (orderMachine.ts settleEscrow waits for it to land before writing anything terminal).
+ */
+export async function sendFromEscrowPool(input: {
+  toOwner: string;
+  amountUsd: string | number;
+  /** The platform's cut, paid to PLATFORM_FEE_DESTINATION in the same tx. Omit for a refund. */
+  feeUsd?: string | number;
+}): Promise<string> {
+  const mint = usdcMint();
+  const dec = await decimals();
+  const payer = feePayer();
+  const pool = escrowKeypair();
+  const poolAta = await getAssociatedTokenAddress(mint, pool.publicKey);
+  const tx = new Transaction();
+
+  const ensureAta = async (owner: PublicKey): Promise<PublicKey> => {
+    const ata = await getAssociatedTokenAddress(mint, owner);
+    try {
+      await getAccount(connection(), ata);
+    } catch (err) {
+      if (!(err instanceof TokenAccountNotFoundError)) throw err;
+      tx.add(createAssociatedTokenAccountInstruction(payer.publicKey, ata, owner, mint));
+    }
+    return ata;
+  };
+
+  const toAta = await ensureAta(new PublicKey(input.toOwner));
+  tx.add(createTransferCheckedInstruction(poolAta, mint, toAta, pool.publicKey, toBaseUnits(input.amountUsd, dec), dec));
+  const feeBase = input.feeUsd == null ? 0n : toBaseUnits(input.feeUsd, dec);
+  if (feeBase > 0n) {
+    if (!config.platformFeeDestination) throw new Error('PLATFORM_FEE_DESTINATION is not set');
+    const earningsAta = await ensureAta(new PublicKey(config.platformFeeDestination));
+    tx.add(createTransferCheckedInstruction(poolAta, mint, earningsAta, pool.publicKey, feeBase, dec));
+  }
+
+  tx.feePayer = payer.publicKey;
+  tx.recentBlockhash = (await connection().getLatestBlockhash()).blockhash;
+  tx.sign(payer, pool);
+  return connection().sendRawTransaction(tx.serialize());
 }
 
 /**

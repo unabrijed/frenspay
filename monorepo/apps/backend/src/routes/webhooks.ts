@@ -10,7 +10,7 @@ import { config } from '../envConfig';
 import { appendOrderEvent, claimOrderPayout, getOrderByReference, getTransferBySignature, insertRiskEvent, setTransferStatusBySignature } from '../db/queries';
 import { getKycProvider } from '../services/kyc';
 import { applyKycForSession } from '../services/kyc/poller';
-import { DISPUTE_WINDOW_MS, onTransferConfirmedAndNotify } from '../services/orderMachine';
+import { attachDepositByMemo, DISPUTE_WINDOW_MS, onTransferConfirmedAndNotify } from '../services/orderMachine';
 import { payoutProviderById } from '../services/payout/provider';
 import { verifiedStatus } from '../services/transferVerify';
 
@@ -44,7 +44,17 @@ export async function registerWebhookRoutes(app: FastifyInstance) {
       : [];
     for (const ev of events) {
       if (typeof ev?.signature !== 'string') continue;
-      const row = await getTransferBySignature(ev.signature);
+      let row = await getTransferBySignature(ev.signature);
+      // Unknown signature? It may be a deposit whose /fund-submit dropped after the payer signed: the
+      // fee-payer co-signs every deposit, so Helius pushes every one here, and the memo names the
+      // order. Attribution only — the row gains its signature and the chain check below decides.
+      if (!row && ev.transactionError == null) {
+        try {
+          if (await attachDepositByMemo(ev.signature)) row = await getTransferBySignature(ev.signature);
+        } catch (err) {
+          req.log.warn({ err, signature: ev.signature }, 'deposit recovery failed — the poller retries');
+        }
+      }
       if (!row || row.status !== 'pending') continue; // not ours, or already final
       // Helius sets transactionError (non-null) on failed txs; null/absent means it landed — and
       // "landed" is only half the question. The same chain check the poller runs decides whether the

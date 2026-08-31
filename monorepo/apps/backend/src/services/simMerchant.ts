@@ -97,7 +97,7 @@ export async function runOrderWorkerOnce(log?: (m: string) => void): Promise<voi
     const behavior = o.sim_behavior; // null = a real (human) merchant, not a simulated one
     const release = () =>
       o.treasury_address
-        ? releaseToMerchant({ orderId: o.id, reference: o.reference_code, amountUsdc, treasuryAddress: o.treasury_address })
+        ? releaseToMerchant({ orderId: o.id, reference: o.reference_code, amountUsdc, treasuryAddress: o.treasury_address, merchantUserId: o.merchant_user_id })
         : Promise.resolve();
     try {
       // Recovery: releaseToMerchant writes funds_released only once the release tx has LANDED. A
