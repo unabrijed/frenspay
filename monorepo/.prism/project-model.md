@@ -98,6 +98,44 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     So raising a partner's tier grants them nothing as a partner and everything as a payer — which is
     why the manual grant was deleted (docs/14). Check this before ever tying a tier to a partner
     action again.
+33. **A `transfers` row the DB will credit is verified against the chain BEFORE its status flips**
+    (`services/transferVerify.ts`, on both the poller and the Helius webhook): a plain send must parse
+    to one SPL transfer of the exact base-unit amount to the recipient's ATA from the sender; an
+    `escrow_fund` row (one row, N legs, `to_address` = the escrow PDA) is checked by reading each leg's
+    vault. Only rows a client could have attached a signature to get the check; escrow_release and
+    the bridge legs bypass by shape. A parsed contradiction fails the row + `risk_events`; an RPC that
+    cannot answer returns 'pending' — never fail a real deposit on a bad minute. Status flips are
+    gated `status = 'pending'`, so a failed row can never be re-confirmed (docs/15, 2026-08-30).
+34. **A settlement (release / refund) is written when it LANDS, not when it is sent** (`settleEscrow`,
+    orderMachine.ts): an order with a settlement tx in flight never broadcasts another; a prior pending
+    tx younger than `SETTLE_DROPPED_MS` is 'in_flight', older is written off unless the escrow PDA is
+    already gone — the PDA being closed is the one idempotency truth a release and a refund share.
+    The confirmer finishes late landings from the transfer row's `note` ('refund' / 'order release').
+    `reconcileFundedVaults` reads vaults every tick for orders the DB never saw funded.
+35. **`merchant_bond_events` is written in the SAME STATEMENT as every `bond_usdc` mutation**
+    (credit, request, cancel, penalty); for every merchant `bond_usdc = Σ events` (`scripts/check-bond.ts`,
+    by hand — DB). `drawDownBond` records what was actually drawn, never the nominal fine (0024).
+36. **An exited merchant is frozen by trigger** (`merchants_exited_frozen`, 0024): once
+    `suspend_reason = 'exited'`, no writer — `setMerchantStatus`, `decideMerchantKyb`'s CASE, any
+    future one — may change `status` or `suspend_reason`; routes map 'merchant_exited' to 409. Exit is
+    one statement (`exitMerchant`): the whole bond becomes a withdrawal with `exit = true`, which
+    cannot be cancelled. A partner is never deleted (the FKs that cascaded are plain references now).
+37. **There is no testnet.** Every tier is mainnet; `isMainnet` / `IS_MAINNET` do not exist. What a tier
+    can do is a CAPABILITY derived from config at boot (`escrowLive`, `personaLive`, the stake
+    treasury, the EVM minter), each answering 503 when absent — never a cluster flag, never NODE_ENV.
+    The faucet, `/sim/orders/*`, the seeded sim LPs, the Sepolia CCTP table and `setup-devnet` are
+    deleted, not gated; `listRoutableMerchants` excludes every non-psp `sim_behavior` row in its
+    SELECT and the seed creates none (2026-08-30).
+38. **The bond floor is collateral, not an entry fee**: `MIN_BOND` $100 = tier-1 `sendPerTx`, tier-1
+    `LEVERAGE` 1× (in flight ≤ bond), penalty = `min(bond, order amount)`, and ONE constant
+    `DISPUTE_CLAW_WINDOW_H` (72 h) bounds both sides — bond cannot leave while a completed order is
+    inside it, and a completed order cannot be disputed after it (read off `order_events`; orders has
+    no `completed_at`). Change these together or not at all.
+39. **`Escrow`'s on-chain layout changes only with a new program id** (or a version field): the
+    2026-08-30 rebuild added `fee` + `platform` and made `Deposit.authority` a signer, safe only because
+    the mainnet id is new and holds zero escrows.
+40. **Admin reinstate targets `offline`, never `online`** — only the LP's own switch
+    (`setMerchantOnlineSelf`) writes `online`, because it is the one that enforces KYB + the bond floor.
 
 ## Danger zones
 
@@ -132,6 +170,24 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   its recipient nothing. Six downstream problems existed only to support that one unnecessary write.
   Ask "what does this actually unlock, at every gate that reads it?" and enumerate them — the answer
   took one grep and overturned a decision two rounds of planning had agreed on.
+- **Refute the plan, not the constants it changes.** Round-2 Opus A "refuted" the tier-1 collateral
+  claim by quoting `LEVERAGE[1] = 3` and `MIN_BOND = 2000` — the very values the plan sets to 1 and 100.
+  A skeptic prompt must say "PROPOSED state; do not refute by quoting the current value of what is
+  being changed", or a third of the panel is spent re-reading the diff's left-hand side.
+- **A skeptic can be wrong with a citation.** The "split-refund bug in getOrderPlatformFee" came with
+  a `file:line` and was inverted: `groupId: i === 0 ? null : primaryId` makes the PRIMARY leg the
+  `group_id is null` one. Grounding outranks a confident refutation too — re-open the line before
+  deleting a claim, exactly as before adding one.
+- **The chokepoint is the STATUS FLIP, not the consumer.** Two planning rounds placed the on-chain
+  check inside `onTransferConfirmed`; the bond credit lives in the `AndNotify` wrapper around it and
+  would have run unguarded. When the fix is "verify before X", find the write that makes X true, not
+  the function whose name says X.
+- **`sim_behavior='happy'` rows in a check harness are routing fixtures** — `check-merchant.ts`
+  ranked seeded sim rows through `rankMerchants`; the moment routing excluded sim rows the harness
+  went blind. Fixtures that go through a hard filter must be shaped like what passes it.
+- **`git ls-files` from a subdirectory lists that subtree only.** The Dockerfile "did not exist"
+  because the git root is `payments/`, one level above `monorepo/`; `git rev-parse --show-toplevel`
+  first.
 - **A half-fixed bug class is more dangerous than an unfixed one**, because the commit message says it
   is closed. Locking `/sim/kyc/:tier` and declaring the sim-on-stage doctrine moot left the identical
   hole one route over, and the next reader had a written reason not to look.
@@ -216,6 +272,35 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   LOWER a kyc_tier, which is fine now that nothing grants one manually but will matter the first time
   a vendor declines someone already approved; (4) is the compliance cash-out cap per PAYMENT or per
   LEG (still unverified, inherited from the routing plan).
+
+- 2026-08-30 · **Closed pilot: escrow to mainnet, the chain asked before any row flips, and a bond
+  system that functions** (plan: `~/.claude/plans/i-scanned-and-tried-witty-sky.md` → docs/15;
+  11 commits `7f18793`…`95bcf74` on `stage`, unpushed). Bridge, mid-plan: "we have removed KYC
+  entirely… cap currently is $100 as per the tier", then "the bond thing… they have to stake only
+  $100–$300… two different wallets… store what user has staked… don't delete, mark or flag", then
+  "we don't have testnet at all anymore… remove those." Shipped: the KYC tier gates lift while the
+  identity vendor is off (`effectiveLimits`, `identityCheckAvailable`); `isMainnet` retired with
+  everything only a testnet made safe (faucet, `/sim/orders/*`, sim LPs, Sepolia table, devnet
+  setup); `transferVerify.ts` (invariant 33) + `check-transfer-verify` 12/12; `settleEscrow` +
+  `reconcileFundedVaults` (34); 0024 bond ledger + trigger + exit + claw window (35, 36, 38);
+  admin release route (root-only, record-only) + console; LP exit, disclosure copy, prompt terms;
+  the escrow program rebuilt (`authority: Signer`, fee inside the escrow, `platform_ata` on release,
+  8 tests) pending Bridge's keypair + `anchor test` + deploy. **Blocked on another session's dirty
+  `apps/backend/src/envConfig.ts`:** `escrowLive`, `platformFeeDestination`, the `USDC_MINT` default,
+  the `orders.ts:67/:117` gate, the escrow client's fee-split changes, `check-escrow-switch`.
+  **Bridge's hands:** program keypair + backup, `anchor build`/`test`/deploy (~2.5 SOL), two cold
+  wallets, Railway vars, `yarn db:migrate` (0024), revoke the 5 live invite codes, push on ack.
+  **Open for retro:** post-completion disputes still cannot pay the payer (only fine); no Telegram, so
+  the LP is a polling tab; re-application after exit; counsel on India settlement, stake custody,
+  PAN retention after exit; whether the 72 h claw window is the number; `settleEscrow` blocks a
+  worker tick up to 60 s per settling order.
+
+## Telemetry (2026-08-30 pilot plan)
+- divergence: round 1 0.88 (evidence 0.94, conclusion 0.80) · round 2 0.77 (evidence 0.88, conclusion 0.60) | threshold 0.30 UNCALIBRATED
+- models: draft=opus · skeptics=2x-opus+1x-sonnet per round (cross-tier; version axis unavailable)
+- claims: C1 grounded · C2 cross-tier-survived (2-1) · C3 grounded · C4 grounded · N1 grounded-after-fix · N2 grounded-after-correction (one refutation itself struck) · N3 grounded-after-fix · N4 grounded-after-fix
+- grounding: round 1 17/22 verified, 5 corrected, 1 strike withdrawn · round 2 18/23 verified, 5 corrected, 0 struck
+- fleet: 6 + 6 lenses, 2 grounding verifiers, 6 skeptics; loop stopped at 2 rounds
 
 ## Telemetry (2026-08-29 audit pass)
 - divergence: 0.69 (evidence 0.70, conclusion 0.67) | threshold 0.30 UNCALIBRATED
