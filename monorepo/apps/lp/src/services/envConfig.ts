@@ -76,3 +76,11 @@ export const PRIVY_CLIENT_ID = process.env.NEXT_PUBLIC_PRIVY_CLIENT_ID || '';
 export const USE_PRIVY = PRIVY_APP_ID.length > 0;
 
 export const IS_DEV = !isProduction;
+
+// Deploy access gate (src/middleware.ts): one key per project per environment, no NEXT_PUBLIC_ prefix —
+// it's server-side only (middleware + /gate route), so it resolves undefined in browser bundles and
+// can never be inlined. Unset = gate off on the local tier only; deployed tiers fail CLOSED (the
+// middleware locks the build) so a missing key can never silently expose the console. Same mechanism
+// and files as apps/web; the cookie is per-origin, so passing the wallet app's gate opens nothing here.
+export const ACCESS_KEY = (isProdEnv ? process.env.ACCESS_KEY : process.env.STAGE_ACCESS_KEY) || '';
+export const IS_LOCAL_ENV = APP_ENV === 'local';
