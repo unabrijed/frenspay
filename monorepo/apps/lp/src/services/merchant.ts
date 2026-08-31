@@ -136,7 +136,7 @@ export async function depositStake(amountUsd: number): Promise<void> {
     method: 'POST',
     body: JSON.stringify({ amountUsd }),
   });
-  const signature = await getActiveSigner().signAndSend(prep.unsignedTx);
+  const signature = await getActiveSigner().signAndSend(prep.unsignedTx, { sponsored: prep.sponsored });
   // The same /transfer/submit every money movement uses — it is scoped to from_user_id, so it
   // accepts any transfer the caller owns. This console needs exactly this one call from it, so it
   // is written out rather than dragging the payer app's 40-method client across.

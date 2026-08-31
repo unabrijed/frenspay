@@ -28,7 +28,7 @@ export async function confirmOrder(quoteId: string): Promise<Order> {
   const attempt = async (): Promise<Order> => {
     const res: CreateOrderResponse = await api.createOrder({ quoteId });
     try {
-      const signature = await getActiveSigner().signAndSend(res.unsignedTx);
+      const signature = await getActiveSigner().signAndSend(res.unsignedTx, { sponsored: res.sponsored });
       await api.fundSubmit(res.order.id, { transferId: res.transferId, signature });
       return res.order;
     } catch (e) {

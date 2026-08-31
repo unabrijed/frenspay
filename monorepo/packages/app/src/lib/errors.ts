@@ -16,6 +16,9 @@ const BY_CODE: Record<string, string> = {
   // the copy can't promise anything about which. Same sentence as the LP console's catalog, because
   // it is the same backend code and the two apps saying different things is how copy drifts.
   solana_unavailable: 'Couldn’t reach the network. Try again in a moment.',
+  // The phone app cannot complete a payment in sponsored mode (no backend fee-payer, Privy's Expo SDK
+  // cannot sponsor). Not a network blip, so the copy points at the way that works.
+  sponsorship_unsupported: 'Payments aren’t available in the phone app yet — use the web app for this one.',
   // limits / verification
   limit_exceeded: 'Verify your identity to raise your limits.',
   kyc_required: 'Verify your identity first to scan and pay.',

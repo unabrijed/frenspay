@@ -40,7 +40,7 @@ export class RealWalletProvider implements WalletProvider {
   }): Promise<Txn> {
     const attempt = async (): Promise<string> => {
       const prep = await api.prepareTransfer({ toHandle, toAddress, amountUsd, note, idempotencyKey });
-      const signature = await getActiveSigner().signAndSend(prep.unsignedTx);
+      const signature = await getActiveSigner().signAndSend(prep.unsignedTx, { sponsored: prep.sponsored });
       await api.submitTransfer({ transferId: prep.transferId, signature });
       return prep.transferId;
     };

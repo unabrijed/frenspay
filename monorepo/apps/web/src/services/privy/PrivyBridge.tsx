@@ -152,8 +152,16 @@ export function PrivyBridge(): null {
       setAccountSuspendedHandler(() => usePayStore.setState({ suspended: true }));
       setAccountDeletedHandler(() => usePayStore.setState({ deleted: true }));
       setActiveSigner(
-        new PrivySigner(wallet.address, async (bytes) => {
-          const { signature } = await signAndSendTransaction({ transaction: bytes, wallet, chain: SOLANA_CHAIN });
+        new PrivySigner(wallet.address, async (bytes, sponsored) => {
+          // `sponsor` only when the backend built the tx for it (no fee-payer signature inside):
+          // Privy's fee payer then rewrites the fee-payer field + blockhash before the user signs.
+          // Asking to sponsor a fee-payer-signed tx would invalidate that signature.
+          const { signature } = await signAndSendTransaction({
+            transaction: bytes,
+            wallet,
+            chain: SOLANA_CHAIN,
+            ...(sponsored ? { options: { sponsor: true } } : {}),
+          });
           return base58encode(signature);
         }),
       );

@@ -1,12 +1,17 @@
 // signer.ts — pluggable transaction signer + a small registry.
 // web3.js + polyfills load lazily (dynamic import) so a session that never signs anything
 // never pays for them.
-// The tx returned by /transfer/prepare is already fee-payer-signed; the signer adds the
-// user signature and broadcasts (Privy's Expo wallet only does signAndSendTransaction).
+// The tx returned by /transfer/prepare is either fee-payer-signed (the backend's key pays gas) or
+// `sponsored` (no backend signature; the signer must ask Privy to pay — web only today). The signer
+// adds the user signature and broadcasts (Privy's Expo wallet only does signAndSendTransaction).
+export interface SignOptions {
+  /** From the prepare response: true ⇒ ask Privy to sponsor the fee (the tx carries no backend signature). */
+  sponsored: boolean;
+}
 export interface Signer {
   publicKey(): Promise<string>;
-  /** Add the user signature to a fee-payer-signed base64 tx, broadcast, return the signature. */
-  signAndSend(unsignedTxBase64: string): Promise<string>;
+  /** Add the user signature to a prepared base64 tx, broadcast, return the signature. */
+  signAndSend(unsignedTxBase64: string, opts: SignOptions): Promise<string>;
 }
 
 export async function loadWeb3() {
@@ -29,7 +34,10 @@ export class DevKeypairSigner implements Signer {
     return web3.Keypair.fromSecretKey(Uint8Array.from(this.secretKey)).publicKey.toBase58();
   }
 
-  async signAndSend(unsignedTxBase64: string): Promise<string> {
+  async signAndSend(unsignedTxBase64: string, opts: SignOptions): Promise<string> {
+    // A dev keypair has nobody to sponsor it: without a backend fee-payer this tx would be paid by
+    // the sender itself, which holds no SOL by design. Say so instead of a cryptic RPC failure.
+    if (opts.sponsored) throw new Error('sponsorship_unsupported');
     const { web3, Buffer } = await loadWeb3();
     const kp = web3.Keypair.fromSecretKey(Uint8Array.from(this.secretKey));
     const tx = web3.Transaction.from(Buffer.from(unsignedTxBase64, 'base64'));

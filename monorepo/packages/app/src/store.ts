@@ -854,7 +854,8 @@ export const usePayStore = create<PayState>()(
                 amountUsd: ext.amountUsd,
                 idempotencyKey,
               });
-              const signature = await getActiveSigner().signAndSend(prep.unsignedTx);
+              // The burn leg is always built by our fee-payer (bridge/cctp); without one the route 503s.
+              const signature = await getActiveSigner().signAndSend(prep.unsignedTx, { sponsored: false });
               await api.submitCrosschain({ transferId: prep.transferId, signature });
               return prep.transferId;
             };
