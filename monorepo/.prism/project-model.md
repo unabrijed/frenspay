@@ -173,6 +173,14 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     (build outputs `node_modules`, `*/dist` excepted) — asserted by `.githooks/pre-push` "Dockerfile copy
     sources". The hook cannot build the image; this is the half it can check. The flat bundle resolves
     runtime files off `import.meta.url`, so vendored IDLs go to `dist/idl`, migrations to `dist/migrations`.
+48. **A partner's release address follows the wallet it was declared from** (2026-09-01): inside the
+    `/auth/sync` transaction (`upsertUserByPrivyDid`), BEFORE the `wallets` upsert overwrites the address,
+    `merchants.treasury_address` is re-pointed to the new wallet wherever it equalled the old one. The stake
+    refund already reads the live wallet (`listStakeWithdrawalsAdmin`); releases read the column
+    (`queries.ts` order select → `releaseToMerchant`). `/merchants/apply`'s one caller always passes the
+    signed-in embedded wallet, so for every human partner the two are one address — a hand-typed treasury
+    is left alone, psp rows have no `user_id`, and the exited trigger guards `status`/`suspend_reason` only.
+    Any future writer of `wallets.address` must keep this pairing.
 
 ## Danger zones
 
@@ -256,6 +264,13 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   while Vercel shipped the new frontends (a 401 window). A deletion commit must be checked against every
   consumer of the path, including ones outside the monorepo (`payments/Dockerfile`); the hook now asserts
   COPY sources exist (`c1`… see decision log). When a gate admits a gap in a comment, close the cheap half.
+- **"Existing users only", enforced by a DID lookup, is a rule the console cannot repair the day identities
+  rotate** (2026-09-01). The LP console's "You need an fpay account first" was a posture for a year of
+  stable DIDs; the one-Privy-app flip changed every DID overnight and the same screen locked out every
+  existing partner, with "sign into web once" — the payer app's gate key — as the only way in. A dead end
+  that names another app is a lockout waiting for a migration. Also: the fix the critique round killed was
+  the plan's own guard (a mismatch banner) — when the stale value is an address nobody can sign from, a
+  banner guards nothing; put the fix where the value changes (the sync txn), not where it is displayed.
 
 ## Counsel flags & open questions (from 2026-08-24 routing plan — for prism-retro)
 - FLAG-1: the pair rule has TWO recorded rationales (LP bank-freeze protection, docs/06 §pair rule; payee data-minimisation, docs/06 §privacy). Under the second, lock→see VPA→unlock→re-lock is a harvesting path (unlock is penalty-free and writes no `lock_expired`). Counsel decides which governs; that decides whether A3 gets fixed.
@@ -267,6 +282,13 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   flip); same `STAGE_ACCESS_KEY` value on lp as web or its own; does lp get a prod Vercel project (DEPLOY.md
   now lists one, TBD); Gas Sponsorship → Solana ON on the survivor app before any deploy; lp is the first
   middleware under include-outside-root ON — budget one failed deploy.
+- Open (2026-09-01, LP self-signup plan): Q1 house codes for recruits (assumed) vs loosening the invite gate
+  product-wide for the pilot (both apps sit behind ACCESS_KEY); Q2 whether any partner holds USDC at a
+  retired-app embedded wallet (the treasury re-point moves future releases, not past ones); whether any
+  partner adopted via web before the re-point shipped (then the one-time SQL in DEPLOY.stage.md §One Privy
+  app); the admin console keeps the identical dead end (`Providers.tsx` 'absent') — root admins are exempt
+  from invites, so the same screen would work there; `docs/08:88-91` still says KYB approval grants tier 2
+  (removed 2026-08-29, invariant 32) — stale, not fixed here.
 
 ## Decision log
 
@@ -400,6 +422,36 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   `COPY …/src/idl` (deleted with the program in `56be186`); hotfix removes it, copies the CCTP IDLs to
   `dist/idl` where the flat bundle reads them, and the pre-push hook now asserts every Dockerfile copy
   source exists (invariant 47).
+
+- 2026-09-01 · **The LP console finishes account setup itself; the release address follows the wallet on
+  adoption** (plan: `~/.claude/plans/provider-side-issue-you-spicy-snowglobe.md`; on `stage`, unpushed).
+  Bridge: "provider side issue, you need an fpay account first. no, why??" Grounded first: the dead end
+  (`AuthGate.tsx`) fired on 401 `no_account`, the console never called `/auth/sync`, and the one-Privy-app
+  flip had rotated every DID — so EXISTING partners were locked out and the documented workaround
+  (`DEPLOY.stage.md`) was the payer app's gate key. Shipped: `FinishSetup` in the console (handle; invite
+  field only after 403 `invite_required`/`invalid_invite`; adoption → "Welcome back, @old") calling the
+  existing `/auth/sync`; six error-copy entries; ONE backend statement re-pointing
+  `merchants.treasury_address` in the sync txn (invariant 48); comments in five files; docs/11 §Who can use
+  it + DEPLOY.stage.md §One Privy app. **Rejected** with evidence: "partners skip invites" (no
+  server-verifiable LP fact at sync time — one Privy app, gate cookie never reaches the API — so a body flag
+  is an open signup that also mints 3 codes per account, and `check-invites` says "nothing else may skip the
+  gate"; the existing carve-out is an admin-minted HOUSE code); a mismatch banner (the critic: it cannot make
+  a release spendable); auto-deriving the handle (immutable, payer-resolvable, would publish the email
+  localpart). Found on the way: `POST /waitlist` burns the same codes — hand recruits the code WITH the
+  console link. Bridge's hands: mint house codes; one-time treasury SQL only if someone adopted via web
+  first; push on ack.
+
+## Telemetry (2026-09-01 LP self-signup plan)
+- divergence: 0.77 (evidence 0.83, conclusion 0.67) | threshold 0.30 UNCALIBRATED
+- models: draft=fable · lenses=3× Explore (opus) + 1× Plan critic (opus); skeptic trio NOT RUN (plan mode) —
+  every load-bearing claim grounded by re-opening source, which outranks cross-tier survival; version axis
+  unavailable
+- claims: C1 lockout grounded (+strengthened: four gate keys differ) · C2 no-new-capability grounded
+  (corrected: CORS exists, forgeable) · C3 house-codes grounded (+waitlist burn) · C4 treasury-drift grounded,
+  remedy REFUTED → in-txn re-point · C5 console-self-contained grounded (A4 demoted) · N1 keys-differ ·
+  N2 waitlist-burn · N3 refund-live-wallet · N5 trigger-scope — all grounded
+- grounding: 21 anchors re-opened by the orchestrator, 0 struck, 2 corrected
+- fleet: 3 lenses + 1 critic; loop stopped after round 1
 
 ## Telemetry (2026-08-31 Privy-one-app + LP-gate plan)
 - divergence: 0.77 (evidence 0.83, conclusion 0.67) | threshold 0.30 UNCALIBRATED
