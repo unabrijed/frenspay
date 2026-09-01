@@ -15,7 +15,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { canonicalHandle, classifyPayTarget } from '../src/payTarget';
+import { isValidEmail, normalizeEmail } from '../src/email';
+import { canonicalHandle, classifyPayTarget, draftHandle } from '../src/payTarget';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 let passed = 0;
@@ -76,6 +77,24 @@ assert.equal(canonicalHandle('@ab'), null, '2 chars is below the backend minimum
 assert.equal(canonicalHandle('@' + 'a'.repeat(31)), null, '31 chars is above the backend maximum');
 assert.equal(canonicalHandle('@' + 'a'.repeat(30)), '@' + 'a'.repeat(30));
 ok('canonicalHandle: trims, lowercases, keeps the @, and holds the 3–30 bound');
+
+// The setup screens' as-you-type helper: repairs (this is YOUR name), drops the '@', caps at 30 —
+// and canonicalHandle accepts everything it produces once it is 3 long.
+assert.equal(draftHandle('  @Bri-Dge_1!  '), 'bridge_1');
+assert.equal(draftHandle('@' + 'a'.repeat(40)).length, 30);
+assert.equal(canonicalHandle(draftHandle('  @Bri-Dge_1!  ')), '@bridge_1');
+assert.equal(draftHandle('@ne-ha'), 'neha', 'repair is for your OWN name only — never a lookup');
+ok('draftHandle: repairs, strips the @, caps at 30, and round-trips through canonicalHandle');
+
+/* ---- the login screens' email rule ---- */
+
+assert.equal(normalizeEmail('  Bridge@Example.COM '), 'bridge@example.com');
+assert.equal(isValidEmail(' Bridge@Example.com '), true);
+assert.equal(isValidEmail('a@b'), false, 'needs a dot in the domain');
+assert.equal(isValidEmail('a b@example.com'), false);
+assert.equal(isValidEmail('@example.com'), false);
+assert.equal(isValidEmail('a@' + 'b'.repeat(250) + '.com'), false, '254 is the ceiling');
+ok('email: normalized lowercase+trimmed, loose shape check, 254 cap');
 
 /* ---- D2: an email is not a shop ---- */
 

@@ -10,3 +10,4 @@ export * from './rails';
 export * from './kyb';
 export * from './emvqr';
 export * from './payTarget';
+export * from './email';
