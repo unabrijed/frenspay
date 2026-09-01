@@ -46,9 +46,10 @@ stash — in-memory on the phone, it never leaves the process), `origin`/`return
 nothing synced), `capabilities`.
 
 **Auth:** `services/privy/PrivyBridge.tsx` publishes the same shape as the web bridge —
-`setAuthBridge`, `setAuthReady` (bounded), `setRecoveryStatus`, token + refresher + the
-revoked/suspended/deleted handlers, the `PrivySigner`, `onSignedIn`, `load()` — so the store
-cannot tell which SDK is underneath. Signing goes through the embedded Solana wallet's
+`setAuthBridge`, `setAuthReady` (bounded), `setRecoveryStatus`, then two clocks: sign-in on the
+token (refresher, the revoked/suspended/deleted handlers, `onSignedIn()`, `load()`) and the wallet
+on its own (`PrivySigner`, `walletAddress`, bounded by a 15 s `wallet_not_ready`) — so the store
+cannot tell which SDK is underneath ([18](18-sessions-and-boot.md)). Signing goes through the embedded Solana wallet's
 `provider.request({ method: 'signAndSendTransaction' })` against the RPC the env names.
 
 **KYC:** the store opens Persona's hosted flow in an in-app browser with `fpay://home` as the

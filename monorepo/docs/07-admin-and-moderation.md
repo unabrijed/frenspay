@@ -72,7 +72,7 @@ nowhere else: `status !== 'active'` → **403** — `{error:'account_deleted'}` 
 `{error:'account_suspended'}`. Two codes, not one.. Every route, current and
 future, is covered at once — including `/auth/sync`.
 
-- **403, never 401** — clients sign out on `no_account`; a suspended user is signed in, just refused.
+- **403, never 401** — clients forget the account on `no_account` (never the session — [18](18-sessions-and-boot.md)); a suspended user is signed in, just refused.
 - **Admins are exempt** — `effectiveRole(user) !== 'admin'` is part of the gate condition itself, so
   a mistakenly-suspended admin still reaches the console that can fix it. Paired with a route guard
   that refuses to suspend an effective admin in the first place (`cannot_suspend_admin`, 409).

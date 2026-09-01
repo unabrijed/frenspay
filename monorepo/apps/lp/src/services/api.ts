@@ -47,7 +47,10 @@ export async function req<T>(path: string, init?: RequestInit, retried = false):
     ...(init?.body ? { 'content-type': 'application/json' } : {}),
     ...((init?.headers as Record<string, string>) ?? {}),
   };
-  if (authToken) headers.authorization = `Bearer ${authToken}`;
+  // Asked for on every call — see packages/app/src/services/api.ts: the refresher is the provider,
+  // the cached copy the fallback, the 401 retry below covers a token the server rejects.
+  const token = (refreshToken ? await refreshToken().catch(() => null) : null) ?? authToken;
+  if (token) headers.authorization = `Bearer ${token}`;
   else if (DEV_USER_ID) headers['x-dev-user-id'] = DEV_USER_ID;
 
   const res = await fetch(`${API_URL}${path}`, { ...init, headers });

@@ -6,7 +6,8 @@
     "dev": "next dev -p 3002",
     "build": "next build",
     "start": "next start -p 3002",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:api": "tsx scripts/check-api-headers.ts"
   },
   "dependencies": {
     "@fpay/shared": "*",

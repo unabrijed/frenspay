@@ -34,7 +34,12 @@ export default function RootLayout() {
     if (ready) SplashScreen.hideAsync().catch(() => {});
   }, [ready]);
 
-  if (!ready) return null;
+  // Hydration stays in front of everything: the persist middleware merges the STORED state over
+  // the current one when it lands, so a bridge write to a persisted key before that would be
+  // clobbered. Fonts do not: PrivyRoot mounts below as soon as storage has been read, so Privy's
+  // own init (SecureStore, network) overlaps the font load instead of queueing behind it. The
+  // native splash still hides on `ready`, and the Privy gate's Splash is font-free.
+  if (!hydrated) return null;
 
   const tree = (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -58,11 +63,12 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 
+  const shown = ready ? tree : null;
   return PrivyRoot ? (
     <Suspense fallback={null}>
-      <PrivyRoot>{tree}</PrivyRoot>
+      <PrivyRoot>{shown}</PrivyRoot>
     </Suspense>
   ) : (
-    tree
+    shown
   );
 }

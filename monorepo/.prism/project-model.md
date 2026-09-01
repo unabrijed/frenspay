@@ -205,6 +205,27 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     screens only; anything naming someone else (Send, lookups, admin rename, denylist) uses
     `canonicalHandle` (reject). (docs/17)
 
+52. **Sign-in is published on the TOKEN; the wallet lands on its own clock, and the bridge OWNS
+    `walletAddress`** (2026-09-01, docs/18): both bridges run two effects — `ready && user` →
+    `getAccessToken()` → handlers → `onSignedIn()` → `load()`; `… && walletsReady` → signer +
+    `walletAddress` (unconditional). `load()` writes `me.walletAddress` only while the store's is
+    empty; `onSignedIn(address?)` sets it only when given. A `null` token publishes nothing (the 5 s
+    fallback → welcome). Every send calls `getActiveSigner()` BEFORE preparing (`wallet_not_found`
+    is a code with copy). The handle screen is the one screen that waits for the wallet, bounded by
+    the bridge's 15 s `wallet_not_ready`. `bootRoute`/`BootState` untouched.
+53. **`no_account` forgets the ACCOUNT, never the SESSION** (2026-09-01): the revoked handler calls
+    `forgetAccount()` (logout's reset minus `walletAddress` / `authStatus` / `firstLoadDone`), guarded
+    by `onboarded || provisioned`; the same Privy session then reaches the handle screen's adopt-or-ask
+    probe (invariant 51). Calling Privy `logout()` here cost every device a second OTP after the DID
+    rotation. `walletAddress` must survive: the probe sends it and `/auth/sync` is 400 without one.
+54. **Every frontend `fetch(` lives in one of four files** — `packages/app/src/services/api.ts`,
+    `apps/lp/src/services/api.ts`, `apps/admin/src/services/api.ts`, `apps/landing/src/lib/waitlist.ts`
+    (`scripts/check-fetch.mjs`, in `check:all`). The helpers ask the registered Privy refresher for the
+    token on EVERY call (cached copy = fallback; 401 retry = server rejection) and set `content-type`
+    only with a body — Fastify parses a DELETE body whenever a content-type is present and 400s an
+    empty one before any preHandler (`check:api` in web, lp AND admin). LP's `useWallets()` is read
+    WITH `ready`, and a bridge failure there is a toast, never `onSignedOut()`.
+
 ## Danger zones
 
 - `routes/orders.ts` destination regexes — the ONLY gate before a human/PSP acts on a scanned string.
@@ -307,6 +328,20 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   earlier — had it still been uncommitted, its 8 lines would have been gone). Read into a variable first,
   transform, assert, THEN open for writing; and before editing a file another live session has uncommitted
   hunks in, copy its current content to disk.
+
+- **A check that is not in `check:all` does not exist** (2026-09-01). `check:boot` had been red for
+  weeks (it asserted the funding step, deleted with the testnet) and nobody knew — it was defined in
+  `apps/web/package.json` and never wired into the root. When adding a `check:*`, the root entry IS
+  the deliverable; the script alone is a file.
+- **"Fixed it in the other app" is a grep, not a memory** (2026-09-01). Web's bridge fixed the
+  `useWallets().ready` gate and wrote a comment describing the exact bug; LP's bridge — "a trimmed
+  sibling of apps/web's" — still had it, and it was the provider app's whole logout complaint. When
+  a bug is fixed in one of twin files, grep the twin for the same line the same day.
+- **The critic's remedy can be the next bug — twice** (2026-09-01). Round 1's `sessionFound` flag
+  and round 2's "only-if-empty" address rule were both plausible and both refuted by the next reader
+  with a concrete sequence (six call sites + no mobile watchdog; a retained server address the
+  signer cannot sign for). For an auth-path change, a second narrow round on the NEW design alone
+  paid for itself; the split shipped with four corrections and no state added.
 
 ## Counsel flags & open questions (from 2026-08-24 routing plan — for prism-retro)
 - FLAG-1: the pair rule has TWO recorded rationales (LP bank-freeze protection, docs/06 §pair rule; payee data-minimisation, docs/06 §privacy). Under the second, lock→see VPA→unlock→re-lock is a harvesting path (unlock is penalty-free and writes no `lock_expired`). Counsel decides which governs; that decides whether A3 gets fixed.
@@ -504,6 +539,47 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   field must reject, not repair). Rejected: `/me` adopting (no wallet for invariants 45/48), a
   `lower(email)` index (unusable by exact-match readers), deriving the handle (rejected that morning).
   Bridge's hands: `yarn db:migrate` (0025) after the push; push on ack.
+
+- Open (2026-09-01, sessions/boot plan): which tier(s) the OTP loops were reported on (prod needs
+  `stage → sacred` first — it lacks invariant 51's probe, so the second login dead-ends on the handle
+  screen there); Home is reachable a few seconds before the wallet (a Send in that window says
+  `wallet_not_found`); the 15 s wallet bound + reload is specified, not yet seen on a device; B2
+  rests on Fastify's source, not a live `curl -X DELETE`; admin's prod switch needs Bridge's three
+  config steps (all in DEPLOY.md/DEPLOY.stage.md already).
+
+- 2026-09-01 (evening) · **Sessions and boot: the OTP loops, the token on every call, the chain split**
+  (plan: `~/.claude/plans/logout-is-an-issue-humble-bear.md` → docs/18; commits `26f8558` `0d10bc1`
+  `ae7734f` `00dda6e` `d5c078e` + docs, on `stage`, unpushed). Bridge: "logout is an issue… OTP all
+  the time… provider app, main app, other apps" + "make api one main constant… tokens on every
+  call… make this a rule" + "admin side switch modes" + "reduce splash screen time". Grounded first:
+  nothing was unpushed. Four causes: LP read `useWallets()` without `ready` → createWallet threw →
+  blanket catch → SignIn on every cold return (the un-fixed twin of web's own fix); `no_account` →
+  Privy `logout()` cost every device a second OTP after the DID rotation; the 5 s fallback + the
+  wallet-iframe wait showed welcome to signed-in users (and WAS the splash); admin has no logout path
+  and its switch already exists (config only). Shipped: LP `walletsReady` + toast; `forgetAccount()`
+  (53); the bridge chain split (52) with the signer-before-prepare reorder and `wallet_not_found`;
+  per-call token in the three helpers; admin's content-type bug (two DELETEs 400'd since they shipped)
+  + `check:api:admin`; `check:fetch` (54); `check:boot` wired + fixed; mobile `PrivyRoot` mounts on
+  hydration, not fonts; LP `/me ∥ /balance`. **Refuted by the critics and dropped:** `forgetAccount`
+  clearing `walletAddress` (400 `missing_fields`); a `sessionFound` router flag (skeleton-only win,
+  six call sites, mobile has no watchdog); an async icon-font link (every icon hidden); "only if
+  empty" address write (the signer can't sign the retained one); `signedIn` on a null token. Not
+  built: a shared request core / `useApi()`, admin self-adopting via `/auth/sync` (no wallet).
+  Bridge's hands: push on ack; merge stage → sacred for prod; admin prod config; a device run.
+
+## Telemetry (2026-09-01 sessions/boot plan)
+- divergence: 0.72 (evidence 0.76, conclusion 0.67) | threshold 0.30 UNCALIBRATED
+- models: draft=fable · lenses=3× Explore (opus) + 2× Plan critic (opus); skeptic trio NOT RUN (plan mode) —
+  every load-bearing claim grounded by re-opening source (orchestrator + critics), which outranks cross-tier
+  survival; version axis unavailable
+- claims: C1 LP-wallet-gate grounded (+SDK `useWallets.ready` gates on the wallet proxy) · C2 no_account-logout
+  grounded, v1 fix REFUTED → corrected · C3 5s-fallback grounded, v1 design (`sessionFound`) REPLACED by the chain
+  split; round 2 on the split: 5 survived, V3/V5/V7/V9 REFUTED → corrected · C4 api-85%-shipped grounded ·
+  C5 admin-switch-exists grounded · B2 admin-DELETE-400 grounded (fastify source) · D2 corrected · D3 REFUTED → cut ·
+  L1 "backend 401 destroys the session" STRUCK
+- grounding: 41 anchors re-opened by the orchestrator, ~60 by the two critics; 0 struck for being wrong about
+  current code, 7 draft remedies struck or corrected
+- fleet: 3 lenses + 2 critics; loop stopped after round 2
 
 ## Telemetry (2026-09-01 handle+email plan)
 - divergence: 0.78 (evidence 0.86, conclusion 0.67) | threshold 0.30 UNCALIBRATED

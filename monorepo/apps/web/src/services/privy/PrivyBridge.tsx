@@ -25,6 +25,10 @@ import { PrivySigner } from './signer';
 // hardcoded (a devnet-pinned chain id silently breaks every mainnet broadcast).
 const SOLANA_CHAIN = 'solana:mainnet' as const;
 
+// A wallet that has not appeared this long after the session resolved is reported, not waited for.
+const WALLET_TIMEOUT_MS = 15_000;
+const WALLET_NOT_READY = 'wallet_not_ready'; // lib/errors has the copy
+
 export function PrivyBridge(): null {
   const { user, ready, getAccessToken, logout } = usePrivy();
   const { sendCode, loginWithCode } = useLoginWithEmail();
@@ -70,10 +74,11 @@ export function PrivyBridge(): null {
       usePayStore.getState().setAuthReady();
       return undefined;
     }
-    // There IS a session, so wait for the chain — but bounded. It can hang without throwing (the
-    // createWallet latch PrivyRoot documents), and an unbounded wait would hold the boot splash
-    // past the watchdog and reload in a loop. Falling through unready is just the old behaviour:
-    // the welcome screen, which they can tap out of. Under SPLASH_WATCHDOG_MS on purpose.
+    // There IS a session, so wait for the token read below — but bounded: it can hang, and an
+    // unbounded wait would hold the boot splash past the watchdog and reload in a loop. Falling
+    // through unready is the welcome screen, which they can tap out of. Under SPLASH_WATCHDOG_MS on
+    // purpose. (This used to wait for the whole wallet chain, which on a slow link regularly took
+    // longer than 5 s — a signed-in person was shown the welcome screen, and an OTP if they acted.)
     const t = setTimeout(() => usePayStore.getState().setAuthReady(), 5000);
     return () => clearTimeout(t);
   }, [ready, user]);
@@ -107,37 +112,23 @@ export function PrivyBridge(): null {
     usePayStore.getState().setRecoveryStatus({ email, passkey });
   }, [user]);
 
-  // Once authenticated: ensure an embedded Solana wallet, then publish token + signer + address.
-  // Gated on the wallet list being READY, not just `ready`+`user`: on a cold return Privy resolves
-  // the session before it has listed the wallets, so `wallets` is briefly [] for a user who has
-  // one. Without the gate that read as "no wallet" → createWallet → "User already has an embedded
-  // wallet" → the catch below published authReady with authStatus still signedOut → the entry
-  // router sent a signed-in user to the marketing screen.
-  const wallet = wallets?.[0];
-  const creatingRef = useRef(false);
+  // Sign in on the TOKEN, not on the wallet. The wallet-proxy iframe (`walletsReady`, below) is the
+  // slow part of a cold load and nothing about being signed in needs it: getAccessToken() reads the
+  // stored token (one Privy refresh hop when it has expired — still never the iframe), and /me and
+  // /balance only need the token. Waiting for the wallet here is what held the splash for seconds
+  // and let the 5 s fallback above show the welcome screen to a signed-in person.
   useEffect(() => {
-    if (!ready || !user || !walletsReady) return undefined;
+    if (!ready || !user) return undefined;
     let cancelled = false;
     (async () => {
-      if (!wallet) {
-        // Privy has confirmed the list is empty (brand-new signup). Create the embedded Solana
-        // wallet at most once — Privy errors on a second call. Reset only on failure so a later
-        // run can retry.
-        if (!creatingRef.current) {
-          creatingRef.current = true;
-          try {
-            await createWallet();
-          } catch (e) {
-            creatingRef.current = false;
-            throw e;
-          }
-        }
-        return; // effect re-runs when wallets updates
-      }
       const token = await getAccessToken();
       if (cancelled) return;
+      // A stored session with nothing left to refresh: Privy has dropped its local state and this
+      // is null. Publish nothing — signedIn with no token would land an onboarded user on a $0 Home
+      // that every call 401s from. The fallback above publishes readiness; welcome is right.
+      if (!token) return;
       setAuthToken(token);
-      setTokenRefresher(getAccessToken); // api.ts refreshes an expired token on 401
+      setTokenRefresher(getAccessToken); // api.ts asks it for the token on every call
       setSessionRevokedHandler(() => {
         // The backend confirmed this session has no account. Believe it about the ACCOUNT: the
         // persisted onboarded/handle/kycTier would otherwise keep rendering a dead account's app —
@@ -155,6 +146,45 @@ export function PrivyBridge(): null {
       // dashboard. Cleared by the next successful load()/refresh(), so reinstatement self-heals.
       setAccountSuspendedHandler(() => usePayStore.setState({ suspended: true }));
       setAccountDeletedHandler(() => usePayStore.setState({ deleted: true }));
+      usePayStore.getState().onSignedIn();
+      void usePayStore.getState().load(); // returning users: /me + balance/activity now the token is set
+      // authReady rides along on the failure too: onSignedIn publishes it on success, so a throw
+      // here would otherwise leave the boot router holding the splash forever.
+    })().catch((e) =>
+      usePayStore.setState({ authError: e instanceof Error ? e.message : String(e), authReady: true }),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, user, getAccessToken]);
+
+  // The wallet, on its own clock: created for a brand-new account, then the signer and the address.
+  // Gated on the wallet list being READY, not just `ready`+`user`: on a cold return Privy resolves
+  // the session before it has listed the wallets, so `wallets` is briefly [] for a user who has
+  // one. Without the gate that read as "no wallet" → createWallet → "User already has an embedded
+  // wallet". The bridge OWNS `walletAddress` — the embedded wallet is the only address this client
+  // can sign for — and writes it unconditionally; load() fills it from /me only while it is empty.
+  const wallet = wallets?.[0];
+  const walletAddr = wallet?.address;
+  const creatingRef = useRef(false);
+  useEffect(() => {
+    if (!ready || !user || !walletsReady) return undefined;
+    (async () => {
+      if (!wallet) {
+        // Privy has confirmed the list is empty (brand-new signup). Create the embedded Solana
+        // wallet at most once — Privy errors on a second call. Reset only on failure so a later
+        // run can retry.
+        if (!creatingRef.current) {
+          creatingRef.current = true;
+          try {
+            await createWallet();
+          } catch (e) {
+            creatingRef.current = false;
+            throw e;
+          }
+        }
+        return; // effect re-runs when wallets updates
+      }
       setActiveSigner(
         new PrivySigner(wallet.address, async (bytes, sponsored) => {
           // `sponsor` only when the backend built the tx for it (no fee-payer signature inside):
@@ -169,17 +199,24 @@ export function PrivyBridge(): null {
           return base58encode(signature);
         }),
       );
-      usePayStore.getState().onSignedIn(wallet.address);
-      void usePayStore.getState().load(); // returning users: pull balance/activity now the token is set
-      // authReady rides along on the failure too: the chain above is what publishes it on success,
-      // so a throw here would otherwise leave the boot router holding the splash forever.
-    })().catch((e) =>
-      usePayStore.setState({ authError: e instanceof Error ? e.message : String(e), authReady: true }),
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [ready, user, walletsReady, wallet, createWallet, getAccessToken, signAndSendTransaction]);
+      usePayStore.setState((s) => ({
+        walletAddress: wallet.address,
+        ...(s.authError === WALLET_NOT_READY ? { authError: null } : {}),
+      }));
+    })().catch((e) => usePayStore.setState({ authError: e instanceof Error ? e.message : String(e) }));
+    return undefined;
+  }, [ready, user, walletsReady, wallet, createWallet, signAndSendTransaction]);
+
+  // Bounded: a wallet that has not appeared WALLET_TIMEOUT_MS after the session resolved — iframe
+  // blocked, creation wedged — used to fall through to the welcome screen via the 5 s fallback. Now
+  // sign-in is already published, so the handle screen (the one place that needs the wallet) would
+  // hold its splash forever; it renders this error with a reload instead.
+  useEffect(() => {
+    if (!ready || !user || walletAddr) return undefined;
+    const t = setTimeout(() => usePayStore.setState({ authError: WALLET_NOT_READY }), WALLET_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [ready, user, walletAddr]);
+
 
   return null;
 }

@@ -40,10 +40,17 @@ export function setTokenRefresher(fn: (() => Promise<string | null>) | null): vo
 
 export async function req<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
   const headers: Record<string, string> = {
-    'content-type': 'application/json',
+    // Only when there IS a body. Fastify parses a DELETE/POST body whenever a content-type is
+    // present, and answers an empty JSON body with 400 FST_ERR_CTP_EMPTY_JSON_BODY before any
+    // preHandler — which is how this console's two bodyless DELETEs (denylist remove, invite
+    // revoke) never reached their routes. Same rule as web and lp; scripts/check-api-headers.ts.
+    ...(init?.body ? { 'content-type': 'application/json' } : {}),
     ...((init?.headers as Record<string, string>) ?? {}),
   };
-  if (authToken) headers.authorization = `Bearer ${authToken}`;
+  // Asked for on every call — see packages/app/src/services/api.ts: the refresher is the provider,
+  // the cached copy the fallback, the 401 retry below covers a token the server rejects.
+  const token = (refreshToken ? await refreshToken().catch(() => null) : null) ?? authToken;
+  if (token) headers.authorization = `Bearer ${token}`;
   else if (DEV_USER_ID) headers['x-dev-user-id'] = DEV_USER_ID;
 
   // Host is read per call, not captured at import: the operator can be pointed at either backend.

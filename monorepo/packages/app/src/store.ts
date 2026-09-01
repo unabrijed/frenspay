@@ -216,7 +216,9 @@ interface PayState {
   setAuthBridge: (b: AuthBridge) => void;
   /** Privy's `ready` — see `authReady`. Called by the bridge, never by a screen. */
   setAuthReady: () => void;
-  onSignedIn: (walletAddress: string) => void;
+  /** The bridge publishes sign-in on the TOKEN; the address arrives with the wallet (later, or
+   *  from /me) and is only set here when given, so the two cannot clobber each other. */
+  onSignedIn: (walletAddress?: string) => void;
   requestOtp: (email: string) => Promise<void>;
   verifyOtp: (code: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -459,7 +461,10 @@ export const usePayStore = create<PayState>()(
           // meant a 500 on /transactions leaves a real account still looking unregistered, which is
           // the same dead end by a different route.
           set({
-            walletAddress: me.walletAddress,
+            // The bridge OWNS walletAddress (the embedded wallet is the only address this client can sign
+            // for) and now lands it after sign-in; the server copy is an early stand-in for Receive, taken
+            // only while nothing better is known. Equal for every healthy account (invariant 48).
+            ...(get().walletAddress ? {} : { walletAddress: me.walletAddress }),
             handle: me.handle,
             phone: me.phone ?? '',
             country: me.country ?? '',
@@ -634,7 +639,7 @@ export const usePayStore = create<PayState>()(
       setAuthBridge: (b) => set({ _authBridge: b }),
       setAuthReady: () => set({ authReady: true }),
       onSignedIn: (walletAddress) =>
-        set({ walletAddress, authStatus: 'signedIn', authError: null, authReady: true }),
+        set({ ...(walletAddress ? { walletAddress } : {}), authStatus: 'signedIn', authError: null, authReady: true }),
       requestOtp: async (email) => {
         set({ authError: null });
         try {
@@ -856,6 +861,9 @@ export const usePayStore = create<PayState>()(
             // replays the same transfer with a fresh tx instead of double-sending.
             const idempotencyKey = crypto.randomUUID();
             const attempt = async (): Promise<string> => {
+              // Ask for the signer BEFORE anything is prepared: Home is reachable before the wallet is,
+              // and a prepared-never-signed transfer would leave a pending row behind.
+              const signer = getActiveSigner();
               const prep = await api.prepareCrosschain({
                 network: ext.network,
                 toAddress: ext.address,
@@ -863,7 +871,7 @@ export const usePayStore = create<PayState>()(
                 idempotencyKey,
               });
               // The burn leg is always built by our fee-payer (bridge/cctp); without one the route 503s.
-              const signature = await getActiveSigner().signAndSend(prep.unsignedTx, { sponsored: false });
+              const signature = await signer.signAndSend(prep.unsignedTx, { sponsored: false });
               await api.submitCrosschain({ transferId: prep.transferId, signature });
               return prep.transferId;
             };

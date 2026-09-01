@@ -26,9 +26,11 @@ export async function createQuote(input: {
  */
 export async function confirmOrder(quoteId: string): Promise<Order> {
   const attempt = async (): Promise<Order> => {
+    // Signer first: a wallet that is not ready yet must not create an order it then has to cancel.
+    const signer = getActiveSigner();
     const res: CreateOrderResponse = await api.createOrder({ quoteId });
     try {
-      const signature = await getActiveSigner().signAndSend(res.unsignedTx, { sponsored: res.sponsored });
+      const signature = await signer.signAndSend(res.unsignedTx, { sponsored: res.sponsored });
       await api.fundSubmit(res.order.id, { transferId: res.transferId, signature });
       return res.order;
     } catch (e) {

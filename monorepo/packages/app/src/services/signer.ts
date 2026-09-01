@@ -54,6 +54,8 @@ export function setActiveSigner(s: Signer | null): void {
   _active = s;
 }
 export function getActiveSigner(): Signer {
-  if (!_active) throw new Error('No active signer configured (set DEV_SECRET_KEY or log in with Privy).');
+  // A CODE, not a sentence: friendlyError has copy for it. Reachable by a user now — Home paints
+  // before the wallet iframe lands, so a Send in that window must say what is going on.
+  if (!_active) throw new Error('wallet_not_found');
   return _active;
 }

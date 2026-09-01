@@ -21,7 +21,7 @@ import { Splash } from '@/components/ui/Splash';
 import { View } from '@/components/ui/rn';
 import { Txt } from '@/components/ui/Txt';
 import { Screen } from '@/components/ui/Screen';
-import { friendlyError } from '@/lib/errors';
+import { ERROR_COPY, friendlyError } from '@/lib/errors';
 import { colors, type } from '@/lib/theme';
 import { ApiError } from '@/services/api';
 import { LANDING_URL } from '@/services/envConfig';
@@ -35,6 +35,8 @@ export default function Handle() {
   const router = useRouter();
   const hydrated = useStoreHydrated();
   const authStatus = usePayStore((s) => s.authStatus);
+  const walletAddress = usePayStore((s) => s.walletAddress);
+  const authError = usePayStore((s) => s.authError);
   const completeOnboarding = usePayStore((s) => s.completeOnboarding);
   const load = usePayStore((s) => s.load);
 
@@ -45,6 +47,20 @@ export default function Handle() {
     if (hydrated && authStatus !== 'signedIn') router.replace('/');
   }, [hydrated, authStatus, router]);
   if (!hydrated || authStatus !== 'signedIn') return <Splash />;
+  // /auth/sync needs the embedded wallet's address — the one thing on this screen that waits for
+  // the wallet iframe (the bridge signs in without it). Bounded by the bridge's wallet timer, which
+  // lands here as authError; a splash with no way out is what this screen must never be.
+  if (!walletAddress) {
+    if (!authError) return <Splash />;
+    return (
+      <Screen edges={['top', 'bottom']}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 16 }}>
+          <Txt style={[type.note, { color: colors.danger, textAlign: 'center' }]}>{ERROR_COPY[authError] ?? authError}</Txt>
+          <Btn label="Reload" onPress={() => window.location.reload()} />
+        </View>
+      </Screen>
+    );
+  }
 
   return (
     <HandlePrivy

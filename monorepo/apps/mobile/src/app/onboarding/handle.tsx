@@ -1,7 +1,7 @@
 // Choose handle — availability check (GET /users/resolve) + /auth/sync. Port of the web's
 // onboarding/handle/page.tsx (adopt-first probe included — see its header); the invite stash is the
 // platform's storage instead of localStorage.
-import { ApiError, friendlyError, platform, usePayStore, useStoreHydrated, wallet } from '@fpay/app';
+import { ApiError, ERROR_COPY, friendlyError, platform, usePayStore, useStoreHydrated, wallet } from '@fpay/app';
 import { draftHandle } from '@fpay/shared';
 import { BackButton, Btn, colors, fonts, Icons, Input, Screen, shadows, Txt, type, View } from '@fpay/ui';
 import { useRouter } from 'expo-router';
@@ -17,6 +17,8 @@ export default function Handle() {
   const router = useRouter();
   const hydrated = useStoreHydrated();
   const authStatus = usePayStore((s) => s.authStatus);
+  const walletAddress = usePayStore((s) => s.walletAddress);
+  const authError = usePayStore((s) => s.authError);
   const completeOnboarding = usePayStore((s) => s.completeOnboarding);
   const load = usePayStore((s) => s.load);
 
@@ -24,6 +26,19 @@ export default function Handle() {
     if (hydrated && authStatus !== 'signedIn') router.replace('/');
   }, [hydrated, authStatus, router]);
   if (!hydrated || authStatus !== 'signedIn') return <Splash />;
+  // /auth/sync needs the embedded wallet — the one screen that waits for it (see the web port).
+  if (!walletAddress) {
+    if (!authError) return <Splash />;
+    return (
+      <Screen edges={['top', 'bottom']}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <Txt style={[type.note, { color: colors.danger, textAlign: 'center' }]}>
+            {ERROR_COPY[authError] ?? authError} Close and reopen the app.
+          </Txt>
+        </View>
+      </Screen>
+    );
+  }
 
   return (
     <HandlePrivy
