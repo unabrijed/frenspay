@@ -55,7 +55,12 @@ export async function req<T>(path: string, init?: RequestInit, retried = false):
     ...(init?.body ? { 'content-type': 'application/json' } : {}),
     ...((init?.headers as Record<string, string>) ?? {}),
   };
-  if (authToken) headers.authorization = `Bearer ${authToken}`;
+  // The token is asked for on EVERY call — both Privy SDKs say to (a local read while it is fresh, a
+  // refresh when it is about to expire), so a request never carries one the SDK has already
+  // rotated. The registered refresher IS that provider; the cached copy is the fallback (and what
+  // the dev signer path sets), and the 401 retry below still covers a token the SERVER rejects.
+  const token = (refreshToken ? await refreshToken().catch(() => null) : null) ?? authToken;
+  if (token) headers.authorization = `Bearer ${token}`;
   else if (platform().env.devUserId) headers['x-dev-user-id'] = platform().env.devUserId;
 
   const res = await fetch(`${platform().env.apiUrl}${path}`, { ...init, headers });

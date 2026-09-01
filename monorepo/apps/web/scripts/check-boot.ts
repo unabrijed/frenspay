@@ -74,8 +74,8 @@ assert.equal(
 );
 assert.equal(
   bootRoute({ ...cold, probed: true, handle: '@half.done' }),
-  '/onboarding/fund',
-  'named but not finished: resume at funding rather than restarting',
+  '/home',
+  'named = finished: the funding step that used to follow was the devnet faucet, gone with the testnet',
 );
 
 // eslint-disable-next-line no-console
