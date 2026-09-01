@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 
+import { isValidEmail, normalizeEmail } from '@fpay/shared';
+
 import { Icons } from '@/components/icons';
 import { BackButton } from '@/components/ui/BackButton';
 import { Btn } from '@/components/ui/Button';
@@ -99,7 +101,10 @@ function EmailOtp() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@email.com"
               type="email"
+              inputMode="email"
+              autoComplete="email"
               autoCapitalize="none"
+              spellCheck={false}
               autoFocus
             />
           )}
@@ -120,11 +125,12 @@ function EmailOtp() {
         ) : (
           <Btn
             label={submitting ? 'Sending…' : 'Send code'}
-            disabled={!email.includes('@') || submitting}
+            disabled={!isValidEmail(email) || submitting}
             pending={submitting}
             onPress={() => {
               setSubmitting(true);
-              requestOtp(email.trim());
+              // One spelling per mailbox: what Privy sees is what the backend stores (0025).
+              requestOtp(normalizeEmail(email));
             }}
           />
         )}
