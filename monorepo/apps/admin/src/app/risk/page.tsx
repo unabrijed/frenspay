@@ -16,6 +16,7 @@ import {
   Spinner,
   Table,
   Td,
+  Who,
   usd,
   usePaged,
 } from '@/components/ui';
@@ -40,7 +41,9 @@ export default function Risk() {
         <Table head={['User', 'Kind', 'Amount', 'Decision', 'Score', 'Counterparty', 'Reason', 'When']}>
           {items.map((r) => (
             <tr key={r.id} className="hover:bg-surface-low">
-              <Td className="font-medium">{r.userHandle ?? 'unknown'}</Td>
+              <Td>
+                <Who handle={r.userHandle} email={r.userEmail} />
+              </Td>
               <Td>{r.kind}</Td>
               <Td className="whitespace-nowrap">{r.amountUsdc != null ? usd(r.amountUsdc) : '—'}</Td>
               <Td>

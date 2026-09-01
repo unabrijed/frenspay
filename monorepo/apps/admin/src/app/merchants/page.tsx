@@ -20,6 +20,7 @@ import {
   Spinner,
   Table,
   Td,
+  Who,
   usd,
   usePoll,
 } from '@/components/ui';
@@ -171,7 +172,7 @@ export default function Merchants() {
       ) : data.merchants.length === 0 ? (
         <EmptyState text="No merchants yet." />
       ) : (
-        <Table head={['Merchant', 'Contact', 'Identity', 'Rail', 'Status', 'KYB', 'Bond', 'Float', 'Success', 'Disputes', '👍', 'Actions']}>
+        <Table head={['Merchant', 'Account', 'Contact', 'Identity', 'Rail', 'Status', 'KYB', 'Bond', 'Float', 'Success', 'Disputes', '👍', 'Actions']}>
           {data.merchants.map((m) => (
             <Fragment key={m.id}>
             <tr className="hover:bg-surface-low">
@@ -179,6 +180,9 @@ export default function Merchants() {
                 <span className="font-medium">{m.name}</span>
                 {!m.real ? <span className="ml-1.5 text-[11px] text-muted">sim</span> : null}
               </Td>
+              {/* The owner's fpay account — the same email they sign in with here and in the wallet app,
+                  so a reviewer never has to go and find it on the Users page. Platform rows have none. */}
+              <Td>{m.ownerHandle ? <Who handle={m.ownerHandle} email={m.ownerEmail} /> : <span className="text-muted">—</span>}</Td>
               {/* The reviewer's only way to reach a human about the application in front of them. */}
               <Td>{m.contactPhone ?? <span className="text-muted">—</span>}</Td>
               {/* Where the person stands, and who decided it. A partner sitting at tier 1 is normal

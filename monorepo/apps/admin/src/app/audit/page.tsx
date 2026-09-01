@@ -16,6 +16,7 @@ import {
   Spinner,
   Table,
   Td,
+  Who,
   usePaged,
 } from '@/components/ui';
 
@@ -44,7 +45,9 @@ export default function Audit() {
         <Table head={['Admin', 'Action', 'Target', 'Note', 'When']}>
           {items.map((a) => (
             <tr key={a.id} className="hover:bg-surface-low">
-              <Td className="font-medium">{a.adminHandle}</Td>
+              <Td>
+                <Who handle={a.adminHandle} email={a.adminEmail} />
+              </Td>
               <Td>
                 <Badge tone={tone(a.action)}>{a.action}</Badge>
               </Td>
