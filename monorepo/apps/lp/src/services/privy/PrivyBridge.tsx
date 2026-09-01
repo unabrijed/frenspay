@@ -24,7 +24,11 @@ const SOLANA_CHAIN = 'solana:mainnet' as const;
 export function PrivyBridge(): null {
   const { user, ready, getAccessToken, logout } = usePrivy();
   const { sendCode, loginWithCode } = useLoginWithEmail();
-  const { wallets } = useWallets();
+  // `ready` here is the WALLET list's readiness, which lags usePrivy().ready by the wallet-proxy
+  // iframe: on a cold return `wallets` is [] for a beat even for a user who has one. Reading it as
+  // "no wallet" called createWallet(), Privy threw ("already has an embedded wallet"), and the catch
+  // below signed the partner out — an OTP on every cold return. Same gate apps/web already has.
+  const { wallets, ready: walletsReady } = useWallets();
   const { createWallet } = useCreateWallet();
   const { signAndSendTransaction } = useSignAndSendTransaction();
 
@@ -56,7 +60,7 @@ export function PrivyBridge(): null {
   const wallet = wallets?.[0];
   const creatingRef = useRef(false);
   useEffect(() => {
-    if (!ready || !user) return undefined;
+    if (!ready || !user || !walletsReady) return undefined;
     let cancelled = false;
     (async () => {
       if (!wallet) {
@@ -99,15 +103,16 @@ export function PrivyBridge(): null {
       );
       useLpStore.getState().onSignedIn(wallet.address);
       void useLpStore.getState().load();
-    })().catch(() => {
-      // A bridge failure must not leave the app on a splash forever; the sign-in screen is the
-      // correct fallback and retrying is one tap.
-      useLpStore.getState().onSignedOut();
+    })().catch((e) => {
+      // A bridge failure is shown, never turned into a sign-out: the session is fine, the wallet
+      // chain isn't, and signing the partner out here asked them for an OTP that could not fix it.
+      // The gate keeps its splash (authStatus stays 'loading'), so a reload is the retry.
+      useLpStore.getState().notify(e instanceof Error ? e.message : String(e), 'error');
     });
     return () => {
       cancelled = true;
     };
-  }, [ready, user, wallet, createWallet, getAccessToken, signAndSendTransaction]);
+  }, [ready, user, walletsReady, wallet, createWallet, getAccessToken, signAndSendTransaction]);
 
   return null;
 }
