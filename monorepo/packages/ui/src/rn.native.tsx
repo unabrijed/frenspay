@@ -8,7 +8,7 @@
 // parser — extend WEB_ONLY when RN warns about a new key.
 import * as Haptics from 'expo-haptics';
 import type { CSSProperties, ReactNode } from 'react';
-import { Pressable as RNPressable, Text, View as RNView, type TextStyle, type ViewStyle } from 'react-native';
+import { Pressable as RNPressable, ScrollView as RNScrollView, Text, View as RNView, type TextStyle, type ViewStyle } from 'react-native';
 
 export type St = CSSProperties | false | null | undefined;
 
@@ -75,6 +75,15 @@ export function View({ style, children, ...rest }: { style?: St | St[]; children
     <RNView style={rnStyle(style as St[])} {...a11y(rest)}>
       {children}
     </RNView>
+  );
+}
+
+/** `style` is the content container, as on web — flexGrow so a Spacer still fills a short page. */
+export function ScrollView({ style, children, ...rest }: { style?: St | St[]; children?: ReactNode } & AnyProps) {
+  return (
+    <RNScrollView style={{ flex: 1 }} contentContainerStyle={rnStyle({ flexGrow: 1 }, style as St[])} {...a11y(rest)}>
+      {children}
+    </RNScrollView>
   );
 }
 

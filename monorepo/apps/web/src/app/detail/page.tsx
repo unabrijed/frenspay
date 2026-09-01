@@ -11,7 +11,7 @@ import { BackButton } from '@/components/ui/BackButton';
 import { Btn } from '@/components/ui/Button';
 import { MaskedAmount } from '@/components/ui/MaskedAmount';
 import { List, ResultBadge, Row, RowAmount, RowMeta, Spacer } from '@/components/ui/primitives';
-import { View } from '@/components/ui/rn';
+import { ScrollView, View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
 import { Txt } from '@/components/ui/Txt';
 import { inrRaw, usd } from '@/lib/money';
@@ -33,7 +33,7 @@ export default function Detail() {
 
   return (
     <Screen edges={['top']} style={styles.safe}>
-      <View style={[styles.scroll, { overflowY: 'auto' }]}>
+      <ScrollView style={styles.scroll}>
         <View style={styles.fhead}>
           <BackButton onPress={() => router.back()} />
         </View>
@@ -72,7 +72,7 @@ export default function Detail() {
         <View style={styles.cta}>
           <Btn label="Share receipt" variant="secondary" onPress={() => router.back()} />
         </View>
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
@@ -92,7 +92,7 @@ function DetailRow({ k, v, accent }: { k: string; v: string; accent?: boolean })
 
 const styles = {
   safe: { flex: 1, backgroundColor: colors.canvas },
-  scroll: { flexGrow: 1, paddingLeft: GUTTER, paddingRight: GUTTER, paddingTop: 4, paddingBottom: 24 },
+  scroll: { paddingLeft: GUTTER, paddingRight: GUTTER, paddingTop: 4, paddingBottom: 24 },
   fhead: { paddingTop: 8, paddingBottom: 6, paddingLeft: 2, paddingRight: 2 },
   result: { alignItems: 'center', gap: 10, paddingTop: 2 },
   label: { ...fonts.body400, fontSize: 15, color: colors.muted },

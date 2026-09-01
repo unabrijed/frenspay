@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 import { BackButton } from '@fpay/ui/BackButton';
 import { Btn } from '@fpay/ui/Button';
 import { SearchBar, Spacer } from '@fpay/ui/primitives';
-import { View } from '@fpay/ui/rn';
+import { ScrollView, View } from '@fpay/ui/rn';
 import { Screen } from '@fpay/ui/Screen';
 import { Txt } from '@fpay/ui/Txt';
 import { friendlyError } from '@/lib/errors';
@@ -65,7 +65,7 @@ export default function MerchantApply() {
       <View style={styles.head}>
         <BackButton onPress={() => router.push('/')} />
       </View>
-      <View style={styles.scroll}>
+      <ScrollView style={styles.scroll}>
         <Txt style={type.handle}>Apply as a partner</Txt>
         <Txt style={[type.lead, { marginTop: 10, marginBottom: 22 }]}>
           You’ll pay people in rupees from your own account and get paid back here, plus a spread. You
@@ -112,7 +112,7 @@ export default function MerchantApply() {
             />
           </>
         )}
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
@@ -121,10 +121,6 @@ const styles = {
   safe: { backgroundColor: colors.canvas },
   head: { paddingLeft: GUTTER, paddingRight: GUTTER, paddingTop: 6, paddingBottom: 2 },
   scroll: {
-    flex: 1,
-    overflowY: 'auto',
-    display: 'flex',
-    flexDirection: 'column',
     paddingLeft: GUTTER,
     paddingRight: GUTTER,
     paddingBottom: 28,

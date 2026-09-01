@@ -9,7 +9,7 @@ import { Icons } from '@/components/icons';
 import { BackButton } from '@/components/ui/BackButton';
 import { Btn, TextLink } from '@/components/ui/Button';
 import { Flag, List, ProfileAvatar, Row, RowMeta, Spacer } from '@/components/ui/primitives';
-import { Pressable, View } from '@/components/ui/rn';
+import { Pressable, ScrollView, View } from '@/components/ui/rn';
 import { Screen } from '@/components/ui/Screen';
 import { Txt } from '@/components/ui/Txt';
 import { VerifyCard } from '@/components/VerifyCard';
@@ -35,7 +35,7 @@ export default function Settings() {
   const resetForTesting = usePayStore((s) => s.resetForTesting);
   return (
     <Screen edges={['top']} style={styles.safe}>
-      <View style={styles.scroll}>
+      <ScrollView style={styles.scroll}>
         <View style={styles.fhead}>
           <BackButton onPress={() => router.back()} />
         </View>
@@ -101,7 +101,7 @@ export default function Settings() {
             <Txt style={type.version}>Rates By Exchange Rate API</Txt>
           </a>
         </View>
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
@@ -152,7 +152,7 @@ const styles = {
   kyc: { borderWidth: 1, borderStyle: 'solid', borderColor: colors.hair, borderRadius: radii.card, padding: 16, backgroundColor: colors.surface, marginBottom: 14 },
   kycHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   safe: { flex: 1, backgroundColor: colors.canvas },
-  scroll: { flex: 1, overflowY: 'auto', paddingLeft: GUTTER, paddingRight: GUTTER, paddingTop: 4, paddingBottom: 24 },
+  scroll: { paddingLeft: GUTTER, paddingRight: GUTTER, paddingTop: 4, paddingBottom: 24 },
   fhead: { paddingTop: 8, paddingBottom: 6, paddingLeft: 2, paddingRight: 2 },
   profile: { flexDirection: 'row', alignItems: 'center', gap: 13, paddingLeft: 2, paddingRight: 2, paddingTop: 10, paddingBottom: 18 },
   value: { flexDirection: 'row', alignItems: 'center', gap: 8 },

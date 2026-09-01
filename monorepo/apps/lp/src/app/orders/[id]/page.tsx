@@ -15,7 +15,7 @@ import { vpaOperator } from '@fpay/shared';
 import { BackButton } from '@fpay/ui/BackButton';
 import { Btn } from '@fpay/ui/Button';
 import { List, Row, RowMeta, SearchBar, Spacer } from '@fpay/ui/primitives';
-import { Pressable, View } from '@fpay/ui/rn';
+import { Pressable, ScrollView, View } from '@fpay/ui/rn';
 import { Screen } from '@fpay/ui/Screen';
 import { Txt } from '@fpay/ui/Txt';
 import { friendlyError } from '@/lib/errors';
@@ -124,9 +124,9 @@ export default function MerchantOrder() {
         <View style={styles.head}>
           <BackButton onPress={() => router.push('/')} />
         </View>
-        <View style={styles.scroll}>
+        <ScrollView style={styles.scroll}>
           <Txt style={type.inst}>Loading…</Txt>
-        </View>
+        </ScrollView>
       </Screen>
     );
   }
@@ -136,9 +136,9 @@ export default function MerchantOrder() {
         <View style={styles.head}>
           <BackButton onPress={() => router.push('/')} />
         </View>
-        <View style={styles.scroll}>
+        <ScrollView style={styles.scroll}>
           <Txt style={type.lead}>Someone else took this one.</Txt>
-        </View>
+        </ScrollView>
       </Screen>
     );
   }
@@ -156,7 +156,7 @@ export default function MerchantOrder() {
       <View style={styles.head}>
         <BackButton onPress={() => router.push('/')} />
       </View>
-      <View style={styles.scroll}>
+      <ScrollView style={styles.scroll}>
         <Txt style={type.kvKey}>Pay this person</Txt>
         <Txt style={[type.bigAmount, { marginTop: 6 }]}>{fiatRaw(order.amountInr, order.currency)}</Txt>
         <Txt style={type.conv}>You receive {usd(order.amountUsdc)} when it settles</Txt>
@@ -272,7 +272,7 @@ export default function MerchantOrder() {
             onPress={() => void take()}
           />
         )}
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
@@ -281,10 +281,6 @@ const styles = {
   safe: { backgroundColor: colors.canvas },
   head: { paddingLeft: GUTTER, paddingRight: GUTTER, paddingTop: 6, paddingBottom: 2 },
   scroll: {
-    flex: 1,
-    overflowY: 'auto',
-    display: 'flex',
-    flexDirection: 'column',
     paddingLeft: GUTTER,
     paddingRight: GUTTER,
     paddingBottom: 28,

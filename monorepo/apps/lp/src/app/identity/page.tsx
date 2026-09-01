@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 import { BackButton } from '@fpay/ui/BackButton';
 import { Btn } from '@fpay/ui/Button';
 import { Spacer } from '@fpay/ui/primitives';
-import { View } from '@fpay/ui/rn';
+import { ScrollView, View } from '@fpay/ui/rn';
 import { Screen } from '@fpay/ui/Screen';
 import { Txt } from '@fpay/ui/Txt';
 
@@ -92,7 +92,7 @@ export default function Identity() {
       <View style={styles.head}>
         <BackButton onPress={() => router.push('/apply')} />
       </View>
-      <View style={styles.scroll}>
+      <ScrollView style={styles.scroll}>
         <Txt style={type.handle}>
           {done ? 'You’re verified' : 'Verify your identity'}
         </Txt>
@@ -115,7 +115,7 @@ export default function Identity() {
             onPress={() => void start()}
           />
         )}
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
@@ -124,10 +124,6 @@ const styles = {
   safe: { backgroundColor: colors.canvas },
   head: { paddingLeft: GUTTER, paddingRight: GUTTER, paddingTop: 6, paddingBottom: 2 },
   scroll: {
-    flex: 1,
-    overflowY: 'auto',
-    display: 'flex',
-    flexDirection: 'column',
     paddingLeft: GUTTER,
     paddingRight: GUTTER,
     paddingBottom: 28,
