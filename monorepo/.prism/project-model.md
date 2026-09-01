@@ -189,6 +189,22 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     Spacers working). The per-component `flexShrink: 0` on `list`/`search` still protects sheets. The LP
     dashboard's next-step order is guarded by `check:next` (`apps/lp/scripts/check-next-step.ts`).
 
+50. **`users.email` has one canonical form — lowercase, trimmed — and one entrance** (2026-09-01):
+    `getLinkedEmail` (services/privy.ts) normalizes, migration 0025 rewrote existing rows and added
+    `CHECK (email = lower(btrim(email)))`. Every reader is an exact match (`findUserByEmail`, the adoption
+    select, `uq_users_email`) and Privy documents nothing about the casing it returns — one mailbox
+    spelled two ways was two accounts. A CHECK, not a `lower(email)` index: the plain unique index stays
+    usable by `where email = $1`, and a raw writer fails loudly. The login screens send `normalizeEmail()`
+    (`@fpay/shared` email.ts; byte-identical copies in routes/waitlist.ts and landing). (docs/17)
+51. **A `/auth/sync` with no handle adopts or asks — it never inserts** (2026-09-01): no handle means
+    "adopt the account this Privy-verified email already owns (or re-sync this DID's own row)"; when
+    there is nothing to adopt the answer is 400 `handle_required`, decided INSIDE the upsert transaction
+    (the route's pre-flight only orders it before the invite gate). Every setup screen (LP FinishSetup,
+    web + mobile HandlePrivy) probes first and shows the field only on that code, so a returning person
+    is never asked to set up an account they have. `draftHandle` (repair, for your OWN name) is for those
+    screens only; anything naming someone else (Send, lookups, admin rename, denylist) uses
+    `canonicalHandle` (reject). (docs/17)
+
 ## Danger zones
 
 - `routes/orders.ts` destination regexes — the ONLY gate before a human/PSP acts on a scanned string.
@@ -280,6 +296,18 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   the plan's own guard (a mismatch banner) — when the stale value is an address nobody can sign from, a
   banner guards nothing; put the fix where the value changes (the sync txn), not where it is displayed.
 
+- **"Nothing can tell the two apart before the call" is a claim to check against the request, not
+  the response** (2026-09-01). The morning's FinishSetup asked every returning partner for a handle because
+  adoption was decided inside the sync; the verified email — already fetched on the same call — told the
+  two apart the whole time. When a screen asks for something the server then discards, look for the fact
+  the server used instead and let the client ask for THAT first (here: a sync with no handle).
+- **`open(path, 'w')` runs before the function that reads `path`** (2026-09-01). One line —
+  `open(p,'w').write(apply(p))` — truncated `.prism/project-model.md` to zero bytes when `apply` raised,
+  during a window where a concurrent session had just committed invariant 49 (`f99325f`, seconds
+  earlier — had it still been uncommitted, its 8 lines would have been gone). Read into a variable first,
+  transform, assert, THEN open for writing; and before editing a file another live session has uncommitted
+  hunks in, copy its current content to disk.
+
 ## Counsel flags & open questions (from 2026-08-24 routing plan — for prism-retro)
 - FLAG-1: the pair rule has TWO recorded rationales (LP bank-freeze protection, docs/06 §pair rule; payee data-minimisation, docs/06 §privacy). Under the second, lock→see VPA→unlock→re-lock is a harvesting path (unlock is penalty-free and writes no `lock_expired`). Counsel decides which governs; that decides whether A3 gets fixed.
 - FLAG-2: a forced split is "one payment, ≤3 source accounts, one receiver, same day" — deliberately generated. Explainability question for counsel; per-leg cooldown holds in code.
@@ -297,6 +325,13 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   app); the admin console keeps the identical dead end (`Providers.tsx` 'absent') — root admins are exempt
   from invites, so the same screen would work there; `docs/08:88-91` still says KYB approval grants tier 2
   (removed 2026-08-29, invariant 32) — stale, not fixed here.
+
+- Open (2026-09-01, handle+email plan): which admin screen Bridge was on (assumed the handle-only pages;
+  if the Users table showed `—`, that is an unsynced row); migration 0025 is Bridge's — its guard raises
+  with a count if stage holds one mailbox spelled two ways; any raw denylist handle rows
+  (`value !~ '^@[a-z0-9_.]{3,30}$'`); a Privy read failure during the probe still makes a returning
+  partner look new (pre-existing); the DID-rotation web dead end is fixed by the same probe — confirm on
+  stage that a rotated payer lands on Home without typing.
 
 ## Decision log
 
@@ -448,6 +483,37 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   localpart). Found on the way: `POST /waitlist` burns the same codes — hand recruits the code WITH the
   console link. Bridge's hands: mint house codes; one-time treasury SQL only if someone adopted via web
   first; push on ack.
+
+- 2026-09-01 (afternoon) · **Handle + email named together, one rule per input, adopt before you ask**
+  (plan: `~/.claude/plans/on-admin-side-i-cheeky-ullman.md` → docs/17; on `stage`, unpushed). Bridge:
+  "on admin side I don't see user's email and their username together… regex check on username, trimming…
+  same for email… on inputs" + "same email is used for fpay account, so if merchant is already there, we
+  don't need to ask for fpay account again." Grounded first: the Users table already showed both (on
+  origin/stage AND sacred) — every OTHER admin page named a user by handle alone and Merchants showed
+  neither; handles were already canonical on every backend write (the client had three pasted repair
+  regexes); email was the real gap — Privy → DB verbatim, case-sensitive unique index by explicit bet,
+  Privy's docs silent on casing; and the morning's LP `FinishSetup` asked every returning partner for a
+  handle that adoption then discarded. Shipped: `/auth/sync` without a handle adopts-or-asks (invariant
+  51, in-tx, TOCTOU closed); the three setup screens probe first; `getLinkedEmail` normalizes + 0025 +
+  CHECK (invariant 50); `@fpay/shared` `email.ts` + `draftHandle` (+ 7 asserts in check-paytarget);
+  admin `Who` cell (handle over email) on dashboard/orders/risk/audit + a Merchants "Account" column
+  with `userEmail`/`adminEmail`/`ownerEmail` on the DTOs; denylist handles stored canonical (a raw
+  'Bridge' was a sanctions row nothing could hit); `{"handle":1}` no longer a 500; invite audit names the
+  matched owner. The critic REFUTED two draft claims: "the on-conflict path never reads the handle" (the
+  INSERT VALUES does — fixed by resolving it in-tx) and `draftHandle` on the admin inputs (a sanctions
+  field must reject, not repair). Rejected: `/me` adopting (no wallet for invariants 45/48), a
+  `lower(email)` index (unusable by exact-match readers), deriving the handle (rejected that morning).
+  Bridge's hands: `yarn db:migrate` (0025) after the push; push on ack.
+
+## Telemetry (2026-09-01 handle+email plan)
+- divergence: 0.78 (evidence 0.86, conclusion 0.67) | threshold 0.30 UNCALIBRATED
+- models: draft=fable · lenses=3× Explore + 1× Plan critic (plan mode: skeptic trio NOT RUN; every load-bearing
+  claim grounded by re-opening source, which outranks cross-tier survival; version axis unavailable)
+- claims: C1 adoption-ignores-handle grounded-after-correction · C2 email-raw-end-to-end grounded · C3
+  admin-columns-not-bug grounded · C4 handle-canonical-on-every-write grounded · C4b draftHandle-on-admin
+  REFUTED · C5 probe-on-mount grounded · C6 denylist-raw-write grounded · C7 privy-casing-undocumented grounded
+- grounding: 37 anchors re-opened by the orchestrator + critic, 0 struck, 2 corrected
+- fleet: 3 lenses + 1 critic; loop stopped after round 1
 
 ## Telemetry (2026-09-01 LP self-signup plan)
 - divergence: 0.77 (evidence 0.83, conclusion 0.67) | threshold 0.30 UNCALIBRATED
