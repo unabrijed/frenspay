@@ -1,23 +1,22 @@
-# Stage deploy — backend → Railway, frontends → Vercel (Solana **mainnet-lite**)
+# Stage deploy — backend → Railway, frontends → Vercel (Solana **mainnet**)
 
-Backend: Fastify (`apps/backend`) on Railway, stage environment, **real mainnet USDC** in
-mainnet-lite mode. DB is Supabase Postgres. Frontends: per-environment Vercel projects (the OMS
+Backend: Fastify (`apps/backend`) on Railway, stage environment, **real mainnet USDC**. DB is Supabase Postgres. Frontends: per-environment Vercel projects (the OMS
 model — see §Frontends). Prod is a separate doc: `DEPLOY.md`.
 
-## Mainnet-lite: what's ON and OFF
+## What's ON and OFF — capability-derived, never tier-derived
 
-Money-realness derives from the **mint**, not NODE_ENV: setting `STAGE_USDC_MINT` to Circle's
-mainnet mint flips `config.isMainnet`, which hard-gates every dev money convenience regardless of
-tier (envConfig.ts). Local dev keeps devnet — it reads the repo `.env`, not these dashboard vars.
+There is no testnet tier (2026-08-30): local, stage and prod are all Solana mainnet with real USDC,
+and the faucet, the `/sim/orders/*` controls and the Sepolia contract table are gone rather than
+gated. What remains switchable is a **capability** the backend derives from its own config at boot:
 
-| ON (real mainnet USDC)                             | OFF on stage                                   |
-| -------------------------------------------------- | ---------------------------------------------- |
-| Balance + on-chain deposit address (Solana)        | Faucet (403; UI hidden, onboarding skips fund) |
-| P2P sends (@handle) + external sends               | Merchant-pay orders (503 `payments_unavailable` — escrow program not on mainnet yet) |
-| Helius push confirmation (see §Helius)             | Cross-chain CCTP (routes unregistered — EVM side is Sepolia on dev tiers) |
-|                                                    | `/sim/orders/*` (403), staking (leave stake treasury unset → 503) |
+| Capability | Derived from | Off ⇒ |
+| --- | --- | --- |
+| Merchant-pay orders (`escrowLive`) | `STAGE_ESCROW_SECRET_KEY` + `STAGE_PLATFORM_FEE_DESTINATION` usable (§Keys, docs/16); `STAGE_FEE_PAYER_SECRET_KEY` optional — unset = Privy-sponsored gas | `503 payments_unavailable` on quote + order |
+| Identity verification (`personaLive`) | `STAGE_PERSONA_API_KEY` + `STAGE_PERSONA_TEMPLATE_ID` real | `/kyc/verify` 503s, every tier gate lifts (docs/14) |
+| LP staking | `STAGE_STAKE_TREASURY_ADDRESS` set (public key, no signer) | `503 staking_unavailable` |
+| Cross-chain CCTP | `STAGE_EVM_MINTER_PRIVATE_KEY` + the three EVM RPC urls | `503 crosschain_unavailable` (routes always registered) |
 
-`/sim/kyc` stays live (tier gating only — acceptable behind the access gate). Money-in is
+`/sim/kyc` stays live (tier gating only — acceptable behind the access gates). Money-in is
 deposit-only: send USDC (Solana) to the address shown in Add money.
 
 ## How a deploy happens
@@ -128,23 +127,28 @@ Use it to redeploy the current commit, or to recover after a failed run.
    ```
    NODE_ENV=stage
    STAGE_DATABASE_URL=<Supabase session pooler URL — step 2>
-   STAGE_KYC_PROVIDER=persona                           # optional — stage/prod already default to persona. NEVER `sim` here: stage is mainnet, and sim promotes to tier 2 with no documents
+   STAGE_KYC_PROVIDER=persona                           # unset ⇒ identity verification OFF — a deployed tier has no default. Set it only to exercise the Persona sandbox; payers then meet the tier-2 gate again. NEVER `sim` here: stage is mainnet, and sim promotes to tier 2 with no documents
    STAGE_PERSONA_API_KEY=<persona_sandbox_… is fine on stage>   # BLANK BOTH = identity verification off (docs/14), NOT a boot failure
    STAGE_PERSONA_TEMPLATE_ID=<itmpl_… from Persona → Inquiry Templates>
    STAGE_SOLANA_RPC_URL=https://mainnet.helius-rpc.com/?api-key=<KEY>   # mainnet RPC (Helius free tier)
    STAGE_HELIUS_API_KEY=<KEY>                            # push confirmation — see §Helius. Same key as the RPC URL above
    STAGE_HELIUS_WEBHOOK_SECRET=<openssl rand -hex 32>    # real values live in apps/backend/.env — NEVER paste one into this tracked file
-   STAGE_FEE_PAYER_SECRET_KEY=[ ... ]                    # FRESH mainnet keypair — see below. JSON byte array ONLY (base58 is rejected)
+   STAGE_FEE_PAYER_SECRET_KEY=[ ... ]                    # OPTIONAL — who pays gas (§Keys). Unset ⇒ sponsored mode (Privy pays user txs). JSON byte array ONLY
+   STAGE_ESCROW_SECRET_KEY=[ ... ]                       # the escrow POOL's key — see §Keys below. Same JSON-array shape; ~0.05 SOL only when no fee-payer is set
+   STAGE_PLATFORM_FEE_DESTINATION=<cold wallet pubkey>   # where the platform's cut lands on release. PUBLIC KEY ONLY
    STAGE_USDC_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v   # Circle's MAINNET USDC — this is the real-money switch
-   STAGE_PRIVY_APP_ID=<privy app id>
-   STAGE_PRIVY_APP_SECRET=<privy app secret>            # backend-only, never in a web build
+   PRIVY_APP_ID=<privy app id>                          # UNPREFIXED on every tier — one Privy app everywhere; STAGE_PRIVY_* is read by nothing (§One Privy app)
+   PRIVY_APP_SECRET=<privy app secret>                  # backend-only, never in a web build; unprefixed too
+   # PRIVY_VERIFICATION_KEY=<optional>                  # skips a network fetch per verify — same rule, unprefixed
    PUBLIC_BASE_URL=https://<this-railway-service>.up.railway.app   # → https://stage.api.frenspay.xyz once the custom domain is attached (step 6)
    STAGE_CORS_ORIGIN=<see below>
    STAGE_LP_BASE_URL=https://provider.frenspay.xyz   # LP console — alert deep links lose their button if unset
    # STAGE_TELEGRAM_BOT_TOKEN / STAGE_TELEGRAM_WEBHOOK_SECRET — one bot per tier, docs/13 §Setup.
    # Unset ⇒ the bot and its alert adapter are inert; the webhook fails closed.
-   # leave STAGE_STAKE_TREASURY_ADDRESS and STAGE_ESCROW_PROGRAM_ID unset (staking 503s, orders are gated)
-   # STAGE_PLATFORM_FEE_BPS optional (default 50) — dormant until merchant-pay ships on mainnet
+   # STAGE_STAKE_TREASURY_ADDRESS — the stake capability switch; unset = /stake answers 503, nothing else changes.
+   # Payments (quote → order) are ON only when ESCROW_SECRET_KEY + PLATFORM_FEE_DESTINATION are both usable
+   # (`escrowLive`, docs/16); either missing ⇒ 503 payments_unavailable and one boot warning. The fee-payer only
+   # picks who pays gas.
    ```
    Do **NOT** set `PORT` — Railway injects it and the server binds `process.env.PORT` (host-level
    vars stay unprefixed by convention, like `PUBLIC_BASE_URL`).
@@ -152,10 +156,29 @@ Use it to redeploy the current commit, or to recover after a failed run.
    **The fee-payer is a fresh keypair, never the devnet one** (that key lives in plaintext local
    files): `solana-keygen new --no-bip39-passphrase -o stage-mainnet-feepayer.json`, paste the JSON
    byte array as the value, fund the address with **~0.1 real SOL** (it sponsors every tx fee +
-   ATA rent), and keep the file offline. Its ATA also collects the platform fee, so monitor both
-   balances. One-time flip chores: delete the old devnet-era Helius webhook in the Helius dashboard
-   (registration is idempotent **by URL**, so the stale one blocks re-registration), and optionally
-   mark any pending devnet-era bridge rows failed in SQL (the poller retries them harmlessly).
+   ATA rent), and keep the file offline. It holds gas and nothing else — the platform's cut goes to
+   `PLATFORM_FEE_DESTINATION`. One-time flip chores: delete the old devnet-era Helius webhook in the
+   Helius dashboard (registration is idempotent **by URL**, so the stale one blocks re-registration),
+   and optionally mark any pending devnet-era bridge rows failed in SQL (the poller retries them
+   harmlessly).
+
+   **§Keys — the escrow pool (docs/16).** Every payer deposit sits in ONE USDC token account owned by
+   the escrow key until its order is released (partner gets `amount − fee`, the earnings wallet `fee`)
+   or refunded (the payer gets it all back). The key signs those transfers out. **Who pays gas is one
+   variable:** with `STAGE_FEE_PAYER_SECRET_KEY` set, the fee-payer pays everything and the escrow key
+   holds no SOL; with it unset (stage today) the backend runs in **sponsored mode** — Privy pays user
+   transactions (Privy dashboard → Gas Sponsorship → Solana must be ON; web only, the phone app
+   refuses), and the escrow key pays its own gas for release/refund and new token accounts, so send it
+   **~0.05 SOL**. The boot log says which mode it is. Stage's key was generated on the dev machine:
+   ```
+   solana-keygen new --no-bip39-passphrase -o stage-escrow.json      # never the fee-payer, never the stake treasury
+   solana address -k stage-escrow.json                                # → EEvwiwTXQCaGpmF8BfYQzo9udbg1TNuyYmK7ob45vLEz is stage's (Bridge's key, 2026-08-31)
+   ```
+   Paste the file's contents — the `[ … ]` JSON array — as `STAGE_ESCROW_SECRET_KEY`, then move the file
+   OUT of the repo and keep it offline (`*-escrow.json` and friends are gitignored, but a checkout is not a vault) (a lost key loses whatever is in the pool at that moment; there is no self-refund), and
+   set `STAGE_PLATFORM_FEE_DESTINATION` to a cold wallet's public key. After the first deposit:
+   `yarn workspace @fpay/backend check:pool` (DB + RPC) asserts _pool balance = Σ open orders_.
+   Prod's key is Bridge's own — `DEPLOY.md §Keys`.
 4. Deploy. Migrations auto-apply at boot — the image's `CMD` runs `db:deploy` before `start`, so the
    server can never come up against a stale schema. To apply by hand instead:
    ```
@@ -311,24 +334,26 @@ Ship to prod by merging `stage` → `sacred` (PR).
    ```
    NEXT_PUBLIC_APP_ENV=stage
    NEXT_PUBLIC_STAGE_API_URL=https://stage.api.frenspay.xyz   # or the *.up.railway.app URL until the API domain exists
-   NEXT_PUBLIC_STAGE_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com   # cluster switch: drives IS_MAINNET (hides faucet UI, Privy chain id)
-   NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<privy app id>
-   NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<privy client id>
+   NEXT_PUBLIC_STAGE_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com   # RPC provider only — every tier is mainnet
+   NEXT_PUBLIC_PRIVY_APP_ID=<privy app id>                    # BARE on every tier — one Privy app everywhere; NEXT_PUBLIC_STAGE_PRIVY_* is read by nothing
+   NEXT_PUBLIC_PRIVY_CLIENT_ID=<privy client id>
    NEXT_PUBLIC_STAGE_LANDING_URL=https://frenspay.xyz
-   STAGE_ACCESS_KEY=<openssl rand -hex 32>                    # deploy access gate — see below
+   STAGE_ACCESS_KEY=<openssl rand -hex 32>                    # deploy access gate — this project's OWN key; see below
    ```
    admin (the only admin project — it serves both environments):
    ```
    # NEXT_PUBLIC_APP_ENV is deliberately UNSET here — nothing but the dev shim reads it
    NEXT_PUBLIC_STAGE_API_URL=<same as web>                    # the "stage" target
    NEXT_PUBLIC_API_URL=https://api.frenspay.xyz               # the "prod" target
-   NEXT_PUBLIC_PRIVY_APP_ID=<privy app id>                    # ONE app, both targets
+   NEXT_PUBLIC_PRIVY_APP_ID=<privy app id>                    # ONE app — every app, every tier
    NEXT_PUBLIC_PRIVY_CLIENT_ID=<privy client id>              # optional
    ```
    Admin's API **hosts** are targets, not tiers: both are inlined and the operator picks one in the
-   sidebar, which is why there is no admin twin project. The **Privy app is not per-target** — the
-   same app id must also be the backend's `STAGE_PRIVY_APP_ID` on stage and `PRIVY_APP_ID` on prod,
-   or whichever backend disagrees refuses every token before a row is looked up. It used to be one
+   sidebar, which is why there is no admin twin project. The **Privy app is not per-target, and not per-tier** — there is
+   exactly one, so every frontend reads it under its BARE name on every tier and the same id must be
+   the backend's `PRIVY_APP_ID` on every tier (unprefixed; `STAGE_PRIVY_APP_ID` is read by nothing
+   since 2026-08-31 — §One Privy app below), or whichever backend disagrees refuses every token
+   before a row is looked up. It used to be one
    app per target; the switch swapped the id under its reload, the incoming app inherited the
    outgoing app's stored token (Privy's keys are not app-scoped), and the console hung on
    "Signing in…". Full reasoning: `apps/admin/README.md` §Deploy.
@@ -345,10 +370,11 @@ Ship to prod by merging `stage` → `sacred` (PR).
    NEXT_PUBLIC_APP_ENV=stage
    NEXT_PUBLIC_STAGE_API_URL=<same as web>
    NEXT_PUBLIC_STAGE_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com   # deployed tiers fail closed to mainnet anyway; set it for parity
-   NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<same privy app id as web>              # staking signs a real USDC transfer, so it needs the embedded wallet
-   NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<privy client id>                    # optional
+   NEXT_PUBLIC_PRIVY_APP_ID=<same privy app id as web>                    # bare on every tier; staking signs a real USDC transfer, so it needs the embedded wallet
+   NEXT_PUBLIC_PRIVY_CLIENT_ID=<privy client id>                          # optional
+   STAGE_ACCESS_KEY=<openssl rand -hex 32>                                # deploy access gate — its OWN key, not web's (rotating one must not evict the other)
    ```
-   Nothing else: there is no access gate (`STAGE_ACCESS_KEY`), no landing link, and the dev
+   Nothing else: no landing link, and the dev
    identity (`*_DEV_USER_ID`) is only read when `NODE_ENV !== 'production'` — never in a build.
 6. **Deploy**: push `stage` (or Deployments → Redeploy). Watch the log: install and build must run
    the `vercel.json` commands verbatim, and web must get past the post-build step (the historical
@@ -372,17 +398,57 @@ Ship to prod by merging `stage` → `sacred` (PR).
      means only what it says — that database has no row for the account yet.
    - **landing**: static pages render; a waitlist signup round-trips (needs the Resend block
      above, otherwise it accepts silently without mail — that's the documented safe state).
+   - **lp**: the domain serves the access-key form (HTTP 401) on every route — a different key than
+     web's, and a device that passed web's gate still sees this one once (the cookie is per-origin).
+     The right key lands on the path that was asked for: open `/identity?inquiry-id=x` on a fresh
+     device, enter the key, and the URL must keep its query (the vendor return polls only while it is
+     there); a Telegram alert button (`/orders/:id`) behaves the same. Then Privy email login (same
+     app as web — an account created on web signs straight in) → apply → stake.
 
-### Deploy access gate (web only)
+### Deploy access gate (web + lp)
 
-`apps/web/src/middleware.ts` + the `/gate` route. Until a device presents the key, every route
-serves a key form; the right key sets a year-long `fpay_gate` cookie (the key's SHA-256, httpOnly)
-and that device never sees the form again. Unset key = gate off — the local-dev default. Rotate
-`STAGE_ACCESS_KEY` to evict every device on the environment. The middleware matcher deliberately
-skips `_next/*`, `icon.svg`, `apple-icon.png`, `favicon*`, `manifest*`, so a gated tab still gets
-its icon — that asymmetry is expected, not a leak. The prod twin sets bare `ACCESS_KEY` with a
-**different** key (`DEPLOY.md`). Because of the gate, web ships middleware — it is a server app on
+`src/middleware.ts` + the `/gate` route, in `apps/web` and — byte-for-byte, headers aside — in
+`apps/lp`. Until a device presents the key, every route serves a key form; the right key sets a
+year-long `fpay_gate` cookie (the key's SHA-256, httpOnly) and that device never sees the form
+again — and lands on the path it asked for, provided it resolves to the same origin (`/\evil.com`
+goes home; `yarn check:gate` asserts the cases). Unset key = gate off — the local-dev default; a
+deployed tier with no key fails CLOSED (503), never open. Each project has its OWN key — four in all
+(web·stage, web·prod, lp·stage, lp·prod), all different; the cookie is per-origin, so passing one
+gate opens no other. Rotate a project's key to evict every device on that project. The middleware
+matcher deliberately skips `_next/*`, `icon.svg`, `apple-icon.png`, `favicon*`, `manifest*`, so a
+gated tab still gets its icon — that asymmetry is expected, not a leak. The prod twins set bare
+`ACCESS_KEY` (`DEPLOY.md`). Because of the gate, web and lp ship middleware — they are server apps on
 Vercel and can never become a static export like landing.
+
+### One Privy app, every tier — and what changing it does to existing accounts
+
+There is exactly one Privy app. Every frontend reads it under its bare name on every tier
+(`NEXT_PUBLIC_PRIVY_APP_ID` / `_CLIENT_ID`; `EXPO_PUBLIC_…` on the phone) and the backend verifies
+with the bare `PRIVY_APP_ID` / `PRIVY_APP_SECRET` on every tier — none of them go through the tier
+chain, so a `STAGE_PRIVY_*` twin is read by nothing. (They used to; a stale one is how stage kept
+mailing OTPs from a retired app.) The backend boot line prints `privy=<app id>`; `(unset)` means
+Privy is off, loudly, with no fallback.
+
+**Pointing a tier at a different Privy app is an identity migration, not a variable edit.** Privy
+DIDs and embedded wallets are per-app. An account minted under the old app comes back under the new
+one with a NEW `did:privy:…` and a NEW embedded Solana address:
+
+- `/auth/sync` adopts the existing row by its Privy-verified email (`upsertUserByPrivyDid`) — handle,
+  ledger, partner row and invite lineage survive — then the wallets upsert **overwrites the Solana
+  address**; `wallets` keeps no history, only `transfers` remembers the old one. **USDC at the old
+  address is reachable only through the old app.** Snapshot `select user_id, address from wallets`
+  and sweep balances BEFORE flipping the variables.
+- What people see: web signs them out (their DID is unknown → 401), the next sign-in lands on the
+  handle step where their own handle reads as taken — they type any free one, and adoption hands back
+  the old account under its old handle. The LP console cannot adopt (it never calls `/auth/sync`):
+  every partner signs into web once first, then the console works.
+- Before any deploy, on the surviving app's dashboard: allowed origins (web, lp, admin, the
+  localhost ports), email-only login, Solana embedded wallets ON, **Gas Sponsorship → Solana ON**
+  (stage runs in sponsored mode — with it off, login works and every send fails), and an app client
+  for `com.bridge.fpay` if the phone matters on that tier.
+- Flip every host variable while nothing is deployed (they are inert until the next build), then ONE
+  push — Railway and Vercel build in parallel and the 1–2 minute skew is a pure 401 window; nothing
+  reaches the database without a verified token, in either order.
 
 ### Why web's include-outside-root toggle is OFF (the `noop.js` crash)
 
@@ -401,8 +467,10 @@ root above it) and WILL hit the same crash on its first deploy. Fix then: set ad
 ## Pre-push build gate
 
 `monorepo/.githooks/pre-push` builds EVERYTHING on every push — only successful builds leave the
-machine: `yarn install --frozen-lockfile`, then the landing/web/admin builds (each app's Vercel
-buildCommand verbatim), then `yarn workspace @fpay/backend tsc --noEmit` and
+machine: a secret scan; a check that every path the root `Dockerfile` copies out of the builder still
+exists in the tree (the hook does not build the image — a deleted IDL directory failed the stage image
+after a push on 2026-08-31); `yarn install --frozen-lockfile`; then the landing/web/admin/lp builds (each
+app's Vercel buildCommand verbatim); then `yarn workspace @fpay/backend tsc --noEmit` and
 `yarn workspace @fpay/backend build` — the typecheck catches what would otherwise crash the server
 at boot, and the bundle catches what only bundling can break (a *value* import of `@fpay/shared`,
 which is external in the bundle and would fail to resolve inside the container).

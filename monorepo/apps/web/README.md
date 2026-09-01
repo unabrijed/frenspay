@@ -30,17 +30,17 @@ remove the line — unset = gate off, the local default. Deployed stage/prod alw
 ```bash
 NEXT_PUBLIC_APP_ENV=stage
 NEXT_PUBLIC_STAGE_API_URL=http://localhost:3001
-NEXT_PUBLIC_STAGE_PRIVY_APP_ID=<your Privy app id>
-# NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID=<optional>
+NEXT_PUBLIC_PRIVY_APP_ID=<your Privy app id>   # bare on every tier — one Privy app everywhere
+# NEXT_PUBLIC_PRIVY_CLIENT_ID=<optional>
 ```
 
 Then **allow `http://localhost:3000` as an origin in your Privy dashboard app** and reload —
-`yarn dev:web` already runs the backend. The Privy **App Secret is backend-only** — it lives in
+`yarn dev:web` already runs the backend. The Privy **App Secret is backend-only** — `PRIVY_APP_SECRET` lives in
 `apps/backend/.env`, never here.
 
-**Or a seeded devnet wallet**, which is faster for local work — set
+**Or a seeded dev wallet**, which is faster for local work — set
 `NEXT_PUBLIC_STAGE_DEV_USER_ID` + `NEXT_PUBLIC_STAGE_DEV_SECRET_KEY` from
-`apps/backend/.devnet/keys.json` after `db:seed` + `devnet:setup`. It runs under `next dev` only:
+`apps/backend/.devnet/keys.json` after `db:seed`. It runs under `next dev` only:
 the key is a raw private key, so `envConfig.ts` reads it inside a branch every production build
 strips. Full notes in `.env.example` and the [root README](../../README.md#web-app-appsweb).
 
@@ -54,6 +54,7 @@ strips. Full notes in `.env.example` and the [root README](../../README.md#web-a
   `--ignore-engines` (they demand Node ≥24 but are browser-bundled); `next.config.ts` stubs
   Privy's unused `@stripe/crypto` + `@farcaster/mini-app-solana` imports.
 - This app ships **server-side code**: `src/middleware.ts` (the deploy access gate) + the
-  `app/gate/route.ts` handler. That's why it deploys as a Next server on Vercel and can never
-  become a static export like landing — gate details and the per-env keys
+  `app/gate/route.ts` handler; `apps/lp` ships byte-for-byte copies of the same pair (`yarn check:gate`
+  covers both). That's why they deploy as Next servers on Vercel and can never
+  become a static export like landing — gate details and the per-project keys
   (`STAGE_ACCESS_KEY`/`ACCESS_KEY`) live in `../../DEPLOY.stage.md`.

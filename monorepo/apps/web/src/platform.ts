@@ -4,7 +4,7 @@ import type { Platform } from '@fpay/app';
 import type { StateStorage } from 'zustand/middleware';
 
 import { bootTrace } from '@/lib/boot';
-import { API_URL, DEV_SECRET_KEY, DEV_USER_ID, IS_DEV, IS_LOCAL_ENV, IS_MAINNET, LANDING_URL, PRIVY_APP_ID, PRIVY_CLIENT_ID, SOLANA_RPC_URL, USE_PRIVY } from '@/services/envConfig';
+import { API_URL, DEV_SECRET_KEY, DEV_USER_ID, IS_DEV, IS_LOCAL_ENV, LANDING_URL, PRIVY_APP_ID, PRIVY_CLIENT_ID, SOLANA_RPC_URL, USE_PRIVY } from '@/services/envConfig';
 
 const noop: StateStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 const webStorage = (pick: () => Storage): StateStorage => ({
@@ -41,7 +41,6 @@ export const webPlatform: Platform = {
   env: {
     apiUrl: API_URL,
     solanaRpcUrl: SOLANA_RPC_URL,
-    isMainnet: IS_MAINNET,
     privyAppId: PRIVY_APP_ID,
     privyClientId: PRIVY_CLIENT_ID,
     usePrivy: USE_PRIVY,

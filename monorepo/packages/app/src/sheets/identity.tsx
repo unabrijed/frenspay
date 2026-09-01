@@ -34,17 +34,12 @@ export function Verify() {
   const payCtx = usePayStore((s) => s.pendingPay);
   const tier = usePayStore((s) => s.kycTier);
   const kycStatus = usePayStore((s) => s.kycStatus);
-  const available = usePayStore((s) => s.identityCheckAvailable);
   const error = usePayStore((s) => s.error);
   // Local, not the store's `busy`: that flag has 35 writers (load() among them), so a cold refresh
   // landing while this sheet is open would otherwise disable the only button on it.
   const [starting, setStarting] = useState(false);
   const waiting = kycStatus === 'pending' || kycStatus === 'in_review' ? WAIT_COPY[kycStatus] : null;
   const declined = kycStatus === 'declined';
-  // The vendor is switched off for this deployment. Not a blip — it lasts until it is switched back
-  // on — so the sheet must not offer a Start button whose only outcome is 503 with copy that says
-  // "try again shortly". Say what is true and leave nothing to press.
-  const paused = tier < 2 && !available;
 
   // `error` is a shared slot — a stale scan/quote failure would otherwise render red inside the tier
   // card. Same fresh-sheet reset as sheets/pay.tsx.
@@ -112,12 +107,7 @@ export function Verify() {
             <>
               {/* One note slot, in priority order: a live failure, then a vendor decline, then the
                   wait. Rendering two of them at once said the same thing twice in two voices. */}
-              {paused ? (
-                <Txt style={[type.lead, { marginTop: 12 }]}>
-                  Identity checks are paused right now, so there’s nothing to do here. We’ll let you know
-                  as soon as they’re back on — everything else in the app keeps working.
-                </Txt>
-              ) : error ? (
+              {error ? (
                 <Txt style={[type.lead, { color: colors.danger, marginTop: 12 }]}>{error}</Txt>
               ) : declined ? (
                 <Txt style={[type.lead, { color: colors.danger, marginTop: 12 }]}>
@@ -137,16 +127,14 @@ export function Verify() {
                   button behind that made the wait a dead end. Starting over is safe — POST
                   /kyc/verify overwrites the session (db/queries.ts setKycSession). It steps back to
                   `secondary` while waiting so it reads as the way out, not the thing to do next. */}
-              {paused ? null : (
-                <Btn
-                  label={starting ? 'Starting…' : waiting ? 'Start over' : declined ? 'Try again' : 'Verify identity'}
-                  onPress={() => void start()}
-                  variant={waiting && !starting ? 'secondary' : 'primary'}
-                  pending={starting}
-                  disabled={starting}
-                  style={{ marginTop: 14 }}
-                />
-              )}
+              <Btn
+                label={starting ? 'Starting…' : waiting ? 'Start over' : declined ? 'Try again' : 'Verify identity'}
+                onPress={() => void start()}
+                variant={waiting && !starting ? 'secondary' : 'primary'}
+                pending={starting}
+                disabled={starting}
+                style={{ marginTop: 14 }}
+              />
             </>
           ) : null}
         </View>

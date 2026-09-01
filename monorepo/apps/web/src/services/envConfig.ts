@@ -4,7 +4,9 @@
 //   local (default under `next dev`)      → NEXT_PUBLIC_LOCAL_<KEY> → NEXT_PUBLIC_STAGE_<KEY>
 //   stage (a stage deploy sets APP_ENV)   → NEXT_PUBLIC_STAGE_<KEY>
 //   production (default in a build)       → NEXT_PUBLIC_<KEY>
-// Bare NEXT_PUBLIC_* names exist ONLY in production builds/hosts — dev tiers never read them.
+// Bare NEXT_PUBLIC_* names exist ONLY in production builds/hosts — dev tiers never read them. ONE
+// exception: the Privy app is not tiered (exactly one app, every tier mounts it), so its two names are
+// read bare on every tier — see the PRIVY_APP_ID export below.
 //
 // This file is the REFERENCE implementation of the tier block. apps/admin and apps/landing carry a
 // byte-identical copy of it, asserted by `yarn check:env`. It deliberately is NOT imported from
@@ -12,9 +14,20 @@
 // so a shared reader would resolve to undefined at runtime. (The backend can't import it either —
 // runtime value imports from @fpay/shared fail under tsx; see apps/backend/src/envConfig.ts.)
 const isProduction = process.env.NODE_ENV === 'production';
-const APP_ENV = process.env.NEXT_PUBLIC_APP_ENV || (isProduction ? 'production' : 'local');
+// A value pasted into a host's variable panel carries baggage — a trailing newline, the quotes it was
+// copied inside. The backend launders every read through clean(); this is that twin, and it matters
+// more here: an untrimmed tier name matches nothing and drops to the stage chain below.
+const APP_ENV = (process.env.NEXT_PUBLIC_APP_ENV || (isProduction ? 'production' : 'local'))
+  .trim()
+  .replace(/^(['"])([\s\S]*)\1$/, '$2');
 const isProdEnv = APP_ENV === 'production';
 const isStageEnv = APP_ENV === 'stage';
+// An unrecognised tier used to fall out of pick() into the STAGE chain — a production build quietly
+// signing in against the stage Privy app while its own bare vars sat there unread. NEXT_PUBLIC_* is
+// inlined, so this folds at build time: a mistyped tier fails the build instead of shipping.
+if (!isProdEnv && !isStageEnv && APP_ENV !== 'local') {
+  throw new Error(`NEXT_PUBLIC_APP_ENV must be local | stage | production — got ${JSON.stringify(APP_ENV)}`);
+}
 
 /** Tier chain. Args must be literal process.env.NEXT_PUBLIC_* references (Next inlines). */
 function pick(local?: string, stage?: string, prod?: string): string | undefined {
@@ -34,16 +47,6 @@ const E = {
     process.env.NEXT_PUBLIC_STAGE_SOLANA_RPC_URL,
     process.env.NEXT_PUBLIC_SOLANA_RPC_URL,
   ),
-  privyAppId: pick(
-    process.env.NEXT_PUBLIC_LOCAL_PRIVY_APP_ID,
-    process.env.NEXT_PUBLIC_STAGE_PRIVY_APP_ID,
-    process.env.NEXT_PUBLIC_PRIVY_APP_ID,
-  ),
-  privyClientId: pick(
-    process.env.NEXT_PUBLIC_LOCAL_PRIVY_CLIENT_ID,
-    process.env.NEXT_PUBLIC_STAGE_PRIVY_CLIENT_ID,
-    process.env.NEXT_PUBLIC_PRIVY_CLIENT_ID,
-  ),
   landingUrl: pick(
     process.env.NEXT_PUBLIC_LOCAL_LANDING_URL,
     process.env.NEXT_PUBLIC_STAGE_LANDING_URL,
@@ -55,14 +58,8 @@ const E = {
 // environment via *_API_URL (e.g. http://localhost:3001 when running the backend locally).
 const DEFAULT_API_URL = 'http://localhost:3001';
 export const API_URL = E.apiUrl || DEFAULT_API_URL;
-// Deployed tiers fail CLOSED to mainnet (like ACCESS_KEY): a missing RPC var must never resurrect
-// devnet affordances on a live site. Only local dev defaults to devnet.
-export const SOLANA_RPC_URL =
-  E.solanaRpcUrl ||
-  (isProdEnv || isStageEnv ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com');
-// Cluster derives from the RPC URL — the web twin of the backend's mint-derived isMainnet. Gates
-// the faucet UI, the EVM deposit chips (bridge is off on mainnet), and the Privy chain id.
-export const IS_MAINNET = !SOLANA_RPC_URL.includes('devnet');
+// Every tier is mainnet — there is no testnet (2026-08-30). The var only picks the RPC provider.
+export const SOLANA_RPC_URL = E.solanaRpcUrl || 'https://api.mainnet-beta.solana.com';
 
 // Dev signing path (no Privy): a seeded user id + secret key from apps/backend/.devnet/keys.json.
 //
@@ -88,8 +85,15 @@ export const DEV_SECRET_KEY = isProduction
   : process.env.NEXT_PUBLIC_LOCAL_DEV_SECRET_KEY || process.env.NEXT_PUBLIC_STAGE_DEV_SECRET_KEY || '';
 
 // Privy. When the app id is set the app mounts Privy and uses email-OTP + the embedded Solana wallet.
-export const PRIVY_APP_ID = E.privyAppId ?? '';
-export const PRIVY_CLIENT_ID = E.privyClientId ?? '';
+//
+// ONE Privy app, every tier — deliberately NOT routed through pick(): there is exactly one app, so
+// tiering it would mean two variable names holding one value, and a stale STAGE_ twin silently
+// winning over the bare name is exactly how stage kept mailing OTPs from a retired app (2026-08-31).
+// Same reasoning apps/admin/src/services/envConfig.ts gives. Empty is a supported, LOUD state
+// (USE_PRIVY false); there is no fallback to a prefixed name — missing beats wrong.
+export const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID || '';
+/** Optional Privy app-client. Belongs to the app id above and to no other. */
+export const PRIVY_CLIENT_ID = process.env.NEXT_PUBLIC_PRIVY_CLIENT_ID || '';
 export const USE_PRIVY = PRIVY_APP_ID.length > 0;
 
 // The marketing site. Invite links point HERE, not at the app origin: the landing page reads `?ref=`,
@@ -97,7 +101,7 @@ export const USE_PRIVY = PRIVY_APP_ID.length > 0;
 // sign up still lands somewhere that explains what fpay is. Also the f-list exit from the invite gate.
 export const LANDING_URL = (E.landingUrl || 'https://frenspay.xyz').replace(/\/$/, '');
 
-// Deploy access gate (src/middleware.ts): one shared key per environment, no NEXT_PUBLIC_ prefix —
+// Deploy access gate (src/middleware.ts): one key per project per environment, no NEXT_PUBLIC_ prefix —
 // it's server-side only (middleware + /gate route), so it resolves undefined in browser bundles and
 // can never be inlined. Unset = gate off on the local tier only; deployed tiers fail CLOSED (the
 // middleware locks the build) so a missing key can never silently expose the app.

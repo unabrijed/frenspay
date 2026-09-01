@@ -114,10 +114,11 @@ it here too.
 
 | what | value | where |
 |---|---|---|
-| `MIN_BOND` — stake floor to go online, and to stay routable | **$2,000** | `services/merchantStats.ts` |
-| `DISPUTE_PENALTY_USDC` — flat slash per upheld dispute | **$1,500** | `services/merchantStats.ts` |
+| `MIN_BOND` — stake floor to go online, and to stay routable | **$100** (= the tier-1 payer's per-transaction cap) | `services/merchantStats.ts` |
+| dispute penalty — drawn per upheld dispute | **min(bond, the order's amount)** — no flat fine | `db/queries.ts` `drawDownBond` |
+| `DISPUTE_CLAW_WINDOW_H` — bond stays claimable, and a completed order disputable, for | **72 h** | `services/merchantStats.ts` |
 | `MAX_STAKE_DEPOSIT_USD` — cap on one stake deposit | **$50,000** | `routes/merchant.ts` |
-| `LEVERAGE` — effective float multiplier, by partner tier | **1 → 3× · 2 → 5× · 3 → 8×** | `services/merchantStats.ts` |
+| `LEVERAGE` — effective float multiplier, by partner tier | **1 → 1× · 2 → 3× · 3 → 5×** | `services/merchantStats.ts` |
 | `MIN_SPREAD_BPS` — price floor | **10 bps** | `services/merchantOps.ts` |
 | `TIER_MAX_SPREAD_BPS` — price ceiling, by tier | **1 → 100 · 2 → 200 · 3 → 300 bps** | `services/merchantStats.ts` |
 | tier 2 needs | **10 settled · ≥95% success · ≤3% disputes** | `TIER_RULES` |
@@ -131,13 +132,19 @@ it here too.
 `settled` (the tier's volume gate) is **lifetime**; the three rates are 90-day, except `positive_rate`
 which is lifetime because 👍 has no timestamp of its own.
 
-- **It is slashed only on an upheld dispute**, a flat penalty, once per order — **$1,500**, against a
-  **$2,000** floor. One upheld dispute against a floor-bonded partner drops them below `MIN_BOND` and
-  the next stats tick auto-suspends them. The two numbers only mean anything together.
+- **It is slashed only on an upheld dispute** — `min(bond, the order's amount)`, once per order, and
+  the ledger records what was actually drawn. With tier-1 leverage at 1× (in flight ≤ bond) every
+  draw is fully covered; nothing is ever left uncollected. A draw that lands under the floor
+  auto-suspends the partner on the next stats tick, exactly as before.
+- **Every movement is ledgered.** `merchant_bond_events` is written in the same statement as every
+  change to `bond_usdc` — deposit, request, cancel, penalty — so for every partner the balance IS the
+  sum of its ledger (`check-bond` asserts it). A partner is never deleted: leaving is a flag
+  (`suspend_reason = 'exited'`, frozen by trigger) and the ledger, the KYB record and the history stay.
 - **It comes back.** Withdrawal is a *request*: the bond is debited immediately (money on its way out
-  must stop backing new orders). **Four** preconditions, all predicates in one statement: enough bond,
-  **no withdrawal already requested**, no in-flight orders, no open disputes — the first two are the
-  ones an LP actually hits (`withdrawal_already_pending`, `insufficient_bond`). Then a human sends the
+  must stop backing new orders). **Five** preconditions, all predicates in one statement: enough bond,
+  **no withdrawal already requested**, no in-flight orders, no open disputes, and **nothing completed
+  inside the 72-hour claw window** (`recent_payout`) — while a payout can still be disputed, the bond
+  that would answer for it stays. Then a root admin sends the
   USDC. The stake vault has no signer by design, so automating the release means a
   second hot key in env — a security decision deliberately not made as a side effect.
 
@@ -210,7 +217,8 @@ accepted into a dead end.
   disputes ledger, and the alert seam with a Telegram adapter.
 - ✅ Its own app (`apps/lp`), with the score leading and distance-to-next-tier computed from the
   same rules routing scores on.
-- 🟡 No domain or Vercel project yet; the working name is `@fpay/lp`.
+- ✅ Its own Vercel project and domain (`provider.frenspay.xyz`, `DEPLOY.stage.md`), behind the same
+  deploy access gate as the wallet app — its own key, its own cookie.
 - ⬜ Web/mobile push. **Bank and phone destinations** (above). Staked returns. An admin surface for
   releasing a stake withdrawal ([07](07-admin-and-moderation.md)).
 
@@ -221,3 +229,4 @@ accepted into a dead end.
 - `apps/backend/src/services/alert/{index,provider,telegram}.ts` — the notifier seam
 - `packages/shared/src/kyb.ts` (+ `apps/backend/src/lib/kyb.ts`, its enforcing mirror)
 - `packages/ui` — the design system the console shares with the wallet app
+- `apps/lp/src/{middleware.ts,lib/gate.ts,lib/gateHtml.ts,app/gate/route.ts}` — the deploy access gate, byte-for-byte `apps/web`'s

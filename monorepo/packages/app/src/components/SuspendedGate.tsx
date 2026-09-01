@@ -21,8 +21,9 @@ export function SuspendedGate() {
       <Txt style={styles.title}>{deleted ? 'This account has been deleted' : 'Your account is paused'}</Txt>
       <Txt style={styles.body}>
         {deleted
-          ? 'You no longer have access to the app. Your money was always your own — it lives in ' +
-            'your embedded wallet, never with fpay. Contact support if you need help reaching it.'
+          ? 'You no longer have access to the app. Your money is your own — it lives in your embedded ' +
+            'wallet. A payment that was in flight is settled or refunded like any other; nothing else ' +
+            'is held. Contact support if you need help reaching it.'
           : 'You can’t send or receive money right now. Contact support to sort it out — your money is ' +
             'safe and stays yours.'}
       </Txt>

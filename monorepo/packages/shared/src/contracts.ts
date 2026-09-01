@@ -68,8 +68,6 @@ export interface WalletProvider {
     idempotencyKey?: string;
   }): Promise<Txn>;
   depositAddress(): string;
-  /** Devnet faucet: mint test USDC into the caller's own wallet. Optional (real/devnet only). */
-  addMoney?(amountUsd: number): Promise<Txn>;
   // ---- payment requests ----
   getRequests(): Promise<ApiPaymentRequest[]>;
   createRequest(input: CreateRequestRequest): Promise<ApiPaymentRequest>;
@@ -178,8 +176,18 @@ export interface MerchantProfile {
     /** Only the terms not yet met. Empty would mean the tier is already earned. */
     needs: Array<{ key: string; have: number; need: number }>;
   };
-  /** An open stake-withdrawal request. The bond is already debited; a human releases the USDC. */
-  pendingWithdrawal?: { id: string; amountUsdc: string; requestedAt: string };
+  /** An open stake-withdrawal request. The bond is already debited; a human releases the USDC to
+   *  `payoutWallet`. `exit` = the whole bond on the way out, which cannot be cancelled. */
+  pendingWithdrawal?: { id: string; amountUsdc: string; requestedAt: string; exit: boolean };
+  /** The wallet a released stake goes back to — the one it was staked from. Fixed, never typed. */
+  payoutWallet?: string;
+  /** Why `status` is 'suspended': 'exited' is the partner's own final decision; 'bond' is the floor;
+   *  anything else a human. */
+  suspendReason?: string;
+  exitedAt?: string;
+  /** Hours after an order completes during which its bond stays claimable (and it stays
+   *  disputable) — the same number on both sides. Shown before the first deposit. */
+  clawWindowHours: number;
   /** The LP's take off the mid rate, in basis points. Also the routing `cost` signal. */
   spreadBps: number;
   /** The most their TIER lets them charge, in bps — the platform's price envelope. Surfaced for the
@@ -517,9 +525,14 @@ export interface PrepareTransferRequest {
 }
 
 export interface PrepareTransferResponse {
-  /** Unsigned transaction (base64) the client signs via Privy; gas sponsored by the fee-payer. */
+  /** Unsigned transaction (base64) the client signs via Privy. */
   unsignedTx: string;
+  /** The fee payer the tx names: the backend fee-payer, or — when `sponsored` — the sender itself, a
+   *  placeholder Privy replaces. */
   feePayer: string;
+  /** True ⇒ the tx carries no backend signature and the client must ask Privy to sponsor it
+   *  (`sponsor: true`); false ⇒ the backend fee-payer has already signed and pays. */
+  sponsored: boolean;
   /** Pending transfers row id; echoed back to /transfer/submit to attach the signature. */
   transferId: string;
 }
@@ -533,16 +546,6 @@ export interface SubmitTransferRequest {
 export interface SubmitTransferResponse {
   signature: string;
   status: 'pending' | 'confirmed';
-}
-
-/** POST /devnet/faucet — mint controlled test USDC to the caller's wallet (devnet/dev only). */
-export interface FaucetRequest {
-  amountUsd: string | number;
-}
-
-export interface FaucetResponse {
-  signature: string;
-  balanceUsd: string;
 }
 
 /* ---- M1: orders, quotes, the spend/cash-out lifecycle (stablecoin-onofframp-architecture.pdf) ----
@@ -677,6 +680,8 @@ export interface CreateOrderResponse {
   order: Order;
   unsignedTx: string;
   feePayer: string;
+  /** See PrepareTransferResponse.sponsored. */
+  sponsored: boolean;
   transferId: string;
   referenceCode: string;
 }
@@ -804,6 +809,9 @@ export interface AdminMerchant {
   id: string;
   name: string;
   status: 'online' | 'offline' | 'suspended';
+  /** 'exited' = left for good (frozen by trigger); 'bond' = under the floor; else a human. */
+  suspendReason?: string;
+  exitedAt?: string;
   kybStatus: KybStatus;
   /** ISO 3166-1 alpha-2 — which country's KYB_FIELDS spec labels kybFields. */
   country: string;
@@ -830,6 +838,25 @@ export interface AdminMerchant {
 
 export interface AdminMerchantsResponse {
   merchants: AdminMerchant[];
+}
+
+/** A stake withdrawal as the admin console sees it: who, how much, where it goes, and — once a
+ *  root admin has sent the USDC by hand — the signature that proves it. */
+export interface AdminStakeWithdrawal {
+  id: string;
+  merchantId: string;
+  merchantName: string;
+  amountUsdc: string;
+  status: 'requested' | 'released' | 'cancelled';
+  exit: boolean;
+  payoutWallet?: string;
+  requestedAt: string;
+  settledAt?: string;
+  releaseSignature?: string;
+}
+
+export interface AdminStakeWithdrawalsResponse {
+  withdrawals: AdminStakeWithdrawal[];
 }
 
 export interface AdminRiskEvent {

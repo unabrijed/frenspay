@@ -2,11 +2,11 @@
 // asserts, then cleans up), so it only needs a *migrated* DB (`db:init`), not the demo seed. Proves:
 //   1. a failing LP's recomputed success_rate drops below its seed prior and it ranks below a healthy LP;
 //   2. an in-flight order commits live float and saturates the LP out of routing;
-//   3. drawing the bond below MIN_BOND suspends the LP (absent from routing).
+//   3. an upheld-dispute draw below MIN_BOND suspends the LP (absent from routing), and is ledgered.
 // Run: yarn workspace @fpay/backend tsx scripts/check-merchant.ts   (needs DATABASE_URL + `db:init`)
 import { committedFloatByMerchant, drawDownBond, setOrderFeedback } from '../src/db/queries';
 import { getPool } from '../src/db/pool';
-import { DISPUTE_PENALTY_USDC, MIN_BOND, recomputeMerchantStats } from '../src/services/merchantStats';
+import { MIN_BOND, recomputeMerchantStats } from '../src/services/merchantStats';
 import { rankMerchants } from '../src/services/routing';
 
 let failures = 0;
@@ -35,13 +35,13 @@ async function main() {
   const fail = (
     await pool.query<{ id: string }>(
       `insert into merchants (${MERCHANT_COLS}) values
-       ('ZZ-HARNESS-FAIL','UPI','IN','online','ZZHfailTreasury00000000000000000000000000',0.99,100,50,1000,0.005,'approved',${DISPUTE_PENALTY_USDC + 1000},0.99,100,0.005,'happy') returning id`,
+       ('ZZ-HARNESS-FAIL','UPI','IN','online','ZZHfailTreasury00000000000000000000000000',0.99,100,50,1000,0.005,'approved',${MIN_BOND + 50},0.99,100,0.005,null) returning id`,
     )
   ).rows[0];
   const big = (
     await pool.query<{ id: string }>(
       `insert into merchants (${MERCHANT_COLS}) values
-       ('ZZ-HARNESS-BIG','UPI','IN','online','ZZHbigTreasury000000000000000000000000000',0.99,100,50,100000,0.005,'approved',9000,0.99,100,0.005,'happy') returning id`,
+       ('ZZ-HARNESS-BIG','UPI','IN','online','ZZHbigTreasury000000000000000000000000000',0.99,100,50,100000,0.005,'approved',9000,0.99,100,0.005,null) returning id`,
     )
   ).rows[0];
 
@@ -137,7 +137,9 @@ async function main() {
   check('saturated LP filtered out (available < amount)', !ranked.some((r) => r.merchant.id === fail.id));
 
   // 3) Bond: draw FAIL below MIN_BOND → recompute suspends it → absent from routing.
-  await drawDownBond(fail.id, DISPUTE_PENALTY_USDC);
+  // The penalty is min(bond, the order's amount): a MIN_BOND-sized order leaves 50 behind — under the floor.
+  const drawn = await drawDownBond(fail.id, MIN_BOND);
+  check('penalty drew the order amount, bounded by the bond', drawn === MIN_BOND, `drawn=${drawn}`);
   await recomputeMerchantStats();
   const f2 = (
     await pool.query<{ status: string; bond_usdc: string }>(`select status, bond_usdc from merchants where id=$1`, [fail.id])

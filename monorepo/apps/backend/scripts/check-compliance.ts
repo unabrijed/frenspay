@@ -4,7 +4,8 @@
 // Run: yarn workspace @fpay/backend tsx scripts/check-compliance.ts   (needs DATABASE_URL + db:init)
 import { getPool } from '../src/db/pool';
 import { setUserKycTier } from '../src/db/queries';
-import { checkCashOutLimit, checkSendLimit, screenAddress } from '../src/services/compliance';
+import { config } from '../src/envConfig';
+import { checkCashOutLimit, checkSendLimit, effectiveLimits, screenAddress } from '../src/services/compliance';
 
 let failures = 0;
 function check(name: string, cond: boolean, detail?: string) {
@@ -39,9 +40,30 @@ async function main() {
   const over = await checkSendLimit(user.id, 200);
   check('tier-1 $200 send rejected (over $100)', !over.ok && over.kind === 'send' && over.requiredTier === 2, JSON.stringify(over));
 
-  // Tier 1 cash-out is gated behind tier 2.
+  // Tier 1 cash-out is gated behind tier 2 — but ONLY while there is an identity vendor to reach it
+  // through. Both branches assert here rather than in a second process: effectiveLimits takes the
+  // vendor flag as a parameter precisely so this is one pure call, no env juggling.
+  check('vendor live · tier-1 cash-out stays gated behind tier 2', !effectiveLimits(1, true).cashOut);
+  check(
+    'vendor off · tier-1 cash-out unlocked at the tier-1 SEND caps ($100/tx, $300/day)',
+    effectiveLimits(1, false).cashOut &&
+      effectiveLimits(1, false).cashOutPerTx === 100 &&
+      effectiveLimits(1, false).cashOutDaily === 300,
+    JSON.stringify(effectiveLimits(1, false)),
+  );
+  // Lifting the gate must not lift the CAP: over $100 still fails with the vendor off.
+  check('vendor off · tier-2 caps are NOT handed out', effectiveLimits(1, false).cashOutPerTx !== 1000);
+
+  // ...and the same through the real DB-backed path, whichever way this deployment is configured.
   const co1 = await checkCashOutLimit(user.id, 50);
-  check('tier-1 cash-out blocked (requires tier 2)', !co1.ok && co1.requiredTier === 2);
+  check(
+    config.personaLive
+      ? 'tier-1 $50 cash-out blocked (vendor live → requires tier 2)'
+      : 'tier-1 $50 cash-out allowed (vendor off → tier-1 cap applies)',
+    config.personaLive ? !co1.ok && co1.requiredTier === 2 : co1.ok,
+    JSON.stringify(co1),
+  );
+  check('tier-1 $200 cash-out rejected either way (over the $100 tier-1 cap)', !(await checkCashOutLimit(user.id, 200)).ok);
 
   // Upgrade → cash-out allowed up to the tier-2 per-tx cap ($1000).
   await setUserKycTier(user.id, 2);

@@ -1,13 +1,11 @@
 // money.ts — P2P money movement: balance/activity, payment requests, gas-sponsored USDC
-// transfers (prepare/submit), devnet faucet. Compliance controls are INLINE in the prepare
+// transfers (prepare/submit). Compliance controls are INLINE in the prepare
 // handler — any new money-moving route must re-attach them explicitly.
 import type { FastifyInstance } from 'fastify';
 
 import type {
   BalanceResponse,
   CreateRequestRequest,
-  FaucetRequest,
-  FaucetResponse,
   PrepareTransferRequest,
   PrepareTransferResponse,
   RequestsResponse,
@@ -34,7 +32,6 @@ import {
   listRequestsForUser,
   listTransactionsForUser,
   markRequestPaid,
-  recordDeposit,
   withUserLock,
 } from '../db/queries';
 import { amt, positiveAmount, USDC_DECIMALS } from '../lib/amount';
@@ -48,7 +45,6 @@ import {
   feePayerAddress,
   getUsdcBalance,
   isValidRecipientOwner,
-  sendUsdcFromTreasury,
 } from '../services/solana';
 
 // External (raw-address) send guards — both bound the fee-payer ATA-rent drain (~0.002 SOL per
@@ -185,8 +181,12 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
       }
       // Withdrawal to an unhosted wallet — verified tier required. LimitExceededError shape so the
       // client's existing "verify to continue" plumbing handles it.
+      // ...UNLESS the vendor is off (config.personaLive false — credentials blanked in the host's
+      // panel). Then tier 2 is unreachable and this gate blocks every outside-wallet send forever,
+      // for nobody's benefit. Same rule as /merchants/apply; checkSendLimit below still holds the
+      // tier-1 $100/tx cap, and the gate re-imposes itself when the credentials come back.
       const tier = await getUserKycTier(userId);
-      if (tier < KYC_APPROVED_TIER) {
+      if (config.personaLive && tier < KYC_APPROVED_TIER) {
         return reply.code(403).send({
           error: 'limit_exceeded',
           kind: 'send',
@@ -224,6 +224,7 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
           return {
             unsignedTx: rebuilt.unsignedTx,
             feePayer: rebuilt.feePayer,
+            sponsored: rebuilt.sponsored,
             transferId: existing.id,
           } satisfies PrepareTransferResponse;
         } catch (e) {
@@ -281,7 +282,7 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
         if ((e as { code?: string }).code === '23505') return { kind: 'duplicate' as const };
         throw e;
       }
-      return { kind: 'ok' as const, unsignedTx: built.unsignedTx, feePayer: built.feePayer, transferId };
+      return { kind: 'ok' as const, unsignedTx: built.unsignedTx, feePayer: built.feePayer, sponsored: built.sponsored, transferId };
     });
 
     if (outcome.kind === 'limit') {
@@ -299,7 +300,7 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
     if (outcome.kind === 'blocked') return reply.code(403).send({ error: 'blocked', reason: outcome.reason });
     if (outcome.kind === 'solana_unavailable') return reply.code(503).send({ error: 'solana_unavailable' });
     if (outcome.kind === 'duplicate') return reply.code(409).send({ error: 'duplicate_request' });
-    return { unsignedTx: outcome.unsignedTx, feePayer: outcome.feePayer, transferId: outcome.transferId } satisfies PrepareTransferResponse;
+    return { unsignedTx: outcome.unsignedTx, feePayer: outcome.feePayer, sponsored: outcome.sponsored, transferId: outcome.transferId } satisfies PrepareTransferResponse;
   });
 
   app.post<{ Body: SubmitTransferRequest }>('/transfer/submit', async (req, reply) => {
@@ -321,35 +322,4 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
     return { signature, status: 'pending' } satisfies SubmitTransferResponse;
   });
 
-  // --- devnet faucet: send test USDC from the treasury to the caller's wallet (dev/devnet only).
-  // The isMainnet gate is load-bearing: on a real mint this route would hand out REAL USDC from
-  // the fee-payer's ATA, so it must stay off however NODE_ENV is set. ---
-  app.post<{ Body: FaucetRequest }>('/devnet/faucet', async (req, reply) => {
-    if (!config.isDevelopment || config.isMainnet) {
-      return reply.code(403).send({ error: 'faucet_disabled' });
-    }
-    const userId = requireUserId(req);
-    const requested = positiveAmount(req.body?.amountUsd);
-    // Official-USDC treasury faucet (docs/19): defaults sized to Circle's faucet drip rate so one
-    // request can't drain the treasury (was 100/1000 when we held the mint authority). An
-    // unusable amount falls back to the default rather than 400 — this is a dev convenience.
-    const amountUsd = requested === null ? 10 : Math.min(requested, 50);
-
-    const wallet = await getWalletForUser(userId);
-    if (!wallet?.address) return reply.code(404).send({ error: 'wallet_not_found' });
-
-    let signature: string;
-    try {
-      signature = await sendUsdcFromTreasury(wallet.address, amountUsd);
-    } catch (e) {
-      if (e instanceof Error && e.message === 'faucet_empty') {
-        return reply.code(503).send({ error: 'faucet_empty' });
-      }
-      req.log.error({ err: e }, 'faucet transfer failed');
-      return reply.code(503).send({ error: 'solana_unavailable' });
-    }
-    await recordDeposit({ toUserId: userId, toAddress: wallet.address, amountUsd, signature });
-    const balanceUsd = await getUsdcBalance(wallet.address);
-    return { signature, balanceUsd } satisfies FaucetResponse;
-  });
 }

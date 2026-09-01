@@ -44,6 +44,8 @@ import {
   type MerchantOrderRow,
   type MerchantRow,
   type StakeWithdrawalRow,
+  exitMerchant,
+  hasRecentCompletion,
 } from '../db/queries';
 import { amt, positiveAmount, USDC_DECIMALS } from '../lib/amount';
 import { acceptsLps, CORRIDORS, PAYOUT_METHODS } from '../lib/corridors';
@@ -51,7 +53,7 @@ import { KYB_SUBMITTABLE, validateKybFields } from '../lib/kyb';
 import { formatAmount } from '../lib/units';
 import { KYC_APPROVED_TIER } from '../services/kyc';
 import * as ops from '../services/merchantOps';
-import { leverageFor, MIN_BOND, spreadCapFor, tierProgress } from '../services/merchantStats';
+import { DISPUTE_CLAW_WINDOW_H, leverageFor, MIN_BOND, spreadCapFor, tierProgress } from '../services/merchantStats';
 import { buildUsdcTransfer } from '../services/solana';
 
 /** Cap on a single stake deposit — a typo shouldn't be able to move a merchant's whole balance. */
@@ -88,10 +90,18 @@ export function toMerchantProfile(
   pending?: StakeWithdrawalRow,
   kybEvents?: KybEventRow[],
   settled?: number,
+  payoutWallet?: string,
 ): MerchantProfile {
   return {
     id: m.id,
     name: m.name,
+    // Why a suspended row is suspended: 'exited' is the LP's own decision and final; anything else
+    // is the bond floor or a human, and the console words them differently.
+    suspendReason: m.suspend_reason ?? undefined,
+    exitedAt: m.exited_at?.toISOString(),
+    // The only place a released stake ever goes — the wallet it was staked from.
+    payoutWallet,
+    clawWindowHours: DISPUTE_CLAW_WINDOW_H,
     kybStatus: m.kyb_status,
     // The reviewer's outstanding question or reason, shown to the merchant verbatim. "Rejected"
     // with nothing after it is not a decision anyone can act on.
@@ -132,7 +142,7 @@ export function toMerchantProfile(
     spreadBps: m.spread_bps,
     maxSpreadBps: spreadCapFor(m.tier),
     pendingWithdrawal: pending
-      ? { id: pending.id, amountUsdc: pending.amount_usdc, requestedAt: pending.requested_at.toISOString() }
+      ? { id: pending.id, amountUsdc: pending.amount_usdc, requestedAt: pending.requested_at.toISOString(), exit: pending.exit }
       : undefined,
     successRate: Number(m.success_rate),
     disputeRate: Number(m.dispute_rate),
@@ -427,7 +437,7 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
     const wallet = await getWalletForUser(merchant.user_id!);
     if (!wallet) return reply.code(404).send({ error: 'wallet_not_found' });
 
-    let built: { unsignedTx: string; feePayer: string };
+    let built: { unsignedTx: string; feePayer: string; sponsored: boolean };
     try {
       built = await buildUsdcTransfer({
         fromOwner: wallet.address,
@@ -447,7 +457,7 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
       kind: 'send',
       note: 'merchant stake',
     });
-    return { unsignedTx: built.unsignedTx, feePayer: built.feePayer, transferId } satisfies PrepareTransferResponse;
+    return { unsignedTx: built.unsignedTx, feePayer: built.feePayer, sponsored: built.sponsored, transferId } satisfies PrepareTransferResponse;
   });
 
   /**
@@ -469,24 +479,44 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
     const amountUsd = positiveAmount(req.body?.amountUsd);
     if (amountUsd === null) return reply.code(400).send({ error: 'invalid_amount' });
 
-    const id = await requestStakeWithdrawal(merchant.id, amountUsd);
+    const id = await requestStakeWithdrawal(merchant.id, amountUsd, DISPUTE_CLAW_WINDOW_H);
     if (!id) {
       // One refusal for four causes would be useless to the person reading it, so re-read and say
       // which. Racy by nature — this is an error message, not a gate; the gate is the statement above.
       const open = (await listStakeWithdrawals(merchant.id)).find((w) => w.status === 'requested');
       if (open) return reply.code(409).send({ error: 'withdrawal_already_pending' });
       if (Number(merchant.bond_usdc) < amountUsd) return reply.code(409).send({ error: 'insufficient_bond' });
+      if (await hasRecentCompletion(merchant.id, DISPUTE_CLAW_WINDOW_H)) return reply.code(409).send({ error: 'recent_payout' });
       return reply.code(409).send({ error: 'orders_in_flight' });
     }
     return reply.code(201).send({ id, amountUsdc: formatAmount(amt(amountUsd), USDC_DECIMALS) });
   });
 
-  /** Changed their mind before a human released it — the bond goes straight back. */
+  /** Changed their mind before a human released it — the bond goes straight back. Not for an exit:
+   *  leaving is final (the row is frozen by trigger the moment it flips). */
   app.post<{ Params: { id: string } }>('/merchants/stake/withdraw/:id/cancel', async (req, reply) => {
     const merchant = await requireMerchant(req);
     if (!(await cancelStakeWithdrawal(merchant.id, req.params.id))) {
       return reply.code(409).send({ error: 'withdrawal_not_cancellable' });
     }
     return { ok: true };
+  });
+
+  /**
+   * Leave fpay as a partner. One statement (queries.ts exitMerchant): the whole bond becomes a
+   * withdrawal request flagged `exit`, and the row is marked — never deleted — and frozen. Same
+   * preconditions as a withdrawal, and the same 409s say which one refused.
+   */
+  app.post('/merchants/exit', async (req, reply) => {
+    const merchant = await requireMerchant(req);
+    const done = await exitMerchant(merchant.id, DISPUTE_CLAW_WINDOW_H);
+    if (!done) {
+      if (merchant.suspend_reason === 'exited') return reply.code(409).send({ error: 'already_exited' });
+      const open = (await listStakeWithdrawals(merchant.id)).find((w) => w.status === 'requested');
+      if (open) return reply.code(409).send({ error: 'withdrawal_already_pending' });
+      if (await hasRecentCompletion(merchant.id, DISPUTE_CLAW_WINDOW_H)) return reply.code(409).send({ error: 'recent_payout' });
+      return reply.code(409).send({ error: 'orders_in_flight' });
+    }
+    return reply.code(201).send({ ok: true, withdrawalId: done.withdrawalId });
   });
 }

@@ -43,7 +43,7 @@ const INDONESIA: KybFieldSpec[] = [
 const SCREENING: KybFieldSpec[] = [
   { key: 'cryptoExperience', options: ['Just starting', 'Some experience', 'Active user', 'Professional'] },
   { key: 'profession', options: ['Student', 'Freelancer', 'Full-time employee', 'Business owner', 'Homemaker'] },
-  { key: 'plannedStake', options: ['$2,000 — the minimum', '$2,000–5,000', 'Over $5,000', 'Not sure yet'] },
+  { key: 'plannedStake', options: ['$100 — the minimum', '$100–300', 'Over $300', 'Not sure yet'] },
   { key: 'commitment', options: ['Under 3 months', '3–6 months', '6–12 months', 'A year or more', 'Not sure yet'] },
   { key: 'accountDedicated', options: ['Yes, dedicated to this', 'No, I also use it personally', 'I’ll open one before starting'] },
   { key: 'otherPlatforms', optional: true, maxLen: 200 },

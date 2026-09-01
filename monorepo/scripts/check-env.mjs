@@ -75,6 +75,14 @@ for (const app of rest) {
   }
 }
 
+// 1b) An unrecognised APP_ENV must stop the build, not fall out of pick() into the stage chain.
+// That fall-through is how a production web deploy signed in against the STAGE Privy app while its
+// own bare NEXT_PUBLIC_PRIVY_APP_ID sat there unread — silent, because every var still resolved to
+// something. A tier name with a pasted newline or quotes around it did the same.
+if (reference.block && !/APP_ENV must be local \| stage \| production/.test(reference.block)) {
+  fail(`${reference.name} (${reference.path}): an unrecognised APP_ENV no longer fails closed`);
+}
+
 // 2) Nothing else may read process.env. A bare read skips the tier chain entirely — exactly how the
 // landing waitlist ended up posting to localhost on a stage deploy.
 for (const app of NEXT_APPS) {

@@ -23,6 +23,8 @@ if (envPath) loadDotenv({ path: envPath });
 //   production           → <KEY>  (bare names exist ONLY on the production host, never in a local
 //                          file — so dev tiers never fall back to them and a stray prod var in the
 //                          shell can't leak into a dev run)
+//   EXCEPTION — the Privy trio (PRIVY_APP_ID / _APP_SECRET / _VERIFICATION_KEY) is read BARE on every
+//   tier: there is exactly one Privy app, so it has no tiered twins (see the Privy block below).
 // Every backend env read must go through `config`.
 export enum Environment {
   LOCAL = 'local',
@@ -63,6 +65,16 @@ export function usableSecret(value: string, prefix?: RegExp): boolean {
   return prefix ? prefix.test(v) : true;
 }
 
+/** A solana-keygen secret: a JSON array of exactly 64 bytes — the only shape parseSecretKey accepts. */
+export function usableKeypair(value: string): boolean {
+  return usableSecret(value, /^\s*\[\s*(\d{1,3}\s*,\s*){63}\d{1,3}\s*\]\s*$/);
+}
+
+/** A base58 public key by shape (32–44 chars of the base58 alphabet); the RPC rejects the rest at use. */
+export function usablePubkey(value: string): boolean {
+  return usableSecret(value, /^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
+}
+
 /** Read an env var through the tier chain (see header). */
 function env(key: string, fallback = ''): string {
   const raw = isLocal
@@ -93,18 +105,33 @@ function num(key: string, def: number, range?: { min?: number; max?: number }): 
   return n;
 }
 
-// Circle's canonical mainnet USDC mint. Money-realness derives from the MINT, not NODE_ENV:
-// `isMainnet` hard-gates the faucet, the /sim order routes, order creation (until the escrow
-// program deploys to mainnet), and cross-chain — so no tier's dev conveniences can touch real funds
-// even on a stage backend pointed at mainnet.
+// Circle's canonical mainnet USDC mint — the default on every tier; there is no testnet (docs/15).
 const MAINNET_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-const usdcMintValue = env('USDC_MINT');
+const usdcMintValue = env('USDC_MINT', MAINNET_USDC_MINT);
 
-// KYC credentials are read before the config object so `personaLive` can be DERIVED from them rather
-// than restated. Blanking either variable in the host's panel is the documented way to turn identity
-// verification off (docs/14) — which is why emptiness must be a first-class state here and not an
-// error thrown at boot.
-const kycProviderValue = env('KYC_PROVIDER', isLocal ? 'sim' : 'persona');
+// Payments are a CAPABILITY derived from the keys that make a settlement possible (docs/16): the
+// escrow pool's key and a real earnings address. Either missing or a placeholder ⇒ escrowLive is
+// false and the order routes answer 503 rather than build a deposit nobody could ever pay out of.
+//
+// The fee-payer is OPTIONAL and selects who pays gas (docs/16 §Who pays gas): configured ⇒ it
+// co-signs every user tx and pays every backend tx; absent ⇒ "sponsored mode" — user txs are built
+// unsigned and the client asks Privy to sponsor them, and the escrow key pays its own gas.
+const escrowSecretKeyValue = env('ESCROW_SECRET_KEY');
+const platformFeeDestinationValue = env('PLATFORM_FEE_DESTINATION');
+const feePayerSecretKeyValue = env('FEE_PAYER_SECRET_KEY');
+const feePayerConfiguredValue = usableKeypair(feePayerSecretKeyValue);
+const escrowLiveValue = usableKeypair(escrowSecretKeyValue) && usablePubkey(platformFeeDestinationValue);
+
+// KYC config is read before the config object so `personaLive` can be DERIVED from it rather than
+// restated. All three variables are switches: leaving KYC_PROVIDER unset, or blanking either
+// credential, turns identity verification off (docs/14). Emptiness is a first-class state here, never
+// an error thrown at boot.
+//
+// No 'persona' fallback on a deployed tier: the provider name IS the front-door switch — name it to
+// turn checks on — and a fallback would deny it the ability to say "off". The cost is that a
+// FORGOTTEN variable reads as off rather than on, which is why the boot warning at the bottom of this
+// file names it alongside the credentials.
+const kycProviderValue = env('KYC_PROVIDER', isLocal ? 'sim' : '');
 const personaApiKeyValue = env('PERSONA_API_KEY');
 const personaTemplateIdValue = env('PERSONA_TEMPLATE_ID');
 
@@ -125,19 +152,26 @@ export const config = {
   // CORS allowlist (comma-separated origins). Empty = allow all (dev).
   corsOrigin: env('CORS_ORIGIN'),
 
-  // Solana (devnet by default; Helius RPC recommended for reliability + webhooks).
-  solanaRpcUrl: env('SOLANA_RPC_URL', 'https://api.devnet.solana.com'),
+  // Solana mainnet (a Helius RPC is recommended for reliability + webhooks).
+  solanaRpcUrl: env('SOLANA_RPC_URL', 'https://api.mainnet-beta.solana.com'),
   heliusApiKey: env('HELIUS_API_KEY'),
   // Fee-payer secret as a JSON array of bytes (solana-keygen format) — parseSecretKey rejects
-  // base58, so a base58 key here fails at first use.
-  feePayerSecretKey: env('FEE_PAYER_SECRET_KEY'),
-  // On-chain escrow program id (M2). Defaults to the deployed devnet program; the order machine
-  // builds deposit/release/refund instructions against it. Falls back to the IDL's address if unset.
-  escrowProgramId: env('ESCROW_PROGRAM_ID'),
-  // SPL mint used as "USDC" (Circle's devnet USDC in dev; Circle's mainnet mint = real money).
+  // base58, so a base58 key here fails at first use. OPTIONAL: see feePayerConfigured.
+  feePayerSecretKey: feePayerSecretKeyValue,
+  // False ⇒ sponsored mode (docs/16 §Who pays gas): user txs carry no backend signature and the
+  // client asks Privy to sponsor them; the escrow key pays its own gas. True ⇒ the fee-payer pays.
+  feePayerConfigured: feePayerConfiguredValue,
+  // The escrow POOL's owner (docs/16): one token account under this key holds every payer deposit
+  // until it is released or refunded; the key signs transfers OUT. It holds no SOL while a fee-payer
+  // is configured, ~0.05 SOL otherwise (it then pays its own gas). Same JSON-array shape as the
+  // fee-payer. Prod's is Bridge's own key (DEPLOY.md §Keys); stage's is in Railway.
+  escrowSecretKey: escrowSecretKeyValue,
+  // Where the platform's cut lands on release. PUBLIC KEY ONLY — a cold wallet; nothing signs from it.
+  platformFeeDestination: platformFeeDestinationValue,
+  // Quote → order → deposit is ON only while the pool can be paid out of (see escrowLiveValue).
+  escrowLive: escrowLiveValue,
+  // Circle's USDC mint — real money on every tier.
   usdcMint: usdcMintValue,
-  // TRUE ⇒ this backend moves real USDC, whatever NODE_ENV says. The gates above key off this.
-  isMainnet: usdcMintValue === MAINNET_USDC_MINT,
   // (The platform's cut is no longer configured here: it's a flat $0.001 per conversion, a
   // constant in quoteEngine.ts — decided 2026-08-13, docs/05. PLATFORM_FEE_BPS is retired.)
   // Where merchant/LP stake (their bond — skin in the game) is held. PUBLIC KEY ONLY: nothing in
@@ -177,25 +211,29 @@ export const config = {
   // just carry no button.
   lpBaseUrl: env('LP_BASE_URL'),
 
-  // Privy (M3).
-  privyAppId: env('PRIVY_APP_ID'),
-  privyAppSecret: env('PRIVY_APP_SECRET'),
+  // Privy (M3). ONE app on every tier, read BARE and never through env(): every frontend mounts the
+  // same app and both backends verify with it, so a tiered name would be two variables holding one
+  // value — and a stale STAGE_ twin winning silently is how stage kept mailing OTPs from a retired
+  // app (2026-08-31). Raw process.env reads stay in this file (the one place allowed to); clean()
+  // still launders the paste. Unset ⇒ privyConfigured() false, loudly, with no fallback.
+  privyAppId: clean(process.env.PRIVY_APP_ID),
+  privyAppSecret: clean(process.env.PRIVY_APP_SECRET),
   // Optional: paste the verification key from the Privy dashboard to skip a network fetch per verify.
-  privyVerificationKey: env('PRIVY_VERIFICATION_KEY'),
+  privyVerificationKey: clean(process.env.PRIVY_VERIFICATION_KEY),
 
   // M7: KYC vendor. 'sim' = the dev instant-promote (no documents); 'persona' = real document+selfie
-  // via Persona's hosted flow, decisions read back by the reconciler poller. NODE_ENV decides:
-  // local → sim, stage/prod → persona (prod must never self-promote). Override per tier via
-  // <PREFIX>_KYC_PROVIDER if needed. A persona_sandbox_ key is refused outside dev/stage (assertKycConfig).
+  // via Persona's hosted flow, decisions read back by the reconciler poller. Local defaults to sim;
+  // a deployed tier defaults to NOTHING and must name 'persona' through <PREFIX>_KYC_PROVIDER to run
+  // checks at all. A persona_sandbox_ key is refused outside dev/stage (assertKycConfig).
   kycProvider: kycProviderValue,
   personaApiKey: personaApiKeyValue,
   personaTemplateId: personaTemplateIdValue,
   personaBaseUrl: env('PERSONA_BASE_URL', 'https://api.withpersona.com'),
-  // THE switch. Persona is live only when it is selected AND both credentials are real. Blanking
-  // either one in Railway turns identity verification off everywhere — the route 503s, the poller
-  // and the boot probe stand down, and merchant onboarding falls back to manual KYB review
-  // (docs/14). Deliberately NOT `kycProvider !== 'persona'`: an empty KYC_PROVIDER resolves back to
-  // 'persona' through env()'s fallback, so the provider name alone can never express "off".
+  // THE switch, and all three parts of it are load-bearing: Persona is live only when it is NAMED and
+  // both credentials are real. Unsetting KYC_PROVIDER, or blanking either credential in Railway,
+  // turns identity verification off everywhere — the route 503s, the poller and the boot probe stand
+  // down, the payer app drops its verification surface entirely rather than explaining itself, and
+  // merchant onboarding falls back to manual KYB review (docs/14).
   personaLive:
     kycProviderValue === 'persona' &&
     usableSecret(personaApiKeyValue, /^persona_(sandbox|production)_/) &&
@@ -297,7 +335,27 @@ const dbHost = (() => {
     return '(unset)';
   }
 })();
-console.log(`[config] env=${node_env} database=${dbSource} host=${dbHost}`);
+// The Privy app id is public and is the one credential a retired twin can silently shadow — name it.
+console.log(`[config] env=${node_env} database=${dbSource} host=${dbHost} privy=${config.privyAppId || '(unset)'}`);
+// Payments being OFF is a deployment state, not a bug — but silent otherwise: every quote 503s and
+// nothing says why. Name the tier-prefixed variables actually being read.
+if (!config.escrowLive && !config.isLocal) {
+  console.warn(
+    `[config] WARNING: ${envSource('ESCROW_SECRET_KEY')} / ${envSource('PLATFORM_FEE_DESTINATION')} — ` +
+      'one is unset, a placeholder or the wrong shape — payments are OFF. /orders/quote and POST /orders ' +
+      'answer 503 payments_unavailable.',
+  );
+}
+// Who pays gas is a deployment choice, and the sponsored one has two preconditions this process
+// cannot check (docs/16 §Who pays gas): Privy's Gas Sponsorship toggle for Solana, and SOL on the
+// escrow key. Say which mode this is, every boot.
+if (!config.feePayerConfigured) {
+  console.warn(
+    `[config] ${envSource('FEE_PAYER_SECRET_KEY')} is unset — SPONSORED MODE: user transactions rely on Privy ` +
+      'gas sponsorship (Privy dashboard → Gas Sponsorship → Solana must be ON; web only), and the escrow key ' +
+      'pays its own gas for release, refund and new token accounts — keep ~0.05 SOL on it.',
+  );
+}
 if (isLocal && dbSource.startsWith('STAGE_')) {
   console.warn(
     `[config] WARNING: NODE_ENV=${node_env} is using the STAGE database (${dbHost}). ` +
@@ -319,8 +377,9 @@ if (config.adminEmails.length === 0) {
 // actually being read so a mis-prefixed one is obvious.
 if (!config.personaLive && !config.isLocal) {
   console.warn(
-    `[config] WARNING: ${envSource('PERSONA_API_KEY')} / ${envSource('PERSONA_TEMPLATE_ID')} are unset or ` +
-      'placeholders — identity verification is OFF. /kyc/verify returns 503 and partner onboarding ' +
+    `[config] WARNING: ${envSource('KYC_PROVIDER')} is not 'persona', or ${envSource('PERSONA_API_KEY')} / ` +
+      `${envSource('PERSONA_TEMPLATE_ID')} are unset or placeholders — identity verification is OFF. ` +
+      '/kyc/verify returns 503, the payer app hides its verification surface, and partner onboarding ' +
       'falls back to manual review of the business form.',
   );
 }

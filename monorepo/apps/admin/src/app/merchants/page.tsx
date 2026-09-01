@@ -5,7 +5,7 @@
 // first and lands in the audit trail server-side.
 import { Fragment, useCallback, useState } from 'react';
 
-import type { AdminMerchant } from '@fpay/shared';
+import type { AdminMerchant, AdminStakeWithdrawal } from '@fpay/shared';
 import { KYB_DECIDABLE, KYB_FIELDS } from '@fpay/shared';
 import { api } from '@/services/api';
 import {
@@ -29,6 +29,8 @@ const pct = (f: number) => `${(f * 100).toFixed(1)}%`;
 export default function Merchants() {
   const fetchMerchants = useCallback(() => api.merchants(), []);
   const { data, err, denied, reload } = usePoll(fetchMerchants, 15000);
+  const fetchWithdrawals = useCallback(() => api.stakeWithdrawals('requested'), []);
+  const { data: withdrawals, reload: reloadWithdrawals } = usePoll(fetchWithdrawals, 15000);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
 
   if (denied) return <Denied />;
@@ -108,13 +110,15 @@ export default function Merchants() {
           await reload();
         },
       });
-    } else {
+    } else if (m.suspendReason !== 'exited') {
+      // Back to OFFLINE, never online: the LP flips themselves online through the switch that
+      // enforces KYB + bond. An exited row is frozen for good and offers nothing.
       list.push({
         title: `Reinstate: ${m.name}`,
-        body: 'The merchant goes back online and becomes routable again.',
+        body: 'The merchant goes back to offline. They go online themselves once KYB and the stake floor allow it.',
         confirmLabel: 'Reinstate',
         onConfirm: async () => {
-          await api.merchantStatus(m.id, 'online');
+          await api.merchantStatus(m.id, 'offline');
           await reload();
         },
       });
@@ -122,10 +126,46 @@ export default function Merchants() {
     return list;
   };
 
+  // A root admin sends the USDC from the cold stake treasury by hand, then records the signature
+  // here. window.prompt on purpose: one rare, single-field entry by the one person who holds the key.
+  const release = async (w: AdminStakeWithdrawal) => {
+    const sig = window.prompt(
+      `Signature of the ${usd(w.amountUsdc)} USDC you sent to ${w.payoutWallet ?? '(no wallet on file)'} for ${w.merchantName}:`,
+    );
+    if (!sig) return;
+    await api.releaseStakeWithdrawal(w.id, sig.trim());
+    await Promise.all([reload(), reloadWithdrawals()]);
+  };
+
   return (
     <>
       <PageHead title="Merchants" sub="LPs settling the fiat leg: reputation signals and lifecycle actions" />
       <ErrorBanner msg={err} />
+      {/* Stake on its way back. The bond is already debited; nothing here moves money — a root admin
+          sends the USDC from the cold treasury by hand and records the signature (docs/15). */}
+      {withdrawals && withdrawals.withdrawals.length > 0 ? (
+        <div className="mb-6">
+          <h2 className="mb-2 text-sm font-medium">Stake withdrawals waiting to be sent</h2>
+          <Table head={['Merchant', 'Amount', 'Send to', 'Requested', '']}>
+            {withdrawals.withdrawals.map((w) => (
+              <tr key={w.id} className="hover:bg-surface-low">
+                <Td>
+                  <span className="font-medium">{w.merchantName}</span>
+                  {w.exit ? <span className="ml-1.5 text-[11px] text-muted">leaving</span> : null}
+                </Td>
+                <Td className="whitespace-nowrap">{usd(w.amountUsdc)}</Td>
+                <Td className="font-mono text-[12px]">{w.payoutWallet ?? <span className="text-muted">no wallet on file</span>}</Td>
+                <Td className="whitespace-nowrap">{new Date(w.requestedAt).toLocaleString()}</Td>
+                <Td>
+                  <Btn variant="primary" onClick={() => void release(w)} disabled={!w.payoutWallet}>
+                    Record as sent
+                  </Btn>
+                </Td>
+              </tr>
+            ))}
+          </Table>
+        </div>
+      ) : null}
       {!data ? (
         <Spinner />
       ) : data.merchants.length === 0 ? (
@@ -156,7 +196,7 @@ export default function Merchants() {
               <Td>{m.payoutRail}</Td>
               <Td>
                 <Badge tone={m.status === 'online' ? 'ok' : m.status === 'suspended' ? 'danger' : 'muted'}>
-                  {m.status}
+                  {m.suspendReason === 'exited' ? 'exited' : m.suspendReason === 'bond' ? 'under floor' : m.status}
                 </Badge>
               </Td>
               <Td>

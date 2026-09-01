@@ -23,6 +23,7 @@ import type { MerchantLedgerResponse, MerchantProfile } from '@fpay/shared';
 
 import {
   cancelStakeWithdrawal,
+  exitMerchant,
   getMerchantLedger,
   getMerchantOrders,
   requestStakeWithdrawal,
@@ -241,12 +242,27 @@ export default function MerchantHome() {
     return act(() => setContactPhone(phone));
   };
 
+  // The terms at the moment of commitment, not on a page nobody reads: where it goes, how, how soon,
+  // and the one thing that can refuse it. The wallet is fixed server-side; showing it is disclosure.
+  const short = (a?: string) => (a ? `${a.slice(0, 4)}…${a.slice(-4)}` : 'your fpay wallet');
   const withdraw = () => {
-    const raw = window.prompt('How much of your stake to take back, in dollars');
+    const raw = window.prompt(
+      `How much of your stake to take back, in dollars?\n\nWe send it by hand to your fpay wallet (${short(merchant?.payoutWallet)}), usually within a day. It can't leave while a payout you handled is less than ${merchant?.clawWindowHours ?? 72} hours old — that's how long it can still be disputed.`,
+    );
     if (raw == null) return;
     const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return setErr('Enter an amount, like 500.');
+    if (!Number.isFinite(n) || n <= 0) return setErr('Enter an amount, like 50.');
     return act(() => requestStakeWithdrawal(n));
+  };
+
+  // Final, and said so. The server refuses it for the same reasons as a withdrawal.
+  const leave = () => {
+    if (!merchant) return;
+    const ok = window.confirm(
+      `Leave fpay as a partner?\n\nYour whole stake (${usd(merchant.bondUsdc)}) is sent back by hand to ${short(merchant.payoutWallet)}, usually within a day. You keep your history and can still sign in, but you won't be offered orders again and this can't be undone from here.`,
+    );
+    if (!ok) return;
+    return act(() => exitMerchant());
   };
 
   // Same polling shape as the payer's order tracker — new work arrives without a manual refresh.
@@ -323,7 +339,7 @@ export default function MerchantHome() {
               : `Minimum ${usd(merchant.minBondUsdc)} · tap to add · backs ${usd(merchant.maxFloatUsdc)} of work`}
           </Txt>
         </Pressable>
-        {!merchant.pendingWithdrawal && Number(merchant.bondUsdc) > 0 ? (
+        {!merchant.pendingWithdrawal && Number(merchant.bondUsdc) > 0 && merchant.suspendReason !== 'exited' ? (
           <Pressable onPress={() => void withdraw()}>
             <Txt style={[type.rowTime, { marginTop: 2, marginBottom: 8, color: colors.accent }]}>
               Take some back
@@ -337,11 +353,22 @@ export default function MerchantHome() {
               {usd(merchant.pendingWithdrawal.amountUsdc)} on its way back
             </Txt>
             <Txt style={[type.rowTime, { marginTop: 2 }]}>
-              Already taken off your stake. We send it by hand — usually within a day.
+              {`Already taken off your stake. We send it by hand to ${short(merchant.payoutWallet)} — usually within a day.`}
             </Txt>
-            <Pressable onPress={() => void act(() => cancelStakeWithdrawal(merchant.pendingWithdrawal!.id))}>
-              <Txt style={[type.rowTime, { marginTop: 8, color: colors.accent }]}>Cancel and put it back</Txt>
-            </Pressable>
+            {/* An exit is final; only an ordinary withdrawal can be put back. */}
+            {merchant.pendingWithdrawal.exit ? null : (
+              <Pressable onPress={() => void act(() => cancelStakeWithdrawal(merchant.pendingWithdrawal!.id))}>
+                <Txt style={[type.rowTime, { marginTop: 8, color: colors.accent }]}>Cancel and put it back</Txt>
+              </Pressable>
+            )}
+          </View>
+        ) : null}
+        {merchant.suspendReason === 'exited' ? (
+          <View style={styles.notice}>
+            <Txt style={type.rowName}>You’ve left fpay as a partner</Txt>
+            <Txt style={[type.rowTime, { marginTop: 2 }]}>
+              Your history stays here and you can still sign in. You won’t be offered orders again.
+            </Txt>
           </View>
         ) : null}
 
@@ -354,7 +381,11 @@ export default function MerchantHome() {
               <Txt style={type.rowName}>Taking orders</Txt>
               <Txt style={[type.rowTime, { marginTop: 2 }]}>
                 {merchant.status === 'suspended'
-                  ? 'Suspended — contact support'
+                  ? merchant.suspendReason === 'exited'
+                    ? 'You’ve left — no more orders'
+                    : merchant.suspendReason === 'bond'
+                      ? 'Below the stake minimum — top up to come back'
+                      : 'Suspended — contact support'
                   : merchant.status === 'online'
                     ? 'You’ll be offered new orders'
                     : 'Nothing will reach you'}
@@ -405,6 +436,16 @@ export default function MerchantHome() {
               {merchant.contactPhone ? 'Change' : 'Add'}
             </Txt>
           </Row>
+          {/* The way out. A flag, never a delete: the ledger and the history stay (docs/15). */}
+          {merchant.suspendReason !== 'exited' ? (
+            <Row onPress={() => void leave()}>
+              <RowMeta>
+                <Txt style={type.rowName}>Leave fpay</Txt>
+                <Txt style={[type.rowTime, { marginTop: 2 }]}>Your whole stake comes back. Final.</Txt>
+              </RowMeta>
+              <Txt style={{ ...fonts.body500, fontSize: 14, color: colors.danger }}>Leave</Txt>
+            </Row>
+          ) : null}
         </List>
 
         {ledger ? (

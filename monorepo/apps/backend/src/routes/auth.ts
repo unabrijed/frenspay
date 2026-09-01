@@ -187,6 +187,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
             // read on the one screen that already has this payload, and it is a handful of rows.
             await listKybEvents(merchant.id),
             await merchantSettledCount(merchant.id),
+            wallet?.address,
           )
         : undefined,
       // Whether the identity vendor is even reachable on this deployment. The LP console branches on

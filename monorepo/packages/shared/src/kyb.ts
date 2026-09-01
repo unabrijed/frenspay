@@ -117,7 +117,7 @@ const SCREENING: KybField[] = [
     key: 'plannedStake',
     label: 'How much you plan to stake',
     hint: 'Your stake sits idle, bounds how much you can carry, and comes back when you leave.',
-    options: ['$2,000 — the minimum', '$2,000–5,000', 'Over $5,000', 'Not sure yet'],
+    options: ['$100 — the minimum', '$100–300', 'Over $300', 'Not sure yet'],
   },
   {
     key: 'commitment',

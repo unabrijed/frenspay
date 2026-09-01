@@ -70,7 +70,7 @@ const ids = (r: ReturnType<typeof rankPool>) => r.map((x) => x.merchant.id);
 // stake, so this LP — minimum bond, million-dollar claim — was routable for the whole million.
 {
   const overclaimer = lp({ id: 'over', bond_usdc: String(MIN_BOND), float_usdc: '1000000', tier: 1 });
-  const cap = MIN_BOND * leverageFor(1); // 2000 × 3 = 6000
+  const cap = MIN_BOND * leverageFor(1); // the floor × tier-1 leverage (1× — in flight ≤ bond)
   assert.equal(rankPool([overclaimer], {}, { amountUsdc: cap }).length, 1, 'an order at exactly the cap fits');
   assert.equal(
     rankPool([overclaimer], {}, { amountUsdc: cap + 1 }).length,
@@ -436,8 +436,11 @@ assert.ok(activitySlot(new Date('2026-08-13T23:00:00Z')) < ACTIVITY_SLOTS, 'slot
   const machineSrc = readFileSync(join(ROOT, 'src/services/orderMachine.ts'), 'utf8');
   assert.ok(machineSrc.includes('listOrdersByEscrowFundTransfer'), 'one confirmation must advance every leg');
   assert.ok(machineSrc.includes('i === 0 ? new BN(l.amountUsdc).plus(fee)'), 'the primary leg carries the fee');
-  const escrowSrc = readFileSync(join(ROOT, 'src/services/escrowProgram.ts'), 'utf8');
-  assert.ok(escrowSrc.includes('(i === 0 ? feeBase : 0n)'), 'the deposit tx takes the fee off the first vault only');
+  // The pool (docs/16): the fee is INSIDE the deposit and leaves at release — once, on the primary leg
+  // (getOrderPlatformFee is '0' for the others) — and a refund returns the whole deposit, fee included.
+  assert.ok(machineSrc.includes('memo: refs[0]'), 'the deposit must carry the primary leg\'s reference as its memo');
+  assert.ok(machineSrc.includes('feeUsd: platformFee'), 'release must pay the platform fee out of the pool in the same tx');
+  assert.ok(machineSrc.includes('sendFromEscrowPool({ toOwner: wallet.address, amountUsd: input.amountUsdc })'), 'a refund returns the whole deposit — the fee never left');
   const routable = queries.slice(queries.indexOf('export async function listRoutableMerchants'));
   // To the next top-level declaration, not the first '\n}' — the signature's inline object type
   // closes with one, which silently truncated the body to above the SQL and made every gate below

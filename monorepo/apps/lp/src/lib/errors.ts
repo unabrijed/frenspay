@@ -6,6 +6,9 @@
 import { ApiError } from '@/services/api';
 
 const BY_CODE: Record<string, string> = {
+  // stake withdrawals + leaving (docs/15)
+  recent_payout: 'Not yet — a payout you handled is still inside its dispute window. Try again in a few days.',
+  already_exited: 'You’ve already left.',
   // Applying, and the identity gate in front of it.
   kyc_required: 'Verify your identity first — we need that before you can settle payouts.',
   already_a_merchant: 'You already have a partner account.',
@@ -34,6 +37,7 @@ const BY_CODE: Record<string, string> = {
   // Money movement out of their own wallet.
   staking_unavailable: 'Staking is temporarily unavailable. Try again shortly.',
   solana_unavailable: 'Couldn’t reach the network. Try again in a moment.',
+  sponsorship_unsupported: 'Staking isn’t available from this device yet — use the web console for this one.',
   amount_too_large: 'That’s more than you can stake in one go.',
   invalid_amount: 'Enter a valid amount.',
   wallet_not_found: 'Your wallet is still being set up. Try again in a moment.',

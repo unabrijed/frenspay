@@ -1,7 +1,8 @@
 // check-kyc-switch.ts — the identity vendor's on/off switch, asserted end to end.
 //
-// WHY THIS EXISTS. Blanking PERSONA_API_KEY in the host's variable panel is how identity verification
-// is switched off (docs/14). It used to be how the backend was switched off: assertKycConfig threw,
+// WHY THIS EXISTS. Identity verification is switched off from the host's variable panel, three ways:
+// leave KYC_PROVIDER unset (the front-door switch — there is no 'persona' fallback on a deployed
+// tier), or blank either PERSONA_API_KEY or PERSONA_TEMPLATE_ID (docs/14). It used to be how the backend was switched off: assertKycConfig threw,
 // server.ts caught it and process.exit(1)'d, and the deploy crash-looped. That regression is invisible
 // to tsc and to every other check here — the whole thing is env-shaped — and it takes stage down.
 //
@@ -73,22 +74,48 @@ check('prod · credentials blank → vendor off, and the server still BOOTS', ()
   assert.equal(r.threw, null);
 });
 
-// --- either variable is enough to turn it off ----------------------------------------------------
-check('stage · key set but template blank → off (either variable is the switch)', () => {
-  const r = probe({ NODE_ENV: 'stage', STAGE_PERSONA_API_KEY: SANDBOX, STAGE_PERSONA_TEMPLATE_ID: '' });
+// --- any one of the three is enough to turn it off ----------------------------------------------------
+check('stage · key set but template blank → off (any one variable is the switch)', () => {
+  const r = probe({ NODE_ENV: 'stage', STAGE_KYC_PROVIDER: 'persona', STAGE_PERSONA_API_KEY: SANDBOX, STAGE_PERSONA_TEMPLATE_ID: '' });
   assert.equal(r.live, false);
   assert.equal(r.threw, null);
 });
 
 check('stage · placeholder value → off (set-but-unusable is not set)', () => {
-  const r = probe({ NODE_ENV: 'stage', STAGE_PERSONA_API_KEY: '<your api key>', STAGE_PERSONA_TEMPLATE_ID: TEMPLATE });
+  const r = probe({ NODE_ENV: 'stage', STAGE_KYC_PROVIDER: 'persona', STAGE_PERSONA_API_KEY: '<your api key>', STAGE_PERSONA_TEMPLATE_ID: TEMPLATE });
   assert.equal(r.live, false);
   assert.equal(r.threw, null);
 });
 
+// --- the provider name is itself a switch --------------------------------------------------------
+// KYC_PROVIDER used to fall back to 'persona' on any deployed tier, so it could never say "off" and
+// only a credential could. Now real credentials are not enough on their own.
+//
+// "Unset" is written as an explicit '' rather than an omitted key: envConfig loads apps/backend/.env
+// through dotenv, which the probe's env allowlist cannot filter, and a developer's own file may well
+// name the variable (LOCAL_KYC_PROVIDER=persona is in the checked-in example). `env()` is
+// `clean(raw) || fallback`, so an empty value takes the default — which is what unset means here.
+check('stage · real credentials but KYC_PROVIDER unset → off', () => {
+  const r = probe({
+    NODE_ENV: 'stage',
+    STAGE_KYC_PROVIDER: '',
+    STAGE_PERSONA_API_KEY: SANDBOX,
+    STAGE_PERSONA_TEMPLATE_ID: TEMPLATE,
+  });
+  assert.equal(r.live, false, 'an unnamed provider must read as off, whatever the credentials say');
+  assert.equal(r.threw, null, 'and it is a deployment state, not a boot error');
+});
+
+// Local reads LOCAL_ then falls through to STAGE_ (see env()), so both have to be cleared to mean
+// "unset" here.
+check('local · KYC_PROVIDER unset → sim (the local default survives)', () => {
+  const r = probe({ NODE_ENV: 'local', LOCAL_KYC_PROVIDER: '', STAGE_KYC_PROVIDER: '' });
+  assert.equal(r.provider, 'sim', 'dropping the deployed fallback must not drop the local one');
+});
+
 // --- the vendor actually configured --------------------------------------------------------------
 check('stage · sandbox key + template → LIVE (a sandbox key is fine on stage)', () => {
-  const r = probe({ NODE_ENV: 'stage', STAGE_PERSONA_API_KEY: SANDBOX, STAGE_PERSONA_TEMPLATE_ID: TEMPLATE });
+  const r = probe({ NODE_ENV: 'stage', STAGE_KYC_PROVIDER: 'persona', STAGE_PERSONA_API_KEY: SANDBOX, STAGE_PERSONA_TEMPLATE_ID: TEMPLATE });
   assert.equal(r.live, true);
   assert.equal(r.threw, null);
 });
@@ -97,13 +124,13 @@ check('stage · sandbox key + template → LIVE (a sandbox key is fine on stage)
 // A sandbox key never sees a real document (the hosted flow has a force-pass toggle). Booting prod
 // with one would hand out tier 2 for test data, which is worse than not booting.
 check('prod · sandbox key → LIVE but REFUSES TO BOOT', () => {
-  const r = probe({ NODE_ENV: 'production', PERSONA_API_KEY: SANDBOX, PERSONA_TEMPLATE_ID: TEMPLATE });
+  const r = probe({ NODE_ENV: 'production', KYC_PROVIDER: 'persona', PERSONA_API_KEY: SANDBOX, PERSONA_TEMPLATE_ID: TEMPLATE });
   assert.equal(r.live, true, 'credentials are real-shaped, so the vendor is selected');
   assert.match(r.threw ?? '', /sandbox/i, 'assertKycConfig must throw on a sandbox key on a production tier');
 });
 
 check('prod · production key → LIVE and boots', () => {
-  const r = probe({ NODE_ENV: 'production', PERSONA_API_KEY: PRODUCTION, PERSONA_TEMPLATE_ID: TEMPLATE });
+  const r = probe({ NODE_ENV: 'production', KYC_PROVIDER: 'persona', PERSONA_API_KEY: PRODUCTION, PERSONA_TEMPLATE_ID: TEMPLATE });
   assert.equal(r.live, true);
   assert.equal(r.threw, null);
 });
@@ -131,7 +158,7 @@ check('local · KYC_PROVIDER=sim → sim IS selected (dev must keep working)', (
 
 // --- a credential has a known shape ---------------------------------------------------------------
 check('stage · junk credential → off (a real key is persona_sandbox_/persona_production_)', () => {
-  const r = probe({ NODE_ENV: 'stage', STAGE_PERSONA_API_KEY: 'changeme', STAGE_PERSONA_TEMPLATE_ID: TEMPLATE });
+  const r = probe({ NODE_ENV: 'stage', STAGE_KYC_PROVIDER: 'persona', STAGE_PERSONA_API_KEY: 'changeme', STAGE_PERSONA_TEMPLATE_ID: TEMPLATE });
   assert.equal(r.live, false, '`changeme` passed the emptiness check and read as a live vendor');
   assert.equal(r.threw, null);
 });

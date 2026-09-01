@@ -44,6 +44,7 @@ import {
   releaseToMerchant,
   rerouteOrder,
   sweepExpiredLocks,
+  SETTLE_DROPPED_MS,
 } from './orderMachine';
 import { payoutProviderById, payoutProviderFor } from './payout/provider';
 
@@ -96,23 +97,20 @@ export async function runOrderWorkerOnce(log?: (m: string) => void): Promise<voi
     const behavior = o.sim_behavior; // null = a real (human) merchant, not a simulated one
     const release = () =>
       o.treasury_address
-        ? releaseToMerchant({ orderId: o.id, reference: o.reference_code, amountUsdc, treasuryAddress: o.treasury_address })
+        ? releaseToMerchant({ orderId: o.id, reference: o.reference_code, amountUsdc, treasuryAddress: o.treasury_address, merchantUserId: o.merchant_user_id })
         : Promise.resolve();
     try {
-      // Recovery: releaseToMerchant transitions away from merchant_confirms only after a successful
-      // broadcast. A lingering merchant_confirms means the release broadcast failed (no tx → reset to
-      // retry) or the final transition didn't land (tx recorded → finish advancing).
+      // Recovery: releaseToMerchant writes funds_released only once the release tx has LANDED. A
+      // lingering merchant_confirms therefore means one of two things, and neither is "advance it":
+      // no tx was recorded (the broadcast threw) → reset to retry after STUCK_RELEASE_MS; a tx IS
+      // recorded → it is in flight and the confirmer completes the order from its row when it
+      // lands, so wait the whole drop window before handing the order back, and let the retry's
+      // in-flight guard (orderMachine settleEscrow) decide whether a new broadcast is warranted.
       if (o.state === 'merchant_confirms') {
-        if (o.escrow_release_transfer_id) {
-          if (await casOrderState(o.id, ['merchant_confirms'], 'funds_released')) {
-            await appendOrderEvent(o.id, 'merchant_confirms', 'funds_released', 'release_recovered');
-            log?.(`order ${o.id} recovered: merchant_confirms → funds_released`);
-          }
-        } else if (elapsed >= STUCK_RELEASE_MS) {
-          if (await casOrderState(o.id, ['merchant_confirms'], 'payment_detected')) {
-            await appendOrderEvent(o.id, 'merchant_confirms', 'payment_detected', 'release_retry');
-            log?.(`order ${o.id} recovered: merchant_confirms → payment_detected (retry)`);
-          }
+        const patience = o.escrow_release_transfer_id ? SETTLE_DROPPED_MS : STUCK_RELEASE_MS;
+        if (elapsed >= patience && (await casOrderState(o.id, ['merchant_confirms'], 'payment_detected'))) {
+          await appendOrderEvent(o.id, 'merchant_confirms', 'payment_detected', 'release_retry');
+          log?.(`order ${o.id} recovered: merchant_confirms → payment_detected (retry)`);
         }
         continue;
       }
@@ -280,6 +278,10 @@ export async function runOrderWorkerOnce(log?: (m: string) => void): Promise<voi
       }
 
       // Clean payment_detected: the LP picks the order up (or stalls, per behavior).
+      // ponytail: unreachable since 2026-08-30 — the seed creates no sim LPs and listRoutableMerchants
+      // excludes every non-psp sim_behavior row, so no order can carry one of these behaviours. Left
+      // in place because the ladder below is interleaved with it; delete the branch outright next
+      // time this file is opened for a real change.
       if (o.sim_behavior != null && o.state === 'payment_detected' && o.resolution == null) {
         if (behavior === 'happy' && elapsed >= SIM_DELAY_MS) {
           await release();

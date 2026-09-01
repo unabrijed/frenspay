@@ -27,6 +27,8 @@ export default function Handle() {
   const router = useRouter();
   const hydrated = useStoreHydrated();
   const authStatus = usePayStore((s) => s.authStatus);
+  const completeOnboarding = usePayStore((s) => s.completeOnboarding);
+  const load = usePayStore((s) => s.load);
 
   // Step guard: this screen calls /auth/sync (needs the signed-in wallet). If it's reached without
   // a signed-in session (direct URL / reload before the Privy bridge re-signs in), bounce to the
@@ -36,7 +38,16 @@ export default function Handle() {
   }, [hydrated, authStatus, router]);
   if (!hydrated || authStatus !== 'signedIn') return <Splash />;
 
-  return <HandlePrivy onDone={() => router.push('/onboarding/fund')} />;
+  return (
+    <HandlePrivy
+      onDone={() => {
+        // Onboarding is over here: the funding step that used to follow was the devnet faucet.
+        completeOnboarding();
+        void load(); // best-effort prefetch; Home skeletons until it or the 12s LiveSync lands
+        router.replace('/home');
+      }}
+    />
+  );
 }
 
 function HandlePrivy({ onDone }: { onDone: () => void }) {

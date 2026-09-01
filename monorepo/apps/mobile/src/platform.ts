@@ -13,7 +13,6 @@ import {
   DEV_USER_ID,
   IS_DEV,
   IS_LOCAL_ENV,
-  IS_MAINNET,
   LANDING_URL,
   PRIVY_APP_ID,
   PRIVY_CLIENT_ID,
@@ -28,7 +27,6 @@ export const nativePlatform: Platform = {
   env: {
     apiUrl: API_URL,
     solanaRpcUrl: SOLANA_RPC_URL,
-    isMainnet: IS_MAINNET,
     privyAppId: PRIVY_APP_ID,
     privyClientId: PRIVY_CLIENT_ID,
     usePrivy: USE_PRIVY,

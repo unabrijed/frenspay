@@ -8,7 +8,6 @@ import type { StateStorage } from 'zustand/middleware';
 export interface PlatformEnv {
   apiUrl: string;
   solanaRpcUrl: string;
-  isMainnet: boolean;
   privyAppId: string;
   privyClientId: string;
   usePrivy: boolean;

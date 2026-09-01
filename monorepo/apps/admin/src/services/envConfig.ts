@@ -9,15 +9,26 @@
 //
 // The exception is the reason this file differs from its siblings: admin ships as ONE deployment
 // that drives EITHER backend, so the API host belongs to the TARGET rather than to the build — both
-// are inlined and one is chosen in the browser (API_HOSTS). The Privy app is NOT per-target; both
-// backends verify with the same one. Only the dev shim still resolves by tier.
+// are inlined and one is chosen in the browser (API_HOSTS). The Privy app is NOT per-target, and since
+// 2026-08-31 not per-tier anywhere: every app reads it bare, both backends verify with the same one. Only the dev shim still resolves by tier.
 /** A BUILT bundle (any `next build`), not the prod tier — see isProdEnv for that. Exported because
  *  it is also the line between "no Privy configured means use the dev shim" and "no Privy configured
  *  means somebody forgot a variable", which Providers.tsx has to tell apart. */
 export const isProduction = process.env.NODE_ENV === 'production';
-const APP_ENV = process.env.NEXT_PUBLIC_APP_ENV || (isProduction ? 'production' : 'local');
+// A value pasted into a host's variable panel carries baggage — a trailing newline, the quotes it was
+// copied inside. The backend launders every read through clean(); this is that twin, and it matters
+// more here: an untrimmed tier name matches nothing and drops to the stage chain below.
+const APP_ENV = (process.env.NEXT_PUBLIC_APP_ENV || (isProduction ? 'production' : 'local'))
+  .trim()
+  .replace(/^(['"])([\s\S]*)\1$/, '$2');
 const isProdEnv = APP_ENV === 'production';
 const isStageEnv = APP_ENV === 'stage';
+// An unrecognised tier used to fall out of pick() into the STAGE chain — a production build quietly
+// signing in against the stage Privy app while its own bare vars sat there unread. NEXT_PUBLIC_* is
+// inlined, so this folds at build time: a mistyped tier fails the build instead of shipping.
+if (!isProdEnv && !isStageEnv && APP_ENV !== 'local') {
+  throw new Error(`NEXT_PUBLIC_APP_ENV must be local | stage | production — got ${JSON.stringify(APP_ENV)}`);
+}
 
 /** Tier chain. Args must be literal process.env.NEXT_PUBLIC_* references (Next inlines). */
 function pick(local?: string, stage?: string, prod?: string): string | undefined {

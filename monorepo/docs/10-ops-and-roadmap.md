@@ -3,14 +3,13 @@
 ## Deploy model
 
 - **Backend — Railway**, one service per environment, driven by `NODE_ENV`: stage
-  (`stage.api.frenspay.xyz`) and prod (`api.frenspay.xyz`). Only **stage** is wired — the CI
-  workflow triggers on `stage` alone, so a `sacred` push currently deploys no backend at all; prod
-  wiring is deliberately deferred to mainnet (`DEPLOY.md`). **Both deployed envs run Solana
-  MAINNET**; devnet exists only in local dev (the web app fails closed to mainnet when no RPC var
-  is set).
-- **Frontends — Vercel** (web, admin `admin.frenspay.xyz`, landing). The web app ships as a **Next
-  server**, not a static export — the access-key gate (`src/middleware.ts` + `/gate`) is
-  server-side.
+  (`stage.api.frenspay.xyz`) and prod (`api.frenspay.xyz`). Both are wired: the CI workflow
+  triggers on `stage` and `sacred`, picking the Railway environment from the branch (`DEPLOY.md`).
+  **Every tier runs Solana MAINNET** — there is no testnet (docs/16); the RPC var only picks the
+  provider.
+- **Frontends — Vercel** (web, lp `provider.frenspay.xyz`, admin `admin.frenspay.xyz`, landing). Web
+  and lp ship as **Next servers**, not static exports — the access-key gate (`src/middleware.ts` +
+  `/gate`, one key per project) is server-side.
 - **Path-scoped deploys (HARD RULE):** a push deploys only the app whose files changed; a
   docs-only push deploys **nothing**. When a deploy misfires, debug the path filters — never
   remove them. There is exactly **one** implementation, `monorepo/scripts/vercel-ignore.mjs`, with
@@ -67,19 +66,22 @@ Two providers behind one API (`POST /kyc/verify` in `routes/kyc.ts`), selected b
 | Provider | When | Behaviour |
 |---|---|---|
 | `sim` | local only — **never** on a deployed tier, both of which are mainnet | instant tier-2 promote, no documents |
-| `persona` | stage **and** prod (also the default there, set or not) | hosted government-ID + selfie inquiry; tier raised by the 15s reconciler poller reading the inquiry back from Persona |
+| `persona` | stage **and** prod — but **only when named**; there is no default on a deployed tier | hosted government-ID + selfie inquiry; tier raised by the 15s reconciler poller reading the inquiry back from Persona |
 
 - **Sim:** onboard → Settings → *Verify identity* → instant tier 2. Re-test via *Reset for testing*
   (`POST /sim/kyc/1`) — the backend tier persists across logins otherwise. **Local only**: that route
   is gated on `isLocal`, not `isDevelopment`, because `isDevelopment` includes stage and stage is
   mainnet — while it answered there, any authenticated user could self-promote to tier 3.
-- **Persona:** set `STAGE_PERSONA_API_KEY` + `STAGE_PERSONA_TEMPLATE_ID`. Leaving either blank (or
-  placeholder-shaped) turns identity verification **off** rather than breaking the deploy:
-  `config.personaLive` is false, the server boots, `/kyc/verify` 503s, and partner onboarding falls
-  back to a human reading the business form — [14](14-manual-onboarding-fallback.md), an accepted
-  risk. Set them both and complete the hosted flow; the poller fetches the authoritative inquiry
-  (`approved`/`completed` → tier 2 · `declined`/`failed` → terminal · `expired` → cleared so the user
-  can restart · `needs_review` → in review). No webhook is wired — the poller *is* the path; ≤15s.
+- **Persona:** set `STAGE_KYC_PROVIDER=persona` **and** `STAGE_PERSONA_API_KEY` +
+  `STAGE_PERSONA_TEMPLATE_ID`. All three are required — leaving the provider unset, or either
+  credential blank (or placeholder-shaped), turns identity verification **off** rather than breaking
+  the deploy: `config.personaLive` is false, the server boots with a loud config warning naming the
+  variable it read, `/kyc/verify` 503s, the payer app hides its verification surface entirely, and
+  partner onboarding falls back to a human reading the business form —
+  [14](14-manual-onboarding-fallback.md), an accepted risk. Set all three and complete the hosted
+  flow; the poller fetches the authoritative inquiry (`approved`/`completed` → tier 2 ·
+  `declined`/`failed` → terminal · `expired` → cleared so the user can restart · `needs_review` → in
+  review). No webhook is wired — the poller *is* the path; ≤15s.
 - **Sandbox vs production keys.** A `persona_sandbox_…` key (what self-serve signup gives) runs the
   hosted flow with a force-pass/force-fail toggle and never sees a real document. It is the right key
   for **stage**; on **prod** `assertKycConfig` refuses it at boot. `persona_production_…` keys exist

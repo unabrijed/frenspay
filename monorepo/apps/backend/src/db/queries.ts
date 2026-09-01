@@ -732,25 +732,6 @@ export async function isMerchantTreasuryAddress(address: string): Promise<boolea
 }
 
 /**
- * Record a devnet faucet deposit as a confirmed incoming 'add' transfer so it shows in activity.
- * (from_user_id null = external/faucet origin → listTransactionsForUser renders it as direction 'in'.)
- */
-export async function recordDeposit(input: {
-  toUserId: string;
-  toAddress: string;
-  amountUsd: number;
-  signature: string;
-}): Promise<{ id: string }> {
-  const { rows } = await getPool().query<{ id: string }>(
-    `insert into transfers (to_user_id, to_address, amount_usdc, kind, status, signature, confirmed_at)
-     values ($1, $2, $3, 'add', 'confirmed', $4, now())
-     returning id`,
-    [input.toUserId, input.toAddress, input.amountUsd, input.signature],
-  );
-  return rows[0];
-}
-
-/**
  * Record the broadcast signature on a transfer the caller owns. Scoped to from_user_id so a
  * user can only attach a signature to their own transfer. Returns false when no row matched
  * (unknown id or not the owner) so the route can 404 instead of silently no-op'ing.
@@ -771,13 +752,15 @@ export async function setTransferStatus(
   transferId: string,
   status: 'pending' | 'confirmed' | 'failed',
 ): Promise<boolean> {
-  // Transition-gated (`status <> $2`) so the poller can't re-fire order-advance/notify on a row the
-  // Helius webhook already finalized in the same tick. Returns true only on a real transition.
+  // Gated on `status = 'pending'`: a row leaves pending exactly once, so the poller can't re-fire
+  // order-advance/notify on a row the Helius webhook already finalized in the same tick — and a
+  // 'failed' row can never be re-flipped to 'confirmed' by a later redelivery (the `<> $2` gate this
+  // replaced allowed exactly that, which double-credited a stake). Returns true only on the transition.
   const { rowCount } = await getPool().query(
     `update transfers
         set status = $2,
             confirmed_at = case when $2 = 'confirmed' then now() else confirmed_at end
-      where id = $1 and status <> $2`,
+      where id = $1 and status = 'pending' and $2 <> 'pending'`,
     [transferId, status],
   );
   return (rowCount ?? 0) > 0;
@@ -793,26 +776,50 @@ export async function setTransferStatusBySignature(
     `update transfers
         set status = $2,
             confirmed_at = case when $2 = 'confirmed' then now() else confirmed_at end
-      where signature = $1 and status <> $2
+      where signature = $1 and status = 'pending' and $2 <> 'pending'
       returning id`,
     [signature, status],
   );
   return rows[0]?.id ?? null;
 }
 
-export async function getPendingSignatures(): Promise<{ id: string; signature: string }[]> {
+/** What the confirmation paths need to ask the chain the second question (services/transferVerify.ts). */
+export interface PendingTransfer {
+  id: string;
+  signature: string;
+  kind: string;
+  status: 'pending' | 'confirmed' | 'failed';
+  from_user_id: string | null;
+  to_user_id: string | null;
+  from_address: string;
+  to_address: string;
+  amount_usdc: string;
+}
+
+const PENDING_TRANSFER_COLS = 'id, signature, kind, status, from_user_id, to_user_id, from_address, to_address, amount_usdc';
+
+export async function listPendingSolanaTransfers(): Promise<PendingTransfer[]> {
   // chain filter is load-bearing: this feeds the SOLANA poller only — a foreign-chain signature
   // followed here would sit permanent-pending (see the transfers.chain comment in schema.sql).
-  const { rows } = await getPool().query<{ id: string; signature: string }>(
-    `select id, signature from transfers
+  const { rows } = await getPool().query<PendingTransfer>(
+    `select ${PENDING_TRANSFER_COLS} from transfers
       where status = 'pending' and signature is not null and chain = 'solana'`,
   );
   return rows;
 }
 
+/** The webhook's entry point: Helius names a signature, we look up what the row claims it did. */
+export async function getTransferBySignature(signature: string): Promise<PendingTransfer | null> {
+  const { rows } = await getPool().query<PendingTransfer>(
+    `select ${PENDING_TRANSFER_COLS} from transfers where signature = $1`,
+    [signature],
+  );
+  return rows[0] ?? null;
+}
+
 /**
  * Retire transfers abandoned after /transfer/prepare: still pending, never signed, older than
- * maxAgeMin. The confirmer poller only follows signed rows (getPendingSignatures), so without
+ * maxAgeMin. The confirmer poller only follows signed rows (listPendingSolanaTransfers), so without
  * this sweep these would stay pending forever. Returns how many were expired.
  */
 export async function expireStaleUnsignedTransfers(maxAgeMin = 15): Promise<number> {
@@ -866,6 +873,9 @@ export interface MerchantRow {
   name: string;
   payout_rail: PayoutMethod;
   status: 'online' | 'offline' | 'suspended';
+  /** 'bond' = the floor's own doing (auto-reinstate may reverse it); 'exited' = frozen for good; null = a human. */
+  suspend_reason: string | null;
+  exited_at: Date | null;
   treasury_address: string;
   success_rate: string;
   avg_completion_secs: number;
@@ -939,7 +949,10 @@ export async function listRoutableMerchants(filter: {
     `select * from merchants
       where status = 'online' and kyb_status = 'approved'
         and payout_rail = $1 and country = $2
-        and (sim_behavior = 'psp' or bond_usdc >= $3)`,
+        and (sim_behavior = 'psp' or bond_usdc >= $3)
+        -- No simulated LP is ever routable: there is no testnet tier (2026-08-30), and a sim row's
+        -- treasury is a keypair anyone can derive. A hard filter in the SELECT, never a job.
+        and (sim_behavior is null or sim_behavior = 'psp')`,
     [filter.payoutRail, filter.country, filter.minBondUsdc],
   );
   return rows;
@@ -1487,6 +1500,8 @@ export interface WorkerOrderRow {
   escrow_release_transfer_id: string | null;
   merchant_id: string | null;
   treasury_address: string | null;
+  /** The partner's user id — what a release row records as to_user_id. */
+  merchant_user_id: string | null;
   /** NULL = a real (human) merchant — the sim behaviours must not be applied to it.
    *  'psp' = the payout provider (services/payout) executes the fiat leg via API. */
   sim_behavior: 'happy' | 'slow' | 'no_receipt' | 'timeout' | 'psp' | null;
@@ -1515,7 +1530,7 @@ export async function listWorkerOrders(): Promise<WorkerOrderRow[]> {
             o.expires_at, o.escrow_release_transfer_id, o.merchant_id, o.payout_claimed_at,
             o.payout_provider_id, o.payout_providers_tried, o.payout_provider_ref,
             o.locked_at, o.lock_expires_at,
-            m.treasury_address, m.sim_behavior, q.payout_method,
+            m.treasury_address, m.user_id as merchant_user_id, m.sim_behavior, q.payout_method,
             q.currency, coalesce(o.amount_fiat, q.amount_inr) as amount_inr, q.payout_destination, q.payout_name,
             exists (select 1 from disputes d where d.order_id = o.id and d.status = 'open') as dispute_open
        from orders o
@@ -1558,9 +1573,9 @@ export async function getOrderByReference(reference: string): Promise<{
  *  merchant's sim_behavior so the caller can pick a human-sized SLA (NULL = real). */
 export async function listOrdersByEscrowFundTransfer(
   transferId: string,
-): Promise<{ id: string; state: OrderState; sim_behavior: string | null }[]> {
-  const { rows } = await getPool().query<{ id: string; state: OrderState; sim_behavior: string | null }>(
-    `select o.id, o.state, m.sim_behavior
+): Promise<{ id: string; state: OrderState; sim_behavior: string | null; reference_code: string; amount_usdc: string }[]> {
+  const { rows } = await getPool().query<{ id: string; state: OrderState; sim_behavior: string | null; reference_code: string; amount_usdc: string }>(
+    `select o.id, o.state, m.sim_behavior, o.reference_code, o.amount_usdc
        from orders o left join merchants m on m.id = o.merchant_id
       where o.escrow_fund_transfer_id = $1
       order by o.group_id nulls first, o.created_at`,
@@ -1569,12 +1584,88 @@ export async function listOrdersByEscrowFundTransfer(
   return rows;
 }
 
-export async function getOrderByEscrowReleaseTransfer(transferId: string): Promise<{ id: string; state: OrderState } | null> {
-  const { rows } = await getPool().query<{ id: string; state: OrderState }>(
-    'select id, state from orders where escrow_release_transfer_id = $1',
+export interface SettledOrderRow {
+  id: string;
+  state: OrderState;
+  /** 'refund' or 'order release' — the transfer row's note is what tells the two settlements apart. */
+  note: string | null;
+  to_user_id: string | null;
+  amount_usdc: string;
+}
+
+/** The order a settlement (release OR refund) transfer belongs to, with what the transfer was. */
+export async function getOrderByEscrowReleaseTransfer(transferId: string): Promise<SettledOrderRow | null> {
+  const { rows } = await getPool().query<SettledOrderRow>(
+    `select o.id, o.state, t.note, t.to_user_id, t.amount_usdc
+       from orders o join transfers t on t.id = o.escrow_release_transfer_id
+      where o.escrow_release_transfer_id = $1`,
     [transferId],
   );
   return rows[0] ?? null;
+}
+
+/** The settlement tx already recorded for an order, if any — the in-flight guard reads this. */
+export async function getEscrowReleaseTransfer(
+  orderId: string,
+): Promise<{ id: string; status: 'pending' | 'confirmed' | 'failed'; signature: string | null; created_at: Date } | null> {
+  const { rows } = await getPool().query<{ id: string; status: 'pending' | 'confirmed' | 'failed'; signature: string | null; created_at: Date }>(
+    `select t.id, t.status, t.signature, t.created_at
+       from orders o join transfers t on t.id = o.escrow_release_transfer_id
+      where o.id = $1`,
+    [orderId],
+  );
+  return rows[0] ?? null;
+}
+
+/**
+ * Orders whose deposit the DB has not seen confirmed but whose vault may hold the money anyway: a
+ * /fund-submit that never arrived, a signature the poller cannot see. The reconciler reads their
+ * vaults (services/orderMachine.ts reconcileFundedVaults). Bounded by age and count — this runs
+ * every tick and each row is an RPC read.
+ */
+/**
+ * Deposit rows still waiting for a signature — the set the pool's history is read for
+ * (orderMachine.ts reconcilePoolDeposits). A `failed` order stays a candidate for one hour: after
+ * that a deposit against it is a refund case a human handles, not something to keep paying an RPC
+ * call per tick to look for.
+ */
+export async function listUnattributedDeposits(maxAgeHours: number, limit = 50): Promise<{ id: string; reference_code: string }[]> {
+  const { rows } = await getPool().query<{ id: string; reference_code: string }>(
+    `select t.id, o.reference_code
+       from transfers t
+       join orders o on o.escrow_fund_transfer_id = t.id and o.group_id is null
+      where t.kind = 'escrow_fund' and t.status = 'pending' and t.signature is null
+        and t.created_at > now() - make_interval(hours => $1)
+        and (o.state in ('pay_instructions', 'waiting_payment')
+             or (o.state = 'failed' and o.created_at > now() - interval '1 hour'))
+      order by t.created_at
+      limit $2`,
+    [maxAgeHours, limit],
+  );
+  return rows;
+}
+
+/**
+ * Bind a signature to the escrow_fund row of the PRIMARY order under `reference` — only while that
+ * row has none and is still pending. Not owner-scoped like attachTransferSignature: the caller has
+ * already read the memo off the chain, and the chain check that follows is what decides whether the
+ * row flips. False when nothing matched, or when another row already carries this signature (23505).
+ */
+export async function attachSignatureByReference(reference: string, signature: string): Promise<boolean> {
+  try {
+    const { rowCount } = await getPool().query(
+      `update transfers t
+          set signature = $2
+         from orders o
+        where o.escrow_fund_transfer_id = t.id and o.group_id is null and o.reference_code = $1
+          and t.kind = 'escrow_fund' and t.status = 'pending' and t.signature is null`,
+      [reference, signature],
+    );
+    return (rowCount ?? 0) > 0;
+  } catch (err) {
+    if ((err as { code?: string }).code === '23505') return false;
+    throw err;
+  }
 }
 
 export async function getOrderEscrowFundTransferId(orderId: string): Promise<string | null> {
@@ -2205,32 +2296,61 @@ export async function touchMerchantSeen(merchantId: string): Promise<void> {
  */
 export async function creditStakeOnConfirm(transferId: string, stakeTreasuryAddress: string): Promise<number> {
   if (!stakeTreasuryAddress) return 0;
+  // The credit and its ledger row land together or not at all (0024): bond_usdc = Σ events.
   const { rows } = await getPool().query<{ amount_usdc: string }>(
-    `update merchants m
-        set bond_usdc = m.bond_usdc + t.amount_usdc
-       from transfers t
-      where t.id = $1 and t.to_address = $2 and t.status = 'confirmed'
-        and m.user_id = t.from_user_id
-      returning t.amount_usdc`,
+    `with credited as (
+       update merchants m
+          set bond_usdc = m.bond_usdc + t.amount_usdc
+         from transfers t
+        where t.id = $1 and t.to_address = $2 and t.status = 'confirmed'
+          and m.user_id = t.from_user_id
+        returning m.id as merchant_id, t.id as transfer_id, t.amount_usdc
+     )
+     insert into merchant_bond_events (merchant_id, kind, amount_usdc, transfer_id, note)
+     select merchant_id, 'deposit', amount_usdc, transfer_id, 'stake deposit' from credited
+     returning amount_usdc`,
     [transferId, stakeTreasuryAddress],
   );
   return rows[0] ? Number(rows[0].amount_usdc) : 0;
 }
 
 /**
- * Ask for stake back. ONE statement on purpose: the bond debit and the request row must land
- * together or not at all, and every precondition is a predicate rather than a read-then-write, so
- * two concurrent requests cannot both pass the checks.
+ * The claw window's predicate, shared by a withdrawal, an exit and (mirrored on the payer side)
+ * a dispute: has any of this LP's orders completed inside the last N hours? orders has no
+ * completed_at — order_events is the timeline.
+ */
+const RECENT_COMPLETION = `exists (select 1 from order_events e join orders o on o.id = e.order_id
+                                   where o.merchant_id = $1 and e.to_state = 'completed'
+                                     and e.created_at > now() - make_interval(hours => $CLAW))`;
+
+export async function hasRecentCompletion(merchantId: string, clawWindowHours: number): Promise<boolean> {
+  const { rows } = await getPool().query<{ recent: boolean }>(
+    `select ${RECENT_COMPLETION.replace('$CLAW', '$2')} as recent`,
+    [merchantId, clawWindowHours],
+  );
+  return rows[0]?.recent ?? false;
+}
+
+/**
+ * Ask for stake back. ONE statement on purpose: the bond debit, the request row and the ledger
+ * event must land together or not at all, and every precondition is a predicate rather than a
+ * read-then-write, so two concurrent requests cannot both pass the checks.
  *
  * Refused (returns null) when the LP has less bond than they're asking for, already has an open
- * request, still has an order in flight, or has an open dispute — an unresolved dispute can still
- * draw this bond down, and letting it leave first is how you get an uncollectable fine.
+ * request, still has an order in flight, has an open dispute — an unresolved dispute can still draw
+ * this bond down — or completed an order inside the claw window (a dispute on it can still be
+ * filed until then; letting the bond leave first is how you get an uncollectable fine).
  *
  * The debit lands NOW, not at release. Money you have asked to withdraw must stop backing new
  * orders immediately; if that drops the LP under MIN_BOND the existing auto-suspend takes them out
  * of routing, which is the correct outcome for someone on their way out.
  */
-export async function requestStakeWithdrawal(merchantId: string, amountUsdc: number): Promise<string | null> {
+export async function requestStakeWithdrawal(
+  merchantId: string,
+  amountUsdc: number,
+  clawWindowHours: number,
+  exit = false,
+): Promise<string | null> {
   const { rows } = await getPool().query<{ id: string }>(
     `with debited as (
        update merchants set bond_usdc = bond_usdc - $2
@@ -2241,29 +2361,90 @@ export async function requestStakeWithdrawal(merchantId: string, amountUsdc: num
                            where o.merchant_id = $1 and o.state in ${LIVE_ORDER_STATES})
           and not exists (select 1 from disputes d
                            where d.merchant_id = $1 and d.status = 'open')
+          and not ${RECENT_COMPLETION.replace('$CLAW', '$3')}
        returning id
+     ),
+     w as (
+       insert into merchant_stake_withdrawals (merchant_id, amount_usdc, exit)
+       select id, $2, $4 from debited
+       returning id, merchant_id, amount_usdc
+     ),
+     ev as (
+       insert into merchant_bond_events (merchant_id, kind, amount_usdc, withdrawal_id, note)
+       select merchant_id, 'withdraw_request', -amount_usdc, id, case when $4 then 'exit' else null end from w
      )
-     insert into merchant_stake_withdrawals (merchant_id, amount_usdc)
-     select id, $2 from debited
-     returning id`,
-    [merchantId, amountUsdc],
+     select id from w`,
+    [merchantId, amountUsdc, clawWindowHours, exit],
   );
   return rows[0]?.id ?? null;
+}
+
+/**
+ * Leave. The whole bond becomes one withdrawal request flagged `exit`, and the row is frozen
+ * (`status='suspended', suspend_reason='exited', exited_at`) — the 0024 trigger then refuses every
+ * later status write, whoever makes it. Same preconditions as a withdrawal; a merchant with no
+ * bond simply flips. Never a delete: the ledger, the KYB record and the order history stay.
+ * Returns null when a precondition refused it.
+ */
+export async function exitMerchant(
+  merchantId: string,
+  clawWindowHours: number,
+): Promise<{ withdrawalId: string | null } | null> {
+  const { rows } = await getPool().query<{ withdrawal_id: string | null }>(
+    `with eligible as (
+       select id, bond_usdc from merchants
+        where id = $1
+          and suspend_reason is distinct from 'exited'
+          and not exists (select 1 from merchant_stake_withdrawals w
+                           where w.merchant_id = $1 and w.status = 'requested')
+          and not exists (select 1 from orders o
+                           where o.merchant_id = $1 and o.state in ${LIVE_ORDER_STATES})
+          and not exists (select 1 from disputes d
+                           where d.merchant_id = $1 and d.status = 'open')
+          and not ${RECENT_COMPLETION.replace('$CLAW', '$2')}
+     ),
+     flipped as (
+       update merchants m
+          set status = 'suspended', suspend_reason = 'exited', exited_at = now(), bond_usdc = 0
+         from eligible e
+        where m.id = e.id
+        returning m.id, e.bond_usdc as bond
+     ),
+     w as (
+       insert into merchant_stake_withdrawals (merchant_id, amount_usdc, exit)
+       select id, bond, true from flipped where bond > 0
+       returning id, merchant_id, amount_usdc
+     ),
+     ev as (
+       insert into merchant_bond_events (merchant_id, kind, amount_usdc, withdrawal_id, note)
+       select merchant_id, 'withdraw_request', -amount_usdc, id, 'exit' from w
+     )
+     select (select id from w) as withdrawal_id from flipped`,
+    [merchantId, clawWindowHours],
+  );
+  return rows[0] ? { withdrawalId: rows[0].withdrawal_id } : null;
 }
 
 /** Changed their mind before a human released it — restore the bond and close the request. The CAS
  *  on status='requested' is what stops a cancel racing a release into a double credit. */
 export async function cancelStakeWithdrawal(merchantId: string, withdrawalId: string): Promise<boolean> {
+  // `not exit`: leaving is final — the row is frozen by trigger the moment it flips, and a bond
+  // put back on a frozen row would be stake nobody can ever route against.
   const { rows } = await getPool().query<{ id: string }>(
     `with cancelled as (
        update merchant_stake_withdrawals
           set status = 'cancelled', settled_at = now()
-        where id = $2 and merchant_id = $1 and status = 'requested'
-       returning merchant_id, amount_usdc
+        where id = $2 and merchant_id = $1 and status = 'requested' and not exit
+       returning id, merchant_id, amount_usdc
+     ),
+     credited as (
+       update merchants m set bond_usdc = m.bond_usdc + c.amount_usdc
+         from cancelled c where m.id = c.merchant_id
+       returning m.id
      )
-     update merchants m set bond_usdc = m.bond_usdc + c.amount_usdc
-       from cancelled c where m.id = c.merchant_id
-     returning m.id`,
+     insert into merchant_bond_events (merchant_id, kind, amount_usdc, withdrawal_id, note)
+     select merchant_id, 'withdraw_cancel', amount_usdc, id, 'withdrawal cancelled' from cancelled
+     returning id`,
     [merchantId, withdrawalId],
   );
   return rows.length > 0;
@@ -2277,6 +2458,11 @@ export interface StakeWithdrawalRow {
   requested_at: Date;
   settled_at: Date | null;
   note: string | null;
+  /** The whole bond, on the way out. Cannot be cancelled. */
+  exit: boolean;
+  /** The Solana signature of the USDC the admin sent by hand — unique; the LP can verify it. */
+  release_signature: string | null;
+  released_by: string | null;
 }
 
 export async function listStakeWithdrawals(merchantId: string): Promise<StakeWithdrawalRow[]> {
@@ -2287,15 +2473,37 @@ export async function listStakeWithdrawals(merchantId: string): Promise<StakeWit
   return rows;
 }
 
-/** Admin: mark a request paid out after sending the USDC by hand. The bond was already debited at
- *  request time, so this moves no balance — it records that the off-chain half happened. */
-export async function releaseStakeWithdrawal(withdrawalId: string, note: string): Promise<boolean> {
+/** Admin: record that the USDC was sent by hand. The bond was already debited at request time, so
+ *  this moves no balance — it records the signature of the on-chain half. `status = 'requested'`
+ *  is the CAS; the unique index on release_signature is what makes one signature good for one
+ *  release only (a duplicate raises 23505, which the route turns into a 409). */
+export async function releaseStakeWithdrawal(withdrawalId: string, signature: string, adminUserId: string, note?: string): Promise<boolean> {
   const { rowCount } = await getPool().query(
-    `update merchant_stake_withdrawals set status = 'released', settled_at = now(), note = $2
+    `update merchant_stake_withdrawals
+        set status = 'released', settled_at = now(), release_signature = $2, released_by = $3, note = $4
       where id = $1 and status = 'requested'`,
-    [withdrawalId, note],
+    [withdrawalId, signature, adminUserId, note ?? null],
   );
   return (rowCount ?? 0) > 0;
+}
+
+export interface AdminStakeWithdrawalRow extends StakeWithdrawalRow {
+  merchant_name: string;
+  /** The wallet the LP staked FROM — the only place the money goes back to. */
+  payout_wallet: string | null;
+}
+
+/** Admin: what is waiting to be paid out (or was), with where it goes. */
+export async function listStakeWithdrawalsAdmin(status: 'requested' | 'released' | 'cancelled'): Promise<AdminStakeWithdrawalRow[]> {
+  const { rows } = await getPool().query<AdminStakeWithdrawalRow>(
+    `select w.*, m.name as merchant_name,
+            (select address from wallets where user_id = m.user_id and chain = 'solana' order by created_at limit 1) as payout_wallet
+       from merchant_stake_withdrawals w join merchants m on m.id = w.merchant_id
+      where w.status = $1
+      order by w.requested_at`,
+    [status],
+  );
+  return rows;
 }
 
 /**
@@ -2929,24 +3137,29 @@ export async function decideMerchantKyb(
   return rows[0] ? { from: rows[0].from_status, userId: rows[0].user_id } : null;
 }
 
-/** @deprecated Superseded by decideMerchantKyb (0016). Kept only for the dev /sim route, which
- *  still speaks the old two-outcome shape. */
-export async function setMerchantKyb(id: string, decision: 'approve' | 'reject'): Promise<boolean> {
-  const kyb = decision === 'approve' ? 'approved' : 'rejected';
-  const status = decision === 'approve' ? 'online' : 'offline';
-  const { rowCount } = await getPool().query(
-    `update merchants set kyb_status = $2, status = $3 where id = $1 and kyb_status not in ('approved','rejected')`,
-    [id, kyb, status],
+/**
+ * Draw a merchant's bond down when a dispute is upheld against them: `min(bond, amount)`, so pass
+ * the order's amount and the clamp IS the penalty rule (merchantStats.ts). Returns what was
+ * actually drawn, and records exactly that — a clamped draw that wrote the nominal fine would
+ * make the ledger lie by the shortfall.
+ */
+export async function drawDownBond(merchantId: string, amount: number, disputeId?: string): Promise<number> {
+  const { rows } = await getPool().query<{ drawn: string }>(
+    `with before as (select bond_usdc from merchants where id = $1),
+         after as (
+           update merchants set bond_usdc = greatest(bond_usdc - $2, 0) where id = $1
+           returning bond_usdc
+         ),
+         ev as (
+           insert into merchant_bond_events (merchant_id, kind, amount_usdc, dispute_id, note)
+           select $1, 'penalty', -(before.bond_usdc - after.bond_usdc), $3, 'dispute upheld'
+             from before, after where before.bond_usdc > after.bond_usdc
+           returning amount_usdc
+         )
+     select coalesce((select -amount_usdc from ev), 0) as drawn`,
+    [merchantId, amount, disputeId ?? null],
   );
-  return (rowCount ?? 0) > 0;
-}
-
-/** Draw a merchant's bond down (floored at 0) when a dispute is upheld against them. */
-export async function drawDownBond(merchantId: string, amount: number): Promise<void> {
-  await getPool().query(`update merchants set bond_usdc = greatest(bond_usdc - $2, 0) where id = $1`, [
-    merchantId,
-    amount,
-  ]);
+  return Number(rows[0]?.drawn ?? 0);
 }
 
 export async function insertDispute(input: { orderId: string; merchantId: string; reason?: string }): Promise<string> {
@@ -2994,6 +3207,7 @@ export async function resolveDispute(id: string, resolution: 'upheld' | 'rejecte
 export async function getOrderForDispute(
   orderId: string,
   userId: string,
+  clawWindowHours: number,
 ): Promise<{
   merchantId: string;
   amountUsdc: number;
@@ -3008,9 +3222,15 @@ export async function getOrderForDispute(
     reference_code: string;
     payout_claimed_at: Date | null;
   }>(
+    // A completed order is disputable only inside the claw window — the same constant that keeps
+    // the LP's bond from leaving (requestStakeWithdrawal). After it there is nothing to draw, and a
+    // post-completion dispute never refunded the payer anyway (the escrow is closed) — it only fined.
     `select merchant_id, amount_usdc, state, reference_code, payout_claimed_at
-       from orders where id = $1 and user_id = $2`,
-    [orderId, userId],
+       from orders o where id = $1 and user_id = $2
+        and (state <> 'completed' or exists (select 1 from order_events e where e.order_id = o.id
+                                              and e.to_state = 'completed'
+                                              and e.created_at > now() - make_interval(hours => $3)))`,
+    [orderId, userId, clawWindowHours],
   );
   const r = rows[0];
   return r && r.merchant_id
@@ -4006,6 +4226,8 @@ export async function listMerchantsAdmin(): Promise<AdminMerchant[]> {
     id: m.id,
     name: m.name,
     status: m.status,
+    suspendReason: m.suspend_reason ?? undefined,
+    exitedAt: m.exited_at?.toISOString(),
     kybStatus: m.kyb_status,
     country: m.country,
     kybFields: m.kyb_fields ?? undefined,

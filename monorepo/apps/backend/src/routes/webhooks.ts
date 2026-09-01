@@ -7,11 +7,12 @@ import { timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 
 import { config } from '../envConfig';
-import { appendOrderEvent, claimOrderPayout, getOrderByReference, insertRiskEvent, setTransferStatusBySignature } from '../db/queries';
+import { appendOrderEvent, claimOrderPayout, getOrderByReference, getTransferBySignature, insertRiskEvent, setTransferStatusBySignature } from '../db/queries';
 import { getKycProvider } from '../services/kyc';
 import { applyKycForSession } from '../services/kyc/poller';
-import { DISPUTE_WINDOW_MS, onTransferConfirmedAndNotify } from '../services/orderMachine';
+import { attachDepositByMemo, DISPUTE_WINDOW_MS, onTransferConfirmedAndNotify } from '../services/orderMachine';
 import { payoutProviderById } from '../services/payout/provider';
+import { verifiedStatus } from '../services/transferVerify';
 
 // Constant-time shared-secret compare for vendor callbacks. Length is checked first because
 // timingSafeEqual throws on a length mismatch (and a length is not a secret).
@@ -29,25 +30,41 @@ export async function registerWebhookRoutes(app: FastifyInstance) {
   // The secret arrives in the Authorization header (Helius' `authHeader` field), never in the URL:
   // query strings are logged in plaintext by every proxy, access log and error tracker on the path.
   app.post('/webhooks/helius', async (req, reply) => {
-    if (config.heliusWebhookSecret) {
-      if (!secretEq(req.headers.authorization, config.heliusWebhookSecret)) {
-        return reply.code(401).send({ error: 'unauthorized' });
-      }
-    } else {
-      req.log.warn('HELIUS_WEBHOOK_SECRET unset — /webhooks/helius is open (dev only)');
+    if (!config.heliusWebhookSecret) {
+      // Fail closed off-local. An open confirmation webhook on a mainnet tier is a forged-signature
+      // endpoint; stage is `isDevelopment`, so `isLocal` is the only tier that may run without the
+      // secret — and Helius cannot reach a laptop anyway (invariant 31).
+      if (!config.isLocal) return reply.code(401).send({ error: 'unauthorized' });
+      req.log.warn('HELIUS_WEBHOOK_SECRET unset — /webhooks/helius is open (local only)');
+    } else if (!secretEq(req.headers.authorization, config.heliusWebhookSecret)) {
+      return reply.code(401).send({ error: 'unauthorized' });
     }
     const events = Array.isArray(req.body)
       ? (req.body as Array<{ signature?: string; transactionError?: unknown }>)
       : [];
     for (const ev of events) {
-      if (typeof ev?.signature === 'string') {
-        // Helius sets transactionError (non-null) on failed txs; null/absent means success.
-        const status = ev.transactionError == null ? 'confirmed' : 'failed';
-        const id = await setTransferStatusBySignature(ev.signature, status);
-        // M6: on a real pending→confirmed transition, drive the same advance-order + notify path the
-        // poller uses (previously the webhook only flipped the row, so prod webhook-wins dropped both).
-        if (id && status === 'confirmed') await onTransferConfirmedAndNotify(id);
+      if (typeof ev?.signature !== 'string') continue;
+      let row = await getTransferBySignature(ev.signature);
+      // Unknown signature? It may be a deposit whose /fund-submit dropped after the payer signed: the
+      // fee-payer co-signs every deposit, so Helius pushes every one here, and the memo names the
+      // order. Attribution only — the row gains its signature and the chain check below decides.
+      if (!row && ev.transactionError == null) {
+        try {
+          if (await attachDepositByMemo(ev.signature)) row = await getTransferBySignature(ev.signature);
+        } catch (err) {
+          req.log.warn({ err, signature: ev.signature }, 'deposit recovery failed — the poller retries');
+        }
       }
+      if (!row || row.status !== 'pending') continue; // not ours, or already final
+      // Helius sets transactionError (non-null) on failed txs; null/absent means it landed — and
+      // "landed" is only half the question. The same chain check the poller runs decides whether the
+      // row may flip (transferVerify.ts); a hint is a hint, the chain is the authority.
+      const status = ev.transactionError == null ? await verifiedStatus(row) : 'failed';
+      if (status === 'pending') continue; // the RPC could not answer right now — the poller retries
+      const id = await setTransferStatusBySignature(ev.signature, status);
+      // M6: on a real pending→confirmed transition, drive the same advance-order + notify path the
+      // poller uses (previously the webhook only flipped the row, so prod webhook-wins dropped both).
+      if (id && status === 'confirmed') await onTransferConfirmedAndNotify(id);
     }
     return { ok: true };
   });

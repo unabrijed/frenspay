@@ -20,21 +20,30 @@ the regulated parts turn on last, corridor by corridor. See
 [06-offramp-and-settlement](06-offramp-and-settlement.md) for the payout seam and
 [10-ops-and-roadmap](10-ops-and-roadmap.md) for sequencing.
 
+**Custody, stated exactly (2026-08-31).** The wallet is non-custodial at rest — the user's embedded
+key signs every deposit and every send. A scan-and-pay order is **custodial in flight**: the payer's
+USDC is sent to a pooled token account controlled by one platform-held key, from which the backend
+pays the partner or returns it — for the minutes an order takes, longer under a dispute. The on-chain
+escrow program that would have made this program-controlled rather than key-controlled was audited
+and shelved ([16](16-escrow-pool-and-the-shelved-program.md)). Whether "minutes, in a pool, under
+one key" is custody in the regulated sense is counsel's question; this doc no longer says the
+platform never holds funds.
+
 ## The risk map
 
 ```mermaid
 flowchart TB
     subgraph green["✅ Handled by design (lowers exposure)"]
-      C1["Self-custody — user holds key,<br/>platform never holds funds/keys"]
+      C1["Self-custody at rest — user holds key;<br/>the platform holds no wallet keys"]
       C2["Gas sponsorship — product cost,<br/>not a regulated activity"]
-      C3["On-chain escrow — trust-minimized<br/>conditional settlement + audit events"]
+      C3["Chain-verified movement — every row, ours included,<br/>is parsed against the chain before it flips"]
       C4["Audit substrate — full ledger +<br/>routing trail + on-chain proofs"]
       C5["Account deletion — soft-delete revokes<br/>app access, never custody"]
     end
     subgraph gray["🟡 Gray (exists but simulated/partial)"]
       G1["KYC vendor — Persona on stage + prod<br/>(tiers enforced; stage sandbox, prod awaits production key)"]
       G2["FX — live per-currency rate;<br/>no regulated provider SLA"]
-      G3["Escrow release authority —<br/>platform-held (operationally trusted)"]
+      G3["Escrow — a POOL under one platform key<br/>(custodial in flight; program shelved, docs/16)"]
       G4["PII/data — minimal, NO<br/>retention policy exists today"]
     end
     subgraph red["⬜ Deferred to real rails"]
@@ -48,13 +57,24 @@ flowchart TB
 
 ## Topic by topic
 
-### 1. Custody & money transmission — ✅ *lightened by design*
+### 1. Custody & money transmission — 🟡 *non-custodial for payers; partner stakes ARE held*
 Holding customer funds/keys is what triggers the heaviest rules (US state **MTL** / FinCEN **MSB**, EU
-**VASP/EMI**). The app is **non-custodial**: the user signs every movement of their own funds; the
-platform only sponsors gas. This is the **single biggest lever** keeping us in a lighter
-classification. **Caveat:** the per-order escrow does put funds under *program* control briefly — see
-#3. *(The custody/MTL line is fact-specific and jurisdiction-specific; confirm with counsel before
-real funds move at scale.)* See [03-custody-money-in-and-confirmation](03-custody-money-in-and-confirmation.md).
+**VASP/EMI**). For **payers** the app is non-custodial: the user signs every movement of their own
+funds; the platform only sponsors gas. That is still the biggest lever keeping the payer side in a
+lighter classification. **But it is not the whole picture, and this section used to say it was.** A
+**partner's stake is money we hold**: it sits in a platform-controlled treasury and is owed back on
+request. That is client money, whatever the wallet is called. Since 2026-08-30 ([15](15-pilot-escrow-and-bond.md))
+it is held the way client money has to be held to be defensible: a **cold** treasury with no server
+key (`STAKE_TREASURY_ADDRESS` is a public key), **segregated** from the platform's earnings (their own
+cold wallet, paid at release by the escrow program itself), and a **per-partner ledger**
+(`merchant_bond_events`, written in the same statement as every balance change) that sums to the
+balance and is reconciled by `check-bond`. Withdrawal is a request the partner sees, released by a
+root admin who sends the USDC by hand and records the signature — the SLA in the console ("usually
+within a day") is a promise the system can now keep. Leaving is a flag; nothing is deleted. The
+per-order escrow puts payer funds under *program* control briefly — see #3. *(The custody/MTL line
+is fact-specific and jurisdiction-specific; whether holding a friend's $100 bond differs in kind
+from holding the public's is exactly the question for counsel before a third party stakes.)* See
+[03-custody-money-in-and-confirmation](03-custody-money-in-and-confirmation.md).
 
 ### 2. KYC / customer identification — 🟡 *tiers enforced; the vendor is currently OFF*
 The tiered model is **enforced**: `users.kyc_tier` gates money movement (tier 1 ≈ $100/tx, $300/day
@@ -112,10 +132,13 @@ model a corridor uses is a licensing decision, not a code detail**:
 > **⚠️ And the registry currently contradicts the first bullet.** Every corridor also lists `'lp'`,
 > and on India — the corridor this research rules out — `lp` is the entry that actually *resolves*,
 > because no INR provider is configured yet. Stated plainly rather than smoothed: this is the live
-> position. It is survivable only because merchant-pay is **503-gated on every deployed
-> environment** and the marketplace runs on devnet alone. Enabling an India-licensed partner flips
-> the corridor to provider-first with no code change — that is the intended resolution, and it is
-> ops work, not a build.
+> position. Until 2026-08-30 it was survivable because merchant-pay was 503-gated everywhere and the
+> marketplace ran on devnet. **Neither is true any more** — there is no devnet, and the gate is a
+> capability (`escrowLive`) that is being switched on for a **closed pilot**: two accounts, both
+> Bridge's, paying Bridge's own VPA, partner float capped at $100. That framing — and the line at
+> which it stops being honest, the first stranger on either leg — is written down in
+> [15](15-pilot-escrow-and-bond.md). Enabling an India-licensed partner still flips the corridor to
+> provider-first with no code change; that remains the intended resolution for anything public.
 
 Full per-country comparison, the provider registry, and its safety invariants:
 [06-offramp-and-settlement](06-offramp-and-settlement.md).
@@ -184,9 +207,12 @@ documents already sit with the KYC vendor. Typed fields plus a human reading the
 first rung; the alternative would have been a document vault nobody had designed.
 
 Bonds gate routing **in the query that picks LPs** rather than in a background job, and cap an LP's
-in-flight exposure at a multiple of their stake. Still no real KYB vendor, no contracts, no
-arbitration, and no real fiat — so no live counterparty risk yet, but the shape is now specific
-enough to be argued about with counsel rather than described in the abstract.
+in-flight exposure at a multiple of their stake — **1× at tier 1** since 2026-08-30, so a
+floor-bonded partner is fully collateralised for anything they can be routed, and an upheld dispute
+draws `min(bond, the order's amount)` rather than a flat fine the bond could not cover. Bond cannot
+leave while a completed order is inside its 72-hour claw window, and a completed order cannot be
+disputed after it — one constant, both sides, disclosed to both. Still no real KYB vendor, no
+contracts, no arbitration; the first real fiat is the closed pilot in [15](15-pilot-escrow-and-bond.md).
 
 ### 11. LP payment metadata leaves the system — ⬜ *unaddressed*
 Out-of-band alerting sends an LP the amount and timing of work available, through **Telegram**. That
@@ -221,7 +247,8 @@ routing happened to pick saw every payee assigned to them whether or not they ev
 
 ## Bottom line
 
-The app is intentionally on the **light side of regulation** today because it holds no customer funds
+The app is intentionally on the **light side of regulation** today because it holds customer funds only
+**in flight** — the escrow pool, minutes per order ([16](16-escrow-pool-and-the-shelved-program.md)) —
 and moves no real fiat on the payout side. **KYC enforcement and sanctions screening are built (against
 simulated/seeded data);** the remaining **gray** items (FX provider SLA, escrow authority, PII
 retention) are known and seamed, and the **deferred** items (licensing, real payout rails, real

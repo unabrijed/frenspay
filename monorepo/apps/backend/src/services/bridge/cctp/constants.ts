@@ -1,6 +1,7 @@
 // CCTP V2 protocol constants (verified against developers.circle.com, 2026-07-22).
-// Contract addresses are protocol facts keyed by tier — NOT env config. RPC urls + fees ARE env
-// config (config.ts). Domain ids mirror @fpay/shared CCTP_DOMAINS (backend re-declares: type-only
+// Contract addresses are protocol facts — NOT env config. Mainnet only: there is no testnet tier
+// (2026-08-30), so the Sepolia table is gone rather than gated. RPC urls + fees ARE env config
+// (config.ts). Domain ids mirror @fpay/shared CCTP_DOMAINS (backend re-declares: type-only
 // imports from shared).
 
 import { config } from '../../../envConfig';
@@ -26,11 +27,9 @@ interface EvmChainInfo {
   etaSecs: number;
 }
 
-// Same TokenMessengerV2/MessageTransmitterV2 address across all three chains, per tier.
+// Same TokenMessengerV2/MessageTransmitterV2 address across all three chains.
 const MAINNET_TM = '0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d' as const;
 const MAINNET_MT = '0x81D40F21F12A8F0E3252Bccb954D722d4c464B64' as const;
-const TESTNET_TM = '0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA' as const;
-const TESTNET_MT = '0xE737e5cEBEEBa77EFE34D4aa090756590b1CE275' as const;
 
 const MAINNET: Record<string, EvmChainInfo> = {
   ethereum: {
@@ -59,34 +58,7 @@ const MAINNET: Record<string, EvmChainInfo> = {
   },
 };
 
-const TESTNET: Record<string, EvmChainInfo> = {
-  ethereum: {
-    usdc: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
-    tokenMessenger: TESTNET_TM,
-    messageTransmitter: TESTNET_MT,
-    chainId: 11155111, // Sepolia
-    rpcUrl: config.ethereumRpcUrl,
-    etaSecs: 120,
-  },
-  base: {
-    usdc: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
-    tokenMessenger: TESTNET_TM,
-    messageTransmitter: TESTNET_MT,
-    chainId: 84532, // Base Sepolia
-    rpcUrl: config.baseRpcUrl,
-    etaSecs: 60,
-  },
-  arbitrum: {
-    usdc: '0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d',
-    tokenMessenger: TESTNET_TM,
-    messageTransmitter: TESTNET_MT,
-    chainId: 421614, // Arbitrum Sepolia
-    rpcUrl: config.arbitrumRpcUrl,
-    etaSecs: 60,
-  },
-};
-
-export const EVM_CHAINS: Record<string, EvmChainInfo> = config.isProduction ? MAINNET : TESTNET;
+export const EVM_CHAINS: Record<string, EvmChainInfo> = MAINNET;
 
 /** User-facing network names (notification/ops copy — the client renders its own from shared). */
 export const NETWORK_NAME: Record<string, string> = {

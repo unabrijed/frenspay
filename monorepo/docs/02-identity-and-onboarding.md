@@ -11,7 +11,11 @@ no "connect wallet"), so the wallet is bound to the email identity. The user pic
 Three identities are tracked per person:
 
 - **Privy DID** — the login identity (`did:privy:…`), the source of truth for "who is this
-  request" and the DB's identity key (`users.privy_did`, unique).
+  request" and the DB's identity key (`users.privy_did`, unique). It is **per Privy app** — and there
+  is exactly one app on every tier, read under its bare name by every frontend and the backend.
+  Pointing a tier at a different app re-issues every DID and every embedded wallet: the returning
+  person is adopted by verified email, their wallet address is overwritten, and funds at the old
+  address are reachable only through the old app (`DEPLOY.stage.md` §One Privy app).
 - **Email** — the entrance. Synced from Privy on every `/auth/sync` (`getLinkedEmail` →
   `coalesce(excluded.email, users.email)` in `db/queries.ts` — Privy's value wins when present).
   Also the admin bootstrap key (`ADMIN_EMAILS` → `isRootAdminEmail`).

@@ -8,10 +8,12 @@
 # resolve inside the image). Full gate costs a few minutes per push; that is the point —
 # only successful builds get pushed.
 #
-# It does NOT build the repo-root Dockerfile, so an image-breaking change still leaves the
-# machine: that is exactly how packages/ui shipped a broken install (see the Dockerfile's
-# manifest rule). The image is built in GitHub Actions on push, where the failure is at
-# least loud and nothing deploys — but it is caught after the push, not before it.
+# It does NOT build the repo-root Dockerfile (that needs Docker), so an image-breaking change
+# can still leave the machine: that is exactly how packages/ui shipped a broken install (see the
+# Dockerfile's manifest rule) and how a deleted IDL directory failed the stage image on
+# 2026-08-31. The cheap half IS asserted below: every path the Dockerfile copies out of the
+# builder must exist in the tree. The image is built in GitHub Actions on push, where the
+# failure is at least loud and nothing deploys — but it is caught after the push, not before it.
 #
 # Enable (once per clone):  git config core.hooksPath monorepo/.githooks
 # Bypass (deliberately):    git push --no-verify
@@ -49,6 +51,16 @@ step "secret scan"
 if git grep -nIE '(api-key|apikey)=[0-9a-f]{8}-[0-9a-f]{4}-|[A-Z_]+(SECRET|TOKEN|API_KEY)=[0-9a-zA-Z_-]{20,}'; then
 	fail "secret scan (a real credential is in a tracked file — move it to apps/backend/.env)"
 fi
+
+# The runner stage copies source paths out of the builder. A directory deleted from the tree (the
+# shelved escrow program's IDL, 2026-08-31) fails the Railway build after the push, where nothing
+# local had looked. This does not build the image; it asserts every `COPY --from=builder /app/<path>`
+# names something that exists. Build outputs (node_modules, */dist) exist only inside the builder.
+step "Dockerfile copy sources"
+for src in $(sed -nE 's#^COPY --from=builder /app/([^ ]+) .*#\1#p' Dockerfile); do
+	case "$src" in node_modules|*/dist) continue ;; esac
+	[ -e "monorepo/$src" ] || fail "Dockerfile copy source (monorepo/$src does not exist)"
+done
 
 # Vercel and the Docker build both install with --frozen-lockfile; it fails on a lockfile
 # that does not cover every declared dep, which a local node_modules happily masks.

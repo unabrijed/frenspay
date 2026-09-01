@@ -17,7 +17,6 @@
     "db:reset": "tsx src/db/migrate.ts reset",
     "db:init": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
-    "devnet:setup": "tsx scripts/setup-devnet.ts",
     "check:admin": "tsx scripts/check-admin.ts",
     "check:waitlist": "tsx scripts/check-waitlist.ts",
     "check:invites": "tsx scripts/check-invites.ts",
@@ -27,7 +26,12 @@
     "check:lock": "tsx scripts/check-lock.ts",
     "check:phone": "tsx scripts/check-phone-otp.ts",
     "check:balance": "tsx scripts/check-balance.ts",
-    "check:kyc": "tsx scripts/check-kyc-switch.ts"
+    "check:kyc": "tsx scripts/check-kyc-switch.ts",
+    "check:verify": "tsx scripts/check-transfer-verify.ts",
+    "check:bond": "tsx scripts/check-bond.ts",
+    "check:escrow": "tsx scripts/check-escrow-switch.ts",
+    "check:pool": "tsx scripts/check-escrow-pool.ts",
+    "check:gas": "tsx scripts/check-gas-modes.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

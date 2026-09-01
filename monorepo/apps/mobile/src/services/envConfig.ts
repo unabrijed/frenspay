@@ -4,7 +4,9 @@
 //   local (default under expo start)       → EXPO_PUBLIC_LOCAL_<KEY> → EXPO_PUBLIC_STAGE_<KEY>
 //   stage (a stage build sets APP_ENV)     → EXPO_PUBLIC_STAGE_<KEY>
 //   production (default in a release)      → EXPO_PUBLIC_<KEY>
-// Bare EXPO_PUBLIC_* names exist ONLY in release builds — dev tiers never read them.
+// Bare EXPO_PUBLIC_* names exist ONLY in release builds — dev tiers never read them. ONE exception:
+// the Privy app is not tiered (exactly one app, every tier mounts it), so its two names are read bare
+// on every tier — see the PRIVY_APP_ID export below.
 //
 // The tier block below is byte-for-byte the web's (apps/web/src/services/envConfig.ts) with the
 // prefix swapped, asserted by `yarn check:env`. It cannot live in a package: Expo, like Next, only
@@ -12,9 +14,20 @@
 import Constants from 'expo-constants';
 
 const isProduction = process.env.NODE_ENV === 'production';
-const APP_ENV = process.env.EXPO_PUBLIC_APP_ENV || (isProduction ? 'production' : 'local');
+// A value pasted into a host's variable panel carries baggage — a trailing newline, the quotes it was
+// copied inside. The backend launders every read through clean(); this is that twin, and it matters
+// more here: an untrimmed tier name matches nothing and drops to the stage chain below.
+const APP_ENV = (process.env.EXPO_PUBLIC_APP_ENV || (isProduction ? 'production' : 'local'))
+  .trim()
+  .replace(/^(['"])([\s\S]*)\1$/, '$2');
 const isProdEnv = APP_ENV === 'production';
 const isStageEnv = APP_ENV === 'stage';
+// An unrecognised tier used to fall out of pick() into the STAGE chain — a production build quietly
+// signing in against the stage Privy app while its own bare vars sat there unread. EXPO_PUBLIC_* is
+// inlined, so this folds at build time: a mistyped tier fails the build instead of shipping.
+if (!isProdEnv && !isStageEnv && APP_ENV !== 'local') {
+  throw new Error(`EXPO_PUBLIC_APP_ENV must be local | stage | production — got ${JSON.stringify(APP_ENV)}`);
+}
 
 /** Tier chain. Args must be literal process.env.EXPO_PUBLIC_* references (Expo inlines). */
 function pick(local?: string, stage?: string, prod?: string): string | undefined {
@@ -33,16 +46,6 @@ const E = {
     process.env.EXPO_PUBLIC_LOCAL_SOLANA_RPC_URL,
     process.env.EXPO_PUBLIC_STAGE_SOLANA_RPC_URL,
     process.env.EXPO_PUBLIC_SOLANA_RPC_URL,
-  ),
-  privyAppId: pick(
-    process.env.EXPO_PUBLIC_LOCAL_PRIVY_APP_ID,
-    process.env.EXPO_PUBLIC_STAGE_PRIVY_APP_ID,
-    process.env.EXPO_PUBLIC_PRIVY_APP_ID,
-  ),
-  privyClientId: pick(
-    process.env.EXPO_PUBLIC_LOCAL_PRIVY_CLIENT_ID,
-    process.env.EXPO_PUBLIC_STAGE_PRIVY_CLIENT_ID,
-    process.env.EXPO_PUBLIC_PRIVY_CLIENT_ID,
   ),
   landingUrl: pick(
     process.env.EXPO_PUBLIC_LOCAL_LANDING_URL,
@@ -64,13 +67,8 @@ function lanApiUrl(): string {
 }
 
 export const API_URL = E.apiUrl || lanApiUrl();
-// Deployed tiers fail CLOSED to mainnet: a missing RPC var must never resurrect devnet affordances
-// in a release. Only the local tier defaults to devnet.
-export const SOLANA_RPC_URL =
-  E.solanaRpcUrl ||
-  (isProdEnv || isStageEnv ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com');
-// Cluster derives from the RPC URL — the twin of the backend's mint-derived isMainnet.
-export const IS_MAINNET = !SOLANA_RPC_URL.includes('devnet');
+// Every tier is mainnet — there is no testnet (2026-08-30). The var only picks the RPC provider.
+export const SOLANA_RPC_URL = E.solanaRpcUrl || 'https://api.mainnet-beta.solana.com';
 
 // Dev signing path (no Privy): a seeded user id + secret key from apps/backend/.devnet/keys.json.
 // SECURITY: `DEV_SECRET_KEY` is a RAW SOLANA PRIVATE KEY and every EXPO_PUBLIC_* read is inlined into
@@ -85,8 +83,15 @@ export const DEV_SECRET_KEY = isProduction
 
 // Privy. When the app id is set the app mounts Privy and uses email-OTP + the embedded Solana wallet.
 // A native build ALSO needs the client id (the dashboard's app client for com.bridge.fpay).
-export const PRIVY_APP_ID = E.privyAppId ?? '';
-export const PRIVY_CLIENT_ID = E.privyClientId ?? '';
+//
+// ONE Privy app, every tier — deliberately NOT routed through pick(): there is exactly one app, so
+// tiering it would mean two variable names holding one value, and a stale STAGE_ twin silently
+// winning over the bare name is exactly how stage kept mailing OTPs from a retired app (2026-08-31).
+// Same reasoning apps/admin/src/services/envConfig.ts gives. Empty is a supported, LOUD state
+// (USE_PRIVY false); there is no fallback to a prefixed name — missing beats wrong.
+export const PRIVY_APP_ID = process.env.EXPO_PUBLIC_PRIVY_APP_ID || '';
+/** The NATIVE app-client of the app id above (a different client than the web's) — and no other app's. */
+export const PRIVY_CLIENT_ID = process.env.EXPO_PUBLIC_PRIVY_CLIENT_ID || '';
 export const USE_PRIVY = PRIVY_APP_ID.length > 0;
 
 // The marketing site: share/invite links point here, and it is the passkey relying party.

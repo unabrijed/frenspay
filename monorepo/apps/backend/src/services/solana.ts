@@ -1,17 +1,19 @@
-// solana.ts — devnet USDC plumbing for Phase 1.
-// The user (token authority) signs the transfer; the backend fee-payer sponsors network
-// fees + any ATA-creation rent, so users never need SOL. Flow: prepare (build unsigned,
-// fee-payer set) → client signs → submit (fee-payer co-signs, broadcast).
+// solana.ts — USDC plumbing (mainnet; there is no testnet tier).
+// The user (token authority) signs the transfer; users never need SOL. Who pays gas is a deployment
+// choice (docs/16 §Who pays gas): with FEE_PAYER_SECRET_KEY the backend fee-payer co-signs every user
+// tx and pays its fee + any token-account rent; without it ("sponsored mode") the tx is built unsigned
+// and the client asks Privy to sponsor it, while the escrow key pays for everything the backend signs.
+// Flow: prepare (build) → client signs (+ Privy sponsors, or our fee-payer already did) → submit.
 import {
   createAssociatedTokenAccountInstruction,
   createTransferCheckedInstruction,
   getAccount,
   getAssociatedTokenAddress,
+  getAssociatedTokenAddressSync,
   getMint,
-  getOrCreateAssociatedTokenAccount,
   TokenAccountNotFoundError,
 } from '@solana/spl-token';
-import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js';
+import { Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js';
 
 import { config } from '../envConfig';
 import { BN, formatAmount, fromBaseUnits, parseAmount, toBaseUnits as toBase } from '../lib/units';
@@ -64,6 +66,51 @@ let _feePayer: Keypair | null = null;
 export function feePayer(): Keypair {
   if (!_feePayer) _feePayer = Keypair.fromSecretKey(parseSecretKey(config.feePayerSecretKey, 'FEE_PAYER_SECRET_KEY'));
   return _feePayer;
+}
+
+/**
+ * The escrow POOL's owner: one token account, under this key, holds every payer deposit that has not
+ * settled yet (docs/16 — the on-chain program is shelved for the pilot). This key signs transfers OUT
+ * of the pool (release to the partner, refund to the payer) and nothing else; it holds no SOL — the
+ * fee-payer pays for every tx it signs. Never the fee-payer, never the stake treasury: prod's is a
+ * key Bridge generates and holds himself.
+ */
+let _escrow: Keypair | null = null;
+export function escrowKeypair(): Keypair {
+  if (!_escrow) _escrow = Keypair.fromSecretKey(parseSecretKey(config.escrowSecretKey, 'ESCROW_SECRET_KEY'));
+  return _escrow;
+}
+
+/** The pool OWNER's address (not its token account) — what `transfers.to_address` records for a
+ *  deposit and `from_address` for a settlement, because the verifier derives the ATA from the owner. */
+export function escrowPoolAddress(): string {
+  return escrowKeypair().publicKey.toBase58();
+}
+
+/**
+ * Who pays for a tx the BACKEND signs (pool release/refund, a new token account): the fee-payer when
+ * one is configured, else the escrow key itself — which then needs a little SOL of its own.
+ */
+export function gasKeypair(): Keypair {
+  return config.feePayerConfigured ? feePayer() : escrowKeypair();
+}
+
+/**
+ * Sponsored mode = no fee-payer configured. A user-signed tx is then built with NO backend signature
+ * and the user's own wallet as a placeholder fee payer; the client passes `sponsor: true` and Privy's
+ * fee payer rewrites the fee-payer field + blockhash before the user signs. That rewrite is why the
+ * two modes cannot be mixed inside one tx: any signature of ours would be invalidated by it.
+ */
+export function sponsoredMode(): boolean {
+  return !config.feePayerConfigured;
+}
+
+/** SPL Memo v2. A deposit carries its order reference here, which is what binds one deposit to one
+ *  order now that no PDA seed does (transferVerify.ts requires it). No signer keys: the memo is a
+ *  label, not an authorisation. */
+export const MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
+export function memoInstruction(text: string): TransactionInstruction {
+  return new TransactionInstruction({ programId: MEMO_PROGRAM_ID, keys: [], data: Buffer.from(text, 'utf8') });
 }
 
 export function usdcMint(): PublicKey {
@@ -195,85 +242,184 @@ export async function getUsdcBalance(owner: string): Promise<string> {
   }
 }
 
-/** Build an unsigned, fee-payer-sponsored USDC transfer; returns base64 + fee-payer pubkey. */
+/** Does this token account exist? (A missing ATA is the one TokenAccountNotFoundError we expect.) */
+async function ataExists(ata: PublicKey): Promise<boolean> {
+  try {
+    await getAccount(connection(), ata);
+    return true;
+  } catch (err) {
+    if (err instanceof TokenAccountNotFoundError) return false;
+    throw err;
+  }
+}
+
+/**
+ * Make sure `owner` has a USDC token account, creating it in its OWN tx paid by the gas key and
+ * waiting for it to land. Needed before a sponsored user tx — Privy pays the message fee, not the
+ * rent of a second signer — and for the pool's own account. Idempotent: a concurrent creator winning
+ * the race is fine, the account exists either way.
+ */
+export async function ensureAtaExists(owner: PublicKey): Promise<PublicKey> {
+  const mint = usdcMint();
+  const ata = await getAssociatedTokenAddress(mint, owner);
+  if (await ataExists(ata)) return ata;
+  const gas = gasKeypair();
+  const tx = new Transaction().add(createAssociatedTokenAccountInstruction(gas.publicKey, ata, owner, mint));
+  tx.feePayer = gas.publicKey;
+  const { blockhash, lastValidBlockHeight } = await connection().getLatestBlockhash();
+  tx.recentBlockhash = blockhash;
+  tx.sign(gas);
+  try {
+    const signature = await connection().sendRawTransaction(tx.serialize());
+    await connection().confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+  } catch (err) {
+    if (!(await ataExists(ata))) throw err; // lost a race to another creator ⇒ fine; anything else ⇒ not
+  }
+  return ata;
+}
+
+/**
+ * The transfer itself, assembled without touching the network — so its SHAPE can be asserted offline
+ * (scripts/check-gas-modes.ts). Fee-payer mode: `payer` pays, and may create the recipient's token
+ * account inside the tx. Sponsored mode (no `payer`): the recipient's account must already exist
+ * (ensureAtaExists), and the fee payer is the sender — a placeholder Privy replaces.
+ */
+export function composeUsdcTransfer(p: {
+  fromOwner: PublicKey;
+  toOwner: PublicKey;
+  mint: PublicKey;
+  amountBase: bigint;
+  decimals: number;
+  memo?: string;
+  recipientAtaMissing: boolean;
+  payer?: PublicKey;
+}): Transaction {
+  const fromAta = getAssociatedTokenAddressSync(p.mint, p.fromOwner);
+  const toAta = getAssociatedTokenAddressSync(p.mint, p.toOwner);
+  const tx = new Transaction();
+  if (p.recipientAtaMissing) {
+    if (!p.payer) throw new Error('sponsored mode: the recipient token account must exist before the tx is built');
+    tx.add(createAssociatedTokenAccountInstruction(p.payer, toAta, p.toOwner, p.mint));
+  }
+  tx.add(createTransferCheckedInstruction(fromAta, p.mint, toAta, p.fromOwner, p.amountBase, p.decimals));
+  if (p.memo) tx.add(memoInstruction(p.memo));
+  tx.feePayer = p.payer ?? p.fromOwner;
+  return tx;
+}
+
+/**
+ * Build the USDC transfer a user will sign; returns base64 + the fee payer it names + whether the
+ * client must ask Privy to sponsor it. Fee-payer mode: our key is fee payer and has already signed.
+ * Sponsored mode: no backend signature, the sender is the placeholder fee payer, and a missing
+ * recipient account was created beforehand in a separate tx (Privy does not pay a second signer's rent).
+ */
 export async function buildUsdcTransfer(input: {
   fromOwner: string;
   toOwner: string;
   /** Canonical decimal string preferred; a `number` is accepted and validated the same way. */
   amountUsd: string | number;
-}): Promise<{ unsignedTx: string; feePayer: string }> {
+  /** An SPL Memo added to the tx — an escrow deposit carries its order reference. */
+  memo?: string;
+}): Promise<{ unsignedTx: string; feePayer: string; sponsored: boolean }> {
   const fromPk = new PublicKey(input.fromOwner);
   const toPk = new PublicKey(input.toOwner);
   const mint = usdcMint();
-  const payer = feePayer();
   const dec = await decimals();
+  const sponsored = sponsoredMode();
+  const payer = sponsored ? null : feePayer();
 
-  const fromAta = await getAssociatedTokenAddress(mint, fromPk);
-  const toAta = await getAssociatedTokenAddress(mint, toPk);
-
-  const tx = new Transaction();
-
-  // Create the recipient's token account if it doesn't exist (fee-payer pays the rent).
-  try {
-    await getAccount(connection(), toAta);
-  } catch (err) {
-    if (err instanceof TokenAccountNotFoundError) {
-      tx.add(createAssociatedTokenAccountInstruction(payer.publicKey, toAta, toPk, mint));
-    } else {
-      throw err;
-    }
+  let recipientAtaMissing = !(await ataExists(await getAssociatedTokenAddress(mint, toPk)));
+  if (recipientAtaMissing && sponsored) {
+    await ensureAtaExists(toPk);
+    recipientAtaMissing = false;
   }
 
-  tx.add(
-    createTransferCheckedInstruction(fromAta, mint, toAta, fromPk, toBaseUnits(input.amountUsd, dec), dec),
-  );
-
-  tx.feePayer = payer.publicKey;
+  const tx = composeUsdcTransfer({
+    fromOwner: fromPk,
+    toOwner: toPk,
+    mint,
+    amountBase: toBaseUnits(input.amountUsd, dec),
+    decimals: dec,
+    memo: input.memo,
+    recipientAtaMissing,
+    payer: payer?.publicKey,
+  });
   tx.recentBlockhash = (await connection().getLatestBlockhash()).blockhash;
-
-  // Fee-payer signs now; the client adds the user (token-authority) signature and broadcasts
-  // (Privy's Expo wallet only does signAndSendTransaction). "unsignedTx" = unsigned by the client.
-  tx.partialSign(payer);
+  // Fee-payer mode: our signature goes on now; the client adds the user's and broadcasts. Sponsored
+  // mode: nothing of ours — Privy will rewrite the fee payer + blockhash, then the user signs.
+  if (payer) tx.partialSign(payer);
 
   const unsignedTx = tx
     .serialize({ requireAllSignatures: false, verifySignatures: false })
     .toString('base64');
-  return { unsignedTx, feePayer: payer.publicKey.toBase58() };
+  return { unsignedTx, feePayer: (tx.feePayer as PublicKey).toBase58(), sponsored };
 }
 
 /**
- * Devnet faucet: transfer OFFICIAL devnet USDC from the fee-payer's own ATA (the treasury) to an
- * owner's wallet, creating their ATA if needed. Replaced the old self-minted-USDC faucet when
- * cross-chain landed (docs/19) — CCTP only burns Circle's official mint, so staging now uses it
- * end-to-end; the treasury is seeded from https://faucet.circle.com (Solana Devnet).
- * Throws Error('faucet_empty') when the treasury can't cover the request. Dev-only — route-gated.
+ * Move USDC OUT of the escrow pool and broadcast: `amountUsd` to `toOwner`, plus (release only)
+ * `feeUsd` to the earnings wallet, in ONE transaction signed by the escrow key as token authority and
+ * paid (fee + any ATA rent) by the gas key — the fee-payer, or the escrow key itself in sponsored
+ * mode. Returns the signature; settling on it is the caller's job (orderMachine.ts settleEscrow waits
+ * for it to land before writing anything terminal).
  */
-export async function sendUsdcFromTreasury(owner: string, amountUsd: string | number): Promise<string> {
-  const ownerPk = new PublicKey(owner);
+export async function sendFromEscrowPool(input: {
+  toOwner: string;
+  amountUsd: string | number;
+  /** The platform's cut, paid to PLATFORM_FEE_DESTINATION in the same tx. Omit for a refund. */
+  feeUsd?: string | number;
+}): Promise<string> {
   const mint = usdcMint();
-  const payer = feePayer();
   const dec = await decimals();
-  const treasuryAta = await getAssociatedTokenAddress(mint, payer.publicKey);
-  try {
-    const treasury = await getAccount(connection(), treasuryAta);
-    if (treasury.amount < toBaseUnits(amountUsd, dec)) throw new Error('faucet_empty');
-  } catch (err) {
-    if (err instanceof TokenAccountNotFoundError) throw new Error('faucet_empty');
-    throw err;
+  const payer = gasKeypair();
+  const pool = escrowKeypair();
+  const poolAta = await getAssociatedTokenAddress(mint, pool.publicKey);
+  const tx = new Transaction();
+
+  const ensureAta = async (owner: PublicKey): Promise<PublicKey> => {
+    const ata = await getAssociatedTokenAddress(mint, owner);
+    try {
+      await getAccount(connection(), ata);
+    } catch (err) {
+      if (!(err instanceof TokenAccountNotFoundError)) throw err;
+      tx.add(createAssociatedTokenAccountInstruction(payer.publicKey, ata, owner, mint));
+    }
+    return ata;
+  };
+
+  const toAta = await ensureAta(new PublicKey(input.toOwner));
+  tx.add(createTransferCheckedInstruction(poolAta, mint, toAta, pool.publicKey, toBaseUnits(input.amountUsd, dec), dec));
+  const feeBase = input.feeUsd == null ? 0n : toBaseUnits(input.feeUsd, dec);
+  if (feeBase > 0n) {
+    if (!config.platformFeeDestination) throw new Error('PLATFORM_FEE_DESTINATION is not set');
+    const earningsAta = await ensureAta(new PublicKey(config.platformFeeDestination));
+    tx.add(createTransferCheckedInstruction(poolAta, mint, earningsAta, pool.publicKey, feeBase, dec));
   }
-  const ata = await getOrCreateAssociatedTokenAccount(connection(), payer, mint, ownerPk);
-  const tx = new Transaction().add(
-    createTransferCheckedInstruction(treasuryAta, mint, ata.address, payer.publicKey, toBaseUnits(amountUsd, dec), dec),
-  );
+
   tx.feePayer = payer.publicKey;
   tx.recentBlockhash = (await connection().getLatestBlockhash()).blockhash;
-  tx.sign(payer);
+  tx.sign(...(payer.publicKey.equals(pool.publicKey) ? [pool] : [payer, pool]));
   return connection().sendRawTransaction(tx.serialize());
 }
 
-/** Poll on-chain status for a signature (used by M2 confirmation). */
+/**
+ * Wait, bounded, for a signature we just broadcast. 'pending' after the timeout means UNKNOWN, not
+ * dropped: a tx can still land for a minute or so after broadcast (blockhash validity), so a caller
+ * must not act as if it failed — only as if it has not landed yet.
+ */
+export async function confirmSignature(signature: string, timeoutMs: number): Promise<'pending' | 'confirmed' | 'failed'> {
+  const until = Date.now() + timeoutMs;
+  for (;;) {
+    const status = await getTransferStatus(signature).catch(() => 'pending' as const);
+    if (status !== 'pending' || Date.now() >= until) return status;
+    await new Promise((r) => setTimeout(r, 2_000));
+  }
+}
+
+/** Poll on-chain status for a signature (used by M2 confirmation). `searchTransactionHistory` is
+ *  load-bearing: without it the RPC only answers from its recent-status cache (~150 blocks), so a
+ *  poller that was down for a couple of minutes got `null` forever and the row sat 'pending' for good. */
 export async function getTransferStatus(signature: string): Promise<'pending' | 'confirmed' | 'failed'> {
-  const { value } = await connection().getSignatureStatuses([signature]);
+  const { value } = await connection().getSignatureStatuses([signature], { searchTransactionHistory: true });
   const s = value[0];
   if (!s) return 'pending';
   if (s.err) return 'failed';

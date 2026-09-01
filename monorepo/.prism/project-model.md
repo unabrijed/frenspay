@@ -98,6 +98,81 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     So raising a partner's tier grants them nothing as a partner and everything as a payer — which is
     why the manual grant was deleted (docs/14). Check this before ever tying a tier to a partner
     action again.
+33. **A `transfers` row the DB will credit is verified against the chain BEFORE its status flips**
+    (`services/transferVerify.ts`, on both the poller and the Helius webhook): a plain send must parse
+    to one SPL transfer of the exact base-unit amount to the recipient's ATA from the sender; an
+    `escrow_fund` row (one row, N legs, `to_address` = the escrow POOL's owner) must be that transfer
+    to the pool's ATA **carrying the primary leg's reference as an SPL Memo**; an `escrow_release` row
+    (ours) is parsed the same way — pool owner as authority, the recipient's ATA, the exact amount.
+    Only the bridge legs bypass, by shape. A parsed contradiction fails the row + `risk_events`; an RPC that
+    cannot answer returns 'pending' — never fail a real deposit on a bad minute. Status flips are
+    gated `status = 'pending'`, so a failed row can never be re-confirmed (docs/15, 2026-08-30).
+34. **A settlement (release / refund) is written when it LANDS, not when it is sent** (`settleEscrow`,
+    orderMachine.ts): an order with a settlement tx in flight never broadcasts another; a prior pending
+    tx younger than `SETTLE_DROPPED_MS` (3 min) is 'in_flight'; older is written off ONLY when
+    transaction history has no record of it (`getTransferStatus`) — landed-but-unseen stays in flight
+    and is finished by the confirmer; a confirmed settlement row is 'already_settled'. Age alone is not
+    a guard (docs/16, replaces the PDA-closed check). The confirmer finishes late landings from the
+    transfer row's `note` ('refund' / 'order release'). A deposit the DB never saw is recovered by
+    memo — webhook first, `reconcilePoolDeposits` only while a signature-less row waits.
+35. **`merchant_bond_events` is written in the SAME STATEMENT as every `bond_usdc` mutation**
+    (credit, request, cancel, penalty); for every merchant `bond_usdc = Σ events` (`scripts/check-bond.ts`,
+    by hand — DB). `drawDownBond` records what was actually drawn, never the nominal fine (0024).
+36. **An exited merchant is frozen by trigger** (`merchants_exited_frozen`, 0024): once
+    `suspend_reason = 'exited'`, no writer — `setMerchantStatus`, `decideMerchantKyb`'s CASE, any
+    future one — may change `status` or `suspend_reason`; routes map 'merchant_exited' to 409. Exit is
+    one statement (`exitMerchant`): the whole bond becomes a withdrawal with `exit = true`, which
+    cannot be cancelled. A partner is never deleted (the FKs that cascaded are plain references now).
+37. **There is no testnet.** Every tier is mainnet; `isMainnet` / `IS_MAINNET` do not exist. What a tier
+    can do is a CAPABILITY derived from config at boot (`escrowLive`, `personaLive`, the stake
+    treasury, the EVM minter), each answering 503 when absent — never a cluster flag, never NODE_ENV.
+    The faucet, `/sim/orders/*`, the seeded sim LPs, the Sepolia CCTP table and `setup-devnet` are
+    deleted, not gated; `listRoutableMerchants` excludes every non-psp `sim_behavior` row in its
+    SELECT and the seed creates none (2026-08-30).
+38. **The bond floor is collateral, not an entry fee**: `MIN_BOND` $100 = tier-1 `sendPerTx`, tier-1
+    `LEVERAGE` 1× (in flight ≤ bond), penalty = `min(bond, order amount)`, and ONE constant
+    `DISPUTE_CLAW_WINDOW_H` (72 h) bounds both sides — bond cannot leave while a completed order is
+    inside it, and a completed order cannot be disputed after it (read off `order_events`; orders has
+    no `completed_at`). Change these together or not at all.
+39. **`Escrow`'s on-chain layout changes only with a new program id** (or a version field): the
+    2026-08-30 rebuild added `fee` + `platform` and made `Deposit.authority` a signer, safe only because
+    the mainnet id is new and holds zero escrows.
+40. **Admin reinstate targets `offline`, never `online`** — only the LP's own switch
+    (`setMerchantOnlineSelf`) writes `online`, because it is the one that enforces KYB + the bond floor.
+41. **Every escrow deposit carries its order reference as an SPL Memo, and is verified against it**
+    (`buildUsdcTransfer({ memo })`, `instructionsMove(…, { memo })`, docs/16): one transfer can confirm
+    exactly one order. A deposit with no memo, or another order's, never verifies — whatever else matches.
+42. **A settlement tx is written off only when older than `SETTLE_DROPPED_MS` AND absent from
+    transaction history** (`settleEscrow`); a pool never "closes", so this is the double-payout guard.
+43. **Who pays gas is one variable, and the two modes never mix inside a transaction** (docs/16 §Who
+    pays gas). `FEE_PAYER_SECRET_KEY` set ⇒ the fee-payer co-signs every user tx and pays every backend tx;
+    unset ⇒ sponsored mode: user txs carry NO backend signature (the sender is a placeholder fee payer,
+    Privy rewrites it — any signature of ours would be invalidated), the client passes `sponsor: true`,
+    a missing recipient token account is created first in its own tx, and the escrow key pays its own
+    gas (`gasKeypair()`). `escrowLive` = escrow key ∧ fee destination — the fee-payer is optional;
+    `feePayerConfigured` picks the mode. `composeUsdcTransfer` is pure; `check-gas-modes` asserts both
+    shapes. Prod's escrow key is Bridge's own.
+44. **A deploy gate diffs the range the push MOVED, never `HEAD^..HEAD`** (`scripts/vercel-ignore.mjs`):
+    GitHub Actions passes `github.event.before`; Vercel exposes `VERCEL_GIT_PREVIOUS_SHA` (last successful
+    deployment of the project + branch) to the ignored build step. A push deploys ONCE, at its tip — read
+    against the parent, a docs-last push redeployed the backend and skipped the web build. The parent is the
+    fallback only when neither exists (`1587c95`, 2026-08-31).
+45. **The Privy app is ONE value on every tier** (2026-08-31): every frontend reads `NEXT_PUBLIC_PRIVY_APP_ID` /
+    `_CLIENT_ID` (`EXPO_PUBLIC_` on the phone) bare; the backend reads `PRIVY_APP_ID` / `_APP_SECRET` /
+    `_VERIFICATION_KEY` bare — never through `pick()` / `env()`, never with a `bare || STAGE_` fallback. A
+    stale prefixed twin must be UNREADABLE: on a stage build `pick()` returns only the `STAGE_` argument, which
+    is how stage mailed OTPs from a retired app while the bare var sat on the host unread. Admin had it right
+    first (`apps/admin/src/services/envConfig.ts`). Changing the app on a tier is an identity migration: DIDs
+    and embedded wallets are per-app; `/auth/sync` adopts by verified email, then OVERWRITES `wallets.address`
+    (`queries.ts` upsert) — sweep before flipping (DEPLOY.stage.md §One Privy app).
+46. **A gate redirect honours `next` only when `new URL(next, req.url).origin` equals the request origin**
+    (`lib/gate.ts` `sameOriginDest`, web + lp byte-for-byte; `check:gate`). A prefix test is an open
+    redirect: the WHATWG parser reads `/\evil.com` as protocol-relative. Both branches (right AND wrong key)
+    redirect, so both validate. `apps/lp`'s four gate files are copies of `apps/web`'s — change them together.
+47. **Every `COPY --from=builder /app/<path>` in `payments/Dockerfile` names a path that exists in the tree**
+    (build outputs `node_modules`, `*/dist` excepted) — asserted by `.githooks/pre-push` "Dockerfile copy
+    sources". The hook cannot build the image; this is the half it can check. The flat bundle resolves
+    runtime files off `import.meta.url`, so vendored IDLs go to `dist/idl`, migrations to `dist/migrations`.
 
 ## Danger zones
 
@@ -132,15 +207,66 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   its recipient nothing. Six downstream problems existed only to support that one unnecessary write.
   Ask "what does this actually unlock, at every gate that reads it?" and enumerate them — the answer
   took one grep and overturned a decision two rounds of planning had agreed on.
+- **Refute the plan, not the constants it changes.** Round-2 Opus A "refuted" the tier-1 collateral
+  claim by quoting `LEVERAGE[1] = 3` and `MIN_BOND = 2000` — the very values the plan sets to 1 and 100.
+  A skeptic prompt must say "PROPOSED state; do not refute by quoting the current value of what is
+  being changed", or a third of the panel is spent re-reading the diff's left-hand side.
+- **A skeptic can be wrong with a citation.** The "split-refund bug in getOrderPlatformFee" came with
+  a `file:line` and was inverted: `groupId: i === 0 ? null : primaryId` makes the PRIMARY leg the
+  `group_id is null` one. Grounding outranks a confident refutation too — re-open the line before
+  deleting a claim, exactly as before adding one.
+- **The chokepoint is the STATUS FLIP, not the consumer.** Two planning rounds placed the on-chain
+  check inside `onTransferConfirmed`; the bond credit lives in the `AndNotify` wrapper around it and
+  would have run unguarded. When the fix is "verify before X", find the write that makes X true, not
+  the function whose name says X.
+- **`sim_behavior='happy'` rows in a check harness are routing fixtures** — `check-merchant.ts`
+  ranked seeded sim rows through `rankMerchants`; the moment routing excluded sim rows the harness
+  went blind. Fixtures that go through a hard filter must be shaped like what passes it.
+- **`git ls-files` from a subdirectory lists that subtree only.** The Dockerfile "did not exist"
+  because the git root is `payments/`, one level above `monorepo/`; `git rev-parse --show-toplevel`
+  first.
 - **A half-fixed bug class is more dangerous than an unfixed one**, because the commit message says it
   is closed. Locking `/sim/kyc/:tier` and declaring the sim-on-stage doctrine moot left the identical
   hole one route over, and the next reader had a written reason not to look.
+
+- **A component removed is a set of guarantees to re-implement, not a file to delete** (2026-08-31). The
+  escrow PDA was doing two jobs nobody had named — binding one deposit to one order by seed, and making a
+  second payout impossible by being closed. Swapping it for a pooled key looked like "delete the client";
+  the skeptics found both jobs missing. Before removing anything that holds money, list what it silently
+  guarantees and where each guarantee goes.
+- **"Our own signature" is not proof** (2026-08-31). `needsChainCheck` skipped rows we signed; under a pool
+  that made every payout a fact only our DB asserted. Verify outbound rows exactly like inbound ones.
+- **Price a deploy as rent vs sunk, in today's SOL, before calling it expensive** (2026-08-31). "$300 for a
+  program" was ~$213 refundable + ~$2–3 sunk; the decision still went the other way, but on custody and
+  the client's real shape — not on a number that was wrong.
+- **A fix that isn't on `origin/*` isn't a fix** (2026-08-31). "Prod still asks for KYC" was answered by one
+  `git log origin/stage..stage` (27 unpushed commits, every KYC-lift among them); three lenses then spent their
+  budget confirming it. For any "still happening on a deployed tier" report, check the remote before reading source.
+- **A deploy gate that judges the tip commit turns "commit docs last" into "deploy nothing"** (2026-08-31).
+  `vercel-ignore.mjs` read `HEAD^..HEAD` on Vercel believing Vercel deploys every commit; a push deploys once.
+  Its `--check` self-test covers `shouldBuild` and could never catch a wrong base — test the range, not just the rules.
+- **The plan's own fix can be the vulnerability** (2026-08-31). Draft v2 proposed `next.startsWith('/') &&
+  !next.startsWith('//')` for the gate redirect; the critique round reproduced `/\evil.com` → `https://evil.com/`
+  in Node. Verify a security-shaped fix the way you verify a claim — run the counterexample — before shipping.
+- **Line numbers drift between agent reads** — three sessions commit to this tree in one evening; anchor doc
+  edits by quoted text and assert the match, never by `sed -n 373p` (L3's 373 was my 369 an hour earlier).
+- **Prose is not a gate** (2026-08-31, night). `.githooks/pre-push` said in its header for weeks that it
+  never builds the Dockerfile; the shelving commit deleted `src/idl`, the Dockerfile still copied it, every
+  local gate passed, and the stage image failed AFTER the push — the backend stayed on the old Privy app
+  while Vercel shipped the new frontends (a 401 window). A deletion commit must be checked against every
+  consumer of the path, including ones outside the monorepo (`payments/Dockerfile`); the hook now asserts
+  COPY sources exist (`c1`… see decision log). When a gate admits a gap in a comment, close the cheap half.
 
 ## Counsel flags & open questions (from 2026-08-24 routing plan — for prism-retro)
 - FLAG-1: the pair rule has TWO recorded rationales (LP bank-freeze protection, docs/06 §pair rule; payee data-minimisation, docs/06 §privacy). Under the second, lock→see VPA→unlock→re-lock is a harvesting path (unlock is penalty-free and writes no `lock_expired`). Counsel decides which governs; that decides whether A3 gets fixed.
 - FLAG-2: a forced split is "one payment, ≤3 source accounts, one receiver, same day" — deliberately generated. Explainability question for counsel; per-leg cooldown holds in code.
 - Unverified: is the compliance cash-out cap checked per PAYMENT or per LEG? If per-leg, splits multiply a payer's effective cap. Check before real-money scale.
 - Open: real `TIER_MAX_SPREAD_BPS` values (placeholders 100/200/300 shipped); a feedback timestamp column (so `positive_rate` can window); check-lock has no CI story (invariant 10 keeps check:all no-DB); no distinct payer-facing error for `no_merchant` (bare 503); A2 coverage-DoS via min-size live orders; A7 lock churn writes no attempt rows so "max 3 attempts" is bounded only by `expires_at`.
+- Open (2026-08-31, Privy/gate plan): which Privy app survives (assumed admin's `cmsozz…`; the retired stage
+  app is `cmqm9n…`); whether any stage embedded wallet under the retired app holds USDC (sweep before the
+  flip); same `STAGE_ACCESS_KEY` value on lp as web or its own; does lp get a prod Vercel project (DEPLOY.md
+  now lists one, TBD); Gas Sponsorship → Solana ON on the survivor app before any deploy; lp is the first
+  middleware under include-outside-root ON — budget one failed deploy.
 
 ## Decision log
 
@@ -216,6 +342,98 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   LOWER a kyc_tier, which is fine now that nothing grants one manually but will matter the first time
   a vendor declines someone already approved; (4) is the compliance cash-out cap per PAYMENT or per
   LEG (still unverified, inherited from the routing plan).
+
+- 2026-08-30 · **Closed pilot: escrow to mainnet, the chain asked before any row flips, and a bond
+  system that functions** (plan: `~/.claude/plans/i-scanned-and-tried-witty-sky.md` → docs/15;
+  11 commits `7f18793`…`95bcf74` on `stage`, unpushed). Bridge, mid-plan: "we have removed KYC
+  entirely… cap currently is $100 as per the tier", then "the bond thing… they have to stake only
+  $100–$300… two different wallets… store what user has staked… don't delete, mark or flag", then
+  "we don't have testnet at all anymore… remove those." Shipped: the KYC tier gates lift while the
+  identity vendor is off (`effectiveLimits`, `identityCheckAvailable`); `isMainnet` retired with
+  everything only a testnet made safe (faucet, `/sim/orders/*`, sim LPs, Sepolia table, devnet
+  setup); `transferVerify.ts` (invariant 33) + `check-transfer-verify` 12/12; `settleEscrow` +
+  `reconcileFundedVaults` (34); 0024 bond ledger + trigger + exit + claw window (35, 36, 38);
+  admin release route (root-only, record-only) + console; LP exit, disclosure copy, prompt terms;
+  the escrow program rebuilt (`authority: Signer`, fee inside the escrow, `platform_ata` on release,
+  8 tests) pending Bridge's keypair + `anchor test` + deploy. **Blocked on another session's dirty
+  `apps/backend/src/envConfig.ts`:** `escrowLive`, `platformFeeDestination`, the `USDC_MINT` default,
+  the `orders.ts:67/:117` gate, the escrow client's fee-split changes, `check-escrow-switch`.
+  **Bridge's hands:** program keypair + backup, `anchor build`/`test`/deploy (~2.5 SOL), two cold
+  wallets, Railway vars, `yarn db:migrate` (0024), revoke the 5 live invite codes, push on ack.
+  **Open for retro:** post-completion disputes still cannot pay the payer (only fine); no Telegram, so
+  the LP is a polling tab; re-application after exit; counsel on India settlement, stake custody,
+  PAN retention after exit; whether the 72 h claw window is the number; `settleEscrow` blocks a
+  worker tick up to 60 s per settling order.
+
+- 2026-08-31 · **The escrow program is audited and SHELVED; the pilot's escrow is a backend-held pool** under a dedicated key (`ESCROW_SECRET_KEY`, no SOL; fee-payer pays gas) — Bridge: "Backend key, program later." Audit: CRITICAL dust-lock (`close_account` needs a zero balance; anyone can dust a vault), HIGH refund-to-anyone, upgrade-authority dominance; the deploy was a refundable ~2.07 SOL with ~$2–3 sunk, not "$300". The PDA's two silent jobs are re-implemented explicitly: attribution = an SPL Memo with the order reference, required by the verifier; idempotency = a settlement is written off only when 3 min old AND absent from tx history. Recovery is webhook-first (Helius pushes every fee-payer-signed tx; unknown signature → memo → attach), the poller reads pool history only while a signature-less row waits. Our own `escrow_release` rows are chain-parsed. `escrowLive` = escrow key ∧ fee-payer ∧ fee destination. Prod's escrow key is Bridge's own (DEPLOY.md §Keys); stage's is `5w9H…vWUR`. → `docs/16-escrow-pool-and-the-shelved-program.md`
+
+- 2026-08-31 (later) · **Who pays gas is one variable — the fee-payer is optional.** Bridge: "we keep both, but currently only Privy directly does it; we don't have a fee payer right now." Grounded first: nothing in the code asked Privy to sponsor (every user tx was fee-payer-signed; no fee-payer ⇒ 503 on every send). Now `feePayerConfigured` picks the mode: set ⇒ as before; unset ⇒ sponsored mode — user txs built unsigned with the sender as placeholder fee payer, web passes `sponsor: true` (Privy rewrites fee payer + blockhash), a missing recipient token account is created first in its own tx, the escrow key pays its own gas (`gasKeypair()`), Helius watches the pool's token account, mobile refuses with copy (Expo SDK cannot sponsor). `escrowLive` no longer needs the fee-payer. Invariant 43 rewritten; `check-gas-modes` asserts both shapes offline. Three stage falsifiers recorded in docs/16 (S1 placeholder accepted, S2 TEE wallets, S3 Helius token-account match). → `docs/16 §Who pays gas`
+
+- 2026-08-31 (evening) · **app.frenspay.xyz "still asks for KYC / no transactions" — the fix had never left the
+  laptop** (plan: `~/.claude/plans/app-frenspay-xyz-main-app-is-sorted-teapot.md`). `origin/stage` and
+  `origin/sacred` sat at PR #17, before every KYC-lift commit; prod additionally 503'd every quote/order on the
+  retired `isMainnet` switch (sacred `orders.ts:67/:117`) and its client sent every tier-<2 payer into a dead-end
+  verify sheet (sacred `store.ts:917`). Live probe: both APIs 200 on Railway — prod IS wired; DEPLOY.md/docs/10
+  said otherwise (corrected `f47c7d2`); the 401 on app.frenspay.xyz is our own invite gate. The critique round
+  found the Vercel gate diffing `HEAD^..HEAD` — a docs-last multi-commit push would have shipped the backend and
+  skipped the web build (fixed `1587c95`, invariant 44). Deploy is Bridge's: pool vars per tier
+  (`ESCROW_SECRET_KEY`, `PLATFORM_FEE_DESTINATION`, `STAKE_TREASURY_ADDRESS`; `KYC_PROVIDER` unset), one
+  approved ≥$100-bonded online UPI partner per tier (else 503 `no_merchant`), push stage → soak → PR stage→sacred
+  (runs 0024 on prod at boot; "Create a merge commit"). **Open for retro:** did Vercel BUILD (not "skipped by
+  ignore command") on the first stage push; fee-payer vs sponsored on prod; raw `payments_unavailable` copy;
+  `smallestTierFor` still advertising tier 2 with the vendor off.
+
+- 2026-08-31 (night) · **One Privy app on every tier; the LP console behind the deploy gate** (plan:
+  `~/.claude/plans/provider-merchant-access-key-thing-is-humming-tide.md`; commits `1ab4293` `5eec785`
+  `f906501` + docs, on `stage`, unpushed). Bridge: "the OTP is still coming from the stage privy app id, which
+  we are no longer using anywhere at all… same privy is used everywhere" + "Provider/Merchant ACCESS_KEY thing
+  is missing". Code cause, not host: `pick()` on stage returns only the `STAGE_` argument. Shipped: bare Privy
+  names in web/lp/mobile/backend (admin's pattern), boot log `privy=`, no fallback (invariant 45); web's gate
+  lands the device on the path it asked for, origin-checked on both branches (invariant 46; `check:gate` 10
+  cases, in check:all); lp gains byte-for-byte copies + `ACCESS_KEY`; ~40 doc anchors incl. a new
+  `DEPLOY.stage.md §One Privy app` migration note. The critique round REFUTED the draft's own `next` guard
+  (open redirect) and its "backend first or duplicate rows" ordering (a mismatched backend is a plain 401 —
+  one push is shortest); cut mobile `loginMethods` (not in the Expo SDK's config type), a `@fpay/shared/tokens`
+  subpath import, an LP README. Bridge's hands: confirm the survivor app + sweep old embedded wallets;
+  dashboard (origins, email-only, Solana wallets, Gas Sponsorship ON); host vars incl. lp `STAGE_ACCESS_KEY`;
+  one push. **Post-push (same night):** Bridge pushed; the backend image failed on a stale
+  `COPY …/src/idl` (deleted with the program in `56be186`); hotfix removes it, copies the CCTP IDLs to
+  `dist/idl` where the flat bundle reads them, and the pre-push hook now asserts every Dockerfile copy
+  source exists (invariant 47).
+
+## Telemetry (2026-08-31 Privy-one-app + LP-gate plan)
+- divergence: 0.77 (evidence 0.83, conclusion 0.67) | threshold 0.30 UNCALIBRATED
+- models: draft=fable · lenses=3× Explore + 1× Plan critique (plan mode: skeptic panel NOT RUN; every
+  load-bearing claim grounded by re-opening source, which outranks cross-tier survival; version axis unavailable)
+- claims: C1 grounded · C2 grounded · C3 grounded-after-correction · C4 refuted-then-fixed · 9 struck
+  (pre-push-gap, header-in-block, email-collision, mobile-loginMethods, subpath-import, lp-readme,
+  backend-first-or-duplicates, check-env-comment, next-prefix-guard)
+- grounding: 14 anchors after fan-out (0 struck) · 7 after critique (0 struck) · pairwise Jaccard 0.08/0.18/0.26
+- fleet: 3 lenses + 1 critique
+
+## Telemetry (2026-08-31 KYC-still-asked / deploy-gap plan)
+- divergence: 0.80 (evidence 0.89, conclusion 0.67) | threshold 0.30 UNCALIBRATED
+- models: draft=fable · critic=1× Plan agent · skeptics NOT RUN (plan mode: Explore/Plan only) — claims grounded
+  by source, live probe (`/health` on both tiers) and vendor docs (Vercel system env vars, 2026-07-15)
+- claims: C1 unpushed grounded · C2 isMainnet-503 grounded · C3 client-verify-gate grounded · C4 escrowLive-prereq
+  grounded · C5 KYC_PROVIDER-unset grounded · C6 migration-in-container grounded (corrected) · C7 keypairs-unignored
+  superseded (`6ae48fd`) · C8 prod-backend-absent STRUCK · C9 persona-live-by-fallback unresolved, fix-invariant ·
+  C10 vercel-gate-tip-only grounded · C11 no_merchant-precondition grounded
+- fleet: 3 lenses + 1 critic; loop stopped after round 1 (material change; remaining unknowns are dashboard state)
+
+## Telemetry (2026-08-31 escrow audit + pool plan)
+- divergence: 0.62 (evidence 0.85, conclusion 0.27) | threshold 0.30 UNCALIBRATED — conclusions converged on the program before Bridge chose otherwise; evidence sets did not
+- models: draft=opus · skeptics round 1 = 2x-opus · round 2 = 1x-opus + 1x-sonnet (cross-tier; version axis unavailable)
+- claims: V1 grounded · V2 grounded-after-correction · V3 grounded-after-correction · V4 refuted · B1 grounded-after-fix · B2 grounded-after-fix · B3 grounded-after-fix · B4 grounded-after-correction
+- grounding: round 1 16/20 verified, 4 corrected, 0 struck · round 2 7/12 verified, 5 corrected, 0 struck
+- fleet: 6 lenses + 2 grounding verifiers + 4 skeptics; loop stopped at round 2
+
+## Telemetry (2026-08-30 pilot plan)
+- divergence: round 1 0.88 (evidence 0.94, conclusion 0.80) · round 2 0.77 (evidence 0.88, conclusion 0.60) | threshold 0.30 UNCALIBRATED
+- models: draft=opus · skeptics=2x-opus+1x-sonnet per round (cross-tier; version axis unavailable)
+- claims: C1 grounded · C2 cross-tier-survived (2-1) · C3 grounded · C4 grounded · N1 grounded-after-fix · N2 grounded-after-correction (one refutation itself struck) · N3 grounded-after-fix · N4 grounded-after-fix
+- grounding: round 1 17/22 verified, 5 corrected, 1 strike withdrawn · round 2 18/23 verified, 5 corrected, 0 struck
+- fleet: 6 + 6 lenses, 2 grounding verifiers, 6 skeptics; loop stopped at 2 rounds
 
 ## Telemetry (2026-08-29 audit pass)
 - divergence: 0.69 (evidence 0.70, conclusion 0.67) | threshold 0.30 UNCALIBRATED
