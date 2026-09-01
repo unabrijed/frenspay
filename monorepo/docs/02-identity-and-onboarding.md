@@ -19,6 +19,17 @@ Three identities are tracked per person:
 - **Email** — the entrance. Synced from Privy on every `/auth/sync` (`getLinkedEmail` →
   `coalesce(excluded.email, users.email)` in `db/queries.ts` — Privy's value wins when present).
   Also the admin bootstrap key (`ADMIN_EMAILS` → `isRootAdminEmail`).
+  **One canonical form (2026-09-01): lowercase, trimmed.** `getLinkedEmail` is the only place an
+  address enters the backend and it normalizes there; migration 0025 rewrites existing rows and
+  adds `CHECK (email = lower(btrim(email)))`, so a raw writer fails instead of creating a twin.
+  Every reader is an exact match (adoption, `findUserByEmail`, `uq_users_email`) and Privy
+  documents nothing about the casing it returns — without this, one mailbox spelled two ways was
+  two accounts. The three login screens send `normalizeEmail()` of what was typed, for the same
+  reason (`@fpay/shared` `email.ts`; the backend and landing keep byte-identical copies).
+  **A sync may omit the handle**: `POST /auth/sync { walletAddress }` adopts the account this
+  verified email already owns (or re-syncs this DID's own row) and answers **400
+  `handle_required`** when there is nothing to adopt — so every setup screen probes first and
+  asks for a name only from someone who is genuinely new. A Privy read failure falls back to asking.
   ✅ **Enforced (2026-08-13):** migration 0010 adds a partial unique index (`where email is not
   null`, duplicate-guarded so it fails loudly on dirty data) and `/auth/sync` maps the collision
   to **409 `email_in_use`** — admin resolves which account keeps the address

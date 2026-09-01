@@ -438,11 +438,12 @@ one with a NEW `did:privy:…` and a NEW embedded Solana address:
   address**; `wallets` keeps no history, only `transfers` remembers the old one. **USDC at the old
   address is reachable only through the old app.** Snapshot `select user_id, address from wallets`
   and sweep balances BEFORE flipping the variables.
-- What people see: web signs them out (their DID is unknown → 401), the next sign-in lands on the
-  handle step where their own handle reads as taken — they type any free one, and adoption hands back
-  the old account under its old handle. The LP console does the same on its own **Finish setting
-  up** screen (since 2026-09-01 — before that it dead-ended, and the only way in was the payer
-  app's gate key). Adoption also moves a partner's release address (`merchants.treasury_address`)
+- What people see: web signs them out (their DID is unknown → 401); the next sign-in reaches the
+  handle step, which first syncs with no handle — the server adopts by verified email and they land
+  on Home without typing anything (since 2026-09-01; before that their own handle read as taken and
+  they had to type any free one). The LP console does the same on its **Finish setting up** screen
+  ("Welcome back, @…"; before 2026-09-01 it dead-ended, and the only way in was the payer app's
+  gate key). Only a Privy read failure at that moment falls back to asking for a name. Adoption also moves a partner's release address (`merchants.treasury_address`)
   to the new wallet when it equalled the old one — the stake refund already reads the live wallet —
   so releases after a flip stay spendable. A partner who adopted via web BEFORE that shipped keeps
   the stale address: review, then re-point by hand — `update merchants m set treasury_address =
