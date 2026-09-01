@@ -392,13 +392,18 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     if ((kind !== 'address' && kind !== 'handle') || typeof value !== 'string' || !value.trim()) {
       return reply.code(400).send({ error: 'invalid_entry' });
     }
-    const id = await addDenylistEntry(kind, value.trim(), reason?.trim() || undefined);
+    // A handle row is MATCHED canonical (screenHandle → canonicalHandle), so it is stored canonical:
+    // a raw 'Bridge' used to file a sanctions row nothing could ever hit, with a 200. Rejected, not
+    // repaired — this names someone else, and '@ne-ha' quietly becoming '@neha' is a different person.
+    const entry = kind === 'handle' ? canonicalHandle(value) : value.trim();
+    if (!entry) return reply.code(400).send({ error: 'invalid_entry' });
+    const id = await addDenylistEntry(kind, entry, reason?.trim() || undefined);
     if (!id) return reply.code(409).send({ error: 'already_denylisted' });
     await insertAdminAction({
       adminUserId: adminId,
       action: 'denylist_add',
       targetKind: 'denylist',
-      targetId: `${kind}:${value.trim()}`,
+      targetId: `${kind}:${entry}`,
       note: reason?.trim() || undefined,
     });
     return { ok: true, id };
@@ -596,10 +601,12 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'invalid_count' });
     }
     let ownerId: string | null = null;
+    let ownerTag = 'house';
     if (ownerHandle) {
       const owner = await findUserByHandle(ownerHandle);
       if (!owner) return reply.code(404).send({ error: 'owner_not_found' });
       ownerId = owner.id;
+      ownerTag = `user:${owner.handle}`; // the canonical handle the lookup matched, not what was typed
     }
     const codes = await mintInviteCodes(ownerId, count, note?.trim() || undefined);
     await insertAdminAction({
@@ -607,7 +614,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       action: 'invite_mint',
       targetKind: 'invite',
       // No single target row, so record the grant itself. 'house' is the meaningful distinction.
-      targetId: ownerId ? `user:${ownerHandle}` : 'house',
+      targetId: ownerTag,
       note: [`count=${codes.length}`, note?.trim()].filter(Boolean).join(' '),
     });
     return { ok: true, codes };
