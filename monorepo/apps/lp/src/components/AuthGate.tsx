@@ -5,15 +5,18 @@
 // This console finishes account setup itself. A verified email with no users row on this
 // environment — a brand-new partner, or an existing one whose Privy DID rotated with the app
 // (DEPLOY.stage.md §One Privy app) — lands on FinishSetup, which calls the same POST /auth/sync the
-// wallet app does: the server canonicalizes the handle, asks for an invite only when it must
-// (inviteRequired — an existing person matched by email pays nothing), adopts an existing row by
-// email, and moves a partner's release address to the new wallet. Until 2026-09-01 this was a dead
-// end that sent people to the wallet app first; after the DID rotation that locked out every
-// existing partner, and the workaround was handing them the payer app's gate key.
+// wallet app does. Its first move is a sync with NO handle: the server adopts whatever this email
+// already owns (moving a partner's release address to the new wallet) and answers
+// `handle_required` only when there is nothing to adopt. So a returning partner is never asked to
+// set up an account they have; only a genuinely new person picks a name, and is asked for an invite
+// only when the server insists (inviteRequired). Until 2026-09-01 this was a dead end that sent
+// people to the wallet app first; after the DID rotation that locked out every existing partner,
+// and the workaround was handing them the payer app's gate key.
 import type { CSSProperties, ReactNode } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import type { MeResponse } from '@fpay/shared';
+import { draftHandle, isValidEmail, normalizeEmail } from '@fpay/shared';
 
 import { Btn, TextLink } from '@fpay/ui/Button';
 import { Field, Spacer } from '@fpay/ui/primitives';
@@ -66,6 +69,8 @@ function SignIn() {
                 inputMode="email"
                 autoComplete="email"
                 placeholder="you@example.com"
+                autoCapitalize="none"
+                spellCheck={false}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
@@ -74,8 +79,8 @@ function SignIn() {
             <Btn
               label={busy ? 'Sending…' : 'Continue'}
               variant="ink"
-              disabled={busy || !email.includes('@')}
-              onPress={() => void run(() => auth!.sendCode(email.trim()), () => setSent(true))}
+              disabled={busy || !isValidEmail(email)}
+              onPress={() => void run(() => auth!.sendCode(normalizeEmail(email)), () => setSent(true))}
             />
           </>
         ) : (
@@ -116,12 +121,13 @@ function SignIn() {
 const GATE_CODES = new Set(['invite_required', 'invalid_invite']);
 
 /**
- * The third state: signed in, no account here. One screen, one call — the same POST /auth/sync the
- * wallet app's handle step makes. The handle is asked for rather than derived from the email: it is
+ * The third state: signed in, no account here. Two moves. First a POST /auth/sync with no handle —
+ * the server adopts the account this email already owns (a DID that rotated with the Privy app) and
+ * we are done, "welcome back"; or it answers `handle_required`, meaning nothing to adopt, and only
+ * THEN is the form shown. The handle is asked for rather than derived from the email: it is
  * immutable and every payer can resolve it, so deriving would publish the email's local part
- * forever. It is discarded when the server adopts an existing account (a DID that rotated with the
- * Privy app) and permanent when it creates one, and nothing can tell the two apart before the call —
- * so the copy promises both honestly, and a mismatch on the way back becomes a "welcome back".
+ * forever. If a Privy read hiccups the server cannot see the email and falls back to asking, and a
+ * typed name is still discarded on adoption — hence the "welcome back" on a mismatch.
  */
 function FinishSetup() {
   const walletAddress = useLpStore((s) => s.walletAddress);
@@ -133,10 +139,36 @@ function FinishSetup() {
   // Hidden until the server asks: the common case after a Privy-app migration is an existing
   // partner, and an invite box would tell them they are signing up fresh.
   const [needsCode, setNeedsCode] = useState(false);
+  // Hidden until the probe says there is nothing to adopt — the same shape as needsCode.
+  const [needsHandle, setNeedsHandle] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  // Mirror the server's canonical form (lowercase, [a-z0-9_.]) so what you see is what registers.
-  const clean = handle.trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_.]/g, '');
+  // Mirror the server's canonical form (lowercase, [a-z0-9_.], ≤30) so what you see is what registers.
+  const clean = draftHandle(handle);
+
+  // First move: adopt without asking. Any failure other than handle_required (network, a wallet
+  // not ready) also reveals the form — Continue re-runs the same sync with a name, which is the
+  // retry — and shows why.
+  useEffect(() => {
+    if (!walletAddress) return;
+    let live = true;
+    (async () => {
+      try {
+        const me = await req<MeResponse>('/auth/sync', { method: 'POST', body: JSON.stringify({ walletAddress }) });
+        await load();
+        if (!live) return;
+        useLpStore.setState({ noAccount: false });
+        notify(`Welcome back, ${me.handle}`);
+      } catch (e) {
+        if (!live) return;
+        if (!(e instanceof ApiError && e.code === 'handle_required')) setErr(friendlyError(e));
+        setNeedsHandle(true);
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [walletAddress, load, notify]);
 
   const submit = async () => {
     setBusy(true);
@@ -161,14 +193,15 @@ function FinishSetup() {
     }
   };
 
+  if (!needsHandle) return <Splash />;
+
   return (
     <Screen edges={['top']} style={styles.safe}>
       <View style={styles.scroll}>
         <Spacer />
         <Txt style={type.handle}>Finish setting up</Txt>
         <Txt style={[type.lead, { marginTop: 10, marginBottom: 24 }]}>
-          Choose the name people see when they pay you. If you’ve used fpay before with this email,
-          we’ll keep the one you have.
+          Choose the name people see when they pay you.
         </Txt>
         <Field>
           <Txt style={[type.lead, { color: colors.muted }]}>@</Txt>
@@ -177,6 +210,7 @@ function FinishSetup() {
             value={clean}
             onChange={(e) => setHandle(e.target.value)}
             placeholder="yourname"
+            maxLength={30}
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
