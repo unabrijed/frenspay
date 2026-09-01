@@ -1,6 +1,8 @@
 // Choose handle — availability check (GET /users/resolve) + /auth/sync. Port of the web's
-// onboarding/handle/page.tsx; the invite stash is the platform's storage instead of localStorage.
+// onboarding/handle/page.tsx (adopt-first probe included — see its header); the invite stash is the
+// platform's storage instead of localStorage.
 import { ApiError, friendlyError, platform, usePayStore, useStoreHydrated, wallet } from '@fpay/app';
+import { draftHandle } from '@fpay/shared';
 import { BackButton, Btn, colors, fonts, Icons, Input, Screen, shadows, Txt, type, View } from '@fpay/ui';
 import { useRouter } from 'expo-router';
 import type { CSSProperties } from 'react';
@@ -44,7 +46,26 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [gated, setGated] = useState(false);
-  const clean = h.trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_.]/g, '');
+  const [probing, setProbing] = useState(true);
+  const clean = draftHandle(h);
+
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        await authSync(undefined);
+        if (live) onDone();
+      } catch (e) {
+        if (!live) return;
+        if (!(e instanceof ApiError && e.code === 'handle_required')) setErr(friendlyError(e));
+        setProbing(false);
+      }
+    })();
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     void Promise.resolve(platform().storage.getItem('fpay:invite')).then((stashed) => {
@@ -95,6 +116,8 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
     }
   };
 
+  if (probing) return <Splash />;
+
   return (
     <Screen edges={['top', 'bottom']} style={styles.safe}>
       <View style={styles.fhead}>
@@ -108,7 +131,7 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
         <View style={styles.fieldWrap}>
           <View style={[styles.field, avail === false ? { borderColor: colors.danger } : null]}>
             <Txt style={styles.at}>@</Txt>
-            <Input value={clean} onChangeText={setH} placeholder="yourname" autoFocus style={styles.handleInput} />
+            <Input value={clean} onChangeText={setH} placeholder="yourname" maxLength={30} autoFocus style={styles.handleInput} />
           </View>
           <View style={styles.fieldFoot}>
             <Txt style={[type.note, { color: colors.muted }]}>This can&apos;t be changed later.</Txt>

@@ -76,6 +76,8 @@ export default function Denylist() {
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder={kind === 'handle' ? '@handle' : 'solana address'}
+            autoCapitalize="none"
+            spellCheck={false}
             className="h-8 rounded-md border border-outline bg-surface px-2 text-[13px] font-normal normal-case tracking-normal text-ink placeholder:text-muted/50"
           />
         </label>

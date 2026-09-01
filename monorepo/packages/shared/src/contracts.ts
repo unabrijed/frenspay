@@ -337,7 +337,10 @@ export interface PushTokenRequest {
 
 /** POST /auth/sync body — token in the Authorization header identifies the Privy user. */
 export interface AuthSyncRequest {
-  handle: string;
+  /** Omit to adopt the account this Privy-verified email already owns (or re-sync this DID's own
+   *  row) — the server answers 400 `handle_required` when there is nothing to adopt, which is the
+   *  setup screens' cue to ask. Given: the name for a NEW account (canonicalized server-side). */
+  handle?: string;
   walletAddress: string;
   /** ISO 3166-1 alpha-2 browser-locale guess; server fills only when unset (weakest source). */
   country?: string;
@@ -704,9 +707,11 @@ export interface OrdersResponse {
 
 /* ---- admin (read-only flow visibility) DTOs ---- */
 
-/** An order as the operator sees it: cross-user, so the payer's handle rides along. */
+/** An order as the operator sees it: cross-user, so the payer's identity rides along — handle AND
+ *  email, always together (the email is how they log in; the handle is who they are to payers). */
 export interface AdminOrder extends Order {
   userHandle: string;
+  userEmail: string | null;
 }
 
 export interface AdminOrdersResponse {
@@ -750,6 +755,7 @@ export interface AdminOverviewResponse {
     state: OrderState;
     resolution: OrderResolution;
     userHandle: string;
+    userEmail: string | null;
     amountUsdc: string;
     updatedAt: string; // ISO 8601
   }>;
@@ -757,6 +763,7 @@ export interface AdminOverviewResponse {
   riskFlags: Array<{
     id: string;
     userHandle: string | null;
+    userEmail: string | null;
     kind: string;
     decision: 'review' | 'block';
     amountUsdc: string | null;
@@ -832,6 +839,9 @@ export interface AdminMerchant {
    *  platform rows, which have no owner. */
   ownerKycTier?: number;
   ownerKycProvider?: string;
+  /** The owner's fpay account — the same email they log in with everywhere. Absent for platform rows. */
+  ownerHandle?: string;
+  ownerEmail?: string;
   /** true = a real logged-in merchant (merchants.user_id set), false = seeded sim LP. */
   real: boolean;
 }
@@ -862,6 +872,7 @@ export interface AdminStakeWithdrawalsResponse {
 export interface AdminRiskEvent {
   id: string;
   userHandle: string | null;
+  userEmail: string | null;
   kind: string;
   decision: 'allow' | 'review' | 'block';
   score: number;
@@ -932,6 +943,7 @@ export interface AdminInvitesResponse {
 export interface AdminAction {
   id: string;
   adminHandle: string;
+  adminEmail: string | null;
   action: string;
   targetKind: string;
   targetId: string;

@@ -21,6 +21,7 @@ import {
   stateClass,
   Table,
   Td,
+  Who,
   relTime,
   usd,
   usePoll,
@@ -48,6 +49,7 @@ function OrderRows({ orders }: { orders: AdminOrder[] }) {
             <Link href={`/orders/${o.id}`} className="font-medium text-ink hover:text-accent">
               {o.userHandle} → {o.merchantName ?? '—'}
             </Link>
+            <div className="max-w-[220px] truncate text-[11px] text-muted">{o.userEmail ?? '—'}</div>
           </Td>
           <Td className="whitespace-nowrap">{usd(o.amountUsdc)}</Td>
           <Td>
@@ -140,8 +142,8 @@ export default function Overview() {
             {overview.stuckOrders.map((o) => (
               <tr key={o.id} className="hover:bg-surface-low">
                 <Td>
-                  <Link href={`/orders/${o.id}`} className="font-medium hover:text-accent">
-                    {o.userHandle}
+                  <Link href={`/orders/${o.id}`} className="hover:text-accent">
+                    <Who handle={o.userHandle} email={o.userEmail} />
                   </Link>
                 </Td>
                 <Td className="whitespace-nowrap">{usd(o.amountUsdc)}</Td>
@@ -163,7 +165,9 @@ export default function Overview() {
           <Table head={['User', 'Kind', 'Amount', 'Reason', 'Decision', 'When']}>
             {overview.riskFlags.map((r) => (
               <tr key={r.id}>
-                <Td className="font-medium">{r.userHandle ?? 'unknown'}</Td>
+                <Td>
+                  <Who handle={r.userHandle} email={r.userEmail} />
+                </Td>
                 <Td>{r.kind}</Td>
                 <Td className="whitespace-nowrap">{r.amountUsdc != null ? usd(r.amountUsdc) : '—'}</Td>
                 <Td className="max-w-[280px] truncate text-muted">{r.reason ?? '—'}</Td>

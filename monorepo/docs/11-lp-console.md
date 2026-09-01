@@ -23,17 +23,28 @@ settles their payment ([06](06-offramp-and-settlement.md) § Why this way), and 
 lived inside the wallet app that promise held only as far as the URL bar. Anyone signed in could
 reach it, and the code shipped in every payer's JavaScript bundle whether they visited or not.
 
-**Who can use it:** existing fpay users only. Account creation needs an invite
-([02](02-identity-and-onboarding.md)) — with three carve-outs in `inviteRequired`: an existing user
-(matched on Privy DID *or* verified email), an empty directory, and any address in `ADMIN_EMAILS`.
-The console itself never signs anyone up.
+**Who can use it:** anyone with an email, through the same door as the wallet app. The console's
+**Finish setting up** screen (`AuthGate.tsx`) calls `POST /auth/sync` — first with **no handle**:
+the server adopts the account this verified email already owns (which is how a partner comes back
+after a Privy-app migration, `DEPLOY.stage.md` §One Privy app), moves the partner's release address
+to the new wallet in the same transaction, and the partner is never asked to set up anything —
+"Welcome back, @…". Only a `handle_required` answer (nothing to adopt) reveals the form; a Privy
+read failure falls back to asking. The server asks for an invite code only when it must
+([02](02-identity-and-onboarding.md) — `inviteRequired`'s three carve-outs: an existing user matched
+on Privy DID *or* verified email, an empty directory, any address in `ADMIN_EMAILS`). Recruited partners get a **house code** minted
+from the admin console (`/invites`, no owner); hand it over with the console link and say it is for
+the console — the landing page spends the same codes. Partners never skip the invite gate: nothing
+at sync time can tell a partner from anyone else, so a carve-out would be an open signup that also
+mints three fresh codes per account. (Until 2026-09-01 the console refused to sign anyone up and
+sent them to the wallet app; the DID rotation of the one-Privy-app flip turned that into a lockout
+for every existing partner.)
 
 Applying needs a `users` row and **tier-2 identity verification only while the identity vendor is
 live** (`routes/merchant.ts` — `if (config.personaLive && …)`). While it is off, that gate is dropped
 and the human reviewing the business form is the identity check
 ([14](14-manual-onboarding-fallback.md)). Approval does **not** grant a KYC tier: nothing a partner
-does reads one. Someone arriving without an account gets told to open the wallet app
-first — the same dead end the admin console gives a non-admin.
+does reads one. Someone arriving without an account finishes setup right here; only the admin
+console still sends people to the wallet app first.
 
 ## The lifecycle
 

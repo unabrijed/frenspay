@@ -1,6 +1,7 @@
 // Auth step (Privy): email-OTP login → embedded Solana wallet → handle. Port of the web's
 // onboarding/faceid/page.tsx.
 import { bootRoute, Skeleton, usePayStore } from '@fpay/app';
+import { isValidEmail, normalizeEmail } from '@fpay/shared';
 import { BackButton, Btn, colors, Field, GlyphCircle, Icons, Input, Screen, Spacer, Txt, type, View } from '@fpay/ui';
 import { useRouter } from 'expo-router';
 import type { CSSProperties } from 'react';
@@ -83,11 +84,11 @@ export default function FaceID() {
         ) : (
           <Btn
             label={submitting ? 'Sending…' : 'Send code'}
-            disabled={!email.includes('@') || submitting}
+            disabled={!isValidEmail(email) || submitting}
             pending={submitting}
             onPress={() => {
               setSubmitting(true);
-              requestOtp(email.trim());
+              requestOtp(normalizeEmail(email));
             }}
           />
         )}

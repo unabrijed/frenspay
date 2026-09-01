@@ -33,6 +33,19 @@ export function View({ style, children, ...rest }: { style?: St | St[]; children
   );
 }
 
+/** RN's ScrollView. The OUTER div is a block scroll container, so nothing inside it can be
+ *  flex-shrunk into a neighbour: every View is min-height:0, and a definite-height flex column
+ *  crushes its children before it lets them overflow — cards painted over each other instead of a
+ *  page that scrolls (see primitives.tsx `list`). The inner View is RN's contentContainer: still a
+ *  flex column, minHeight 100% so a Spacer keeps pushing a CTA to the bottom on a short page. */
+export function ScrollView({ style, children, ...rest }: { style?: St | St[]; children?: ReactNode } & DivProps) {
+  return (
+    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }} {...rest}>
+      <View style={[{ minHeight: '100%' }, style as St]}>{children}</View>
+    </div>
+  );
+}
+
 const CLAMP1: CSSProperties = { display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
 
 export function Txt({ style, children, numberOfLines, ...rest }: { style?: St | St[]; children?: ReactNode; numberOfLines?: number } & SpanProps) {

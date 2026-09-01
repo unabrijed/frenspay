@@ -8,6 +8,15 @@ can claim it, saved QR codes follow the claimant. That risk was weighed explicit
 
 ## What it is
 
+**A person is always named twice** — `@handle` over email, one cell (`Who` in `components/ui.tsx`),
+on every page that names one: dashboard, orders, risk, audit, and the partner's owner account on
+Merchants. The email is how every login happens; the handle is the unique payment ID; an operator
+cross-referencing a Privy session, a payer and a partner needs both on one line. `—` under a handle
+means the email never synced (a Privy hiccup at signup, repaired on their next `/me`) or the row is
+deleted. Inputs that name someone ELSE (rename, denylist) are trimmed and then **rejected** by the
+server if not canonical — never repaired: `@ne-ha` quietly becoming `@neha` is a different person.
+A denylist handle is stored canonical (`@` + lowercase), the form `screenHandle` matches on.
+
 `users.role` (`user | merchant | admin`) gates the console; `users.status` (`active | suspended | deleted`)
 gates the app. Both are plain columns with a CHECK constraint, both are enforced at one choke point
 each, and both are written only through audited `/admin/*` routes — never client-editable. The

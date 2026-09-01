@@ -18,7 +18,7 @@ import { Mark } from '@/components/ui/primitives';
 import { Screen } from '@/components/ui/Screen';
 import { Splash } from '@/components/ui/Splash';
 import { Txt } from '@/components/ui/Txt';
-import { View } from '@/components/ui/rn';
+import { ScrollView, View } from '@/components/ui/rn';
 import { colors, fonts, type } from '@/lib/theme';
 import { LANDING_URL } from '@/services/envConfig';
 import { usePayStore, useStoreHydrated } from '@/store/usePayStore';
@@ -52,7 +52,7 @@ export default function Invites() {
 
   return (
     <Screen edges={['top', 'bottom']} style={styles.safe}>
-      <View style={styles.scroll}>
+      <ScrollView style={styles.scroll}>
         <Txt style={[type.onbH1, { textAlign: 'center' }]}>
           {invites.length === 1 ? 'One fren.' : `${invites.length} frens.`} That&apos;s it.
         </Txt>
@@ -66,7 +66,7 @@ export default function Invites() {
             <InviteCard key={code} code={code} />
           ))}
         </View>
-      </View>
+      </ScrollView>
 
       <View style={styles.cta}>
         <Btn label={busy ? 'Saving…' : "I've saved them"} disabled={busy} pending={busy} onPress={done} />
@@ -124,7 +124,7 @@ function InviteCard({ code }: { code: string }) {
 
 const styles = {
   safe: { flex: 1, backgroundColor: colors.canvas, paddingLeft: 24, paddingRight: 24, paddingTop: 8, paddingBottom: 26 },
-  scroll: { flex: 1, overflowY: 'auto', paddingTop: 28, paddingBottom: 16 },
+  scroll: { paddingTop: 28, paddingBottom: 16 },
   sub: { ...type.leadInk, textAlign: 'center', maxWidth: 320, alignSelf: 'center', marginTop: 10 },
   cards: { alignSelf: 'stretch', marginTop: 26, gap: 12 },
   card: {

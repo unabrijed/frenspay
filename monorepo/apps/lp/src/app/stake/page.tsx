@@ -11,7 +11,7 @@ import { BackButton } from '@fpay/ui/BackButton';
 import { Btn } from '@fpay/ui/Button';
 import { Keypad } from '@fpay/ui/Keypad';
 import { Spacer } from '@fpay/ui/primitives';
-import { View } from '@fpay/ui/rn';
+import { ScrollView, View } from '@fpay/ui/rn';
 import { Screen } from '@fpay/ui/Screen';
 import { Txt } from '@fpay/ui/Txt';
 import { friendlyError } from '@/lib/errors';
@@ -69,7 +69,7 @@ export default function MerchantStake() {
       <View style={styles.head}>
         <BackButton onPress={() => router.push('/')} />
       </View>
-      <View style={styles.scroll}>
+      <ScrollView style={styles.scroll}>
         <View style={styles.current}>
           <Txt style={type.kvKey}>Staked now</Txt>
           <Txt style={[type.rowAmount, { fontSize: 20, marginTop: 2 }]}>{usd(merchant.bondUsdc)}</Txt>
@@ -100,7 +100,7 @@ export default function MerchantStake() {
           disabled={busy || amount <= 0 || amount > balanceUSD}
           onPress={() => void submit()}
         />
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
@@ -109,10 +109,6 @@ const styles = {
   safe: { backgroundColor: colors.canvas },
   head: { paddingLeft: GUTTER, paddingRight: GUTTER, paddingTop: 6, paddingBottom: 2 },
   scroll: {
-    flex: 1,
-    overflowY: 'auto',
-    display: 'flex',
-    flexDirection: 'column',
     paddingLeft: GUTTER,
     paddingRight: GUTTER,
     paddingBottom: 28,

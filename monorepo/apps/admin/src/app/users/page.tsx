@@ -116,7 +116,17 @@ function UserActionDialog({ action, onClose, onDone }: { action: UserAction | nu
             <>
               <label className={LABEL}>
                 New handle
-                <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder={`${user.handle} (blank = keep)`} className={FIELD} />
+                {/* Trimmed here, canonicalized and REJECTED (never repaired) by the server — this names
+                    someone else, and '@ne-ha' quietly becoming '@neha' would be a different person. */}
+                <input
+                  value={handle}
+                  onChange={(e) => setHandle(e.target.value)}
+                  placeholder={`${user.handle} (blank = keep)`}
+                  maxLength={31}
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  className={FIELD}
+                />
               </label>
               <label className={LABEL}>
                 Display name

@@ -74,8 +74,9 @@ function unauthorized(message = 'unauthorized'): Error & { statusCode?: number }
 
 /** Throw 401 unless the request maps to a DB user.
  *  A verified privyDid with no userId is the one 401 worth naming: the token is FINE and the account
- *  simply doesn't exist on this environment (nothing has run /auth/sync for it — and the console
- *  never does, only web). Identical to a rejected token otherwise, which is a bare 401 with nothing
+ *  simply doesn't exist on this environment (nothing has run /auth/sync for it — web and the LP
+ *  console both do on first sign-in; the admin console never does). Identical to a rejected token
+ *  otherwise, which is a bare 401 with nothing
  *  to go on; that ambiguity has now cost an evening on prod and an investigation on local. */
 export function requireUserId(req: FastifyRequest): string {
   if (!req.userId) throw unauthorized(req.privyDid ? 'no_account' : 'unauthorized');

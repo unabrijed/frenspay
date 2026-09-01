@@ -45,6 +45,16 @@ export function canonicalHandle(raw: string): string | null {
   return /^[a-z0-9_.]{3,30}$/.test(body) ? '@' + body : null;
 }
 
+/**
+ * Repair-as-you-type for choosing your OWN name (the three setup screens): what you see is what
+ * registers, capped at the 30 the server allows, without the '@'. The opposite of `canonicalHandle`
+ * on purpose — repairing is fine for a name that is yours to pick, and wrong for anyone else's
+ * (see above: `@ne-ha` → `@neha` is a different person), so it never touches a lookup, the Send
+ * sheet, or an admin field that names someone else.
+ */
+export const draftHandle = (raw: string): string =>
+  raw.trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 30);
+
 /** Normalize a scanned/typed handle: strip a deep-link tail (`@neha?x=1`) before canonicalizing. */
 function handleFromScan(raw: string): string | null {
   return canonicalHandle(raw.trim().replace(/^@/, '').split(/[?&/\s]/)[0]);

@@ -1,8 +1,9 @@
 // errors.ts — one catalog mapping backend error codes to human copy, so every surface says the same
 // thing and an LP never sees a raw code. Keyed on ApiError.code.
 //
-// This is the LP-side subset. The payer app has its own catalog; the two share no codes, because
-// the routes behind them are disjoint — which is the point of the console being its own app.
+// This is the LP-side subset. The payer app has its own catalog; the two overlap only on
+// /auth/sync, the one route both apps call — every other route behind them is disjoint, which is
+// the point of the console being its own app.
 import { ApiError } from '@/services/api';
 
 const BY_CODE: Record<string, string> = {
@@ -41,6 +42,14 @@ const BY_CODE: Record<string, string> = {
   amount_too_large: 'That’s more than you can stake in one go.',
   invalid_amount: 'Enter a valid amount.',
   wallet_not_found: 'Your wallet is still being set up. Try again in a moment.',
+  // Finishing setup — the one call that creates or adopts an account (POST /auth/sync).
+  invite_required: 'fpay is invite-only — enter the code you were given.',
+  // Unknown, already used and revoked all arrive as one code — the server won't say which.
+  invalid_invite: 'That invite code isn’t valid.',
+  handle_taken: 'That name is taken — try another.',
+  invalid_handle: 'Use 3–30 letters, numbers, dots or underscores.',
+  wallet_in_use: 'That wallet is already linked to another fpay account.',
+  email_in_use: 'That email is already linked to another fpay account. Contact support.',
   // Session.
   account_suspended: 'Your account is paused. Contact support to sort it out.',
   account_deleted: 'This account has been deleted.',

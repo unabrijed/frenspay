@@ -173,6 +173,37 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     (build outputs `node_modules`, `*/dist` excepted) — asserted by `.githooks/pre-push` "Dockerfile copy
     sources". The hook cannot build the image; this is the half it can check. The flat bundle resolves
     runtime files off `import.meta.url`, so vendored IDLs go to `dist/idl`, migrations to `dist/migrations`.
+48. **A partner's release address follows the wallet it was declared from** (2026-09-01): inside the
+    `/auth/sync` transaction (`upsertUserByPrivyDid`), BEFORE the `wallets` upsert overwrites the address,
+    `merchants.treasury_address` is re-pointed to the new wallet wherever it equalled the old one. The stake
+    refund already reads the live wallet (`listStakeWithdrawalsAdmin`); releases read the column
+    (`queries.ts` order select → `releaseToMerchant`). `/merchants/apply`'s one caller always passes the
+    signed-in embedded wallet, so for every human partner the two are one address — a hand-typed treasury
+    is left alone, psp rows have no `user_id`, and the exited trigger guards `status`/`suspend_reason` only.
+    Any future writer of `wallets.address` must keep this pairing.
+49. **A scrolling region is a `ScrollView`, never a `View` with `overflowY`** (2026-09-01): the RN shim puts
+    `minHeight: 0` on every View, so a definite-height flex column (anything `flex: 1` under `.app-frame`)
+    flex-SHRINKS its children before it lets them overflow — cards crushed to a sliver with their text
+    painted over the neighbours, which reads as "two screens on top of each other". `ScrollView`
+    (`@fpay/ui/rn`) is a block outer scroller with a flex-column content View (`minHeight: 100%` keeps
+    Spacers working). The per-component `flexShrink: 0` on `list`/`search` still protects sheets. The LP
+    dashboard's next-step order is guarded by `check:next` (`apps/lp/scripts/check-next-step.ts`).
+
+50. **`users.email` has one canonical form — lowercase, trimmed — and one entrance** (2026-09-01):
+    `getLinkedEmail` (services/privy.ts) normalizes, migration 0025 rewrote existing rows and added
+    `CHECK (email = lower(btrim(email)))`. Every reader is an exact match (`findUserByEmail`, the adoption
+    select, `uq_users_email`) and Privy documents nothing about the casing it returns — one mailbox
+    spelled two ways was two accounts. A CHECK, not a `lower(email)` index: the plain unique index stays
+    usable by `where email = $1`, and a raw writer fails loudly. The login screens send `normalizeEmail()`
+    (`@fpay/shared` email.ts; byte-identical copies in routes/waitlist.ts and landing). (docs/17)
+51. **A `/auth/sync` with no handle adopts or asks — it never inserts** (2026-09-01): no handle means
+    "adopt the account this Privy-verified email already owns (or re-sync this DID's own row)"; when
+    there is nothing to adopt the answer is 400 `handle_required`, decided INSIDE the upsert transaction
+    (the route's pre-flight only orders it before the invite gate). Every setup screen (LP FinishSetup,
+    web + mobile HandlePrivy) probes first and shows the field only on that code, so a returning person
+    is never asked to set up an account they have. `draftHandle` (repair, for your OWN name) is for those
+    screens only; anything naming someone else (Send, lookups, admin rename, denylist) uses
+    `canonicalHandle` (reject). (docs/17)
 
 ## Danger zones
 
@@ -190,6 +221,7 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
 - Xendit "one integration, five countries" = code only; each live country needs a local legal entity.
 - Singapore (MAS DTSP) is a trap for this business shape; check entity domicile before SG anything.
 - A spec that describes the architecture accurately can still be ~half already-shipped: the 2026-08-24 routing spec's lock/redaction/ceiling/reroute sections were DOCUMENTATION of existing code, not work. Verify "what's new" against the tree before sizing the patch.
+- A layout bug reported as "screens stacked on top of each other" was flexbox shrinking siblings in a definite-height column — no positioning anywhere. When text overlaps on the web shim, suspect `minHeight: 0` + `flex-shrink` before any z-index or router theory; a screen that had been fine tips over the day it grows one row taller.
 - Windowing a count that feeds a threshold changes the threshold's meaning (settled → tier gate). Ask "who else reads this number" before bounding any aggregate.
 - "≈ zero" latency arguments must trace WHO gets pushed vs who polls, and whether the clock and the push start in the same pass — the 5s head-start claim fell 3-0 on exactly that.
 - A metric with no consumer (routeQuality) can still distort a plan if the plan assumes it matters; grep consumers before defending an output.
@@ -256,6 +288,25 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   while Vercel shipped the new frontends (a 401 window). A deletion commit must be checked against every
   consumer of the path, including ones outside the monorepo (`payments/Dockerfile`); the hook now asserts
   COPY sources exist (`c1`… see decision log). When a gate admits a gap in a comment, close the cheap half.
+- **"Existing users only", enforced by a DID lookup, is a rule the console cannot repair the day identities
+  rotate** (2026-09-01). The LP console's "You need an fpay account first" was a posture for a year of
+  stable DIDs; the one-Privy-app flip changed every DID overnight and the same screen locked out every
+  existing partner, with "sign into web once" — the payer app's gate key — as the only way in. A dead end
+  that names another app is a lockout waiting for a migration. Also: the fix the critique round killed was
+  the plan's own guard (a mismatch banner) — when the stale value is an address nobody can sign from, a
+  banner guards nothing; put the fix where the value changes (the sync txn), not where it is displayed.
+
+- **"Nothing can tell the two apart before the call" is a claim to check against the request, not
+  the response** (2026-09-01). The morning's FinishSetup asked every returning partner for a handle because
+  adoption was decided inside the sync; the verified email — already fetched on the same call — told the
+  two apart the whole time. When a screen asks for something the server then discards, look for the fact
+  the server used instead and let the client ask for THAT first (here: a sync with no handle).
+- **`open(path, 'w')` runs before the function that reads `path`** (2026-09-01). One line —
+  `open(p,'w').write(apply(p))` — truncated `.prism/project-model.md` to zero bytes when `apply` raised,
+  during a window where a concurrent session had just committed invariant 49 (`f99325f`, seconds
+  earlier — had it still been uncommitted, its 8 lines would have been gone). Read into a variable first,
+  transform, assert, THEN open for writing; and before editing a file another live session has uncommitted
+  hunks in, copy its current content to disk.
 
 ## Counsel flags & open questions (from 2026-08-24 routing plan — for prism-retro)
 - FLAG-1: the pair rule has TWO recorded rationales (LP bank-freeze protection, docs/06 §pair rule; payee data-minimisation, docs/06 §privacy). Under the second, lock→see VPA→unlock→re-lock is a harvesting path (unlock is penalty-free and writes no `lock_expired`). Counsel decides which governs; that decides whether A3 gets fixed.
@@ -267,6 +318,20 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   flip); same `STAGE_ACCESS_KEY` value on lp as web or its own; does lp get a prod Vercel project (DEPLOY.md
   now lists one, TBD); Gas Sponsorship → Solana ON on the survivor app before any deploy; lp is the first
   middleware under include-outside-root ON — budget one failed deploy.
+- Open (2026-09-01, LP self-signup plan): Q1 house codes for recruits (assumed) vs loosening the invite gate
+  product-wide for the pilot (both apps sit behind ACCESS_KEY); Q2 whether any partner holds USDC at a
+  retired-app embedded wallet (the treasury re-point moves future releases, not past ones); whether any
+  partner adopted via web before the re-point shipped (then the one-time SQL in DEPLOY.stage.md §One Privy
+  app); the admin console keeps the identical dead end (`Providers.tsx` 'absent') — root admins are exempt
+  from invites, so the same screen would work there; `docs/08:88-91` still says KYB approval grants tier 2
+  (removed 2026-08-29, invariant 32) — stale, not fixed here.
+
+- Open (2026-09-01, handle+email plan): which admin screen Bridge was on (assumed the handle-only pages;
+  if the Users table showed `—`, that is an unsynced row); migration 0025 is Bridge's — its guard raises
+  with a count if stage holds one mailbox spelled two ways; any raw denylist handle rows
+  (`value !~ '^@[a-z0-9_.]{3,30}$'`); a Privy read failure during the probe still makes a returning
+  partner look new (pre-existing); the DID-rotation web dead end is fixed by the same probe — confirm on
+  stage that a rotated payer lands on Home without typing.
 
 ## Decision log
 
@@ -400,6 +465,67 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   `COPY …/src/idl` (deleted with the program in `56be186`); hotfix removes it, copies the CCTP IDLs to
   `dist/idl` where the flat bundle reads them, and the pre-push hook now asserts every Dockerfile copy
   source exists (invariant 47).
+
+- 2026-09-01 · **The LP console finishes account setup itself; the release address follows the wallet on
+  adoption** (plan: `~/.claude/plans/provider-side-issue-you-spicy-snowglobe.md`; on `stage`, unpushed).
+  Bridge: "provider side issue, you need an fpay account first. no, why??" Grounded first: the dead end
+  (`AuthGate.tsx`) fired on 401 `no_account`, the console never called `/auth/sync`, and the one-Privy-app
+  flip had rotated every DID — so EXISTING partners were locked out and the documented workaround
+  (`DEPLOY.stage.md`) was the payer app's gate key. Shipped: `FinishSetup` in the console (handle; invite
+  field only after 403 `invite_required`/`invalid_invite`; adoption → "Welcome back, @old") calling the
+  existing `/auth/sync`; six error-copy entries; ONE backend statement re-pointing
+  `merchants.treasury_address` in the sync txn (invariant 48); comments in five files; docs/11 §Who can use
+  it + DEPLOY.stage.md §One Privy app. **Rejected** with evidence: "partners skip invites" (no
+  server-verifiable LP fact at sync time — one Privy app, gate cookie never reaches the API — so a body flag
+  is an open signup that also mints 3 codes per account, and `check-invites` says "nothing else may skip the
+  gate"; the existing carve-out is an admin-minted HOUSE code); a mismatch banner (the critic: it cannot make
+  a release spendable); auto-deriving the handle (immutable, payer-resolvable, would publish the email
+  localpart). Found on the way: `POST /waitlist` burns the same codes — hand recruits the code WITH the
+  console link. Bridge's hands: mint house codes; one-time treasury SQL only if someone adopted via web
+  first; push on ack.
+
+- 2026-09-01 (afternoon) · **Handle + email named together, one rule per input, adopt before you ask**
+  (plan: `~/.claude/plans/on-admin-side-i-cheeky-ullman.md` → docs/17; on `stage`, unpushed). Bridge:
+  "on admin side I don't see user's email and their username together… regex check on username, trimming…
+  same for email… on inputs" + "same email is used for fpay account, so if merchant is already there, we
+  don't need to ask for fpay account again." Grounded first: the Users table already showed both (on
+  origin/stage AND sacred) — every OTHER admin page named a user by handle alone and Merchants showed
+  neither; handles were already canonical on every backend write (the client had three pasted repair
+  regexes); email was the real gap — Privy → DB verbatim, case-sensitive unique index by explicit bet,
+  Privy's docs silent on casing; and the morning's LP `FinishSetup` asked every returning partner for a
+  handle that adoption then discarded. Shipped: `/auth/sync` without a handle adopts-or-asks (invariant
+  51, in-tx, TOCTOU closed); the three setup screens probe first; `getLinkedEmail` normalizes + 0025 +
+  CHECK (invariant 50); `@fpay/shared` `email.ts` + `draftHandle` (+ 7 asserts in check-paytarget);
+  admin `Who` cell (handle over email) on dashboard/orders/risk/audit + a Merchants "Account" column
+  with `userEmail`/`adminEmail`/`ownerEmail` on the DTOs; denylist handles stored canonical (a raw
+  'Bridge' was a sanctions row nothing could hit); `{"handle":1}` no longer a 500; invite audit names the
+  matched owner. The critic REFUTED two draft claims: "the on-conflict path never reads the handle" (the
+  INSERT VALUES does — fixed by resolving it in-tx) and `draftHandle` on the admin inputs (a sanctions
+  field must reject, not repair). Rejected: `/me` adopting (no wallet for invariants 45/48), a
+  `lower(email)` index (unusable by exact-match readers), deriving the handle (rejected that morning).
+  Bridge's hands: `yarn db:migrate` (0025) after the push; push on ack.
+
+## Telemetry (2026-09-01 handle+email plan)
+- divergence: 0.78 (evidence 0.86, conclusion 0.67) | threshold 0.30 UNCALIBRATED
+- models: draft=fable · lenses=3× Explore + 1× Plan critic (plan mode: skeptic trio NOT RUN; every load-bearing
+  claim grounded by re-opening source, which outranks cross-tier survival; version axis unavailable)
+- claims: C1 adoption-ignores-handle grounded-after-correction · C2 email-raw-end-to-end grounded · C3
+  admin-columns-not-bug grounded · C4 handle-canonical-on-every-write grounded · C4b draftHandle-on-admin
+  REFUTED · C5 probe-on-mount grounded · C6 denylist-raw-write grounded · C7 privy-casing-undocumented grounded
+- grounding: 37 anchors re-opened by the orchestrator + critic, 0 struck, 2 corrected
+- fleet: 3 lenses + 1 critic; loop stopped after round 1
+
+## Telemetry (2026-09-01 LP self-signup plan)
+- divergence: 0.77 (evidence 0.83, conclusion 0.67) | threshold 0.30 UNCALIBRATED
+- models: draft=fable · lenses=3× Explore (opus) + 1× Plan critic (opus); skeptic trio NOT RUN (plan mode) —
+  every load-bearing claim grounded by re-opening source, which outranks cross-tier survival; version axis
+  unavailable
+- claims: C1 lockout grounded (+strengthened: four gate keys differ) · C2 no-new-capability grounded
+  (corrected: CORS exists, forgeable) · C3 house-codes grounded (+waitlist burn) · C4 treasury-drift grounded,
+  remedy REFUTED → in-txn re-point · C5 console-self-contained grounded (A4 demoted) · N1 keys-differ ·
+  N2 waitlist-burn · N3 refund-live-wallet · N5 trigger-scope — all grounded
+- grounding: 21 anchors re-opened by the orchestrator, 0 struck, 2 corrected
+- fleet: 3 lenses + 1 critic; loop stopped after round 1
 
 ## Telemetry (2026-08-31 Privy-one-app + LP-gate plan)
 - divergence: 0.77 (evidence 0.83, conclusion 0.67) | threshold 0.30 UNCALIBRATED

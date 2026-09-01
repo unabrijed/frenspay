@@ -223,7 +223,9 @@ async function mintCodesFor(
  */
 export async function upsertUserByPrivyDid(input: {
   privyDid: string;
-  handle: string;
+  /** Absent = adopt (by email) or re-sync (by DID) only — throws `handle_required` if that leaves an
+   *  INSERT, which is the one write that needs a name. */
+  handle?: string;
   displayName?: string;
   walletAddress: string;
   country?: string;
@@ -294,6 +296,21 @@ export async function upsertUserByPrivyDid(input: {
     // NOT in the conflict update: a re-sync must never rewrite lineage.
     let user = adopted;
     if (!user) {
+      // No handle given: this sync may only adopt (above) or re-sync this DID's own row. The INSERT
+      // needs a name even on the conflict path (NOT NULL is checked before ON CONFLICT), so take it
+      // from the row the conflict clause would hit — and if there is none, this is a new person and
+      // the screen has to ask. Decided HERE, under the transaction, not trusted from the route's
+      // pre-flight: an admin delete between the two would otherwise create a fresh account under the
+      // freed old handle with no invite.
+      let handle = input.handle;
+      if (!handle) {
+        const { rows: own } = await client.query<{ handle: string }>(
+          `select handle from users where privy_did = $1`,
+          [input.privyDid],
+        );
+        handle = own[0]?.handle;
+        if (!handle) throw Object.assign(new Error('handle_required'), { code: 'handle_required' });
+      }
       const { rows } = await client.query<UserRow>(
         `insert into users (privy_did, handle, display_name, country, email, referred_by)
        values ($1, $2, $3, $4, $5, $6)
@@ -303,7 +320,7 @@ export async function upsertUserByPrivyDid(input: {
        returning *`,
         [
           input.privyDid,
-          input.handle,
+          handle,
           input.displayName ?? null,
           input.country ?? null,
           input.email ?? null,
@@ -326,6 +343,21 @@ export async function upsertUserByPrivyDid(input: {
     // Their own three, minted in the same breath. `where not exists` makes this idempotent, so a
     // replayed sync can't hand anyone a second set.
     await mintCodesFor(client, { id: user.id }, INVITES_PER_USER, { onlyIfNone: true });
+    // A partner's release address follows the wallet it was declared from. /merchants/apply's one
+    // caller passes the signed-in embedded wallet as the treasury, and the upsert below is the only
+    // place that wallet ever changes (a Privy-app migration — DEPLOY.stage.md §One Privy app). The
+    // stake refund already reads the live wallet (listStakeWithdrawalsAdmin); without this, every
+    // escrow release kept paying an embedded wallet of a retired app that nobody can sign from,
+    // while isMerchantTreasuryAddress went on refusing fpay sends to it. Only a treasury that WAS
+    // the old wallet moves — a hand-typed one is respected, and psp rows have no user_id. The
+    // exited trigger guards status/suspend_reason only, so an exited partner's row still syncs.
+    await client.query(
+      `update merchants m set treasury_address = $2
+         from wallets w
+        where m.user_id = $1 and w.user_id = m.user_id and w.chain = 'solana'
+          and m.treasury_address = w.address and w.address <> $2`,
+      [user.id, input.walletAddress],
+    );
     await client.query(
       `insert into wallets (user_id, address) values ($1, $2)
        on conflict (user_id, chain) do update set address = excluded.address`,
@@ -3942,13 +3974,14 @@ export async function upsertWalletForChain(userId: string, chain: string, addres
 /* ---- admin (read-only flow visibility) ---- */
 
 // Wraps ORDER_SELECT as a subquery to bolt on the payer's handle without select-list surgery.
-const ADMIN_ORDER_SELECT = `select x.*, u.handle as user_handle from (${ORDER_SELECT}) x join users u on u.id = x.user_id`;
+const ADMIN_ORDER_SELECT = `select x.*, u.handle as user_handle, u.email as user_email from (${ORDER_SELECT}) x join users u on u.id = x.user_id`;
 
-type AdminOrderJoinRow = OrderJoinRow & { user_handle: string };
+type AdminOrderJoinRow = OrderJoinRow & { user_handle: string; user_email: string | null };
 
 const toAdminOrder = (r: AdminOrderJoinRow, events?: OrderEvent[]): AdminOrder => ({
   ...toOrder(r, events),
   userHandle: r.user_handle,
+  userEmail: r.user_email,
 });
 
 /** All orders across all users, newest first — the operator's flow list. */
@@ -4052,10 +4085,11 @@ export async function adminOverview(): Promise<AdminOverviewResponse> {
       state: OrderState;
       resolution: OrderResolution;
       handle: string;
+      email: string | null;
       amount_usdc: string;
       updated_at: Date;
     }>(
-      `select o.id, o.state, o.resolution, u.handle, o.amount_usdc, o.updated_at
+      `select o.id, o.state, o.resolution, u.handle, u.email, o.amount_usdc, o.updated_at
          from orders o join users u on u.id = o.user_id
         where o.resolution is not null and o.state not in ('completed','refunded','failed')
         order by o.updated_at desc limit 20`,
@@ -4063,13 +4097,14 @@ export async function adminOverview(): Promise<AdminOverviewResponse> {
     pool.query<{
       id: string;
       handle: string | null;
+      email: string | null;
       kind: string;
       decision: 'review' | 'block';
       amount_usdc: string | null;
       reason: string | null;
       created_at: Date;
     }>(
-      `select r.id, u.handle, r.kind, r.decision, r.amount_usdc, r.reason, r.created_at
+      `select r.id, u.handle, u.email, r.kind, r.decision, r.amount_usdc, r.reason, r.created_at
          from risk_events r left join users u on u.id = r.user_id
         where r.decision <> 'allow' order by r.created_at desc limit 20`,
     ),
@@ -4095,12 +4130,14 @@ export async function adminOverview(): Promise<AdminOverviewResponse> {
       state: r.state,
       resolution: r.resolution,
       userHandle: r.handle,
+      userEmail: r.email,
       amountUsdc: r.amount_usdc,
       updatedAt: r.updated_at.toISOString(),
     })),
     riskFlags: risk.rows.map((r) => ({
       id: r.id,
       userHandle: r.handle,
+      userEmail: r.email,
       kind: r.kind,
       decision: r.decision,
       amountUsdc: r.amount_usdc,
@@ -4179,6 +4216,7 @@ export async function listRiskEventsAdmin(limit = 50, cursor?: string): Promise<
   const { rows } = await getPool().query<{
     id: string;
     handle: string | null;
+    email: string | null;
     kind: string;
     decision: 'allow' | 'review' | 'block';
     score: number;
@@ -4187,7 +4225,7 @@ export async function listRiskEventsAdmin(limit = 50, cursor?: string): Promise<
     counterparty: string | null;
     created_at: Date;
   }>(
-    `select r.id, u.handle, r.kind, r.decision, r.score, r.amount_usdc, r.reason, r.counterparty, r.created_at
+    `select r.id, u.handle, u.email, r.kind, r.decision, r.score, r.amount_usdc, r.reason, r.counterparty, r.created_at
        from risk_events r left join users u on u.id = r.user_id
       where ($2::timestamptz is null or (r.created_at, r.id) < ($2::timestamptz, $3::uuid))
       order by r.created_at desc, r.id desc limit $1`,
@@ -4199,6 +4237,7 @@ export async function listRiskEventsAdmin(limit = 50, cursor?: string): Promise<
     items: pageRows.map((r) => ({
       id: r.id,
       userHandle: r.handle,
+      userEmail: r.email,
       kind: r.kind,
       decision: r.decision,
       score: r.score,
@@ -4218,8 +4257,16 @@ export async function listRiskEventsAdmin(limit = 50, cursor?: string): Promise<
  *  beside each row: approving KYB while the vendor is off grants that tier, and a reviewer cannot be
  *  asked to make that call blind. Left join — platform `psp` rows have no user. */
 export async function listMerchantsAdmin(): Promise<AdminMerchant[]> {
-  const { rows } = await getPool().query<MerchantRow & { owner_kyc_tier: number | null; owner_kyc_provider: string | null }>(
-    `select m.*, u.kyc_tier as owner_kyc_tier, u.kyc_provider as owner_kyc_provider
+  const { rows } = await getPool().query<
+    MerchantRow & {
+      owner_kyc_tier: number | null;
+      owner_kyc_provider: string | null;
+      owner_handle: string | null;
+      owner_email: string | null;
+    }
+  >(
+    `select m.*, u.kyc_tier as owner_kyc_tier, u.kyc_provider as owner_kyc_provider,
+            u.handle as owner_handle, u.email as owner_email
        from merchants m left join users u on u.id = m.user_id`,
   );
   return rows.map((m) => ({
@@ -4240,6 +4287,8 @@ export async function listMerchantsAdmin(): Promise<AdminMerchant[]> {
     contactPhone: m.contact_phone ?? undefined,
     ownerKycTier: m.owner_kyc_tier ?? undefined,
     ownerKycProvider: m.owner_kyc_provider ?? undefined,
+    ownerHandle: m.owner_handle ?? undefined,
+    ownerEmail: m.owner_email ?? undefined,
     real: m.user_id != null,
   }));
 }
@@ -4413,13 +4462,14 @@ export async function listAdminActions(limit = 50, cursor?: string): Promise<Pag
   const { rows } = await getPool().query<{
     id: string;
     handle: string;
+    email: string | null;
     action: string;
     target_kind: string;
     target_id: string;
     note: string | null;
     created_at: Date;
   }>(
-    `select a.id, u.handle, a.action, a.target_kind, a.target_id, a.note, a.created_at
+    `select a.id, u.handle, u.email, a.action, a.target_kind, a.target_id, a.note, a.created_at
        from admin_actions a join users u on u.id = a.admin_user_id
       where ($2::timestamptz is null or (a.created_at, a.id) < ($2::timestamptz, $3::uuid))
       order by a.created_at desc, a.id desc limit $1`,
@@ -4431,6 +4481,7 @@ export async function listAdminActions(limit = 50, cursor?: string): Promise<Pag
     items: pageRows.map((r) => ({
       id: r.id,
       adminHandle: r.handle,
+      adminEmail: r.email,
       action: r.action,
       targetKind: r.target_kind,
       targetId: r.target_id,

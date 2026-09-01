@@ -79,7 +79,10 @@ export default function OrderDetail() {
           ← Overview
         </Link>
       </div>
-      <PageHead title={usd(o.amountUsdc)} sub={`${o.userHandle} → ${o.merchantName ?? '—'} · ${o.referenceCode}`} />
+      <PageHead
+        title={usd(o.amountUsdc)}
+        sub={`${o.userHandle}${o.userEmail ? ` · ${o.userEmail}` : ''} → ${o.merchantName ?? '—'} · ${o.referenceCode}`}
+      />
       <p className={`-mt-3 mb-4 text-[13px] font-medium ${stateClass(o.state, o.resolution)}`}>
         {o.state}
         {o.resolution ? ` · ${o.resolution}` : ''}

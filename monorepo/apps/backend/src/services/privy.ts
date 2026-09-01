@@ -30,5 +30,10 @@ export async function getLinkedEmail(privyDid: string): Promise<string | null> {
   // ponytail: getUser(id) is the rate-limit-deprecated lookup; switch to identity-token reads
   // if Privy volume ever matters.
   const user = await client().getUser(privyDid);
-  return user.email?.address ?? null;
+  // Canonical form, at the only entrance: lowercase + trimmed. Every reader of users.email is an
+  // exact match (adoption, findUserByEmail, uq_users_email) and Privy documents nothing about the
+  // casing it hands back — one mailbox spelled two ways would be two accounts. 0025 enforces the
+  // same rule on the column.
+  const address = user.email?.address;
+  return address ? address.trim().toLowerCase() : null;
 }

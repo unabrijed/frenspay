@@ -10,13 +10,14 @@ import { useCallback, useEffect, useState } from 'react';
 import type { MerchantOrder } from '@fpay/shared';
 
 import { Icons } from '@fpay/ui/icons';
-import { BackButton } from '@fpay/ui/BackButton';
 import { Btn } from '@fpay/ui/Button';
 import { List, Row, RowMeta, Spacer } from '@fpay/ui/primitives';
-import { Pressable, View } from '@fpay/ui/rn';
+import { Pressable, ScrollView, View } from '@fpay/ui/rn';
 import { Screen } from '@fpay/ui/Screen';
 import { Txt } from '@fpay/ui/Txt';
 import { friendlyError } from '@/lib/errors';
+import { KYB_COPY } from '@/lib/kybCopy';
+import { nextStep } from '@/lib/nextStep';
 import { fiatRaw, usd } from '@fpay/shared';
 import { colors, fonts, GUTTER, radii, type } from '@fpay/ui/theme';
 import type { MerchantLedgerResponse, MerchantProfile } from '@fpay/shared';
@@ -276,10 +277,7 @@ export default function MerchantHome() {
   if (!merchant) {
     return (
       <Screen edges={['top']} style={styles.safe}>
-        <View style={styles.head}>
-          <BackButton onPress={() => router.push('/')} />
-        </View>
-        <View style={styles.scroll}>
+        <ScrollView style={styles.scroll}>
           <Txt style={type.handle}>Become a partner</Txt>
           <Txt style={[type.lead, { marginTop: 10 }]}>
             Partners settle other people’s payouts and earn a spread. You put up a stake up front.
@@ -287,7 +285,7 @@ export default function MerchantHome() {
           </Txt>
           <Spacer />
           <Btn label="Apply" variant="ink" onPress={() => router.push('/apply')} />
-        </View>
+        </ScrollView>
       </Screen>
     );
   }
@@ -299,29 +297,37 @@ export default function MerchantHome() {
   // Number() on both sides: a bare `<` between two decimal STRINGS compares them lexically, so
   // "900.000000" would read as above a "2000.000000" floor and the warning would never show.
   const belowFloor = Number(merchant.bondUsdc) < Number(merchant.minBondUsdc);
+  // Off is always allowed; on needs the same two things the server checks — the business approved
+  // and the stake at the floor. Gating on one of them left a tap that could only fail.
+  const canToggle =
+    merchant.status === 'online' || (merchant.status === 'offline' && merchant.kybStatus === 'approved' && !belowFloor);
+  const step = nextStep(merchant);
 
   return (
     <Screen edges={['top']} style={styles.safe}>
-      <View style={styles.head}>
-        <BackButton onPress={() => router.push('/')} />
-      </View>
-      <View style={styles.scroll}>
+      <ScrollView style={styles.scroll}>
         <Txt style={type.handle}>{merchant.name}</Txt>
-        <Pressable onPress={() => router.push('/business')}>
-          <Txt
-            style={[
-              type.profileSub,
-              { marginTop: 2 },
-              // Anything awaiting the merchant is an ACTION, not a status line — colour it like one
-              // or it reads as "nothing to do here" and sits untouched.
-              merchant.kybStatus === 'pending' || merchant.kybStatus === 'more_info'
-                ? { color: colors.accent }
-                : null,
-            ]}
-          >
-            {merchant.kybStatus === 'approved' ? statusLabel(merchant.status) : kybLabel(merchant.kybStatus)}
-          </Txt>
-        </Pressable>
+        <Txt style={[type.profileSub, { marginTop: 2 }]}>{statusLabel(merchant.status)}</Txt>
+
+        {/* The one thing to do next. A fresh partner lands here offline, unverified and unstaked —
+            three blockers between them and an order — and used to be shown a status line and a
+            tap-only card. This names the first blocker and makes it the button. */}
+        {step ? (
+          <View style={[styles.notice, { marginTop: 14 }]}>
+            <Txt style={type.rowName}>{step.title}</Txt>
+            <Txt style={[type.rowTime, { marginTop: 2 }]}>{step.body}</Txt>
+            {step.cta ? (
+              <Btn
+                label={step.cta}
+                variant="ink"
+                height={44}
+                disabled={busy}
+                style={{ marginTop: 12 }}
+                onPress={() => (step.href ? router.push(step.href) : void toggleOnline())}
+              />
+            ) : null}
+          </View>
+        ) : null}
 
         {/* The reason to open this app when nothing is waiting. */}
         <ScoreCard m={merchant} />
@@ -376,7 +382,7 @@ export default function MerchantHome() {
           {/* Availability. Until now `merchants.status` was admin-only and the documented workaround
               was setting capacity to zero — which says "I have no money", not "I'm asleep", and
               routing reads those very differently. */}
-          <Row onPress={merchant.kybStatus === 'approved' ? () => void toggleOnline() : undefined}>
+          <Row onPress={canToggle ? () => void toggleOnline() : undefined}>
             <RowMeta>
               <Txt style={type.rowName}>Taking orders</Txt>
               <Txt style={[type.rowTime, { marginTop: 2 }]}>
@@ -388,7 +394,11 @@ export default function MerchantHome() {
                       : 'Suspended — contact support'
                   : merchant.status === 'online'
                     ? 'You’ll be offered new orders'
-                    : 'Nothing will reach you'}
+                    : merchant.kybStatus !== 'approved'
+                      ? 'Once your business is approved'
+                      : belowFloor
+                        ? `Once your stake is at least ${usd(merchant.minBondUsdc)}`
+                        : 'Nothing will reach you'}
               </Txt>
             </RowMeta>
             <Txt style={{ ...fonts.body500, fontSize: 14, color: onlineColor(merchant.status) }}>
@@ -435,6 +445,15 @@ export default function MerchantHome() {
             <Txt style={{ ...fonts.body500, fontSize: 14, color: merchant.contactPhone ? colors.muted : colors.accent }}>
               {merchant.contactPhone ? 'Change' : 'Add'}
             </Txt>
+          </Row>
+          {/* The business check's history and the reviewer's note live on /business; once the
+              next-step card has moved past it, this row is the only way back there. */}
+          <Row onPress={() => router.push('/business')}>
+            <RowMeta>
+              <Txt style={type.rowName}>Business details</Txt>
+              <Txt style={[type.rowTime, { marginTop: 2 }]}>{KYB_COPY[merchant.kybStatus]?.title ?? merchant.kybStatus}</Txt>
+            </RowMeta>
+            <Icons.Chevron size={16} color={colors.muted} />
           </Row>
           {/* The way out. A flag, never a delete: the ledger and the history stay (docs/15). */}
           {merchant.suspendReason !== 'exited' ? (
@@ -545,7 +564,7 @@ export default function MerchantHome() {
             </List>
           </>
         ) : null}
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
@@ -554,27 +573,10 @@ const statusLabel = (s: string) =>
   s === 'online' ? 'Online, receiving orders' : s === 'suspended' ? 'Suspended' : 'Offline';
 const onlineColor = (s: string) =>
   s === 'online' ? colors.secondary : s === 'suspended' ? colors.danger : colors.muted;
-const kybLabel = (s: string) =>
-  s === 'pending'
-    ? 'Tell us about your business'
-    : s === 'submitted'
-      ? 'Business details with us'
-      : s === 'under_review'
-        ? 'Business details being reviewed'
-        : s === 'more_info'
-          ? 'We need one more thing'
-          : s === 'rejected'
-            ? 'Not approved'
-            : s;
-
 const styles = {
   safe: { backgroundColor: colors.canvas },
-  head: { paddingLeft: GUTTER, paddingRight: GUTTER, paddingTop: 6, paddingBottom: 2 },
   scroll: {
-    flex: 1,
-    overflowY: 'auto',
-    display: 'flex',
-    flexDirection: 'column',
+    paddingTop: 14,
     paddingLeft: GUTTER,
     paddingRight: GUTTER,
     paddingBottom: 28,

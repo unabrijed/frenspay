@@ -4,8 +4,8 @@
 // the imperative store (so screens never import Privy) and registers the signer.
 //
 // A trimmed sibling of apps/web's: email OTP and the embedded Solana wallet, and nothing else. No
-// smart wallets (this console has no cross-chain deposits), no passkeys, no phone linking — the LP
-// already has an fpay account, and everything that creates or enriches one lives in the wallet app.
+// smart wallets (this console has no cross-chain deposits), no passkeys, no phone linking. Account
+// creation is the one thing shared with the wallet app: AuthGate's FinishSetup calls /auth/sync.
 import { useLoginWithEmail, usePrivy } from '@privy-io/react-auth';
 import { useCreateWallet, useSignAndSendTransaction, useWallets } from '@privy-io/react-auth/solana';
 import { useEffect, useRef } from 'react';
@@ -78,9 +78,9 @@ export function PrivyBridge(): null {
       setAuthToken(token);
       setTokenRefresher(getAccessToken); // api.ts refreshes an expired token on 401
 
-      // The backend confirmed this session has no fpay account. This console never creates one —
-      // applying needs a users row and an invite, both of which live in the wallet app — so the
-      // honest answer is a dead end that says so, not a half-signed-in shell.
+      // The backend confirmed this session has no fpay account on this environment. AuthGate then
+      // renders FinishSetup (handle, plus an invite if asked) → /auth/sync, which creates the row or
+      // adopts an existing one by email — the same door the wallet app uses, not a dead end.
       setSessionRevokedHandler(() => useLpStore.setState({ noAccount: true, loaded: true }));
       setAccountSuspendedHandler(() => useLpStore.setState({ suspended: true }));
 

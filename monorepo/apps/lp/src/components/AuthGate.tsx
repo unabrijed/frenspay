@@ -2,12 +2,21 @@
 
 // AuthGate — the door. Four states, and the third is the one worth building carefully.
 //
-// This console does NOT create accounts. Applying needs a users row and tier-2 identity, and
-// signing up needs an invite — both of which live in the wallet app. So someone who authenticates
-// here with an address we've never seen gets told exactly that, rather than a half-signed-in shell
-// that 403s on every call. Same posture as the admin console's "sign into the fpay app once".
+// This console finishes account setup itself. A verified email with no users row on this
+// environment — a brand-new partner, or an existing one whose Privy DID rotated with the app
+// (DEPLOY.stage.md §One Privy app) — lands on FinishSetup, which calls the same POST /auth/sync the
+// wallet app does. Its first move is a sync with NO handle: the server adopts whatever this email
+// already owns (moving a partner's release address to the new wallet) and answers
+// `handle_required` only when there is nothing to adopt. So a returning partner is never asked to
+// set up an account they have; only a genuinely new person picks a name, and is asked for an invite
+// only when the server insists (inviteRequired). Until 2026-09-01 this was a dead end that sent
+// people to the wallet app first; after the DID rotation that locked out every existing partner,
+// and the workaround was handing them the payer app's gate key.
 import type { CSSProperties, ReactNode } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+
+import type { MeResponse } from '@fpay/shared';
+import { draftHandle, isValidEmail, normalizeEmail } from '@fpay/shared';
 
 import { Btn, TextLink } from '@fpay/ui/Button';
 import { Field, Spacer } from '@fpay/ui/primitives';
@@ -18,6 +27,7 @@ import { colors, GUTTER, type } from '@fpay/ui/theme';
 
 import { Splash } from '@/components/Splash';
 import { friendlyError } from '@/lib/errors';
+import { ApiError, req } from '@/services/api';
 import { useLpStore } from '@/store/useLpStore';
 
 function SignIn() {
@@ -47,7 +57,7 @@ function SignIn() {
         <Spacer />
         <Txt style={type.handle}>Settle payouts. Earn a spread.</Txt>
         <Txt style={[type.lead, { marginTop: 10, marginBottom: 24 }]}>
-          Sign in with the email on your fpay account.
+          Sign in with your email.
         </Txt>
 
         {!sent ? (
@@ -59,6 +69,8 @@ function SignIn() {
                 inputMode="email"
                 autoComplete="email"
                 placeholder="you@example.com"
+                autoCapitalize="none"
+                spellCheck={false}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
@@ -67,8 +79,8 @@ function SignIn() {
             <Btn
               label={busy ? 'Sending…' : 'Continue'}
               variant="ink"
-              disabled={busy || !email.includes('@')}
-              onPress={() => void run(() => auth!.sendCode(email.trim()), () => setSent(true))}
+              disabled={busy || !isValidEmail(email)}
+              onPress={() => void run(() => auth!.sendCode(normalizeEmail(email)), () => setSent(true))}
             />
           </>
         ) : (
@@ -104,6 +116,141 @@ function SignIn() {
   );
 }
 
+// Server codes meaning "the invite gate stopped you" — the only case where a field appears that
+// wasn't there before. Everything else is a handle problem, fixed in the field they already have.
+const GATE_CODES = new Set(['invite_required', 'invalid_invite']);
+
+/**
+ * The third state: signed in, no account here. Two moves. First a POST /auth/sync with no handle —
+ * the server adopts the account this email already owns (a DID that rotated with the Privy app) and
+ * we are done, "welcome back"; or it answers `handle_required`, meaning nothing to adopt, and only
+ * THEN is the form shown. The handle is asked for rather than derived from the email: it is
+ * immutable and every payer can resolve it, so deriving would publish the email's local part
+ * forever. If a Privy read hiccups the server cannot see the email and falls back to asking, and a
+ * typed name is still discarded on adoption — hence the "welcome back" on a mismatch.
+ */
+function FinishSetup() {
+  const walletAddress = useLpStore((s) => s.walletAddress);
+  const load = useLpStore((s) => s.load);
+  const notify = useLpStore((s) => s.notify);
+  const auth = useLpStore((s) => s.auth);
+  const [handle, setHandle] = useState('');
+  const [code, setCode] = useState('');
+  // Hidden until the server asks: the common case after a Privy-app migration is an existing
+  // partner, and an invite box would tell them they are signing up fresh.
+  const [needsCode, setNeedsCode] = useState(false);
+  // Hidden until the probe says there is nothing to adopt — the same shape as needsCode.
+  const [needsHandle, setNeedsHandle] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  // Mirror the server's canonical form (lowercase, [a-z0-9_.], ≤30) so what you see is what registers.
+  const clean = draftHandle(handle);
+
+  // First move: adopt without asking. Any failure other than handle_required (network, a wallet
+  // not ready) also reveals the form — Continue re-runs the same sync with a name, which is the
+  // retry — and shows why.
+  useEffect(() => {
+    if (!walletAddress) return;
+    let live = true;
+    (async () => {
+      try {
+        const me = await req<MeResponse>('/auth/sync', { method: 'POST', body: JSON.stringify({ walletAddress }) });
+        await load();
+        if (!live) return;
+        useLpStore.setState({ noAccount: false });
+        notify(`Welcome back, ${me.handle}`);
+      } catch (e) {
+        if (!live) return;
+        if (!(e instanceof ApiError && e.code === 'handle_required')) setErr(friendlyError(e));
+        setNeedsHandle(true);
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [walletAddress, load, notify]);
+
+  const submit = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const trimmed = code.trim();
+      const me = await req<MeResponse>('/auth/sync', {
+        method: 'POST',
+        body: JSON.stringify({ handle: `@${clean}`, walletAddress, ...(trimmed ? { inviteCode: trimmed } : {}) }),
+      });
+      // load() clears noAccount on a good /me. The explicit clear covers a /me hiccup right after a
+      // good sync, which would otherwise bounce a freshly made account straight back to this screen.
+      await load();
+      useLpStore.setState({ noAccount: false });
+      // Adoption: the server handed back an existing account under its own handle and ignored the
+      // one typed here. Say so, or the old handle on the next screen reads as a bug.
+      if (me.handle !== `@${clean}`) notify(`Welcome back, ${me.handle}`);
+    } catch (e) {
+      if (e instanceof ApiError && GATE_CODES.has(e.code)) setNeedsCode(true);
+      setErr(friendlyError(e));
+      setBusy(false);
+    }
+  };
+
+  if (!needsHandle) return <Splash />;
+
+  return (
+    <Screen edges={['top']} style={styles.safe}>
+      <View style={styles.scroll}>
+        <Spacer />
+        <Txt style={type.handle}>Finish setting up</Txt>
+        <Txt style={[type.lead, { marginTop: 10, marginBottom: 24 }]}>
+          Choose the name people see when they pay you.
+        </Txt>
+        <Field>
+          <Txt style={[type.lead, { color: colors.muted }]}>@</Txt>
+          <input
+            style={inputStyle}
+            value={clean}
+            onChange={(e) => setHandle(e.target.value)}
+            placeholder="yourname"
+            maxLength={30}
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            autoFocus
+          />
+        </Field>
+        <Txt style={[type.inst, { marginTop: 8 }]}>Can’t be changed later.</Txt>
+        {needsCode ? (
+          <>
+            <Spacer />
+            <Field>
+              <input
+                style={{ ...inputStyle, letterSpacing: 1 }}
+                value={code}
+                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                placeholder="Invite code"
+                autoCapitalize="characters"
+                autoCorrect="off"
+                spellCheck={false}
+                autoFocus
+              />
+            </Field>
+          </>
+        ) : null}
+        <Spacer />
+        <Btn
+          label={busy ? 'Saving…' : 'Continue'}
+          variant="ink"
+          disabled={busy || clean.length < 3 || (needsCode && !code.trim())}
+          onPress={() => void submit()}
+        />
+        {err ? <Txt style={[type.lead, { color: colors.danger, marginTop: 12 }]}>{err}</Txt> : null}
+        <View style={{ alignItems: 'center', marginTop: 12 }}>
+          <TextLink label="Sign out" onPress={() => void auth?.logout()} />
+        </View>
+      </View>
+    </Screen>
+  );
+}
+
 function DeadEnd({ title, body }: { title: string; body: string }) {
   const auth = useLpStore((s) => s.auth);
   return (
@@ -133,14 +280,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (suspended) {
     return <DeadEnd title="Your account is paused" body="Contact support and we’ll sort it out." />;
   }
-  if (noAccount) {
-    return (
-      <DeadEnd
-        title="You need an fpay account first"
-        body="This is the console for people who already use fpay. Open the fpay app, finish signing up there, then come back."
-      />
-    );
-  }
+  if (noAccount) return <FinishSetup />;
   if (!loaded) return <Splash />;
   return <>{children}</>;
 }
