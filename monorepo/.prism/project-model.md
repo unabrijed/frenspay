@@ -181,6 +181,13 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     signed-in embedded wallet, so for every human partner the two are one address — a hand-typed treasury
     is left alone, psp rows have no `user_id`, and the exited trigger guards `status`/`suspend_reason` only.
     Any future writer of `wallets.address` must keep this pairing.
+49. **A scrolling region is a `ScrollView`, never a `View` with `overflowY`** (2026-09-01): the RN shim puts
+    `minHeight: 0` on every View, so a definite-height flex column (anything `flex: 1` under `.app-frame`)
+    flex-SHRINKS its children before it lets them overflow — cards crushed to a sliver with their text
+    painted over the neighbours, which reads as "two screens on top of each other". `ScrollView`
+    (`@fpay/ui/rn`) is a block outer scroller with a flex-column content View (`minHeight: 100%` keeps
+    Spacers working). The per-component `flexShrink: 0` on `list`/`search` still protects sheets. The LP
+    dashboard's next-step order is guarded by `check:next` (`apps/lp/scripts/check-next-step.ts`).
 
 ## Danger zones
 
@@ -198,6 +205,7 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
 - Xendit "one integration, five countries" = code only; each live country needs a local legal entity.
 - Singapore (MAS DTSP) is a trap for this business shape; check entity domicile before SG anything.
 - A spec that describes the architecture accurately can still be ~half already-shipped: the 2026-08-24 routing spec's lock/redaction/ceiling/reroute sections were DOCUMENTATION of existing code, not work. Verify "what's new" against the tree before sizing the patch.
+- A layout bug reported as "screens stacked on top of each other" was flexbox shrinking siblings in a definite-height column — no positioning anywhere. When text overlaps on the web shim, suspect `minHeight: 0` + `flex-shrink` before any z-index or router theory; a screen that had been fine tips over the day it grows one row taller.
 - Windowing a count that feeds a threshold changes the threshold's meaning (settled → tier gate). Ask "who else reads this number" before bounding any aggregate.
 - "≈ zero" latency arguments must trace WHO gets pushed vs who polls, and whether the clock and the push start in the same pass — the 5s head-start claim fell 3-0 on exactly that.
 - A metric with no consumer (routeQuality) can still distort a plan if the plan assumes it matters; grep consumers before defending an output.
