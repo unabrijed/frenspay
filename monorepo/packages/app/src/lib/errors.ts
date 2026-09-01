@@ -36,6 +36,7 @@ const BY_CODE: Record<string, string> = {
   account_deleted: 'This account has been deleted. Your money is still yours via your embedded wallet.',
   // signup
   handle_taken: 'That name is already taken. Try another.',
+  invalid_handle: 'Use 3–30 letters, numbers, dots or underscores.',
   // Not a handle problem, and no amount of renaming fixes it — wallets.address is unique across
   // every account, so this means the wallet is already linked to a different one.
   wallet_in_use: 'That wallet is already linked to another fpay account.',

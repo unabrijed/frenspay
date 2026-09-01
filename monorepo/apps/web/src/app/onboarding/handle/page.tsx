@@ -2,9 +2,17 @@
 
 // Choose handle (Privy) — real input + availability check (GET /users/resolve) + /auth/sync
 // (upserts the user + their embedded wallet). fpay "Choose Handle" layout.
+//
+// First move on mount: /auth/sync with NO handle. A signed-in session with no /me user is either a
+// brand-new person or a returning one whose Privy DID rotated with the app (bootRoute.ts) — and the
+// server can tell them apart by the verified email. It adopts the account that email already owns
+// and we are done; it answers `handle_required` when there is nothing to adopt, and only then is
+// the field shown. Before this, the returning person saw their own handle read as "Taken".
 import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
+
+import { draftHandle } from '@fpay/shared';
 
 import { Icons } from '@/components/icons';
 import { BackButton } from '@/components/ui/BackButton';
@@ -61,8 +69,30 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
   // True once the invite gate (not a handle problem) is what blocked them — the only case where
   // there is nothing they can do on this screen, so we offer the f list instead of a dead end.
   const [gated, setGated] = useState(false);
-  // Mirror the server's canonical form (lowercase, [a-z0-9_.]) so what you see is what registers.
-  const clean = h.trim().replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_.]/g, '');
+  // True until the adopt-first sync has answered; the form is only for someone with nothing to adopt.
+  const [probing, setProbing] = useState(true);
+  // Mirror the server's canonical form (lowercase, [a-z0-9_.], ≤30) so what you see is what registers.
+  const clean = draftHandle(h);
+
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      try {
+        await authSync(undefined);
+        if (live) onDone();
+      } catch (e) {
+        if (!live) return;
+        // Anything but "nothing to adopt" is shown — Continue re-runs the same sync, which is the retry.
+        if (!(e instanceof ApiError && e.code === 'handle_required')) setErr(friendlyError(e));
+        setProbing(false);
+      }
+    })();
+    return () => {
+      live = false;
+    };
+    // Mount-only on purpose: the probe answers once; onDone/authSync are stable store actions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Prefill the code stashed by the entry router (/?invite=FP-XXXX-XXXX, set by the landing gate).
   // Effect, not initializer — localStorage isn't there during SSR and an initializer would mismatch
@@ -132,6 +162,8 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
     }
   };
 
+  if (probing) return <Splash />;
+
   return (
     <Screen edges={['top', 'bottom']} style={styles.safe}>
       <View style={styles.fhead}>
@@ -150,6 +182,7 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
               value={clean}
               onChange={(e) => setH(e.target.value)}
               placeholder="yourname"
+              maxLength={30}
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}

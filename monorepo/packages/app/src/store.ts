@@ -220,7 +220,9 @@ interface PayState {
   requestOtp: (email: string) => Promise<void>;
   verifyOtp: (code: string) => Promise<void>;
   logout: () => Promise<void>;
-  authSync: (handle: string, inviteCode?: string) => Promise<void>;
+  /** No handle = adopt what this email already owns (or re-sync this DID); the server answers
+   *  `handle_required` when there is nothing to adopt — the handle screen's cue to show its field. */
+  authSync: (handle?: string, inviteCode?: string) => Promise<void>;
   /** Tell the server the codes have been seen, then drop them locally. One-way. */
   acknowledgeInvites: () => Promise<void>;
   /** Dev-only: reset backend KYC tier + local state and sign out, to re-test onboarding + KYC. */
