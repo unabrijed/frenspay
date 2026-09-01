@@ -104,6 +104,8 @@ export const useLpStore = create<LpState>((set, get) => ({
    * looking at an order they have to pay in four minutes should not lose it to an RPC hiccup.
    */
   load: async () => {
+    // Both in flight at once; the balance is read after /me has landed so its failure stays its own.
+    const balance = req<{ balanceUsd: string }>('/balance');
     try {
       const me = await req<MeResponse>('/me');
       set({
@@ -119,10 +121,11 @@ export const useLpStore = create<LpState>((set, get) => ({
       // setSessionRevokedHandler already flips `noAccount` for the one error that means it; any
       // other failure leaves the last-known state alone rather than emptying the screen.
       set({ loaded: true });
+      balance.catch(() => {}); // nothing to show it on
       return;
     }
     try {
-      const bal = await req<{ balanceUsd: string }>('/balance');
+      const bal = await balance;
       set({ balanceUSD: Number(bal.balanceUsd) });
     } catch {
       /* balance is context, never the point */

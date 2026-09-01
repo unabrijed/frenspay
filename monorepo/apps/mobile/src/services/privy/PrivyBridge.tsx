@@ -105,8 +105,10 @@ export function PrivyBridge(): null {
       setAuthToken(token);
       setTokenRefresher(getAccessToken);
       setSessionRevokedHandler(() => {
+        // Forget the account, keep the session — the handle screen's probe adopts it by email.
+        // The web bridge explains the OTP loop that logout() here caused.
         const s = usePayStore.getState();
-        if (s.onboarded || s.provisioned) void s.logout();
+        if (s.onboarded || s.provisioned) s.forgetAccount();
       });
       setAccountSuspendedHandler(() => usePayStore.setState({ suspended: true }));
       setAccountDeletedHandler(() => usePayStore.setState({ deleted: true }));
