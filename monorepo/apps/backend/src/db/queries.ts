@@ -326,6 +326,21 @@ export async function upsertUserByPrivyDid(input: {
     // Their own three, minted in the same breath. `where not exists` makes this idempotent, so a
     // replayed sync can't hand anyone a second set.
     await mintCodesFor(client, { id: user.id }, INVITES_PER_USER, { onlyIfNone: true });
+    // A partner's release address follows the wallet it was declared from. /merchants/apply's one
+    // caller passes the signed-in embedded wallet as the treasury, and the upsert below is the only
+    // place that wallet ever changes (a Privy-app migration — DEPLOY.stage.md §One Privy app). The
+    // stake refund already reads the live wallet (listStakeWithdrawalsAdmin); without this, every
+    // escrow release kept paying an embedded wallet of a retired app that nobody can sign from,
+    // while isMerchantTreasuryAddress went on refusing fpay sends to it. Only a treasury that WAS
+    // the old wallet moves — a hand-typed one is respected, and psp rows have no user_id. The
+    // exited trigger guards status/suspend_reason only, so an exited partner's row still syncs.
+    await client.query(
+      `update merchants m set treasury_address = $2
+         from wallets w
+        where m.user_id = $1 and w.user_id = m.user_id and w.chain = 'solana'
+          and m.treasury_address = w.address and w.address <> $2`,
+      [user.id, input.walletAddress],
+    );
     await client.query(
       `insert into wallets (user_id, address) values ($1, $2)
        on conflict (user_id, chain) do update set address = excluded.address`,
