@@ -18,23 +18,14 @@ import { KYB_FIELDS, kybAwaitingMerchant, validateKyb } from '@fpay/shared';
 import { BackButton } from '@fpay/ui/BackButton';
 import { Btn } from '@fpay/ui/Button';
 import { Hairline, List, Row, RowMeta, SearchBar, Spacer } from '@fpay/ui/primitives';
-import { Pressable, View } from '@fpay/ui/rn';
+import { Pressable, ScrollView, View } from '@fpay/ui/rn';
 import { Screen } from '@fpay/ui/Screen';
 import { Txt } from '@fpay/ui/Txt';
 import { friendlyError } from '@/lib/errors';
+import { KYB_COPY } from '@/lib/kybCopy';
 import { colors, GUTTER, radii, type } from '@fpay/ui/theme';
 import { submitMerchantKyb } from '@/services/merchant';
 import { useLpStore } from '@/store/useLpStore';
-
-/** What the merchant is told their status means. Deliberately in their language, not the enum's. */
-const STATUS_COPY: Record<string, { title: string; body: string }> = {
-  pending: { title: 'Tell us about your business', body: 'We need this before you can take orders.' },
-  submitted: { title: 'With us now', body: 'Someone will look at this shortly. Nothing for you to do.' },
-  under_review: { title: 'Being reviewed', body: 'A person is going through it now.' },
-  more_info: { title: 'We need one more thing', body: 'Update what we’ve asked for below and send it again.' },
-  approved: { title: 'Approved', body: 'Your business is verified. You can go online whenever you like.' },
-  rejected: { title: 'Not approved', body: 'We couldn’t verify this business.' },
-};
 
 const relTime = (iso: string) => new Date(iso).toLocaleString();
 
@@ -57,15 +48,15 @@ export default function MerchantVerify() {
         <View style={styles.head}>
           <BackButton onPress={() => router.push('/')} />
         </View>
-        <View style={styles.scroll}>
+        <ScrollView style={styles.scroll}>
           <Txt style={type.lead}>You don’t have a partner account.</Txt>
-        </View>
+        </ScrollView>
       </Screen>
     );
   }
 
   const editable = kybAwaitingMerchant(merchant.kybStatus);
-  const copy = STATUS_COPY[merchant.kybStatus] ?? STATUS_COPY.pending;
+  const copy = KYB_COPY[merchant.kybStatus] ?? KYB_COPY.pending;
 
   const submit = async () => {
     // Client-side validation is a COURTESY — it saves a round trip on a typo. The server runs the
@@ -93,7 +84,7 @@ export default function MerchantVerify() {
       <View style={styles.head}>
         <BackButton onPress={() => router.push('/')} />
       </View>
-      <View style={styles.scroll}>
+      <ScrollView style={styles.scroll}>
         <Txt style={type.handle}>{copy.title}</Txt>
         <Txt style={[type.lead, { marginTop: 8 }]}>{copy.body}</Txt>
 
@@ -177,7 +168,7 @@ export default function MerchantVerify() {
               {merchant.kybEvents.map((e, i) => (
                 <Row key={`${e.createdAt}-${i}`}>
                   <RowMeta>
-                    <Txt style={type.rowName}>{STATUS_COPY[e.toStatus]?.title ?? e.toStatus}</Txt>
+                    <Txt style={type.rowName}>{KYB_COPY[e.toStatus]?.title ?? e.toStatus}</Txt>
                     {e.note ? <Txt style={[type.rowTime, { marginTop: 2 }]}>{e.note}</Txt> : null}
                   </RowMeta>
                   <Txt style={type.rowTime}>{relTime(e.createdAt)}</Txt>
@@ -199,7 +190,7 @@ export default function MerchantVerify() {
           />
         ) : null}
         <Hairline />
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
@@ -208,10 +199,6 @@ const styles = {
   safe: { backgroundColor: colors.canvas },
   head: { paddingLeft: GUTTER, paddingRight: GUTTER, paddingTop: 6, paddingBottom: 2 },
   scroll: {
-    flex: 1,
-    overflowY: 'auto',
-    display: 'flex',
-    flexDirection: 'column',
     paddingLeft: GUTTER,
     paddingRight: GUTTER,
     paddingBottom: 28,
