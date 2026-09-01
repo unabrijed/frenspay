@@ -24,6 +24,10 @@ import { PrivySigner } from './signer';
 // an empty `wallets` as "no wallet" and creates a second one.
 const SETTLING = new Set(['connecting', 'reconnecting', 'creating']);
 
+// A wallet that has not appeared this long after the session resolved is reported, not waited for.
+const WALLET_TIMEOUT_MS = 15_000;
+const WALLET_NOT_READY = 'wallet_not_ready'; // lib/errors has the copy
+
 type LinkedAccount = { type: string; address?: string };
 
 export function PrivyBridge(): null {
@@ -78,13 +82,43 @@ export function PrivyBridge(): null {
     usePayStore.getState().setRecoveryStatus({ email, passkey });
   }, [user]);
 
-  // Once authenticated: ensure an embedded Solana wallet, then publish token + signer + address.
+  // Sign in on the TOKEN, not on the wallet — see the web bridge: the wallet hook's settle is the
+  // slow part of a cold start and nothing about being signed in needs it.
+  useEffect(() => {
+    if (!isReady || !user) return undefined;
+    let cancelled = false;
+    (async () => {
+      const token = await getAccessToken();
+      if (cancelled) return;
+      if (!token) return; // nothing left to refresh: the 5 s fallback above publishes readiness
+      setAuthToken(token);
+      setTokenRefresher(getAccessToken);
+      setSessionRevokedHandler(() => {
+        // Forget the account, keep the session — the handle screen's probe adopts it by email.
+        // The web bridge explains the OTP loop that logout() here caused.
+        const s = usePayStore.getState();
+        if (s.onboarded || s.provisioned) s.forgetAccount();
+      });
+      setAccountSuspendedHandler(() => usePayStore.setState({ suspended: true }));
+      setAccountDeletedHandler(() => usePayStore.setState({ deleted: true }));
+      usePayStore.getState().onSignedIn();
+      void usePayStore.getState().load();
+    })().catch((e) =>
+      usePayStore.setState({ authError: e instanceof Error ? e.message : String(e), authReady: true }),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [isReady, user, getAccessToken]);
+
+  // The wallet, on its own clock: created for a brand-new account, then the signer and the address
+  // (the bridge owns `walletAddress`; load() fills it from /me only while it is empty).
   const wallet = solana.wallets?.[0];
+  const walletAddr = wallet?.address;
   const status = solana.status as string;
   const creatingRef = useRef(false);
   useEffect(() => {
     if (!isReady || !user || SETTLING.has(status)) return undefined;
-    let cancelled = false;
     (async () => {
       if (!wallet) {
         // Brand-new signup: create the embedded wallet at most once — Privy errors on a second call.
@@ -100,30 +134,25 @@ export function PrivyBridge(): null {
         }
         return; // effect re-runs when wallets updates
       }
-      const token = await getAccessToken();
-      if (cancelled) return;
-      setAuthToken(token);
-      setTokenRefresher(getAccessToken);
-      setSessionRevokedHandler(() => {
-        // Forget the account, keep the session — the handle screen's probe adopts it by email.
-        // The web bridge explains the OTP loop that logout() here caused.
-        const s = usePayStore.getState();
-        if (s.onboarded || s.provisioned) s.forgetAccount();
-      });
-      setAccountSuspendedHandler(() => usePayStore.setState({ suspended: true }));
-      setAccountDeletedHandler(() => usePayStore.setState({ deleted: true }));
       setActiveSigner(new PrivySigner(wallet.address, () => wallet.getProvider(), SOLANA_RPC_URL));
-      usePayStore.getState().onSignedIn(wallet.address);
-      void usePayStore.getState().load();
-    })().catch((e) =>
-      usePayStore.setState({ authError: e instanceof Error ? e.message : String(e), authReady: true }),
-    );
-    return () => {
-      cancelled = true;
-    };
+      usePayStore.setState((s) => ({
+        walletAddress: wallet.address,
+        ...(s.authError === WALLET_NOT_READY ? { authError: null } : {}),
+      }));
+    })().catch((e) => usePayStore.setState({ authError: e instanceof Error ? e.message : String(e) }));
+    return undefined;
     // `solana` is a fresh object every render; status + address are the facts that matter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isReady, user, status, wallet?.address, getAccessToken]);
+  }, [isReady, user, status, walletAddr]);
+
+  // Bounded wait for the wallet — see the web bridge. The phone cannot reload itself, so the handle
+  // screen shows the error and asks for a fresh start.
+  useEffect(() => {
+    if (!isReady || !user || walletAddr) return undefined;
+    const t = setTimeout(() => usePayStore.setState({ authError: WALLET_NOT_READY }), WALLET_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [isReady, user, walletAddr]);
+
 
   return null;
 }

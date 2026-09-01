@@ -31,6 +31,9 @@ const BY_CODE: Record<string, string> = {
   // the fastest way to hit it, which is exactly when a raw code would have surfaced.
   rate_limited: 'Too many attempts. Wait a minute and try again.',
   wallet_not_found: 'Your wallet is still being set up. Try again in a moment.',
+  // The bridge's bounded wait gave up (wallet iframe blocked, creation wedged) — the handle screen
+  // shows this with a reload; the phone app cannot reload, so the copy stays neutral.
+  wallet_not_ready: 'Your wallet is taking longer than usual to set up. Please try again.',
   // account lifecycle
   account_suspended: 'Your account is paused. Contact support to sort it out.',
   account_deleted: 'This account has been deleted. Your money is still yours via your embedded wallet.',

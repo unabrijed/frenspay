@@ -39,8 +39,11 @@ export class RealWalletProvider implements WalletProvider {
     idempotencyKey?: string;
   }): Promise<Txn> {
     const attempt = async (): Promise<string> => {
+      // Signer first: Home is reachable before the wallet is, and a prepared-never-signed transfer
+      // would leave a pending row behind.
+      const signer = getActiveSigner();
       const prep = await api.prepareTransfer({ toHandle, toAddress, amountUsd, note, idempotencyKey });
-      const signature = await getActiveSigner().signAndSend(prep.unsignedTx, { sponsored: prep.sponsored });
+      const signature = await signer.signAndSend(prep.unsignedTx, { sponsored: prep.sponsored });
       await api.submitTransfer({ transferId: prep.transferId, signature });
       return prep.transferId;
     };
