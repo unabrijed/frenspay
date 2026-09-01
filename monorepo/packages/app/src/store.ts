@@ -220,6 +220,11 @@ interface PayState {
   requestOtp: (email: string) => Promise<void>;
   verifyOtp: (code: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Drop everything this browser remembers about the ACCOUNT — identity, money, flags — and keep
+   *  the Privy SESSION. What the server's `no_account` means: this signed-in identity owns no row
+   *  here, so the next stop is the handle screen's adopt-or-ask probe. `walletAddress` survives on
+   *  purpose: that probe sends it, and /auth/sync answers 400 without one. */
+  forgetAccount: () => void;
   /** No handle = adopt what this email already owns (or re-sync this DID); the server answers
    *  `handle_required` when there is nothing to adopt — the handle screen's cue to show its field. */
   authSync: (handle?: string, inviteCode?: string) => Promise<void>;
@@ -651,11 +656,14 @@ export const usePayStore = create<PayState>()(
       logout: async () => {
         await get()._authBridge?.logout();
         setAuthToken(null);
+        get().forgetAccount();
+        set({ authStatus: 'signedOut', walletAddress: '', firstLoadDone: false });
+      },
+      forgetAccount: () =>
         // Clear ALL persisted financial + identity data so the next person on this browser can't see the
         // prior user's balance / activity / handle / tier (these survive in localStorage via partialize).
+        // Not the session, not the wallet, not firstLoadDone — see the declaration.
         set({
-          authStatus: 'signedOut',
-          walletAddress: '',
           authEmail: '',
           handle: '',
           phone: '',
@@ -675,10 +683,8 @@ export const usePayStore = create<PayState>()(
           recovered: false,
           recoveryPrompted: false,
           onboarded: false,
-          firstLoadDone: false,
           provisioned: false,
-        });
-      },
+        }),
       // Dev-only full reset for re-testing onboarding + KYC from scratch. Order matters: reset the
       // BACKEND tier while still authed (logout clears the token next), then drop the KYC-redirect
       // stash, then logout (clears the Privy session + persisted store → onboarded=false, tier=1).

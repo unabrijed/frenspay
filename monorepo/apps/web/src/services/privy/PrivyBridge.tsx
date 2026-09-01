@@ -139,13 +139,17 @@ export function PrivyBridge(): null {
       setAuthToken(token);
       setTokenRefresher(getAccessToken); // api.ts refreshes an expired token on 401
       setSessionRevokedHandler(() => {
-        // The backend confirmed this session has no account. Believe it: the Privy session survives
-        // our row being deleted, and the persisted onboarded/handle/kycTier would otherwise keep
-        // rendering a dead account's app — verified badge and all — forever.
-        // Guarded because a pre-/auth/sync onboarding 401 is also 'no_account', and signing out
+        // The backend confirmed this session has no account. Believe it about the ACCOUNT: the
+        // persisted onboarded/handle/kycTier would otherwise keep rendering a dead account's app —
+        // verified badge and all — forever. Not about the SESSION: this used to call logout(), and
+        // when the one-Privy-app flip rotated every DID it cost every device a second OTP — the
+        // first login's /me said no_account, the session was destroyed, and only the second login
+        // reached the handle screen whose probe adopts the account by email. Forgetting the account
+        // sends the same session straight to that probe.
+        // Guarded because a pre-/auth/sync onboarding 401 is also 'no_account', and forgetting
         // mid-signup would wipe a half-finished one.
         const s = usePayStore.getState();
-        if (s.onboarded || s.provisioned) void s.logout();
+        if (s.onboarded || s.provisioned) s.forgetAccount();
       });
       // 403 account_suspended from any call → the full-screen paused state, not a silent $0
       // dashboard. Cleared by the next successful load()/refresh(), so reinstatement self-heals.
