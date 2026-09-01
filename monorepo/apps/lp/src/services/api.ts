@@ -29,7 +29,8 @@ let onSessionRevoked: (() => void) | null = null;
  * Fires only when the server CONFIRMS this session has no account — distinct from an expired token,
  * which the refresh-and-retry below already handles. One hook at the API layer beats a catch in
  * every caller, because the Privy session outlives our row: without it every poll and every action
- * would keep running against a dead account.
+ * would keep running against a dead account. The handler's answer is AuthGate's FinishSetup — the
+ * account gets made or adopted through /auth/sync — not a sign-out.
  */
 export function setSessionRevokedHandler(fn: (() => void) | null): void {
   onSessionRevoked = fn;

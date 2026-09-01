@@ -34,7 +34,8 @@ interface LpState {
   walletAddress: string;
   /** True once /me has answered at least once, so screens can tell "loading" from "nothing". */
   loaded: boolean;
-  /** The backend confirmed this session has no fpay account. The console never creates one. */
+  /** The backend confirmed this session has no fpay account here yet. AuthGate's FinishSetup makes
+   *  one (or adopts one) through /auth/sync; a good load() clears this. */
   noAccount: boolean;
   suspended: boolean;
 
