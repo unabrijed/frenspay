@@ -440,8 +440,14 @@ one with a NEW `did:privy:…` and a NEW embedded Solana address:
   and sweep balances BEFORE flipping the variables.
 - What people see: web signs them out (their DID is unknown → 401), the next sign-in lands on the
   handle step where their own handle reads as taken — they type any free one, and adoption hands back
-  the old account under its old handle. The LP console cannot adopt (it never calls `/auth/sync`):
-  every partner signs into web once first, then the console works.
+  the old account under its old handle. The LP console does the same on its own **Finish setting
+  up** screen (since 2026-09-01 — before that it dead-ended, and the only way in was the payer
+  app's gate key). Adoption also moves a partner's release address (`merchants.treasury_address`)
+  to the new wallet when it equalled the old one — the stake refund already reads the live wallet —
+  so releases after a flip stay spendable. A partner who adopted via web BEFORE that shipped keeps
+  the stale address: review, then re-point by hand — `update merchants m set treasury_address =
+  w.address from wallets w where w.user_id = m.user_id and w.chain = 'solana' and m.sim_behavior
+  is null and m.treasury_address <> w.address`.
 - Before any deploy, on the surviving app's dashboard: allowed origins (web, lp, admin, the
   localhost ports), email-only login, Solana embedded wallets ON, **Gas Sponsorship → Solana ON**
   (stage runs in sponsored mode — with it off, login works and every send fails), and an app client
