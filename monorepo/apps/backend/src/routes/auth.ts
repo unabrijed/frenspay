@@ -55,12 +55,20 @@ export async function registerAuthRoutes(app: FastifyInstance) {
   app.post<{ Body: AuthSyncRequest }>('/auth/sync', async (req, reply) => {
     const privyDid = requirePrivyDid(req);
     const { handle, walletAddress } = req.body ?? ({} as AuthSyncRequest);
-    if (!handle || !walletAddress) return reply.code(400).send({ error: 'missing_fields' });
+    if (!walletAddress) return reply.code(400).send({ error: 'missing_fields' });
+    if (handle !== undefined && typeof handle !== 'string') return reply.code(400).send({ error: 'invalid_handle' });
+    // The handle is OPTIONAL. A sync without one is every setup screen's first move — "adopt whatever
+    // this email already owns, or tell me to ask" — so a returning person (a Privy DID that rotated
+    // with the app) is never asked to choose a name they already have. Only an INSERT needs one;
+    // `handle_required` below is the cue to show the field.
     // Server-side canonicalization is the trust boundary: the DB only ever sees '@'+[a-z0-9_.]{3,30}.
-    const canonical = canonicalHandle(handle);
-    if (!canonical) return reply.code(400).send({ error: 'invalid_handle' });
-    // Denylisted handles are unregistrable — same error as a collision so the denylist can't be probed.
-    if (await screenHandle(canonical)) return reply.code(409).send({ error: 'handle_taken' });
+    let canonical: string | undefined;
+    if (handle) {
+      canonical = canonicalHandle(handle) ?? undefined;
+      if (!canonical) return reply.code(400).send({ error: 'invalid_handle' });
+      // Denylisted handles are unregistrable — same error as a collision so the denylist can't be probed.
+      if (await screenHandle(canonical)) return reply.code(409).send({ error: 'handle_taken' });
+    }
     // Browser-locale country guess (weakest source — the upsert only fills it when NULL).
     const rawCountry = req.body?.country ?? '';
     const country = /^[A-Za-z]{2}$/.test(rawCountry) ? rawCountry.toUpperCase() : undefined;
@@ -69,6 +77,12 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     // Read BEFORE the invite gate because the gate now asks whether this address is a root admin —
     // and a null here simply means "not one", i.e. the hiccup fails toward the gate, never past it.
     const email = privyConfigured() ? await getLinkedEmail(privyDid).catch(() => null) : null;
+    // Who this address already is, if anyone. It decides two things: whether a missing handle is an
+    // error (nothing to adopt and no row for this DID → the screen has to ask, and asks THAT before
+    // the invite gate can ask for a code), and whether the gate applies at all. The transaction
+    // re-checks both facts under lock — this pre-flight only orders the answers.
+    const existing = email ? await findUserByEmail(email) : null;
+    if (!canonical && !existing && !req.userId) return reply.code(400).send({ error: 'handle_required' });
     // Invite gate: fires only when this sync CREATES the account (no row for this DID → authPreHandler
     // left req.userId unset). Who skips it and why is inviteRequired() in services/invites.ts. The
     // code is validated and BURNED inside the upsert transaction, not here: checking it here and
@@ -81,7 +95,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     let inviteCode: string | undefined;
     if (
       inviteRequired({
-        isExistingUser: Boolean(req.userId) || Boolean(email && (await findUserByEmail(email))),
+        isExistingUser: Boolean(req.userId) || Boolean(existing),
         directoryHasUsers: await hasAnyUsers(),
         isRootAdmin: isRootAdminEmail(email),
       })
@@ -107,6 +121,8 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     } catch (e) {
       const code = (e as { code?: string }).code;
       if (code === 'invalid_invite') return reply.code(403).send({ error: 'invalid_invite' });
+      // The pre-flight said "adopt", the transaction found nothing to adopt (deleted in between).
+      if (code === 'handle_required') return reply.code(400).send({ error: 'handle_required' });
       if (code === '23505') {
         // WHICH unique fired matters, because only the handle one is the caller's to fix. This
         // transaction also writes `wallets`, whose address is unique GLOBALLY (not per user), so a

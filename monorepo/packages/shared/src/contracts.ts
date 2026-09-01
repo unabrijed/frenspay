@@ -337,7 +337,10 @@ export interface PushTokenRequest {
 
 /** POST /auth/sync body — token in the Authorization header identifies the Privy user. */
 export interface AuthSyncRequest {
-  handle: string;
+  /** Omit to adopt the account this Privy-verified email already owns (or re-sync this DID's own
+   *  row) — the server answers 400 `handle_required` when there is nothing to adopt, which is the
+   *  setup screens' cue to ask. Given: the name for a NEW account (canonicalized server-side). */
+  handle?: string;
   walletAddress: string;
   /** ISO 3166-1 alpha-2 browser-locale guess; server fills only when unset (weakest source). */
   country?: string;

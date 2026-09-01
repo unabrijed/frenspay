@@ -223,7 +223,9 @@ async function mintCodesFor(
  */
 export async function upsertUserByPrivyDid(input: {
   privyDid: string;
-  handle: string;
+  /** Absent = adopt (by email) or re-sync (by DID) only — throws `handle_required` if that leaves an
+   *  INSERT, which is the one write that needs a name. */
+  handle?: string;
   displayName?: string;
   walletAddress: string;
   country?: string;
@@ -294,6 +296,21 @@ export async function upsertUserByPrivyDid(input: {
     // NOT in the conflict update: a re-sync must never rewrite lineage.
     let user = adopted;
     if (!user) {
+      // No handle given: this sync may only adopt (above) or re-sync this DID's own row. The INSERT
+      // needs a name even on the conflict path (NOT NULL is checked before ON CONFLICT), so take it
+      // from the row the conflict clause would hit — and if there is none, this is a new person and
+      // the screen has to ask. Decided HERE, under the transaction, not trusted from the route's
+      // pre-flight: an admin delete between the two would otherwise create a fresh account under the
+      // freed old handle with no invite.
+      let handle = input.handle;
+      if (!handle) {
+        const { rows: own } = await client.query<{ handle: string }>(
+          `select handle from users where privy_did = $1`,
+          [input.privyDid],
+        );
+        handle = own[0]?.handle;
+        if (!handle) throw Object.assign(new Error('handle_required'), { code: 'handle_required' });
+      }
       const { rows } = await client.query<UserRow>(
         `insert into users (privy_did, handle, display_name, country, email, referred_by)
        values ($1, $2, $3, $4, $5, $6)
@@ -303,7 +320,7 @@ export async function upsertUserByPrivyDid(input: {
        returning *`,
         [
           input.privyDid,
-          input.handle,
+          handle,
           input.displayName ?? null,
           input.country ?? null,
           input.email ?? null,
