@@ -49,7 +49,7 @@ export default function Settings() {
               Receive sheet already shows for the same unknown. */}
           <ProfileAvatar label={(handle.replace(/^@/, '')[0] ?? '').toUpperCase()} />
           <View>
-            <Txt style={type.handle}>{handle || '—'}</Txt>
+            <Txt style={type.handle}>{handle || '-'}</Txt>
             <Txt style={[type.profileSub, { marginTop: 2 }]}>fpay account</Txt>
           </View>
         </View>
@@ -139,7 +139,7 @@ function InviteCard({ used, total }: { used: number; total: number }) {
               ? 'No invites yet'
               : left > 0
                 ? `${left} of ${total} still to give`
-                : `All ${total} used — that's your circle`}
+                : `All ${total} used. That's your circle`}
           </Txt>
         </View>
       </View>

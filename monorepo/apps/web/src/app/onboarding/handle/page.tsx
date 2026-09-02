@@ -234,7 +234,7 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
               without one, and saying so is kinder than a door that opens onto the same wall. */}
           {gated ? (
             <Txt style={[type.note, { marginTop: 10 }]}>
-              fpay is invite-only — you need a code from a fren. They can find theirs on{' '}
+              fpay is invite-only. You need a code from a fren. They can find theirs on{' '}
               {LANDING_URL.replace(/^https?:\/\//, '')}.
             </Txt>
           ) : null}

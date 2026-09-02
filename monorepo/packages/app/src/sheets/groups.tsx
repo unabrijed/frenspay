@@ -234,7 +234,7 @@ export function MoveToGroup() {
           ))}
         </List>
         {groups.length === 0 ? (
-          <Txt style={[type.rowTime, { textAlign: 'center', marginTop: 18 }]}>No trips yet — make one from Activity.</Txt>
+          <Txt style={[type.rowTime, { textAlign: 'center', marginTop: 18 }]}>No trips yet. Make one from Activity.</Txt>
         ) : null}
       </SheetBody>
     </>
@@ -372,7 +372,7 @@ export function Split() {
         <View style={styles.yourPart}>
           <Txt style={type.eyebrow}>Your part</Txt>
           <Txt style={[type.rowAmount, { fontSize: 20, color: ok ? colors.ink : colors.danger }]}>
-            {yourPart ? usd(yourPart.toFixed(2)) : '—'}
+            {yourPart ? usd(yourPart.toFixed(2)) : '-'}
           </Txt>
           {!ok && sum ? <Txt style={[type.rowTime, { color: colors.danger }]}>The parts add up to more than the bill.</Txt> : null}
         </View>

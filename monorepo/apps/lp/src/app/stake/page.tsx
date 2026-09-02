@@ -40,7 +40,7 @@ function claimLabel(c: StakeClaim): { text: string; color: string } {
       return { text: 'Being checked', color: colors.muted };
     case 'accepted':
       if (c.transferStatus === 'confirmed') return { text: 'Added to your stake', color: colors.accent };
-      if (c.transferStatus === 'failed') return { text: 'Didn’t check out — contact us', color: colors.danger };
+      if (c.transferStatus === 'failed') return { text: 'Didn’t check out. Contact us', color: colors.danger };
       return { text: 'Confirming', color: colors.muted };
     case 'rejected':
       return { text: c.note ? `Not accepted: ${c.note}` : 'Not accepted', color: colors.danger };
@@ -133,7 +133,7 @@ export default function MerchantStake() {
       const how = await depositStake(amount);
       setD('');
       // The bond credits only when the transfer confirms on-chain, so don't claim it's live yet.
-      notify(how === 'sent' ? 'Stake sent. It’ll show up once it confirms.' : 'Sent — and submitted for checking. It’ll show below.', 'success');
+      notify(how === 'sent' ? 'Stake sent. It’ll show up once it confirms.' : 'Sent and submitted for checking. It’ll show below.', 'success');
       await Promise.all([load(), refresh()]);
       if (how === 'sent') router.push('/');
     } catch (e) {
@@ -184,7 +184,7 @@ export default function MerchantStake() {
               <Btn label={busy ? 'Sending…' : 'Submit for checking'} variant="ink" disabled={busy || !signature.trim()} onPress={() => void submitClaim()} />
             </View>
             <Txt style={[type.inst, { marginTop: 10 }]}>
-              We check it on the network, and a person confirms it — usually within a day. If your wallet has a note or memo field,
+              We check it on the network, and a person confirms it, usually within a day. If your wallet has a note or memo field,
               put your @handle in it; it speeds up matching.
             </Txt>
           </>
@@ -241,7 +241,7 @@ export default function MerchantStake() {
         {/* The penalty rule and the claw window, before the first deposit — not on a page nobody
             reads. Both numbers come from the server (docs/15). */}
         <Txt style={[type.inst, { marginTop: 18, marginBottom: 12 }]}>
-          {`Held while you’re a partner. If a payment you handled is upheld against you, we take that payment’s amount from your stake — never more than your stake. It can’t leave for ${merchant.clawWindowHours} hours after a payout, while that payout can still be disputed. Ask for it back any time after that; we send it by hand to your fpay wallet, or any Solana wallet you give us when you ask, usually within a day.`}
+          {`Held while you’re a partner. If a payment you handled is upheld against you, we take that payment’s amount from your stake, never more than your stake. It can’t leave for ${merchant.clawWindowHours} hours after a payout, while that payout can still be disputed. Ask for it back any time after that; we send it by hand to your fpay wallet, or any Solana wallet you give us when you ask, usually within a day.`}
         </Txt>
       </ScrollView>
     </Screen>

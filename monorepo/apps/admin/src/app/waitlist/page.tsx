@@ -57,11 +57,11 @@ export default function Waitlist() {
           {data.entries.map((e) => (
             <tr key={e.email} className="hover:bg-surface-low">
               <Td className="font-medium">{e.email}</Td>
-              <Td className="text-muted">{e.city ?? '—'}</Td>
+              <Td className="text-muted">{e.city ?? '-'}</Td>
               <Td className="whitespace-nowrap text-muted">{at(e.createdAt)}</Td>
               {/* '@handle' = an app user invited them; 8 chars = another f-list member did. */}
-              <Td className="text-muted">{e.referredBy ?? '—'}</Td>
-              <Td className="whitespace-nowrap text-muted">{e.verifiedAt ? '✓' : '—'}</Td>
+              <Td className="text-muted">{e.referredBy ?? '-'}</Td>
+              <Td className="whitespace-nowrap text-muted">{e.verifiedAt ? '✓' : '-'}</Td>
             </tr>
           ))}
         </Table>

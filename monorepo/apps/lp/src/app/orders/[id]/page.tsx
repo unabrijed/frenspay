@@ -185,7 +185,7 @@ export default function MerchantOrder() {
           <View style={styles.vpaCard}>
             <Txt style={type.kvKey}>Who to pay</Txt>
             <Txt style={[type.lead, { marginTop: 4 }]}>
-              Take this order and we’ll show you. It’s yours for {Math.round(LOCK_MINUTES)} minutes — nobody
+              Take this order and we’ll show you. It’s yours for {Math.round(LOCK_MINUTES)} minutes. Nobody
               else can pay it while you hold it.
             </Txt>
           </View>
@@ -212,14 +212,14 @@ export default function MerchantOrder() {
             <Txt style={[type.inst, { marginTop: 4 }]}>
               {order.resolution === 'under_review'
                 ? 'We’re reviewing it. Your stake covers the payer if the money never arrived.'
-                : `You reported reference ${order.payoutUtr ?? '—'}.`}
+                : order.payoutUtr ? `You reported reference ${order.payoutUtr}.` : 'You reported this as paid.'}
             </Txt>
             {/* What an LP under dispute can actually DO. Before this the entire experience of
                 losing 1,500 USDC of bond was the sentence above — no way to say "here is the
                 proof", which is the one thing they have and we don't. */}
             {order.resolution === 'under_review' ? (
               <Txt style={[type.inst, { marginTop: 8 }]}>
-                If you have proof this was paid — a bank reference or screenshot — send it to support
+                If you have proof this was paid, a bank reference or screenshot, send it to support
                 with {order.referenceCode}. That’s what decides it.
               </Txt>
             ) : null}
@@ -239,7 +239,7 @@ export default function MerchantOrder() {
             </Txt>
             {secsLeft != null && secsLeft > 0 ? (
               <Txt style={[type.inst, { marginTop: 8, color: secsLeft < 60 ? colors.danger : colors.muted }]}>
-                Yours for {mmss(secsLeft)}. After that it goes back to everyone — don’t pay it once it does.
+                Yours for {mmss(secsLeft)}. After that it goes back to everyone. Don’t pay it once it does.
               </Txt>
             ) : null}
           </>
@@ -260,7 +260,7 @@ export default function MerchantOrder() {
                 costs the same as going quiet, everyone goes quiet and the pool waits out every TTL. */}
             <Pressable onPress={() => void giveBack()} disabled={busy}>
               <Txt style={[type.rowTime, { marginTop: 12, textAlign: 'center', color: colors.accent }]}>
-                Can’t pay this one — give it back
+                Can’t pay this one? Give it back
               </Txt>
             </Pressable>
           </>

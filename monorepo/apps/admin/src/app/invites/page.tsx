@@ -69,7 +69,7 @@ export default function Invites() {
 
   return (
     <>
-      <PageHead title="Invites" sub="Every code, its owner, and who signed up on it — the only place these are readable" />
+      <PageHead title="Invites" sub="Every code, its owner, and who signed up on it. The only place these are readable" />
       <ErrorBanner msg={err} />
 
       <form onSubmit={mint} className="mb-5 flex flex-wrap items-end gap-2 rounded-lg border border-hair bg-surface p-3">
@@ -87,7 +87,7 @@ export default function Invites() {
           <input
             value={owner}
             onChange={(e) => setOwner(e.target.value)}
-            placeholder="@handle — blank for house codes"
+            placeholder="@handle, blank for house codes"
             className="h-8 rounded-md border border-outline bg-surface px-2 text-[13px] font-normal normal-case tracking-normal text-ink placeholder:text-muted/50"
           />
         </label>
@@ -109,7 +109,7 @@ export default function Invites() {
       {minted.length > 0 ? (
         <div className="mb-5 rounded-lg border border-hair bg-surface-low p-3">
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
-            Just minted — copy these out
+            Just minted. Copy these out
           </p>
           <div className="flex flex-wrap gap-2">
             {minted.map((c) => (
@@ -136,8 +136,8 @@ export default function Invites() {
                   {i.status}
                 </Badge>
               </Td>
-              <Td className="text-muted">{i.redeemedByHandle ?? '—'}</Td>
-              <Td className="max-w-[240px] truncate text-muted">{i.note ?? '—'}</Td>
+              <Td className="text-muted">{i.redeemedByHandle ?? '-'}</Td>
+              <Td className="max-w-[240px] truncate text-muted">{i.note ?? '-'}</Td>
               <Td className="whitespace-nowrap text-muted">{at(i.createdAt)}</Td>
               <Td>
                 {/* Only unused codes can be revoked. A burned one created an account that still

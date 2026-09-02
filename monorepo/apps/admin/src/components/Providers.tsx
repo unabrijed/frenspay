@@ -165,7 +165,7 @@ function NoAccess({ kind }: { kind: Exclude<Access, 'checking' | 'admin'> }) {
     // the session and not the account, and the two used to print the same sentence.
     refused: {
       title: 'Session refused',
-      copy: 'This backend would not verify the session — usually an expired login. Sign out and back in. If it repeats, this backend is configured with a different Privy app than the console signs into.',
+      copy: 'This backend would not verify the session, usually an expired login. Sign out and back in. If it repeats, this backend is configured with a different Privy app than the console signs into.',
     },
     error: {
       title: 'Backend unreachable',
@@ -227,7 +227,7 @@ export function Providers({ children }: { children: ReactNode }) {
     return (
       <Denied
         title="Not configured"
-        msg="No Privy app is configured, so this console cannot sign anyone in. Set NEXT_PUBLIC_PRIVY_APP_ID and redeploy — NEXT_PUBLIC_* is inlined at build time."
+        msg="No Privy app is configured, so this console cannot sign anyone in. Set NEXT_PUBLIC_PRIVY_APP_ID and redeploy. NEXT_PUBLIC_* is inlined at build time."
       >
         <Target />
       </Denied>

@@ -101,7 +101,7 @@ function ScoreCard({ m }: { m: MerchantProfile }) {
         </View>
       ) : (
         <Txt style={[type.inst, { marginTop: 10 }]}>
-          {p ? 'Almost there — keep going.' : 'You’re at the top tier. Your stake works as hard as it can.'}
+          {p ? 'Almost there. Keep going.' : 'You’re at the top tier. Your stake works as hard as it can.'}
         </Txt>
       )}
     </View>
@@ -250,7 +250,7 @@ export default function MerchantHome() {
   const short = (a?: string) => (a ? `${a.slice(0, 4)}…${a.slice(-4)}` : 'your fpay wallet');
   const askPayoutAddress = (current?: string): string | null | undefined => {
     const raw = window.prompt(
-      'Which wallet should we send it to? A Solana address that holds USDC — your fpay wallet is filled in.',
+      'Which wallet should we send it to? A Solana address that holds USDC. Your fpay wallet is filled in.',
       current ?? merchant?.payoutWallet ?? '',
     );
     if (raw == null) return undefined; // cancelled
@@ -259,7 +259,7 @@ export default function MerchantHome() {
   };
   const withdraw = () => {
     const raw = window.prompt(
-      `How much of your stake to take back, in dollars?\n\nWe send it by hand to a wallet you choose next, usually within a day. It can't leave while a payout you handled is less than ${merchant?.clawWindowHours ?? 72} hours old — that's how long it can still be disputed.`,
+      `How much of your stake to take back, in dollars?\n\nWe send it by hand to a wallet you choose next, usually within a day. It can't leave while a payout you handled is less than ${merchant?.clawWindowHours ?? 72} hours old. That's how long it can still be disputed.`,
     );
     if (raw == null) return;
     const n = Number(raw);
@@ -383,7 +383,7 @@ export default function MerchantHome() {
               {usd(merchant.pendingWithdrawal.amountUsdc)} on its way back
             </Txt>
             <Txt style={[type.rowTime, { marginTop: 2 }]}>
-              {`Already taken off your stake. We send it by hand to ${short(merchant.pendingWithdrawal.payoutAddress ?? merchant.payoutWallet)} — usually within a day.`}
+              {`Already taken off your stake. We send it by hand to ${short(merchant.pendingWithdrawal.payoutAddress ?? merchant.payoutWallet)}, usually within a day.`}
             </Txt>
             <Pressable onPress={() => void changeAddress()}>
               <Txt style={[type.rowTime, { marginTop: 8, color: colors.accent }]}>Send it somewhere else</Txt>
@@ -415,10 +415,10 @@ export default function MerchantHome() {
               <Txt style={[type.rowTime, { marginTop: 2 }]}>
                 {merchant.status === 'suspended'
                   ? merchant.suspendReason === 'exited'
-                    ? 'You’ve left — no more orders'
+                    ? 'You’ve left. No more orders'
                     : merchant.suspendReason === 'bond'
-                      ? 'Below the stake minimum — top up to come back'
-                      : 'Suspended — contact support'
+                      ? 'Below the stake minimum. Top up to come back'
+                      : 'Suspended. Contact support'
                   : merchant.status === 'online'
                     ? 'You’ll be offered new orders'
                     : merchant.kybStatus !== 'approved'
@@ -518,7 +518,7 @@ export default function MerchantHome() {
                       {d.status === 'open'
                         ? 'The payer says this never arrived. We’re looking at it.'
                         : d.resolution === 'upheld'
-                          ? 'Decided against you — your stake covered the payer.'
+                          ? 'Decided against you. Your stake covered the payer.'
                           : 'Decided in your favour.'}
                     </Txt>
                   </RowMeta>

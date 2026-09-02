@@ -34,7 +34,7 @@ export function nextStep(m: MerchantProfile): NextStep | null {
   if (m.kybStatus !== 'approved') {
     return {
       title: KYB_COPY[m.kybStatus]?.title ?? m.kybStatus,
-      body: m.kybStatus === 'rejected' ? (m.kybNote ?? KYB_COPY.rejected.body) : 'Nothing to do — we turn on orders as soon as it’s approved.',
+      body: m.kybStatus === 'rejected' ? (m.kybNote ?? KYB_COPY.rejected.body) : 'Nothing to do. We turn on orders as soon as it’s approved.',
     };
   }
   if (m.status === 'offline') {

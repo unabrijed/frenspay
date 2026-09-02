@@ -8,10 +8,10 @@ import { ApiError } from '@/services/api';
 
 const BY_CODE: Record<string, string> = {
   // stake withdrawals + leaving (docs/15)
-  recent_payout: 'Not yet — a payout you handled is still inside its dispute window. Try again in a few days.',
+  recent_payout: 'Not yet. A payout you handled is still inside its dispute window. Try again in a few days.',
   already_exited: 'You’ve already left.',
   // Applying, and the identity gate in front of it.
-  kyc_required: 'Verify your identity first — we need that before you can settle payouts.',
+  kyc_required: 'Verify your identity first. We need that before you can settle payouts.',
   already_a_merchant: 'You already have a partner account.',
   invalid_treasury_address: 'That doesn’t look like a valid Solana address.',
   invalid_rail: 'That payment method isn’t available.',
@@ -27,7 +27,7 @@ const BY_CODE: Record<string, string> = {
   withdrawal_not_cancellable: 'That request was already settled.',
   kyb_not_submittable: 'Your details are already with us.',
   kyb_not_decidable: 'Someone else already handled this one.',
-  note_required: 'A reason is required — the partner sees it.',
+  note_required: 'A reason is required. The partner sees it.',
   order_already_taken: 'Someone else took this one.',
   order_not_unlockable: 'You’re not holding this order.',
   lock_temporarily_blocked: 'You’ve dropped a few orders lately. Try again in a bit.',
@@ -37,26 +37,26 @@ const BY_CODE: Record<string, string> = {
   unsupported_channel: 'We can’t send alerts that way yet.',
   // Staking by paying the treasury directly (docs/20) — the codes the claim route answers with.
   invalid_signature: 'That doesn’t look like a Solana transaction ID.',
-  transaction_not_found: 'Not on the network yet — give it a minute and try again.',
+  transaction_not_found: 'Not on the network yet. Give it a minute and try again.',
   transaction_failed: 'That transaction failed on the network.',
   not_a_stake_payment: 'That transaction doesn’t send USDC to the stake address.',
   shared_transaction: 'This transaction carries more than one payment to the stake address. Contact us and we’ll sort it by hand.',
-  signature_already_used: 'That transaction has already been submitted. If it’s yours, we’ll sort it out — contact us.',
+  signature_already_used: 'That transaction has already been submitted. If it’s yours, we’ll sort it out. Contact us.',
   // Where a released stake goes.
   invalid_payout_address: 'That doesn’t look like a wallet address we can send to.',
   withdrawal_not_open: 'That request was already settled.',
   // Money movement out of their own wallet.
   staking_unavailable: 'Staking is temporarily unavailable. Try again shortly.',
   solana_unavailable: 'Couldn’t reach the network. Try again in a moment.',
-  sponsorship_unsupported: 'Staking isn’t available from this device yet — use the web console for this one.',
+  sponsorship_unsupported: 'Staking isn’t available from this device yet. Use the web console for this one.',
   amount_too_large: 'That’s more than you can stake in one go.',
   invalid_amount: 'Enter a valid amount.',
   wallet_not_found: 'Your wallet is still being set up. Try again in a moment.',
   // Finishing setup — the one call that creates or adopts an account (POST /auth/sync).
-  invite_required: 'fpay is invite-only — enter the code you were given.',
+  invite_required: 'fpay is invite-only. Enter the code you were given.',
   // Unknown, already used and revoked all arrive as one code — the server won't say which.
   invalid_invite: 'That invite code isn’t valid.',
-  handle_taken: 'That name is taken — try another.',
+  handle_taken: 'That name is taken. Try another.',
   invalid_handle: 'Use 3–30 letters, numbers, dots or underscores.',
   wallet_in_use: 'That wallet is already linked to another fpay account.',
   email_in_use: 'That email is already linked to another fpay account. Contact support.',

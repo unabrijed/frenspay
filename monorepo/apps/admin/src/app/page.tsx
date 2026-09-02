@@ -47,9 +47,9 @@ function OrderRows({ orders }: { orders: AdminOrder[] }) {
         <tr key={o.id} className="hover:bg-surface-low">
           <Td>
             <Link href={`/orders/${o.id}`} className="font-medium text-ink hover:text-accent">
-              {o.userHandle} → {o.merchantName ?? '—'}
+              {o.userHandle} → {o.merchantName ?? '-'}
             </Link>
-            <div className="max-w-[220px] truncate text-[11px] text-muted">{o.userEmail ?? '—'}</div>
+            <div className="max-w-[220px] truncate text-[11px] text-muted">{o.userEmail ?? '-'}</div>
           </Td>
           <Td className="whitespace-nowrap">{usd(o.amountUsdc)}</Td>
           <Td>
@@ -169,8 +169,8 @@ export default function Overview() {
                   <Who handle={r.userHandle} email={r.userEmail} />
                 </Td>
                 <Td>{r.kind}</Td>
-                <Td className="whitespace-nowrap">{r.amountUsdc != null ? usd(r.amountUsdc) : '—'}</Td>
-                <Td className="max-w-[280px] truncate text-muted">{r.reason ?? '—'}</Td>
+                <Td className="whitespace-nowrap">{r.amountUsdc != null ? usd(r.amountUsdc) : '-'}</Td>
+                <Td className="max-w-[280px] truncate text-muted">{r.reason ?? '-'}</Td>
                 <Td>
                   <Badge tone={r.decision === 'block' ? 'danger' : 'warn'}>{r.decision}</Badge>
                 </Td>

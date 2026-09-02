@@ -127,7 +127,7 @@ export function classifyPayTarget(text: string): PayTarget {
       return { kind: 'qris', payee: t.address, name: t.name, amountIdr: amount };
     }
     const rail = railById(t.rail);
-    return { kind: 'unsupported', reason: `That's a ${rail.name} (${regionName(rail.country)}) code — fpay can't pay ${rail.name} yet.` };
+    return { kind: 'unsupported', reason: `That's a ${rail.name} (${regionName(rail.country)}) code. fpay can't pay ${rail.name} yet.` };
   }
 
   // 2) Our own deep link: pay:@handle / pay://@handle / pay://u/@handle

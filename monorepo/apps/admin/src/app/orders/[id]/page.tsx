@@ -81,7 +81,7 @@ export default function OrderDetail() {
       </div>
       <PageHead
         title={usd(o.amountUsdc)}
-        sub={`${o.userHandle}${o.userEmail ? ` · ${o.userEmail}` : ''} → ${o.merchantName ?? '—'} · ${o.referenceCode}`}
+        sub={`${o.userHandle}${o.userEmail ? ` · ${o.userEmail}` : ''} → ${o.merchantName ?? '-'} · ${o.referenceCode}`}
       />
       <p className={`-mt-3 mb-4 text-[13px] font-medium ${stateClass(o.state, o.resolution)}`}>
         {o.state}
@@ -96,7 +96,7 @@ export default function OrderDetail() {
           <tr key={i}>
             <Td className="font-medium">{e.event}</Td>
             <Td className="text-muted">
-              {e.fromState ?? '—'} → {e.toState}
+              {e.fromState ?? '-'} → {e.toState}
               {e.detail ? ` · ${JSON.stringify(e.detail)}` : ''}
             </Td>
             <Td className="whitespace-nowrap text-muted">{at(e.createdAt)}</Td>
@@ -112,7 +112,7 @@ export default function OrderDetail() {
               <tr key={a.sequence}>
                 <Td className="text-muted">{a.sequence}</Td>
                 <Td className="font-medium">{a.merchantName}</Td>
-                <Td className="max-w-[320px] truncate text-muted">{a.reason ?? '—'}</Td>
+                <Td className="max-w-[320px] truncate text-muted">{a.reason ?? '-'}</Td>
                 <Td>
                   <Badge tone={a.outcome === 'failed' ? 'danger' : a.outcome === 'released' ? 'ok' : 'muted'}>
                     {a.outcome}
@@ -157,7 +157,7 @@ export default function OrderDetail() {
             {detail.transfers.map((t) => (
               <tr key={t.id}>
                 <Td className="font-medium">{t.kind}</Td>
-                <Td className="max-w-[420px] truncate text-muted">{t.signature ?? '—'}</Td>
+                <Td className="max-w-[420px] truncate text-muted">{t.signature ?? '-'}</Td>
                 <Td>
                   <Badge tone={t.status === 'failed' ? 'danger' : t.status === 'confirmed' ? 'ok' : 'muted'}>
                     {t.status}

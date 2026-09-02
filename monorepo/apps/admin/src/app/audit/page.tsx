@@ -54,7 +54,7 @@ export default function Audit() {
               <Td className="max-w-[280px] truncate text-muted">
                 {a.targetKind}:{a.targetId}
               </Td>
-              <Td className="max-w-[280px] truncate text-muted">{a.note ?? '—'}</Td>
+              <Td className="max-w-[280px] truncate text-muted">{a.note ?? '-'}</Td>
               <Td className="whitespace-nowrap text-muted">{at(a.createdAt)}</Td>
             </tr>
           ))}

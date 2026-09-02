@@ -26,7 +26,7 @@ const isStageEnv = APP_ENV === 'stage';
 // signing in against the stage Privy app while its own bare vars sat there unread. EXPO_PUBLIC_* is
 // inlined, so this folds at build time: a mistyped tier fails the build instead of shipping.
 if (!isProdEnv && !isStageEnv && APP_ENV !== 'local') {
-  throw new Error(`EXPO_PUBLIC_APP_ENV must be local | stage | production — got ${JSON.stringify(APP_ENV)}`);
+  throw new Error(`EXPO_PUBLIC_APP_ENV must be local | stage | production: got ${JSON.stringify(APP_ENV)}`);
 }
 
 /** Tier chain. Args must be literal process.env.EXPO_PUBLIC_* references (Expo inlines). */

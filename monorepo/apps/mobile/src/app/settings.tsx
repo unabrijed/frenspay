@@ -33,7 +33,7 @@ export default function Settings() {
         <View style={styles.profile}>
           <ProfileAvatar label={(handle.replace(/^@/, '')[0] ?? '').toUpperCase()} />
           <View>
-            <Txt style={type.handle}>{handle || '—'}</Txt>
+            <Txt style={type.handle}>{handle || '-'}</Txt>
             <Txt style={[type.profileSub, { marginTop: 2 }]}>fpay account</Txt>
           </View>
         </View>
@@ -112,7 +112,7 @@ function InviteCard({ used, total }: { used: number; total: number }) {
         <View style={{ flex: 1 }}>
           <Txt style={type.rowName}>Your invites</Txt>
           <Txt style={[type.rowTime, { marginTop: 2 }]}>
-            {total === 0 ? 'No invites yet' : left > 0 ? `${left} of ${total} still to give` : `All ${total} used — that's your circle`}
+            {total === 0 ? 'No invites yet' : left > 0 ? `${left} of ${total} still to give` : `All ${total} used. That's your circle`}
           </Txt>
         </View>
       </View>

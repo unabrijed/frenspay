@@ -104,12 +104,12 @@ function UserActionDialog({ action, onClose, onDone }: { action: UserAction | nu
         </p>
         <p className="mt-2 text-[13px] leading-relaxed text-muted">
           {mode === 'edit'
-            ? `Renaming frees ${user.handle} immediately — anyone can claim it, and their old QR codes follow the claimant. Their payment history stays theirs.`
+            ? `Renaming frees ${user.handle} immediately. Anyone can claim it, and their old QR codes follow the claimant. Their payment history stays theirs.`
             : mode === 'delete'
-              ? `They lose app access immediately and ${user.handle} is released — anyone can claim it. Their transaction history and any balance are untouched; the money stays theirs in their own embedded wallet. There is no undelete button.`
+              ? `They lose app access immediately and ${user.handle} is released. Anyone can claim it. Their transaction history and any balance are untouched; the money stays theirs in their own embedded wallet. There is no undelete button.`
               : suspending
                 ? 'They are signed out of the app in effect: every request is refused and their handle stops resolving, so nobody can send to them. Their money is untouched. Their merchant account, if any, is suspended too.'
-                : 'They get the app back immediately. A suspended merchant account stays suspended — reinstate it from the Merchants page if that was intended.'}
+                : 'They get the app back immediately. A suspended merchant account stays suspended. Reinstate it from the Merchants page if that was intended.'}
         </p>
         <div className="mt-4 flex flex-col gap-3">
           {mode === 'edit' ? (
@@ -188,8 +188,8 @@ export default function Users() {
           {items.map((u) => (
             <tr key={u.id} className="hover:bg-surface-low">
               <Td className="font-medium">{u.handle}</Td>
-              <Td>{u.displayName ?? '—'}</Td>
-              <Td className="max-w-[220px] truncate text-muted">{u.email ?? '—'}</Td>
+              <Td>{u.displayName ?? '-'}</Td>
+              <Td className="max-w-[220px] truncate text-muted">{u.email ?? '-'}</Td>
               <Td>tier {u.kycTier}</Td>
               <Td>
                 <Badge
@@ -220,7 +220,7 @@ export default function Users() {
                 {/* A deleted row offers nothing: reinstate would leave a scrambled handle (a real
                     undelete needs a rename anyway — manual SQL is the rare-recovery escape hatch). */}
                 {u.status === 'deleted' ? (
-                  <span className="text-muted">—</span>
+                  <span className="text-muted">-</span>
                 ) : (
                 <div className="flex gap-1">
                   <Btn variant="ghost" onClick={() => setAction({ user: u, mode: 'edit' })}>

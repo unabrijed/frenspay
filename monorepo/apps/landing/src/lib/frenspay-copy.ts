@@ -12,7 +12,7 @@ const MYSTERY = 'What happens between frens stays between frens.';
 const INTERRUPTION = 'mostly.';
 
 export const FRENSPAY_COPY = {
-  supporting: 'for people who know people — wherever they are.',
+  supporting: 'for people who know people, wherever they are.',
 
   // Every phrase carries a place or a journey as well as a fren, rather than
   // adding words to do it: "go places" and "make it home" are both literal

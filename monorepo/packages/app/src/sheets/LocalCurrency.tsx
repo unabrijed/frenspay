@@ -29,7 +29,7 @@ export function LocalCurrency() {
     {
       code: null,
       name: 'Automatic',
-      sub: derived ? `${displayName('currency', derived)} — from your country` : 'Follows your country',
+      sub: derived ? `${displayName('currency', derived)}, from your country` : 'Follows your country',
     },
     ...DISPLAY_CURRENCIES.map((code) => ({
       code: code as string,

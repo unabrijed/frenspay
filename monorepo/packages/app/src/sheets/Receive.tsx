@@ -44,7 +44,7 @@ export function Receive() {
             <Icons.QrBig size={64} color={colors.muted} />
           )}
         </View>
-        <Txt style={[type.handle, { marginTop: 20 }]}>{handle || '—'}</Txt>
+        <Txt style={[type.handle, { marginTop: 20 }]}>{handle || '-'}</Txt>
         {/* Disabled on the same condition that suppresses the QR. Sharing without a handle sent the
             dangling sentence "Pay me on fpay. My handle is" and a bare origin URL — an invite that
             names nobody, from the one screen whose entire job is to name you. */}
