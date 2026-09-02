@@ -1,5 +1,5 @@
 // api.ts — typed fetch client for the Railway backend. Same @fpay/shared DTOs as the server.
-import { type ApiPaymentRequest, type AuthSyncRequest, type BalanceResponse, type CreateOrderRequest, type CreateOrderResponse, type CreateRequestRequest, type CrosschainQuoteResponse, type DepositBalancesResponse, type DepositInfoResponse, type DepositPrepareRequest, type DepositPrepareResponse, type FundSubmitRequest, type KycVerifyResponse, type MeResponse, type NotificationsResponse, type OrderResponse, type OrdersResponse, type PrepareCrosschainRequest, type PrepareCrosschainResponse, type PrepareTransferRequest, type PrepareTransferResponse, type PushTokenRequest, type QuoteRequest, type QuoteResponse, type ReportDepositRequest, type ReportDepositResponse, type RequestsResponse, type ResolveHandleResponse, type SubmitCrosschainRequest, type SubmitTransferRequest, type SubmitTransferResponse, type TransactionsResponse } from '@fpay/shared';
+import { type AddMemberRequest, type ApiGroupDetail, type ApiPaymentRequest, type AuthSyncRequest, type BalanceResponse, type CreateGroupRequest, type CreateOrderRequest, type CreateOrderResponse, type CreateRequestRequest, type CrosschainQuoteResponse, type DepositBalancesResponse, type DepositInfoResponse, type DepositPrepareRequest, type DepositPrepareResponse, type FundSubmitRequest, type GroupsResponse, type KycVerifyResponse, type MeResponse, type MoveTransferRequest, type NotificationsResponse, type OrderResponse, type OrdersResponse, type PrepareCrosschainRequest, type PrepareCrosschainResponse, type PrepareTransferRequest, type PrepareTransferResponse, type PushTokenRequest, type QuoteRequest, type QuoteResponse, type ReportDepositRequest, type ReportDepositResponse, type RequestsResponse, type ResolveHandleResponse, type SplitRequest, type SubmitCrosschainRequest, type SubmitTransferRequest, type SubmitTransferResponse, type TransactionsResponse } from '@fpay/shared';
 
 import { platform } from '../platform';
 
@@ -161,6 +161,18 @@ export const api = {
   payRequest: (id: string, transferId: string) =>
     req<{ ok: true }>(`/requests/${id}/pay`, { method: 'POST', body: JSON.stringify({ transferId }) }),
   cancelRequest: (id: string) => req<{ ok: true }>(`/requests/${id}/cancel`, { method: 'POST' }),
+  // ---- trips & splitting (docs/04 §Trips): a group is a roster; an expense is a transfer; a share is a request ----
+  groups: () => req<GroupsResponse>('/groups'),
+  createGroup: (body: CreateGroupRequest) => req<{ id: string }>('/groups', { method: 'POST', body: JSON.stringify(body) }),
+  groupDetail: (id: string) => req<ApiGroupDetail>(`/groups/${id}`),
+  addMember: (id: string, body: AddMemberRequest) =>
+    req<{ ok: true }>(`/groups/${id}/members`, { method: 'POST', body: JSON.stringify(body) }),
+  removeMember: (id: string, userId: string) => req<{ ok: true }>(`/groups/${id}/members/${userId}`, { method: 'DELETE' }),
+  deleteGroup: (id: string) => req<{ ok: true }>(`/groups/${id}`, { method: 'DELETE' }),
+  moveTransfer: (id: string, body: MoveTransferRequest) =>
+    req<{ ok: true }>(`/transfers/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  splitTransfer: (id: string, body: SplitRequest) =>
+    req<{ ok: true }>(`/transfers/${id}/split`, { method: 'POST', body: JSON.stringify(body) }),
   prepareTransfer: (body: PrepareTransferRequest) =>
     req<PrepareTransferResponse>('/transfer/prepare', { method: 'POST', body: JSON.stringify(body) }),
   submitTransfer: (body: SubmitTransferRequest) =>

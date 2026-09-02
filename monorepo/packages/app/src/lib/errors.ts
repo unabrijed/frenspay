@@ -50,6 +50,16 @@ const BY_CODE: Record<string, string> = {
   wallet_in_use: 'That wallet is already linked to another fpay account.',
   // uq_users_email (0010): one email, one account — admin untangles which keeps the address.
   email_in_use: 'That email is already linked to another fpay account. Contact support.',
+  // trips & splitting (docs/04 §Trips)
+  unknown_handle: 'Nobody on fpay has that name. Check the spelling.',
+  invalid_name: 'Give it a name — up to 40 characters.',
+  group_not_found: 'That trip isn’t yours to change, or it’s gone.',
+  transfer_not_found: 'Only the person who paid can split or move this.',
+  invalid_share: 'Each friend once, and not yourself.',
+  shares_exceed_amount: 'The parts add up to more than the bill.',
+  share_already_paid: 'One of them already paid their part — leave them out.',
+  is_settlement: 'That payment settled a share; it can’t be split or moved.',
+  transfer_failed: 'That payment didn’t go through, so there’s nothing to split.',
 };
 
 /** Human copy for any thrown error. ApiError → its code; a plain Error whose message is a known code

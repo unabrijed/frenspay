@@ -4,7 +4,7 @@
 //
 // Money flows delegate to the RealWalletProvider (@/services/wallet) → the backend API + on-device
 // signing. The app is always real; balance/activity load from the backend once signed in.
-import { type ApiPaymentRequest, classifyPayTarget, countryFromTimeZone, currencyForCountry, type DisplayCurrency, fiatDecimals, isDisplayCurrency, isoFromE164, type KycStatus, type NetworkId, type Notification, type Order, phoneCandidates, type Quote, truncateAddress } from '@fpay/shared';
+import { type ApiGroup, type ApiGroupDetail, type ApiPaymentRequest, classifyPayTarget, countryFromTimeZone, currencyForCountry, type DisplayCurrency, fiatDecimals, isDisplayCurrency, isoFromE164, type KycStatus, type NetworkId, type Notification, type Order, phoneCandidates, type Quote, type SplitShareInput, truncateAddress } from '@fpay/shared';
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -55,7 +55,13 @@ export type SheetId =
   | 'country'
   | 'tracking'
   | 'help'
-  | 'notifications';
+  | 'notifications'
+  // trips & splitting (docs/04 §Trips)
+  | 'newGroup'
+  | 'addMember'
+  | 'moveToGroup'
+  | 'split'
+  | 'trip';
 
 const SHEET_EXIT_MS = 280;
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -147,6 +153,12 @@ interface PayState {
   lastRequest: { u: number; handle: string };
   requestDraftUsd: number;
   requests: ApiPaymentRequest[];
+  /** Trips & splitting (docs/04 §Trips). `groups` rides every load/refresh; `trip` is the open
+   *  trip sheet's detail (null while it loads); `expense` is what a split/move sheet is about —
+   *  written by whoever opens it (the detail page, a trip row), like `friend` for Send. */
+  groups: ApiGroup[];
+  trip: ApiGroupDetail | null;
+  expense: { id: string; amountUsd: number; label: string; groupId?: string } | null;
   busy: boolean;
   /** True once the first signed-in load() of this SESSION has resolved. Ephemeral (never persisted)
    *  so every fresh app load starts false → screens show skeletons until live data arrives, instead
@@ -213,6 +225,19 @@ interface PayState {
   requestMoney: (handle: string, amountUsd: number, note?: string) => Promise<void>;
   payRequest: (id: string) => Promise<void>;
   cancelRequest: (id: string) => Promise<void>;
+
+  // ---- trips & splitting ----
+  setExpense: (e: PayState['expense']) => void;
+  /** Open the trip sheet on a group and fetch its detail into `trip`. */
+  openTrip: (id: string) => Promise<void>;
+  createGroup: (name: string) => Promise<void>;
+  /** The next three act on the open trip (`trip`). */
+  addMember: (handle: string) => Promise<void>;
+  removeMember: (userId: string) => Promise<void>;
+  deleteGroup: () => Promise<void>;
+  /** The next two act on `expense`. null = personal. */
+  moveExpense: (groupId: string | null) => Promise<void>;
+  splitExpense: (shares: SplitShareInput[], note?: string) => Promise<void>;
 
   // ---- auth actions (delegate to the Privy bridge) ----
   setAuthBridge: (b: AuthBridge) => void;
@@ -354,6 +379,9 @@ export const usePayStore = create<PayState>()(
       lastRequest: { u: 0, handle: '' },
       requestDraftUsd: 20,
       requests: [],
+      groups: [],
+      trip: null,
+      expense: null,
       busy: false,
       firstLoadDone: false,
       provisioned: false,
@@ -508,7 +536,7 @@ export const usePayStore = create<PayState>()(
           // letting that zero read as fact. Removing the zero entirely means a nullable balanceUSD
           // threaded through every consumer; do that if "stale" and "unknown" ever need to look
           // different on screen.
-          const [bal, txns, reqs, notifs] = await Promise.all([
+          const [bal, txns, reqs, notifs, grp] = await Promise.all([
             wallet.getBalanceUsd().catch((e) => {
               // A warm refresh holds the last figure silently — it's real, just stale. A cold load
               // has no last figure, so the same fallback would present a made-up $0 as this
@@ -521,6 +549,7 @@ export const usePayStore = create<PayState>()(
             wallet.getRequests().catch(() => get().requests),
             // Non-critical: a failing /notifications must never blank the dashboard.
             api.getNotifications().catch(() => ({ notifications: get().notifications, unread: get().unread })),
+            api.groups().catch(() => ({ groups: get().groups })),
           ]);
           set({
             balanceUSD: bal,
@@ -528,6 +557,7 @@ export const usePayStore = create<PayState>()(
             requests: reqs,
             notifications: notifs.notifications,
             unread: notifs.unread,
+            groups: grp.groups,
             busy: false,
             firstLoadDone: true,
           });
@@ -563,12 +593,13 @@ export const usePayStore = create<PayState>()(
           // without it an open tab served a renamed user's OLD handle in the Receive QR forever
           // (load() only runs on cold sign-in). Also how suspension/reinstatement reaches an open
           // tab within one poll.
-          const [me, bal, txns, reqs, notifs] = await Promise.all([
+          const [me, bal, txns, reqs, notifs, grp] = await Promise.all([
             api.me(),
             wallet.getBalanceUsd(),
             wallet.getTransactions(),
             wallet.getRequests(),
             api.getNotifications().catch(() => null),
+            api.groups().catch(() => null),
             get().syncRates(),
           ]);
           // Don't overwrite notifications while the inbox is open — it would resurrect the just-cleared
@@ -589,6 +620,7 @@ export const usePayStore = create<PayState>()(
             balanceUSD: bal,
             transactions: txns,
             requests: reqs,
+            ...(grp ? { groups: grp.groups } : {}),
             ...(keepInbox ? {} : { notifications: notifs.notifications, unread: notifs.unread }),
           });
         } catch {
@@ -681,6 +713,9 @@ export const usePayStore = create<PayState>()(
           notifications: [],
           unread: 0,
           requests: [],
+          groups: [],
+          trip: null,
+          expense: null,
           kycTier: 1,
           identityCheckAvailable: true,
           invitesTotal: 3,
@@ -1380,6 +1415,114 @@ export const usePayStore = create<PayState>()(
             requests: s.requests.map((x) => (x.id === id ? { ...x, status: 'cancelled' } : x)),
           }));
         } catch (e) {
+          get().notify(friendlyError(e));
+        }
+      },
+
+      // ---- trips & splitting (docs/04 §Trips) ----
+      // Groups are not money, so they talk to the API directly (like /me and notifications) rather
+      // than through the wallet seam. Every mutation ends in the same three refetches: the trip
+      // (if one is open), the roster list, and the feed — the server derives every total.
+      setExpense: (e) => set({ expense: e }),
+      openTrip: async (id) => {
+        set({ trip: null });
+        get().open('trip');
+        try {
+          set({ trip: await api.groupDetail(id) });
+        } catch (e) {
+          get().notify(friendlyError(e));
+          get().close();
+        }
+      },
+      createGroup: async (name) => {
+        set({ busy: true });
+        try {
+          const { id } = await api.createGroup({ name });
+          set({ groups: (await api.groups()).groups, busy: false });
+          await get().openTrip(id);
+        } catch (e) {
+          set({ busy: false });
+          get().notify(friendlyError(e));
+        }
+      },
+      addMember: async (handle) => {
+        const trip = get().trip;
+        if (!trip) return;
+        set({ busy: true });
+        try {
+          await api.addMember(trip.id, { handle });
+          set({ groups: (await api.groups()).groups, busy: false });
+          await get().openTrip(trip.id);
+        } catch (e) {
+          set({ busy: false });
+          get().notify(friendlyError(e));
+        }
+      },
+      removeMember: async (userId) => {
+        const trip = get().trip;
+        if (!trip) return;
+        try {
+          await api.removeMember(trip.id, userId);
+          const groups = (await api.groups()).groups;
+          // Leaving: the sheet has nothing left to show. Removing someone: show the roster without them.
+          if (groups.some((g) => g.id === trip.id)) {
+            set({ groups });
+            await get().openTrip(trip.id);
+          } else {
+            set({ groups });
+            get().close();
+          }
+        } catch (e) {
+          get().notify(friendlyError(e));
+        }
+      },
+      deleteGroup: async () => {
+        const trip = get().trip;
+        if (!trip) return;
+        try {
+          await api.deleteGroup(trip.id);
+          get().close();
+          set({ groups: (await api.groups()).groups, trip: null });
+          void get().refresh(); // its expenses are personal again (groupId gone from the feed)
+        } catch (e) {
+          get().notify(friendlyError(e));
+        }
+      },
+      moveExpense: async (groupId) => {
+        const expense = get().expense;
+        if (!expense) return;
+        set({ busy: true });
+        try {
+          await api.moveTransfer(expense.id, { groupId });
+          set((s) => ({
+            busy: false,
+            expense: { ...expense, groupId: groupId ?? undefined },
+            // The detail page may be showing this very row.
+            detail: s.detail?.id === expense.id ? { ...s.detail, groupId: groupId ?? undefined } : s.detail,
+          }));
+          void get().refresh();
+          const trip = get().trip;
+          if (trip) await get().openTrip(trip.id);
+          else get().close();
+        } catch (e) {
+          set({ busy: false });
+          get().notify(friendlyError(e));
+        }
+      },
+      splitExpense: async (shares, note) => {
+        const expense = get().expense;
+        if (!expense) return;
+        set({ busy: true });
+        try {
+          await api.splitTransfer(expense.id, { shares, note });
+          set({ busy: false });
+          void get().refresh();
+          const trip = get().trip;
+          if (trip) await get().openTrip(trip.id);
+          else get().close();
+          get().notify(shares.length ? 'Split saved' : 'Split removed', 'success');
+        } catch (e) {
+          set({ busy: false });
           get().notify(friendlyError(e));
         }
       },
