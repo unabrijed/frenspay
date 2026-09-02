@@ -291,6 +291,42 @@ export interface StakePrepareRequest {
   amountUsd: string | number;
 }
 
+/** Lifecycle of a stake CLAIM (docs/19) — a signature a partner says is their stake, paid to the
+ *  treasury from wherever their USDC was. Never a bond movement itself: admin's credit creates the
+ *  transfers row and the confirmer credits it. 'duplicate' = the signature was already claimed or
+ *  already recorded; both claims are kept so a reviewer sees them side by side. */
+export type StakeClaimStatus = 'submitted' | 'accepted' | 'rejected' | 'duplicate';
+
+export interface StakeClaim {
+  id: string;
+  signature: string;
+  status: StakeClaimStatus;
+  /** What the chain said the signature deposited — read at submit time, never typed. */
+  amountUsdc: string;
+  /** The on-chain sender (an exchange hot wallet, a friend's wallet). Display only. */
+  sender?: string;
+  memo?: string;
+  /** When the deposit landed on chain. */
+  paidAt?: string; // ISO 8601
+  /** Once accepted, the truth: 'pending' until the confirmer's chain check, 'confirmed' when the
+   *  bond landed, 'failed' when the chain contradicted the row. */
+  transferStatus?: 'pending' | 'confirmed' | 'failed';
+  /** The reviewer's reason on a rejection — written to be read by the partner. */
+  note?: string;
+  createdAt: string; // ISO 8601
+}
+
+export interface StakeClaimRequest {
+  signature: string;
+}
+
+/** GET /merchants/stake/claims — where to pay, and what this partner has submitted. `address` is
+ *  null when staking is not configured on this tier; the screen says so instead of offering a 503. */
+export interface MerchantStakeClaimsResponse {
+  address: string | null;
+  claims: StakeClaim[];
+}
+
 /** M7: lifecycle of a real-vendor identity check. */
 export type KycStatus = 'none' | 'pending' | 'in_review' | 'approved' | 'declined';
 
@@ -967,6 +1003,24 @@ export interface AdminStakeWithdrawal {
 
 export interface AdminStakeWithdrawalsResponse {
   withdrawals: AdminStakeWithdrawal[];
+}
+
+/** A stake claim as the console sees it: who says it is theirs, what the chain says it moved, and
+ *  whether anyone else has claimed the same signature (docs/19). */
+export interface AdminStakeClaim extends StakeClaim {
+  merchantId: string;
+  merchantName: string;
+  ownerHandle?: string;
+  ownerEmail?: string;
+  /** Handles (or names) of OTHER partners with a claim on this signature — the flag. */
+  alsoClaimedBy?: string;
+  duplicateOf?: string;
+  transferId?: string;
+  reviewedAt?: string; // ISO 8601
+}
+
+export interface AdminStakeClaimsResponse {
+  claims: AdminStakeClaim[];
 }
 
 export interface AdminRiskEvent {

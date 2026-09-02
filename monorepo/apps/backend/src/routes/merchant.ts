@@ -15,8 +15,11 @@ import type {
   MerchantLedgerResponse,
   MerchantOrdersResponse,
   MerchantProfile,
+  MerchantStakeClaimsResponse,
   PayoutMethod,
   PrepareTransferResponse,
+  StakeClaim,
+  StakeClaimRequest,
   StakePrepareRequest,
   SubmitPayoutRequest,
 } from '@fpay/shared';
@@ -32,6 +35,9 @@ import {
   getWalletForUser,
   appendKybEvent,
   insertMerchantApplication,
+  insertStakeClaim,
+  listStakeClaimsForMerchant,
+  type StakeClaimRow,
   listMerchantDisputes,
   normalizePhone,
   setMerchantContactPhone,
@@ -54,7 +60,8 @@ import { formatAmount } from '../lib/units';
 import { KYC_APPROVED_TIER } from '../services/kyc';
 import * as ops from '../services/merchantOps';
 import { DISPUTE_CLAW_WINDOW_H, leverageFor, MIN_BOND, spreadCapFor, tierProgress } from '../services/merchantStats';
-import { buildUsdcTransfer } from '../services/solana';
+import { buildUsdcTransfer, SIGNATURE_RE } from '../services/solana';
+import { readStakeDeposit } from '../services/transferVerify';
 
 /** Cap on a single stake deposit — a typo shouldn't be able to move a merchant's whole balance. */
 const MAX_STAKE_DEPOSIT_USD = 50_000;
@@ -149,6 +156,23 @@ export function toMerchantProfile(
     positiveRate: Number(m.positive_rate),
     contactPhone: m.contact_phone ?? undefined,
     contactPhoneVerified: m.contact_phone_verified_at != null,
+  };
+}
+
+/** Shared with the admin console's view of the same row — the two must read identical words. */
+export function toStakeClaim(c: StakeClaimRow): StakeClaim {
+  return {
+    id: c.id,
+    signature: c.signature,
+    status: c.status,
+    amountUsdc: c.chain.amountUsdc,
+    sender: c.chain.sender ?? undefined,
+    memo: c.chain.memo ?? undefined,
+    paidAt: c.chain.blockTime != null ? new Date(c.chain.blockTime * 1000).toISOString() : undefined,
+    transferStatus: c.transfer_status ?? undefined,
+    // Only a rejection carries words for the partner; a credit's note is the admin's own.
+    note: c.status === 'rejected' ? (c.note ?? undefined) : undefined,
+    createdAt: c.created_at.toISOString(),
   };
 }
 
@@ -458,6 +482,51 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
       note: 'merchant stake',
     });
     return { unsignedTx: built.unsignedTx, feePayer: built.feePayer, sponsored: built.sponsored, transferId } satisfies PrepareTransferResponse;
+  });
+
+  /**
+   * Stake by paying the treasury directly (docs/19). The partner pays `address` from wherever their
+   * USDC is and pastes the signature; the chain is read HERE, at submit — what it moved, from whom,
+   * under what memo — and stored as the claim. Nothing moves: a human attributes it in the admin
+   * console, and only then does a pending `transfers` row exist for the confirmer to verify and
+   * creditStakeOnConfirm to credit. The amount is never typed, so a typo can never burn a real deposit.
+   */
+  app.get('/merchants/stake/claims', async (req): Promise<MerchantStakeClaimsResponse> => {
+    const merchant = await requireMerchant(req);
+    const claims = await listStakeClaimsForMerchant(merchant.id);
+    return { address: config.stakeTreasuryAddress || null, claims: claims.map(toStakeClaim) };
+  });
+
+  app.post<{ Body: StakeClaimRequest }>('/merchants/stake/claims', async (req, reply) => {
+    const merchant = await requireMerchant(req);
+    if (!config.stakeTreasuryAddress) return reply.code(503).send({ error: 'staking_unavailable' });
+    if (merchant.suspend_reason === 'exited') return reply.code(409).send({ error: 'already_exited' });
+    const signature = req.body?.signature?.trim();
+    if (!signature || !SIGNATURE_RE.test(signature)) return reply.code(400).send({ error: 'invalid_signature' });
+    let read: Awaited<ReturnType<typeof readStakeDeposit>>;
+    try {
+      read = await readStakeDeposit(signature, config.stakeTreasuryAddress);
+    } catch (e) {
+      req.log.error({ err: e }, 'stake claim: chain read failed');
+      return reply.code(503).send({ error: 'solana_unavailable' });
+    }
+    // Refused claims are not stored — there is nothing for a reviewer to decide about a signature that
+    // never landed, failed, or paid someone else. 'shared' is the one honest dead end: two deposits
+    // into the treasury in one tx (two partners in the same exchange batch) — one signature is one
+    // transfers row, so a human sorts it by hand.
+    if (read.kind === 'not_found') return reply.code(409).send({ error: 'transaction_not_found' });
+    if (read.kind === 'failed') return reply.code(400).send({ error: 'transaction_failed' });
+    if (read.kind === 'none') return reply.code(400).send({ error: 'not_a_stake_payment' });
+    if (read.kind === 'shared') return reply.code(400).send({ error: 'shared_transaction' });
+    const r = await insertStakeClaim({
+      merchantId: merchant.id,
+      signature,
+      chain: { amountUsdc: read.amountUsdc, sender: read.sender, memo: read.memo, blockTime: read.blockTime, slot: read.slot },
+    });
+    // A duplicate IS stored (the reviewer sees both claims) — but the answer to this partner is the
+    // same as for their own re-submission: already submitted, a human will sort it out.
+    if (r.kind !== 'submitted') return reply.code(409).send({ error: 'signature_already_used' });
+    return reply.code(201).send({ id: r.id, status: 'submitted' });
   });
 
   /**

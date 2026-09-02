@@ -2660,6 +2660,189 @@ export async function creditStakeOnConfirm(transferId: string, stakeTreasuryAddr
   return rows[0] ? Number(rows[0].amount_usdc) : 0;
 }
 
+/* ---- stake claims (docs/19) ------------------------------------------------------------------ */
+
+export type StakeClaimStatus = 'submitted' | 'accepted' | 'rejected' | 'duplicate';
+
+/** What the chain said the signature moved, read at submit time (transferVerify readStakeDeposit). */
+export interface StakeClaimChain {
+  amountUsdc: string;
+  sender: string | null;
+  memo: string | null;
+  blockTime: number | null;
+  slot: number;
+}
+
+export interface StakeClaimRow {
+  id: string;
+  merchant_id: string;
+  signature: string;
+  status: StakeClaimStatus;
+  chain: StakeClaimChain;
+  duplicate_of: string | null;
+  transfer_id: string | null;
+  reviewed_by: string | null;
+  reviewed_at: Date | null;
+  note: string | null;
+  created_at: Date;
+  /** The transfers row admin's credit created. Once a claim is accepted THIS is the truth: pending
+   *  until the confirmer's chain check, confirmed when the bond landed, failed when the chain
+   *  contradicted the row. Null before acceptance; for a duplicate, the row that already held it. */
+  transfer_status: 'pending' | 'confirmed' | 'failed' | null;
+}
+
+export type StakeClaimInsert = { kind: 'submitted'; id: string } | { kind: 'duplicate'; id: string } | { kind: 'already_submitted' };
+
+/**
+ * A partner says "this signature is my stake". Never a bond movement: admin's credit inserts the
+ * transfers row and the confirmer credits it (creditStakeOnConfirm). Two indexes decide the shape
+ * (0026): one claim per partner per signature, ever; one LIVE claim (submitted/accepted) per
+ * signature. A signature already on a live claim, or already a `transfers` row (the in-wallet path,
+ * an earlier accepted claim), is stored as 'duplicate' — the reviewer must SEE both, because the
+ * treasury address is public and the first to paste is not necessarily the one who paid.
+ *
+ * Plain statements, no transaction: a 23505 aborts a transaction, and the duplicate row is written
+ * after one.
+ */
+export async function insertStakeClaim(input: { merchantId: string; signature: string; chain: StakeClaimChain }): Promise<StakeClaimInsert> {
+  const tryInsert = async (
+    status: 'submitted' | 'duplicate',
+    duplicateOf: string | null,
+    transferId: string | null,
+  ): Promise<{ id: string } | { conflict: string }> => {
+    try {
+      const { rows } = await getPool().query<{ id: string }>(
+        `insert into merchant_stake_claims (merchant_id, signature, status, chain, duplicate_of, transfer_id)
+         values ($1, $2, $3, $4, $5, $6) returning id`,
+        [input.merchantId, input.signature, status, JSON.stringify(input.chain), duplicateOf, transferId],
+      );
+      return { id: rows[0].id };
+    } catch (e) {
+      const err = e as { code?: string; constraint?: string };
+      if (err.code === '23505') return { conflict: err.constraint ?? '' };
+      throw e;
+    }
+  };
+  const { rows: t } = await getPool().query<{ id: string }>('select id from transfers where signature = $1', [input.signature]);
+  const transferId = t[0]?.id ?? null;
+  if (!transferId) {
+    const r = await tryInsert('submitted', null, null);
+    if ('id' in r) return { kind: 'submitted', id: r.id };
+    if (r.conflict === 'uq_stake_claim_partner_sig') return { kind: 'already_submitted' };
+    // uq_stake_claim_live_sig: another partner's live claim holds it — record that, visibly.
+  }
+  const { rows: live } = await getPool().query<{ id: string }>(
+    `select id from merchant_stake_claims where signature = $1 and status in ('submitted', 'accepted') limit 1`,
+    [input.signature],
+  );
+  const r = await tryInsert('duplicate', live[0]?.id ?? null, transferId);
+  return 'id' in r ? { kind: 'duplicate', id: r.id } : { kind: 'already_submitted' };
+}
+
+const STAKE_CLAIM_SELECT = 'c.*, t.status as transfer_status';
+
+export async function listStakeClaimsForMerchant(merchantId: string): Promise<StakeClaimRow[]> {
+  const { rows } = await getPool().query<StakeClaimRow>(
+    `select ${STAKE_CLAIM_SELECT} from merchant_stake_claims c left join transfers t on t.id = c.transfer_id
+      where c.merchant_id = $1 order by c.created_at desc limit 20`,
+    [merchantId],
+  );
+  return rows;
+}
+
+export interface AdminStakeClaimRow extends StakeClaimRow {
+  merchant_name: string;
+  owner_handle: string | null;
+  owner_email: string | null;
+  /** OTHER partners with a claim on the same signature — the flag the reviewer adjudicates on. */
+  also_claimed_by: string | null;
+}
+
+/** Admin: 'open' = what needs a human (submitted, duplicate, accepted but failed the chain check);
+ *  'all' = everything. Newest first. */
+export async function listStakeClaimsAdmin(scope: 'open' | 'all'): Promise<AdminStakeClaimRow[]> {
+  const { rows } = await getPool().query<AdminStakeClaimRow>(
+    `select ${STAKE_CLAIM_SELECT}, m.name as merchant_name, u.handle as owner_handle, u.email as owner_email,
+            (select string_agg(coalesce(u2.handle, m2.name), ', ' order by d.created_at)
+               from merchant_stake_claims d
+               join merchants m2 on m2.id = d.merchant_id
+               left join users u2 on u2.id = m2.user_id
+              where d.signature = c.signature and d.merchant_id <> c.merchant_id) as also_claimed_by
+       from merchant_stake_claims c
+       join merchants m on m.id = c.merchant_id
+       left join users u on u.id = m.user_id
+       left join transfers t on t.id = c.transfer_id
+      where $1 = 'all' or c.status in ('submitted', 'duplicate') or (c.status = 'accepted' and t.status = 'failed')
+      order by c.created_at desc
+      limit 200`,
+    [scope],
+  );
+  return rows;
+}
+
+export type StakeClaimAccept = 'accepted' | 'not_found' | 'already_accepted' | 'signature_in_use';
+
+/**
+ * Admin attributes a deposit to the partner who claimed it. This inserts the MONEY record — a pending
+ * `transfers` row of the same shape the in-wallet stake writes, minus the sender — and nothing else:
+ * the confirmer asks the chain before the flip (invariant 33) and creditStakeOnConfirm credits bond +
+ * ledger in one statement (35). Admin cannot type an amount; the row carries what the chain said.
+ * Allowed from any status but 'accepted' — a rejected impostor frees the signature for the rightful
+ * owner's 'duplicate' row, and a mistaken reject is one click back. The two unique indexes (the
+ * claims' live signature, transfers.signature) refuse it while anything else still holds the signature.
+ */
+export async function acceptStakeClaim(claimId: string, adminUserId: string, stakeTreasuryAddress: string): Promise<StakeClaimAccept> {
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+    const { rows } = await client.query<{ id: string; user_id: string | null; signature: string; chain: StakeClaimChain; status: StakeClaimStatus }>(
+      `select c.id, m.user_id, c.signature, c.chain, c.status
+         from merchant_stake_claims c join merchants m on m.id = c.merchant_id
+        where c.id = $1 for update of c`,
+      [claimId],
+    );
+    const c = rows[0];
+    if (!c || !c.user_id) {
+      await client.query('rollback');
+      return 'not_found';
+    }
+    if (c.status === 'accepted') {
+      await client.query('rollback');
+      return 'already_accepted';
+    }
+    const { rows: t } = await client.query<{ id: string }>(
+      `insert into transfers (from_user_id, to_user_id, from_address, to_address, amount_usdc, kind, note, status, chain, signature)
+       values ($1, null, null, $2, $3, 'send', $4, 'pending', 'solana', $5) returning id`,
+      [c.user_id, stakeTreasuryAddress, c.chain.amountUsdc, `stake claim ${c.id}`, c.signature],
+    );
+    await client.query(
+      `update merchant_stake_claims
+          set status = 'accepted', transfer_id = $2, reviewed_by = $3, reviewed_at = now(), note = null
+        where id = $1`,
+      [c.id, t[0].id, adminUserId],
+    );
+    await client.query('commit');
+    return 'accepted';
+  } catch (e) {
+    await client.query('rollback').catch(() => {});
+    if ((e as { code?: string }).code === '23505') return 'signature_in_use';
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** The reason is shown to the partner verbatim — the route requires one. An accepted claim is not
+ *  rejectable: its transfers row exists and the confirmer owns what happens to it. */
+export async function rejectStakeClaim(claimId: string, adminUserId: string, note: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update merchant_stake_claims set status = 'rejected', reviewed_by = $2, reviewed_at = now(), note = $3
+      where id = $1 and status <> 'accepted'`,
+    [claimId, adminUserId, note],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
 /**
  * The claw window's predicate, shared by a withdrawal, an exit and (mirrored on the payer side)
  * a dispute: has any of this LP's orders completed inside the last N hours? orders has no
