@@ -13,6 +13,9 @@ import type {
   AdminRiskEvent,
   AdminUser,
   AdminWaitlistEntry,
+  ApiGroup,
+  ApiGroupDetail,
+  ApiGroupExpense,
   ApiPaymentRequest,
   ApiTxn,
   Friend,
@@ -27,6 +30,8 @@ import type {
   RouteQuality,
 } from '@fpay/shared';
 
+import { validateShares } from '../lib/split';
+import { BN, formatAmount, USDC_DECIMALS } from '../lib/units';
 import { INVITES_PER_USER, mintCode } from '../services/invites';
 
 import { getLockPool, getPool } from './pool';
@@ -509,6 +514,13 @@ interface TransferJoinRow {
   bridge_direction: string | null;
   bridge_source_chain: string | null;
   bridge_dest_chain: string | null;
+  // trips & splitting (0026)
+  group_id: string | null;
+  your_part_usdc: string | null;
+  settles_note: string | null;
+  payee_name: string | null;
+  amount_fiat: string | null;
+  fiat_currency: string | null;
 }
 
 export async function listTransactionsForUser(
@@ -520,16 +532,33 @@ export async function listTransactionsForUser(
   const c = parseCursor(cursor);
   // Keyset on (created_at, id): stable under new inserts, rides the created_at ordering. Fetch
   // n+1 rows to learn whether a next page exists without a count.
+  //
+  // your_part_usdc (docs/04 §Trips): what YOU spent on a row you paid — the amount less every share
+  // you handed out (open or paid). An incoming row never carries it: the netting happened once, on
+  // the source row, so a friend's reimbursement must not be netted again. A refunded scan-and-pay
+  // is 0 — its money came back as an incoming escrow_release this rule would otherwise ignore.
+  // The orders/quotes join is the primary leg only (group_id is null): one row per payment.
   const { rows } = await getPool().query<TransferJoinRow>(
     `select t.id, t.kind, t.amount_usdc, t.note, t.status, t.created_at, t.signature,
             t.from_user_id, t.to_user_id, t.from_address, t.to_address, t.chain,
             fu.handle as from_handle, tu.handle as to_handle,
             b.state as bridge_state, b.direction as bridge_direction,
-            b.source_chain as bridge_source_chain, b.destination_chain as bridge_dest_chain
+            b.source_chain as bridge_source_chain, b.destination_chain as bridge_dest_chain,
+            t.group_id,
+            case when t.from_user_id <> $1 then null
+                 when o.state = 'refunded' then 0
+                 else t.amount_usdc - coalesce((select sum(s.amount_usdc) from payment_requests s
+                                                 where s.split_of = t.id and s.status in ('open', 'paid')), 0)
+            end as your_part_usdc,
+            (select s.note from payment_requests s
+              where s.transfer_id = t.id and s.split_of is not null) as settles_note,
+            q.payout_name as payee_name, q.amount_inr as amount_fiat, q.currency as fiat_currency
        from transfers t
        left join users fu on fu.id = t.from_user_id
        left join users tu on tu.id = t.to_user_id
        left join bridge_transfers b on b.transfer_id = t.id
+       left join orders o on o.escrow_fund_transfer_id = t.id and o.group_id is null
+       left join quotes q on q.id = o.quote_id
       where (t.from_user_id = $1 or t.to_user_id = $1)
         and ($3::timestamptz is null or (t.created_at, t.id) < ($3::timestamptz, $4::uuid))
       order by t.created_at desc, t.id desc
@@ -568,6 +597,12 @@ export async function listTransactionsForUser(
       status: bridged ? bridgeStatus : (r.status as ApiTxn['status']),
       createdAt: r.created_at.toISOString(),
       signature: r.signature ?? undefined,
+      groupId: r.group_id ?? undefined,
+      yourPartUsd: r.your_part_usdc ?? undefined,
+      settlesNote: r.settles_note ?? undefined,
+      payeeName: r.payee_name ?? undefined,
+      amountFiat: r.amount_fiat ?? undefined,
+      fiatCurrency: r.fiat_currency ?? undefined,
     };
   });
   return { items, nextCursor };
@@ -646,6 +681,11 @@ export async function createRequest(input: {
 /**
  * Resolve an open request as paid, linking the fulfilling transfer. Scoped to the payer
  * (to_user_id) and to status='open' so only the addressee can pay, and only once.
+ *
+ * The transfer is VERIFIED, not trusted: it must be the payer's, to the requester, not failed, and
+ * for at least the amount — the client posts an id, and until 0026 any id marked any debt paid.
+ * A transfer that already settled a request cannot settle another (`uq_payment_requests_transfer`
+ * makes it unrepresentable; the predicate turns that into a clean "no row" instead of a 23505).
  * Returns false when no open row matched.
  */
 export async function markRequestPaid(
@@ -654,9 +694,13 @@ export async function markRequestPaid(
   transferId: string,
 ): Promise<boolean> {
   const { rowCount } = await getPool().query(
-    `update payment_requests
+    `update payment_requests r
         set status = 'paid', transfer_id = $3
-      where id = $1 and to_user_id = $2 and status = 'open'`,
+      where r.id = $1 and r.to_user_id = $2 and r.status = 'open'
+        and exists (select 1 from transfers t
+                     where t.id = $3 and t.from_user_id = $2 and t.to_user_id = r.from_user_id
+                       and t.status <> 'failed' and t.amount_usdc >= r.amount_usdc)
+        and not exists (select 1 from payment_requests p where p.transfer_id = $3)`,
     [requestId, payerUserId, transferId],
   );
   return (rowCount ?? 0) > 0;
@@ -671,6 +715,258 @@ export async function cancelRequest(requestId: string, requesterUserId: string):
     [requestId, requesterUserId],
   );
   return (rowCount ?? 0) > 0;
+}
+
+/* ---- trips, circles and splitting (0026, docs/04 §Trips) ---- */
+
+// An EXPENSE of a group: a transfer that did not fail, is not itself a share settlement (a friend
+// paying their part is an internal flow, not a cost of the trip) and whose order, if any, was not
+// refunded. One fragment, two readers (the list's totals and the detail) — both alias the transfer
+// `t` and left-join the primary order `o` (invariant 26 is the pattern: one predicate, N attach points).
+const EXPENSE_SQL = `t.status <> 'failed'
+        and coalesce(o.state, '') <> 'refunded'
+        and not exists (select 1 from payment_requests p where p.transfer_id = t.id and p.split_of is not null)`;
+const EXPENSE_JOIN_SQL = `left join orders o on o.escrow_fund_transfer_id = t.id and o.group_id is null`;
+// Members as JSON, in join order. Amounts are cast to text wherever they ride JSON — a JSON number
+// would hand the client a float (docs/01 money law).
+const MEMBERS_SQL = `coalesce((select json_agg(json_build_object('userId', m.user_id, 'handle', mu.handle) order by m.created_at)
+                        from group_members m join users mu on mu.id = m.user_id where m.group_id = g.id), '[]'::json)`;
+
+interface GroupRow {
+  id: string;
+  name: string;
+  owner_handle: string;
+  members: { userId: string; handle: string }[];
+  total_usdc: string;
+}
+
+const toApiGroup = (r: GroupRow): ApiGroup => ({
+  id: r.id,
+  name: r.name,
+  ownerHandle: r.owner_handle,
+  members: r.members,
+  totalUsd: r.total_usdc,
+});
+
+/** Create a group. The owner is a member from the same statement — membership is the read gate. */
+export async function createGroup(ownerUserId: string, name: string): Promise<string> {
+  const { rows } = await getPool().query<{ group_id: string }>(
+    `with g as (insert into groups (owner_user_id, name) values ($1, $2) returning id)
+     insert into group_members (group_id, user_id, added_by) select id, $1, $1 from g returning group_id`,
+    [ownerUserId, name],
+  );
+  return rows[0].group_id;
+}
+
+/** Every group the user belongs to, newest first, with its roster and total. */
+export async function listGroupsForUser(userId: string): Promise<ApiGroup[]> {
+  const { rows } = await getPool().query<GroupRow>(
+    `select g.id, g.name, ou.handle as owner_handle, ${MEMBERS_SQL} as members,
+            coalesce((select sum(t.amount_usdc) from transfers t ${EXPENSE_JOIN_SQL}
+                       where t.group_id = g.id and ${EXPENSE_SQL}), 0) as total_usdc
+       from groups g
+       join users ou on ou.id = g.owner_user_id
+      where exists (select 1 from group_members me where me.group_id = g.id and me.user_id = $1)
+      order by g.created_at desc`,
+    [userId],
+  );
+  return rows.map(toApiGroup);
+}
+
+interface GroupExpenseRow {
+  id: string;
+  kind: ApiGroupExpense['kind'];
+  amount_usdc: string;
+  note: string | null;
+  created_at: Date;
+  from_user_id: string;
+  paid_by_handle: string;
+  payee_name: string | null;
+  shares: { userId: string; handle: string; amountUsd: string; status: 'open' | 'paid' }[];
+}
+
+/**
+ * The trip sheet. Null unless the reader is a member. Your part is computed here, not stored:
+ * the payer's is amount − Σ shares; a member's is their own share (or 0). No addresses leave.
+ */
+export async function getGroupDetail(groupId: string, userId: string): Promise<ApiGroupDetail | null> {
+  const { rows: groups } = await getPool().query<GroupRow>(
+    `select g.id, g.name, ou.handle as owner_handle, ${MEMBERS_SQL} as members, '0' as total_usdc
+       from groups g
+       join users ou on ou.id = g.owner_user_id
+      where g.id = $1 and exists (select 1 from group_members me where me.group_id = g.id and me.user_id = $2)`,
+    [groupId, userId],
+  );
+  const g = groups[0];
+  if (!g) return null;
+  const { rows } = await getPool().query<GroupExpenseRow>(
+    `select t.id, t.kind, t.amount_usdc, t.note, t.created_at, t.from_user_id,
+            fu.handle as paid_by_handle, q.payout_name as payee_name,
+            coalesce((select json_agg(json_build_object('userId', s.to_user_id, 'handle', su.handle,
+                                                        'amountUsd', s.amount_usdc::text, 'status', s.status)
+                             order by s.created_at)
+                        from payment_requests s join users su on su.id = s.to_user_id
+                       where s.split_of = t.id and s.status in ('open', 'paid')), '[]'::json) as shares
+       from transfers t
+       join users fu on fu.id = t.from_user_id
+       ${EXPENSE_JOIN_SQL}
+       left join quotes q on q.id = o.quote_id
+      where t.group_id = $1 and ${EXPENSE_SQL}
+      order by t.created_at desc`,
+    [groupId],
+  );
+  let total = new BN(0);
+  let yourPart = new BN(0);
+  const expenses = rows.map((r): ApiGroupExpense => {
+    const handedOut = r.shares.reduce((acc, s) => acc.plus(s.amountUsd), new BN(0));
+    const mine =
+      r.from_user_id === userId
+        ? new BN(r.amount_usdc).minus(handedOut)
+        : new BN(r.shares.find((s) => s.userId === userId)?.amountUsd ?? 0);
+    total = total.plus(r.amount_usdc);
+    yourPart = yourPart.plus(mine);
+    return {
+      transferId: r.id,
+      kind: r.kind,
+      paidByHandle: r.paid_by_handle,
+      payeeName: r.payee_name ?? undefined,
+      amountUsd: r.amount_usdc,
+      note: r.note ?? undefined,
+      createdAt: r.created_at.toISOString(),
+      yourPartUsd: formatAmount(mine, USDC_DECIMALS),
+      shares: r.shares.map((s) => ({ handle: s.handle, amountUsd: s.amountUsd, status: s.status })),
+    };
+  });
+  return {
+    ...toApiGroup(g),
+    totalUsd: formatAmount(total, USDC_DECIMALS),
+    yourPartUsd: formatAmount(yourPart, USDC_DECIMALS),
+    expenses,
+  };
+}
+
+/** Owner only. Re-adding a member is a no-op that still reports success. False = not the owner. */
+export async function addGroupMember(groupId: string, ownerUserId: string, userId: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `insert into group_members (group_id, user_id, added_by)
+     select g.id, $3, $2 from groups g where g.id = $1 and g.owner_user_id = $2
+     on conflict (group_id, user_id) do update set added_by = group_members.added_by`,
+    [groupId, ownerUserId, userId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/** The owner removes anyone but themselves; anyone removes themselves. Shares they hold stay owed. */
+export async function removeGroupMember(groupId: string, actorUserId: string, userId: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `delete from group_members m using groups g
+      where g.id = m.group_id and m.group_id = $1 and m.user_id = $3
+        and (g.owner_user_id = $2 or m.user_id = $2) and m.user_id <> g.owner_user_id`,
+    [groupId, actorUserId, userId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/** Owner only. The FKs do the rest: members cascade, expenses go back to personal, shares stay. */
+export async function deleteGroup(groupId: string, ownerUserId: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(`delete from groups where id = $1 and owner_user_id = $2`, [
+    groupId,
+    ownerUserId,
+  ]);
+  return (rowCount ?? 0) > 0;
+}
+
+/**
+ * Move an expense into a group (or out, null). The payer's own rows only, of the two kinds that are
+ * spend, into a group they belong to — and never a settlement (a friend's reimbursement is not an
+ * expense of anything). All four are one predicate each; a miss is "not found".
+ */
+export async function setTransferGroup(transferId: string, userId: string, groupId: string | null): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update transfers t set group_id = $3
+      where t.id = $1 and t.from_user_id = $2 and t.kind in ('send', 'escrow_fund')
+        and ($3::uuid is null or exists (select 1 from group_members m where m.group_id = $3 and m.user_id = $2))
+        and not exists (select 1 from payment_requests p where p.transfer_id = t.id and p.split_of is not null)`,
+    [transferId, userId, groupId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+export type ReplaceSharesResult =
+  | { ok: true; opened: { toUserId: string; amountUsd: string }[] }
+  | {
+      ok: false;
+      error: 'not_found' | 'transfer_failed' | 'is_settlement' | 'invalid_amount' | 'shares_exceed_amount' | 'share_already_paid';
+    };
+
+/**
+ * Split an expense: replace every open share (and every hand-marked paid one) with the new set,
+ * keeping the shares a transfer actually settled. One transaction under FOR UPDATE on the expense,
+ * so two concurrent splits cannot both pass the sum check. The payer's part is what is left.
+ */
+export async function replaceShares(input: {
+  transferId: string;
+  payerUserId: string;
+  note: string | null;
+  shares: { toUserId: string; amountUsd: unknown; settled: boolean }[];
+}): Promise<ReplaceSharesResult> {
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+    const { rows } = await client.query<{ amount_usdc: string; status: string }>(
+      `select amount_usdc, status from transfers
+        where id = $1 and from_user_id = $2 and kind in ('send', 'escrow_fund') for update`,
+      [input.transferId, input.payerUserId],
+    );
+    const t = rows[0];
+    if (!t) return await bail('not_found');
+    if (t.status === 'failed') return await bail('transfer_failed');
+    const settlement = await client.query(
+      `select 1 from payment_requests where transfer_id = $1 and split_of is not null`,
+      [input.transferId],
+    );
+    if ((settlement.rowCount ?? 0) > 0) return await bail('is_settlement');
+
+    // Open shares are replaced; a "paid by hand" share (no transfer) is too — re-splitting is how a
+    // wrong tick is undone. Only shares a transfer settled survive, and their friends cannot be
+    // asked again.
+    await client.query(
+      `update payment_requests set status = 'cancelled'
+        where split_of = $1 and (status = 'open' or (status = 'paid' and transfer_id is null))`,
+      [input.transferId],
+    );
+    const paid = await client.query<{ to_user_id: string; amount_usdc: string }>(
+      `select to_user_id, amount_usdc from payment_requests where split_of = $1 and status = 'paid'`,
+      [input.transferId],
+    );
+    const paidUsers = new Set(paid.rows.map((r) => r.to_user_id));
+    if (input.shares.some((s) => paidUsers.has(s.toUserId))) return await bail('share_already_paid');
+    const paidSum = paid.rows.reduce((acc, r) => acc.plus(r.amount_usdc), new BN(0));
+    const verdict = validateShares(t.amount_usdc, formatAmount(paidSum, USDC_DECIMALS), input.shares);
+    if (!verdict.ok) return await bail(verdict.error);
+
+    const opened: { toUserId: string; amountUsd: string }[] = [];
+    for (const [i, s] of input.shares.entries()) {
+      await client.query(
+        `insert into payment_requests (from_user_id, to_user_id, amount_usdc, note, status, split_of)
+         values ($1, $2, $3, $4, $5, $6)`,
+        [input.payerUserId, s.toUserId, verdict.amounts[i], input.note, s.settled ? 'paid' : 'open', input.transferId],
+      );
+      if (!s.settled) opened.push({ toUserId: s.toUserId, amountUsd: verdict.amounts[i] });
+    }
+    await client.query('commit');
+    return { ok: true, opened };
+  } catch (err) {
+    await client.query('rollback');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  async function bail(error: Extract<ReplaceSharesResult, { ok: false }>['error']): Promise<ReplaceSharesResult> {
+    await client.query('rollback');
+    return { ok: false, error };
+  }
 }
 
 /* ---- transfers (M1 prepare/submit, M2 confirmation) ---- */

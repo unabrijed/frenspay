@@ -6,9 +6,11 @@ import type { FastifyInstance } from 'fastify';
 import type {
   BalanceResponse,
   CreateRequestRequest,
+  MoveTransferRequest,
   PrepareTransferRequest,
   PrepareTransferResponse,
   RequestsResponse,
+  SplitRequest,
   SubmitTransferRequest,
   SubmitTransferResponse,
   TransactionsResponse,
@@ -32,6 +34,8 @@ import {
   listRequestsForUser,
   listTransactionsForUser,
   markRequestPaid,
+  replaceShares,
+  setTransferGroup,
   withUserLock,
 } from '../db/queries';
 import { amt, positiveAmount, USDC_DECIMALS } from '../lib/amount';
@@ -39,7 +43,7 @@ import { formatAmount } from '../lib/units';
 import { checkSendLimit, scoreAndRecord, screenAddress, screenHandle } from '../services/compliance';
 import { KYC_APPROVED_TIER } from '../services/kyc';
 import { metrics } from '../services/metrics';
-import { notifyRequestPaid } from '../services/notify';
+import { notifyRequestPaid, notifyShare } from '../services/notify';
 import {
   buildUsdcTransfer,
   feePayerAddress,
@@ -51,6 +55,8 @@ import {
 // fresh recipient token account) and keep dust-spam off the rail. See docs/16 §6.
 const MIN_EXTERNAL_SEND_USD = 1;
 const MAX_EXTERNAL_RECIPIENTS_PER_DAY = 10;
+// A split names at most this many friends — a bound on a request fan-out, not a product limit.
+const MAX_SHARES = 20;
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 // Well-known program addresses that pass the on-curve check (32 zero bytes IS a valid curve
 // encoding) but can never sign — USDC sent to them is burned. Users copy these off explorers.
@@ -98,8 +104,54 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
     const { toHandle, note } = req.body ?? ({} as CreateRequestRequest);
     const amountUsd = positiveAmount(req.body?.amountUsd);
     if (amountUsd === null) return reply.code(400).send({ error: 'invalid_amount' });
+    // A request addressed to nobody can never be paid — before 0026 an unknown handle wrote one.
     const to = toHandle ? await findUserByHandle(toHandle) : null;
-    return createRequest({ fromUserId: userId, toUserId: to?.id ?? null, amountUsd, note });
+    if (!to) return reply.code(404).send({ error: 'unknown_handle' });
+    return createRequest({ fromUserId: userId, toUserId: to.id, amountUsd, note });
+  });
+
+  // --- trips & splitting (docs/04 §Trips): an expense is a transfer; a share is a request ---
+  // Move an expense into a trip, or back to personal. The payer's own rows only (setTransferGroup).
+  app.patch<{ Params: { id: string }; Body: MoveTransferRequest }>('/transfers/:id', async (req, reply) => {
+    const userId = requireUserId(req);
+    const groupId = req.body?.groupId ?? null;
+    if (groupId !== null && typeof groupId !== 'string') return reply.code(400).send({ error: 'missing_fields' });
+    const ok = await setTransferGroup(req.params.id, userId, groupId);
+    if (!ok) return reply.code(404).send({ error: 'transfer_not_found' });
+    return { ok: true };
+  });
+
+  // Split an expense among friends: one open request per share, each naming the expense. Replaces
+  // the open shares; the ones a transfer already settled are kept (replaceShares). The payer's own
+  // part is what is left, never a stored number.
+  app.post<{ Params: { id: string }; Body: SplitRequest }>('/transfers/:id/split', async (req, reply) => {
+    const userId = requireUserId(req);
+    const body = req.body ?? ({} as SplitRequest);
+    if (!Array.isArray(body.shares) || body.shares.length > MAX_SHARES) {
+      return reply.code(400).send({ error: 'missing_fields' });
+    }
+    const shares: { toUserId: string; amountUsd: unknown; settled: boolean }[] = [];
+    for (const s of body.shares) {
+      const to = s?.handle ? await findUserByHandle(s.handle) : null;
+      if (!to) return reply.code(404).send({ error: 'unknown_handle' });
+      // Your own share is what is left, not a request to yourself; the same friend twice is a client bug.
+      if (to.id === userId || shares.some((x) => x.toUserId === to.id)) {
+        return reply.code(400).send({ error: 'invalid_share' });
+      }
+      shares.push({ toUserId: to.id, amountUsd: s.amountUsd, settled: s.settled === true });
+    }
+    const note = typeof body.note === 'string' && body.note.trim() ? body.note.trim().slice(0, 80) : null;
+    const result = await replaceShares({ transferId: req.params.id, payerUserId: userId, note, shares });
+    if (!result.ok) {
+      const status = result.error === 'not_found' ? 404 : result.error === 'transfer_failed' || result.error === 'is_settlement' || result.error === 'share_already_paid' ? 409 : 400;
+      return reply.code(status).send({ error: result.error === 'not_found' ? 'transfer_not_found' : result.error });
+    }
+    // Best-effort, after commit: the friends learn there is a request waiting (notify never throws).
+    const me = await findUserById(userId);
+    for (const o of result.opened) {
+      await notifyShare(o.toUserId, Number(o.amountUsd), me?.handle ?? 'A friend', note ?? 'a bill');
+    }
+    return { ok: true };
   });
 
   // Resolve a request as paid, linking the transfer that fulfilled it. The payer (request's
