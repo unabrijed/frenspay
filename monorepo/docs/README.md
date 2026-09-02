@@ -49,7 +49,7 @@ Flow docs follow the **same six-part shape**, so you always know where to look:
 | 01 | [Architecture](01-architecture.md) | the whole system, monorepo layout, request + on-chain lifecycle, mainnet posture |
 | 02 | [Identity & onboarding](02-identity-and-onboarding.md) | email-only entrance, one-email/one-handle rule, invite codes (FREN remint), phone/country aliases, KYC tiers |
 | 03 | [Custody, money-in & confirmation](03-custody-money-in-and-confirmation.md) | self-custody (the key legal lever), fee-payer gas, USDC-only deposits, how the chain tells the app |
-| 04 | [P2P & contacts](04-p2p-and-contacts.md) | send by handle/phone/address, requests, contacts, the minimal Add/Send home |
+| 04 | [P2P & contacts](04-p2p-and-contacts.md) | send by handle/phone/address, requests, contacts, the minimal Add/Send home, trips & circles + bill splitting |
 | 05 | [Fees, FX & display](05-fees-fx-and-display.md) | the flat $0.001 conversion fee folded into the rate, per-currency FX, dual-currency balance + flip + eye-hide |
 | 06 | [Offramp & settlement](06-offramp-and-settlement.md) | quote → escrow → route → payout as one machine; an ordered `settle` preference per corridor — provider-direct (Xendit) with the LP pool as fallback; corridor economics |
 | 07 | [Admin & moderation](07-admin-and-moderation.md) | roles, suspend/reinstate, admin renames, audit trail, soft-delete (decided), ban = suspend + denylist |

@@ -233,6 +233,19 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     tracker shows `PayScene` — one of three brand scenes keyed on the order id, two phases
     (`securing` / `sending`), rotating copy — never a step list and never anything LP-aware (21).
     Web motion lives in `globals.css`; native renders the same file static.
+56. **A share is a `payment_requests` row with `split_of`; the payer's own part is DERIVED**
+    (`amount − Σ shares(open|paid)`), computed in `listTransactionsForUser` (`your_part_usdc`) and
+    `getGroupDetail`, enforced only in `replaceShares` under `FOR UPDATE` — never a stored number
+    (0026, docs/04 §Trips). A paid share with no `transfer_id` was ticked by hand and is replaced on
+    re-split; one a transfer settled survives it and its friend cannot be asked again.
+57. **Spend counts OUT rows at their part and IN rows never** — the netting happens once, on the
+    source row, so a friend's reimbursement (an IN row carrying `settlesNote`) is never netted
+    twice; the one exception is a refunded order (`your_part_usdc = 0`, because the refund is an IN
+    `escrow_release` the rule would otherwise ignore). Trip totals exclude settlements and refunds
+    (`EXPENSE_SQL`, one fragment, two readers).
+58. **`markRequestPaid` verifies the transfer** — the payer's, to the requester, unfailed, ≥ the
+    amount — and `uq_payment_requests_transfer` makes reuse unrepresentable (0026). Before this any
+    client-supplied id marked any debt paid. Every future "settle" path must keep both halves.
 
 ## Danger zones
 
@@ -596,6 +609,45 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   `apps/backend/.env`; same on stage until the two `STAGE_` vars land). Deliberate cuts: no `/me
   paymentsAvailable` flag (the catalog line covers it), no native motion (the phone cannot pay in
   sponsored mode), two phases not four (the claim flips to Paid). Invariant 55.
+
+- 2026-09-02 · **Trips, circles and bill splitting — shares are requests, the payer's part is derived**
+  (plan: `~/.claude/plans/we-are-missing-the-distributed-bumblebee.md` → docs/19; commits `6bf66e0`
+  `5d02d2f` `8a6bc66` `a6b6ffb` `3bc662b` + docs, on `stage`, unpushed). Bridge: "we are missing the trip
+  or friends creation and easily bill splitting feature… half baked… allow moving transactions… all
+  transactions can be seen with their parts… only my part… make sure of receiving things… duplicate
+  record removal." Grounded first: NOTHING existed — "Trip balance" was a label on the wallet balance,
+  the Payments/Friends filters tested a kind no real row has, `group_id` is LP legs. Shipped: 0026
+  (groups, group_members, `transfers.group_id`, `payment_requests.split_of`, the transfer→request unique
+  index); `/groups` CRUD-lite gated in SQL; `PATCH /transfers/:id` + `POST /transfers/:id/split`
+  (`replaceShares` txn under FOR UPDATE, `check:split` in check:all); the feed's `your_part_usdc` /
+  `settlesNote` / payee name; `splitEqual` in cents (check:money); five shared sheets (`groups.tsx`,
+  the trip view is a SHEET so both renderers get one implementation); Activity's card becomes
+  "Spent this month / Your share", a trips strip, All · Personal · Trips; detail gains Trip › and
+  Split ›; mobile twins ported. **Fixed on the way:** TxCard's sign came from the kind (a received
+  send printed −); `markRequestPaid` trusted the client's transferId (invariant 58); `POST /requests`
+  wrote `to_user_id = null` for an unknown handle; scan-and-pay rows were titled with the pool
+  address; the detail page's mock date/reference. **Rejected with evidence:** a `transfer_shares`
+  table (re-implements settle/lifecycle/link/notify), tags-as-groups (no roster → pointer 5 fails),
+  a server spend aggregate (client holds one page), a row-amount toggle (Bridge: caption + totals).
+  **Fleet note:** 3 lenses + 1 planner died on a 429; the orchestrator ran the passes by source.
+  **Bridge's hands:** `yarn db:migrate` (0026) on stage; the docs/04 §Status walkthrough with two
+  accounts; push on ack. **Open for retro:** the two-phase pay is still non-atomic; `Txn.rupees` is
+  INR-only (IDR detail shows dollars); a friend who paid BEFORE the split is a double-ask unless
+  ticked "already paid"; Spent sums the loaded page; no netting across a trip.
+
+## Telemetry (2026-09-02 trips & splitting plan)
+- divergence: evidence ≈ 1.0 by construction (three disjoint orchestrator file sets: backend / frontend /
+  model+docs; pairwise Jaccard 0) · conclusion n/a (single judge) | threshold 0.30 UNCALIBRATED — FLAG:
+  no independent lenses ran, so conclusion diversity is unmeasured
+- models: draft=fable · lenses: 2× Explore (opus) completed; 3× Explore + 1× Plan FAILED (HTTP 429 session
+  limit, reset 16:40 IST); skeptic trio NOT RUN (plan mode). Version axis unavailable.
+- claims: C1 feature-absent grounded (2 explorers + orchestrator) · C2 TxCard-sign grounded · C3
+  request-pay-unverified grounded (`queries.ts:651-663` pre-change) · C4 request_id-never-written grounded ·
+  C5 escrow_fund-is-the-activity-row grounded (`orderMachine.ts:184`) · C6 refund-is-IN-row grounded
+  (`orderMachine.ts:571-578`) · C7 PeopleSearch-not-exported grounded · C8 payee-name-one-join-away grounded ·
+  C9 client-holds-one-page grounded (`api.ts:137`)
+- grounding: 31 anchors re-opened by the orchestrator, 0 struck, 2 corrected
+- fleet: 2 of 6 lenses completed; loop stopped after round 1 (Bridge's four answers all defaults)
 
 ## Telemetry (2026-09-01 sessions/boot plan)
 - divergence: 0.72 (evidence 0.76, conclusion 0.67) | threshold 0.30 UNCALIBRATED
