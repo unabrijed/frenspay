@@ -41,7 +41,7 @@ for every existing partner.)
 
 Applying needs a `users` row and **tier-2 identity verification only while the identity vendor is
 live** (`routes/merchant.ts` — `if (config.personaLive && …)`). While it is off, that gate is dropped
-and the human reviewing the business form is the identity check
+and the human reviewing the form is the identity check
 ([14](14-manual-onboarding-fallback.md)). Approval does **not** grant a KYC tier: nothing a partner
 does reads one. Someone arriving without an account finishes setup right here; only the admin
 console still sends people to the wallet app first.
@@ -50,7 +50,7 @@ console still sends people to the wallet app first.
 
 ```mermaid
 flowchart TB
-    A["apply<br/>tier-2 KYC only while the vendor is live"] --> B["submit KYB<br/>13 typed fields, their own screen"]
+    A["apply<br/>tier-2 KYC only while the vendor is live"] --> B["submit KYB<br/>10 typed fields, their own screen"]
     B --> B2["a human decides<br/>approve · reject · ask for more · review"]
     B2 --> C["stake<br/>≥ $2,000 USDC"]
     C --> D["go online<br/>their own switch — needs KYB approved AND bond ≥ $2,000"]
@@ -66,7 +66,8 @@ flowchart TB
 Every step is refusable and every step is reversible except the last. An LP can hand an order back
 free of penalty, go offline, or ask for their stake back.
 
-The KYB submission asks more than business identity. Alongside the PAN and the payout account go
+The KYB submission asks more than identity — a partner needs no business, so there are no business
+identifiers at all (2026-09-02). Alongside the PAN and the payout account go
 screening questions — experience, profession, intended stake, commitment, and whether the payout
 account is dedicated or shared — the same signal peer platforms collect before letting anyone in.
 Nothing in them is verifiable and nothing gates on them; they exist so the human deciding is reading

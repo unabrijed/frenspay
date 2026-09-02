@@ -191,9 +191,9 @@ reachable directly via Privy outside the app. **Posture is closed; implementatio
 
 ### 10. Merchant/LP network (KYB) — 🟡 *evidence collected; no vendor, no contracts*
 The structure is built and is no longer a sketch ([06](06-offramp-and-settlement.md),
-[11](11-lp-console.md)). KYB now **collects evidence**: a per-country field spec (India: legal name,
-entity type, PAN, optional GSTIN, registered address, contact, and the account payouts leave from;
-Indonesia: NIB/NPWP in place of PAN/GSTIN), a six-state lifecycle with a `more_info` step so a
+[11](11-lp-console.md)). KYB now **collects evidence**: a per-country field spec (India: PAN and the
+account payouts leave from; Indonesia: NIK in place of PAN — no business identifiers, since a
+partner needs no business, 2026-09-02), a six-state lifecycle with a `more_info` step so a
 reviewer can ask rather than only refuse, mandatory reviewer notes the merchant reads verbatim, and
 an append-only timeline. The spec is defined once and mirrored into the backend, drift-checked.
 

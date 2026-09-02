@@ -567,6 +567,19 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   built: a shared request core / `useApi()`, admin self-adopting via `/auth/sync` (no wallet).
   Bridge's hands: push on ack; merge stage → sacred for prod; admin prod config; a device run.
 
+- 2026-09-02 · **The partner form asks about a person, not a business** (plan:
+  `~/.claude/plans/it-is-not-necessary-steady-galaxy.md`; quick mode, no fleet — Bridge: "please dont go
+  wild and wide"). Bridge: "it is not necessary that a provider/merchant has a business. why are we asking
+  for it." The p2p.me questionnaire he pasted was already the `SCREENING` block, field for field (see
+  Lessons); what went was the registered-business block ahead of it — legal name, entity type, GSTIN,
+  registered address (IN); NIB, NPWP (ID) — from `kyb.ts` + the backend mirror + check-kyb fixtures.
+  Kept: PAN/NIK (invariant 30) and `payoutAccount` (check-kyb), both personal. Copy: "About you" /
+  "Your details" in the console, "The details check out" in admin, apply's "Business name" → "Name".
+  No migration; old keys stay in jsonb and stop rendering. **Open for retro:** whether PAN/NIK stays at
+  all (Bridge's call — dropping it retires invariant 30 and the reviewer's identity decision);
+  `referredBy`, platform-experience and a pick-list `heardAbout` not added; the `/business` route name
+  unchanged; `docs/13:44` still says apply collects a "business name".
+
 ## Telemetry (2026-09-01 sessions/boot plan)
 - divergence: 0.72 (evidence 0.76, conclusion 0.67) | threshold 0.30 UNCALIBRATED
 - models: draft=fable · lenses=3× Explore (opus) + 2× Plan critic (opus); skeptic trio NOT RUN (plan mode) —

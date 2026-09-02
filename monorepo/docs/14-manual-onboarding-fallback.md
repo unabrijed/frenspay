@@ -56,7 +56,7 @@ whole failure mode is env-shaped and invisible to `tsc`.
 
 ## What replaces the vendor
 
-**Nothing new.** The partner application already collects a 13-field business form
+**Nothing new.** The partner application already collects a 10-field form
 (`packages/shared/src/kyb.ts`), a human already reads it in a queue that already exists
 (`/admin/merchants`), and that review already has four outcomes, a mandatory applicant-visible note, an
 append-only timeline and an audit row. The screening block is close to field-for-field with the
