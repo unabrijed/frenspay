@@ -1209,7 +1209,7 @@ export const usePayStore = create<PayState>()(
             get().open('verify');
             return;
           }
-          set({ busy: false, error: e instanceof Error ? e.message : String(e) });
+          set({ busy: false, error: friendlyError(e) });
         }
       },
 
@@ -1276,7 +1276,7 @@ export const usePayStore = create<PayState>()(
               get().open('verify');
               return;
             }
-            set({ busy: false, error: e instanceof Error ? e.message : String(e) });
+            set({ busy: false, error: friendlyError(e) });
             return;
           }
         }

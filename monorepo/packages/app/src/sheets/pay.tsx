@@ -105,6 +105,7 @@ export function Amount() {
   const close = usePayStore((s) => s.close);
   const getQuote = usePayStore((s) => s.getQuote);
   const busy = usePayStore((s) => s.busy);
+  const error = usePayStore((s) => s.error);
   const payee = usePayStore((s) => s.payee);
   const scannedRupees = usePayStore((s) => s.scannedRupees);
   const fxRates = usePayStore((s) => s.fxRates);
@@ -136,6 +137,8 @@ export function Amount() {
         <View style={styles.amountbig}>
           <Txt style={[type.bigAmount, { color: colors.ink }]}>{fiatRaw(amount, currency)}</Txt>
           <Txt style={type.conv}>{usd(u)} from your balance</Txt>
+          {/* A quote that failed used to leave a button that un-busied and nothing else. */}
+          {error ? <Txt style={[type.inst, styles.quoteError]}>{error}</Txt> : null}
         </View>
         <Keypad onPress={press} />
         <Btn label={busy ? 'Getting quote…' : 'Get quote'} variant="ink" disabled={amount <= 0 || busy} onPress={() => void getQuote(amount)} />
@@ -165,4 +168,5 @@ const styles = {
   retryRow: { alignItems: 'center', marginBottom: 14 },
   myqr: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingTop: 2, paddingBottom: 14 },
   amountbig: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
+  quoteError: { textAlign: 'center', color: colors.danger },
 } satisfies Record<string, CSSProperties>;

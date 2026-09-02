@@ -8,7 +8,8 @@ const BY_CODE: Record<string, string> = {
   invalid_recipient: 'That address can’t receive money. Double-check it.',
   self_send_not_allowed: "That's your own wallet",
   unsupported_network: 'fpay can’t send on that network yet.',
-  amount_too_small: 'Sends to outside wallets need to be at least $1.',
+  // Shared by /orders/quote and the outside-wallet sends (both floor at $1), so the line names neither.
+  amount_too_small: 'That’s under the $1 minimum.',
   too_many_new_recipients: 'You’ve reached today’s limit for new wallets. Try tomorrow.',
   duplicate_request: 'That send is already in progress.',
   crosschain_unavailable: 'Sends to other networks are briefly unavailable. Try again soon.',
@@ -16,6 +17,10 @@ const BY_CODE: Record<string, string> = {
   // the copy can't promise anything about which. Same sentence as the LP console's catalog, because
   // it is the same backend code and the two apps saying different things is how copy drifts.
   solana_unavailable: 'Couldn’t reach the network. Try again in a moment.',
+  // POST /orders/quote + /orders while the escrow pool is unconfigured (config.escrowLive false).
+  payments_unavailable: 'Payments are paused right now. Try again later.',
+  // Routing found nowhere to send it. Says nothing about who would have (invariant 21).
+  no_merchant: 'Can’t send to this ID right now. Try again in a few minutes.',
   // The phone app cannot complete a payment in sponsored mode (no backend fee-payer, Privy's Expo SDK
   // cannot sponsor). Not a network blip, so the copy points at the way that works.
   sponsorship_unsupported: 'Payments aren’t available in the phone app yet — use the web app for this one.',
