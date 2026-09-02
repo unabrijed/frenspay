@@ -195,6 +195,30 @@ export function isValidRecipientOwner(s: string): boolean {
   }
 }
 
+// Well-known program addresses that pass the on-curve check (32 zero bytes IS a valid curve
+// encoding) but can never sign — USDC sent to them is burned. Users copy these off explorers.
+const KNOWN_UNSPENDABLE = new Set([
+  '11111111111111111111111111111111', // system program
+  'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', // SPL token program
+  'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL', // associated token account program
+]);
+
+/**
+ * fpay's own operational addresses, plus the well-known unspendable ones: valid on-curve owners
+ * that must never be a DESTINATION a person names — a plain send there is lost funds, a stake refund
+ * there is a refund to ourselves. The stake treasury is included on purpose: staking has its own
+ * routes that record whose deposit it is, and USDC sent there any other way is credited to nobody.
+ * Callers add their own context (a send also refuses partners' release addresses).
+ */
+export function isOperationalAddress(addr: string): boolean {
+  return (
+    addr === feePayerAddress() ||
+    addr === config.usdcMint ||
+    (!!config.stakeTreasuryAddress && addr === config.stakeTreasuryAddress) ||
+    KNOWN_UNSPENDABLE.has(addr)
+  );
+}
+
 /** Fee-payer public address — exposed so the send path can refuse it as a recipient. Empty when no
  *  fee-payer is configured: that check runs before any try/catch, and throwing there would turn a
  *  tier with no fee-payer (local on mainnet) into a 500 on every send. '' matches no recipient, so

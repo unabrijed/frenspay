@@ -2879,6 +2879,8 @@ export async function requestStakeWithdrawal(
   amountUsdc: number,
   clawWindowHours: number,
   exit = false,
+  /** Where the partner asked it to go. Null = their fpay wallet, resolved at release time. */
+  payoutAddress: string | null = null,
 ): Promise<string | null> {
   const { rows } = await getPool().query<{ id: string }>(
     `with debited as (
@@ -2894,8 +2896,8 @@ export async function requestStakeWithdrawal(
        returning id
      ),
      w as (
-       insert into merchant_stake_withdrawals (merchant_id, amount_usdc, exit)
-       select id, $2, $4 from debited
+       insert into merchant_stake_withdrawals (merchant_id, amount_usdc, exit, payout_address)
+       select id, $2, $4, $5 from debited
        returning id, merchant_id, amount_usdc
      ),
      ev as (
@@ -2903,7 +2905,7 @@ export async function requestStakeWithdrawal(
        select merchant_id, 'withdraw_request', -amount_usdc, id, case when $4 then 'exit' else null end from w
      )
      select id from w`,
-    [merchantId, amountUsdc, clawWindowHours, exit],
+    [merchantId, amountUsdc, clawWindowHours, exit, payoutAddress],
   );
   return rows[0]?.id ?? null;
 }
@@ -2918,6 +2920,7 @@ export async function requestStakeWithdrawal(
 export async function exitMerchant(
   merchantId: string,
   clawWindowHours: number,
+  payoutAddress: string | null = null,
 ): Promise<{ withdrawalId: string | null } | null> {
   const { rows } = await getPool().query<{ withdrawal_id: string | null }>(
     `with eligible as (
@@ -2940,8 +2943,8 @@ export async function exitMerchant(
         returning m.id, e.bond_usdc as bond
      ),
      w as (
-       insert into merchant_stake_withdrawals (merchant_id, amount_usdc, exit)
-       select id, bond, true from flipped where bond > 0
+       insert into merchant_stake_withdrawals (merchant_id, amount_usdc, exit, payout_address)
+       select id, bond, true, $3 from flipped where bond > 0
        returning id, merchant_id, amount_usdc
      ),
      ev as (
@@ -2949,7 +2952,7 @@ export async function exitMerchant(
        select merchant_id, 'withdraw_request', -amount_usdc, id, 'exit' from w
      )
      select (select id from w) as withdrawal_id from flipped`,
-    [merchantId, clawWindowHours],
+    [merchantId, clawWindowHours, payoutAddress],
   );
   return rows[0] ? { withdrawalId: rows[0].withdrawal_id } : null;
 }
@@ -2987,11 +2990,23 @@ export interface StakeWithdrawalRow {
   requested_at: Date;
   settled_at: Date | null;
   note: string | null;
+  /** Where the partner asked it to go; null = their fpay wallet at release time (0026). */
+  payout_address: string | null;
   /** The whole bond, on the way out. Cannot be cancelled. */
   exit: boolean;
   /** The Solana signature of the USDC the admin sent by hand — unique; the LP can verify it. */
   release_signature: string | null;
   released_by: string | null;
+}
+
+/** The partner changes where an OPEN request goes. Exists because an exit cannot be cancelled
+ *  (leaving is final) — a typo in that address would otherwise be unfixable in-product. */
+export async function setStakeWithdrawalAddress(merchantId: string, withdrawalId: string, payoutAddress: string | null): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update merchant_stake_withdrawals set payout_address = $3 where id = $2 and merchant_id = $1 and status = 'requested'`,
+    [merchantId, withdrawalId, payoutAddress],
+  );
+  return (rowCount ?? 0) > 0;
 }
 
 export async function listStakeWithdrawals(merchantId: string): Promise<StakeWithdrawalRow[]> {
@@ -3018,7 +3033,7 @@ export async function releaseStakeWithdrawal(withdrawalId: string, signature: st
 
 export interface AdminStakeWithdrawalRow extends StakeWithdrawalRow {
   merchant_name: string;
-  /** The wallet the LP staked FROM — the only place the money goes back to. */
+  /** Where the USDC goes: the address the partner named on the request, else their fpay wallet. */
   payout_wallet: string | null;
 }
 
@@ -3026,7 +3041,8 @@ export interface AdminStakeWithdrawalRow extends StakeWithdrawalRow {
 export async function listStakeWithdrawalsAdmin(status: 'requested' | 'released' | 'cancelled'): Promise<AdminStakeWithdrawalRow[]> {
   const { rows } = await getPool().query<AdminStakeWithdrawalRow>(
     `select w.*, m.name as merchant_name,
-            (select address from wallets where user_id = m.user_id and chain = 'solana' order by created_at limit 1) as payout_wallet
+            coalesce(w.payout_address,
+                     (select address from wallets where user_id = m.user_id and chain = 'solana' order by created_at limit 1)) as payout_wallet
        from merchant_stake_withdrawals w join merchants m on m.id = w.merchant_id
       where w.status = $1
       order by w.requested_at`,

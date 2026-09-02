@@ -46,8 +46,8 @@ import { metrics } from '../services/metrics';
 import { notifyRequestPaid, notifyShare } from '../services/notify';
 import {
   buildUsdcTransfer,
-  feePayerAddress,
   getUsdcBalance,
+  isOperationalAddress,
   isValidRecipientOwner,
   SIGNATURE_RE,
 } from '../services/solana';
@@ -59,13 +59,6 @@ const MAX_EXTERNAL_RECIPIENTS_PER_DAY = 10;
 // A split names at most this many friends — a bound on a request fan-out, not a product limit.
 const MAX_SHARES = 20;
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
-// Well-known program addresses that pass the on-curve check (32 zero bytes IS a valid curve
-// encoding) but can never sign — USDC sent to them is burned. Users copy these off explorers.
-const KNOWN_UNSPENDABLE = new Set([
-  '11111111111111111111111111111111', // system program
-  'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', // SPL token program
-  'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL', // associated token account program
-]);
 
 export async function registerMoneyRoutes(app: FastifyInstance) {
   // --- balance / activity ---
@@ -218,18 +211,11 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
       // program ids all fail HERE as a clean 400 instead of inside the builder as a 503.
       if (!isValidRecipientOwner(addr)) return reply.code(400).send({ error: 'invalid_recipient' });
       if (addr === fromWallet.address) return reply.code(400).send({ error: 'self_send_not_allowed' });
-      // The app's operational wallets are valid on-curve recipients; deposits there are lost funds.
-      // Same for known program ids and the mint itself (all on-curve encodings, none can sign).
-      // The stake treasury is included on purpose: staking has its own route that records the
-      // merchant it belongs to. USDC sent here through the plain send path would be credited to
-      // nobody's bond and silently lost.
-      if (
-        addr === feePayerAddress() ||
-        addr === config.usdcMint ||
-        (config.stakeTreasuryAddress && addr === config.stakeTreasuryAddress) ||
-        KNOWN_UNSPENDABLE.has(addr) ||
-        (await isMerchantTreasuryAddress(addr))
-      ) {
+      // The app's operational wallets, the mint and the known program ids are valid on-curve
+      // recipients; deposits there are lost funds (isOperationalAddress — the stake treasury among
+      // them, on purpose: staking has its own routes that record whose deposit it is). A partner's
+      // release address is refused here too: it is where escrow pays them, not a wallet they send from.
+      if (isOperationalAddress(addr) || (await isMerchantTreasuryAddress(addr))) {
         return reply.code(400).send({ error: 'invalid_recipient' });
       }
       // Withdrawal to an unhosted wallet — verified tier required. LimitExceededError shape so the

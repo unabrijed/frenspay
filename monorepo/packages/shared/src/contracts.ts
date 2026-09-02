@@ -185,9 +185,11 @@ export interface MerchantProfile {
     needs: Array<{ key: string; have: number; need: number }>;
   };
   /** An open stake-withdrawal request. The bond is already debited; a human releases the USDC to
-   *  `payoutWallet`. `exit` = the whole bond on the way out, which cannot be cancelled. */
-  pendingWithdrawal?: { id: string; amountUsdc: string; requestedAt: string; exit: boolean };
-  /** The wallet a released stake goes back to — the one it was staked from. Fixed, never typed. */
+   *  `payoutAddress` when the partner named one, else to `payoutWallet`. `exit` = the whole bond on
+   *  the way out, which cannot be cancelled (the address can still be changed while it is open). */
+  pendingWithdrawal?: { id: string; amountUsdc: string; requestedAt: string; exit: boolean; payoutAddress?: string };
+  /** The DEFAULT destination for a released stake — the partner's fpay wallet. They may name any
+   *  wallet they hold when they ask (docs/19); this is what the prompt is prefilled with. */
   payoutWallet?: string;
   /** Why `status` is 'suspended': 'exited' is the partner's own final decision; 'bond' is the floor;
    *  anything else a human. */
