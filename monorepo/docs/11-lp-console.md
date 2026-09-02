@@ -119,6 +119,13 @@ An LP stakes USDC before they can be routed anything. It is **skin in the game, 
   eligible to work, not back at the desk — they say when).
 - **It bounds exposure.** Effective float is `min(what they declared, bond × leverage)`. Their claim
   about their own capacity was previously unchecked against their stake.
+- **It is paid from anywhere** ([20](20-stake-claims.md)). `/stake` shows fpay's stake address; the
+  partner sends USDC there from an exchange or any wallet and pastes the transaction ID. The server
+  reads what that transaction moved off the chain — the amount is never typed — a person attributes
+  it in the admin console, and the bond lands only after the confirmer's own chain check. Their claims
+  are listed on the screen in their own words (*Being checked · Confirming · Added to your stake ·
+  Didn't check out · Not accepted: why · Already used*). Staking straight from the fpay wallet remains
+  as a second door, shown only when that wallet holds anything.
 ### The numbers, in one place
 
 Every constant this doc names by symbol. Enforced values, read from source — if you change one, change
@@ -156,7 +163,9 @@ which is lifetime because 👍 has no timestamp of its own.
   must stop backing new orders). **Five** preconditions, all predicates in one statement: enough bond,
   **no withdrawal already requested**, no in-flight orders, no open disputes, and **nothing completed
   inside the 72-hour claw window** (`recent_payout`) — while a payout can still be disputed, the bond
-  that would answer for it stays. Then a root admin sends the
+  that would answer for it stays. **Where it goes is the partner's to say**: any Solana wallet they
+  hold, asked for at the moment of the request (prefilled with their fpay wallet) and changeable while
+  the request is open — an exit cannot be cancelled, so its address must be. Then a root admin sends the
   USDC. The stake vault has no signer by design, so automating the release means a
   second hot key in env — a security decision deliberately not made as a side effect.
 
@@ -231,8 +240,10 @@ accepted into a dead end.
   same rules routing scores on.
 - ✅ Its own Vercel project and domain (`provider.frenspay.xyz`, `DEPLOY.stage.md`), behind the same
   deploy access gate as the wallet app — its own key, its own cookie.
-- ⬜ Web/mobile push. **Bank and phone destinations** (above). Staked returns. An admin surface for
-  releasing a stake withdrawal ([07](07-admin-and-moderation.md)).
+- ✅ Staking by paying the treasury from anywhere, with the admin attribution queue and the refund
+  address on the request ([20](20-stake-claims.md), 2026-09-02); the admin surface for releasing a
+  withdrawal ([07](07-admin-and-moderation.md), 2026-08-31).
+- ⬜ Web/mobile push. **Bank and phone destinations** (above). Staked returns.
 
 ## Key files
 

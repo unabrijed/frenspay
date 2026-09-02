@@ -246,6 +246,18 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
 58. **`markRequestPaid` verifies the transfer** — the payer's, to the requester, unfailed, ≥ the
     amount — and `uq_payment_requests_transfer` makes reuse unrepresentable (0026). Before this any
     client-supplied id marked any debt paid. Every future "settle" path must keep both halves.
+59. **A stake claim never moves `bond_usdc`** (2026-09-02, docs/20): `merchant_stake_claims` is intake +
+    a human attribution; admin's credit inserts a PENDING `transfers` row (`from_address` NULL — the
+    verifier skips the sender only when a row asserts none, `instructionsMove` `authority?`) and the
+    confirmer's chain check + `creditStakeOnConfirm` remain the only path to the credit. The amount is
+    read off the chain at submit (`readStakeDeposit`), never typed. One claim per partner per signature
+    (`uq_stake_claim_partner_sig`); one LIVE claim per signature (`uq_stake_claim_live_sig`, partial on
+    submitted/accepted) so a rejected impostor frees it; a second submission is stored as `duplicate`
+    and the admin queue lists duplicates by default. `attachTransferSignature` matches the same
+    signature or an unsigned pending row — never re-points a signed row (a confirmed row's signature
+    could be freed from the unique index and re-verified on a fresh row: a double credit). The refund
+    destination is the partner's (`merchant_stake_withdrawals.payout_address`, `isValidRecipientOwner`
+    + `isOperationalAddress`), changeable while open because an exit cannot be cancelled.
 
 ## Danger zones
 
@@ -343,6 +355,18 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   adoption was decided inside the sync; the verified email — already fetched on the same call — told the
   two apart the whole time. When a screen asks for something the server then discards, look for the fact
   the server used instead and let the client ask for THAT first (here: a sync with no handle).
+- **Two sessions, one day, one migration number** (2026-09-02). Trips took `0026` and docs/19 between
+  this plan's first `ls migrations/` and its first commit; the migrator keys applied rows by the numeric
+  prefix, so the second `0026` would have been applied-or-skipped by whichever ran first. `ls` the
+  directory the moment before creating a migration AND before committing it; same for `docs/NN`. Line
+  numbers drifting ~300 in `queries.ts` mid-session was the tell that someone else was landing work.
+- **A skeptic can be wrong with a citation, again** (2026-09-02). Round 2 refuted `uq_stake_withdrawal_open`
+  as non-existent by reading 0024 only; it is in 0014:93. Grounding outranked it — the conclusion
+  (cancel + re-request works) held either way, but the stated reason was false.
+- **"Exactly one" is a claim about the world, not the code** (2026-09-02). "Exactly one SPL transfer in the
+  tx" was refuted by how exchanges batch withdrawals; scoping to "into the treasury ATA" fixed the reader,
+  and the residual (two partners in one batch) is a ceiling of `transfers.signature unique` — named, with
+  its own error code, not solved.
 - **`open(path, 'w')` runs before the function that reads `path`** (2026-09-01). One line —
   `open(p,'w').write(apply(p))` — truncated `.prism/project-model.md` to zero bytes when `apply` raised,
   during a window where a concurrent session had just committed invariant 49 (`f99325f`, seconds
@@ -634,6 +658,45 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   accounts; push on ack. **Open for retro:** the two-phase pay is still non-atomic; `Txn.rupees` is
   INR-only (IDR detail shows dollars); a friend who paid BEFORE the split is a double-ask unless
   ticked "already paid"; Spent sums the loaded page; no netting across a trip.
+
+- 2026-09-02 · **Stake by paying the treasury directly — a chain-checked, admin-attributed claim** (plan:
+  `~/.claude/plans/staking-part-is-missing-federated-crab.md` → docs/20; commits `44a45a6` `6fdb1b6`
+  `fd38b26` `67d17dd` `a1aa576` `47219f8` `de3469e` `a1097d6` + docs, on `stage`, unpushed). Bridge:
+  "staking part is missing… pay to this (our receive address) and submit the transaction hash… admin
+  internally marks… ask for their telegram… if duplicate, flag it." Grounded first: `/stake` only signed
+  out of the fpay wallet and the console cannot fund it; the verifier required `authority ==
+  from_address`; a duplicate signature was a swallowed 409; `attachTransferSignature` could re-point a
+  confirmed row (live double credit). Shipped: claims table + two unique indexes (0027), `readStakeDeposit`
+  / `treasuryDepositsIn` (batched CEX legs ignored; two into the treasury refused `shared_transaction`),
+  `GET/POST /merchants/stake/claims`, admin list/credit/reject (any admin; credit = a pending transfers
+  row, the confirmer lands it), the attach guard, base58 on submit, Telegram required (+ reverse mirror
+  in check-kyb), the refund address on withdraw/exit + an edit route, LP `/stake` rewritten (poll while
+  pending; the in-wallet path kept behind a balance-gated link; the 15-min 404 rerouted into a claim),
+  admin "Stake deposits to check" table. Bridge's four calls: keep the in-wallet door; Telegram required
+  on About-you; any admin credits; the partner names the refund wallet. **Rejected with evidence:**
+  submit-time transfers row + auto-credit (public address, invisible 409, typed amount burns deposits);
+  memo-required lane (exchanges cannot memo — hint + stored + shown instead); risk_events-only flag;
+  `MAX_STAKE_DEPOSIT_USD` on the credit (guards a typed amount; this one is read); `/me` in the 3 s loop.
+  **Critics refuted six of the draft's own remedies** — see docs/20 §Verification record. **Found on the
+  way:** a concurrent session took 0026 + docs/19 mid-plan → 0027 / docs/20 (the migrator keys by version;
+  a collision is silently skipped). **Bridge's hands:** `yarn db:migrate` (0027) on stage; the stage test
+  (docs/20 §How a partner stakes now); push on ack. **Open for retro:** two deposits in one CEX batch
+  (`shared_transaction`, by hand via the ledger's unrouted `adjust`); both chain reads at `confirmed`, not
+  finalized; the external stake counts against the partner's daily send cap; `listPendingSolanaTransfers`
+  unbounded; a dashboard-resident partner sees the stake card until the next `load()`; sender-address
+  screening before a stranger stakes (counsel list, docs/15).
+
+## Telemetry (2026-09-02 stake claims plan)
+- divergence: 0.75 (evidence 0.80, conclusion 0.67) | threshold 0.30 UNCALIBRATED
+- models: draft=fable · lenses=3× Explore (opus) + 2× Plan critic (opus); skeptic trio NOT RUN (plan mode) —
+  every load-bearing claim grounded by re-opening source (orchestrator + critics), which outranks
+  cross-tier survival; version axis unavailable
+- claims: C1 grounded · C2 grounded · C3 REFUTED → corrected · C4 REFUTED → corrected · C5 corrected ·
+  C6 REFUTED → corrected · C7 grounded · C8 corrected · N1 corrected · N2 grounded · N3 REFUTED → corrected
+  (one skeptic citation struck by grounding) · N4 REFUTED → ceiling named · N5 corrected
+- grounding: ~55 anchors re-opened by the orchestrator, ~100 by the two critics; 0 struck for being wrong
+  about current code, 1 skeptic refutation struck, 6 draft remedies refuted and replaced
+- fleet: 3 lenses + 2 critics; loop stopped after round 2
 
 ## Telemetry (2026-09-02 trips & splitting plan)
 - divergence: evidence ≈ 1.0 by construction (three disjoint orchestrator file sets: backend / frontend /
