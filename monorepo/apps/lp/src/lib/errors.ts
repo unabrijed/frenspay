@@ -35,6 +35,16 @@ const BY_CODE: Record<string, string> = {
   missing_phone: 'Add a number we can reach you on.',
   invalid_phone: 'That does not look like a phone number. Include the country code, like +91.',
   unsupported_channel: 'We can’t send alerts that way yet.',
+  // Staking by paying the treasury directly (docs/20) — the codes the claim route answers with.
+  invalid_signature: 'That doesn’t look like a Solana transaction ID.',
+  transaction_not_found: 'Not on the network yet — give it a minute and try again.',
+  transaction_failed: 'That transaction failed on the network.',
+  not_a_stake_payment: 'That transaction doesn’t send USDC to the stake address.',
+  shared_transaction: 'This transaction carries more than one payment to the stake address. Contact us and we’ll sort it by hand.',
+  signature_already_used: 'That transaction has already been submitted. If it’s yours, we’ll sort it out — contact us.',
+  // Where a released stake goes.
+  invalid_payout_address: 'That doesn’t look like a wallet address we can send to.',
+  withdrawal_not_open: 'That request was already settled.',
   // Money movement out of their own wallet.
   staking_unavailable: 'Staking is temporarily unavailable. Try again shortly.',
   solana_unavailable: 'Couldn’t reach the network. Try again in a moment.',

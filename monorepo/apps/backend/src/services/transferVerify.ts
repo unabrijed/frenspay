@@ -12,11 +12,12 @@
 // webhook — come through here. Since the escrow moved off-program into a pool (docs/16), our own
 // settlements are checked the same way: a payout is a chain fact, not our row.
 import { getAssociatedTokenAddress } from '@solana/spl-token';
-import { PublicKey, type ParsedInstruction } from '@solana/web3.js';
+import { PublicKey, type ParsedInstruction, type ParsedTransactionWithMeta } from '@solana/web3.js';
 
 import { insertRiskEvent, listOrdersByEscrowFundTransfer, type PendingTransfer } from '../db/queries';
+import { formatAmount, fromBaseUnits } from '../lib/units';
 
-import { connection, getTransferStatus, toUsdcBaseUnits, usdcMint } from './solana';
+import { connection, decimals, getTransferStatus, toUsdcBaseUnits, usdcMint } from './solana';
 
 export type TransferStatus = 'pending' | 'confirmed' | 'failed';
 
@@ -76,8 +77,10 @@ async function expectedDepositMemo(row: PendingTransfer): Promise<string | null>
 
 /**
  * Plain sends: the tx must contain one SPL transfer of exactly the row's amount, in the USDC mint,
- * from the row's sender to the recipient's associated token account. `parsed` is `any` in web3.js,
- * hence the runtime narrowing; CPI transfers surface parsed under meta.innerInstructions.
+ * from the row's sender to the recipient's associated token account. A row with no sender (a stake
+ * claim — the partner paid from a wallet we never saw) is pinned by amount + destination + the
+ * unique signature + the admin's recorded attribution instead; the sender is simply not asked.
+ * `parsed` is `any` in web3.js, hence the runtime narrowing.
  */
 async function splTransferMatches(row: PendingTransfer, memo?: string): Promise<boolean> {
   const tx = await connection().getParsedTransaction(row.signature, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' });
@@ -86,13 +89,74 @@ async function splTransferMatches(row: PendingTransfer, memo?: string): Promise<
   const mint = usdcMint().toBase58();
   const destination = (await getAssociatedTokenAddress(new PublicKey(mint), new PublicKey(row.to_address))).toBase58();
   const want = (await toUsdcBaseUnits(row.amount_usdc)).toString();
-  // Only PARSED instructions can be read; a partially-decoded one (an unknown program) is not a token
-  // transfer whatever else it is.
-  const instructions = [
+  return instructionsMove(parsedInstructionsOf(tx), { mint, destination, amount: want, authority: row.from_address ?? undefined, memo });
+}
+
+/** Every parsed instruction of a tx, outer and inner: CPI transfers surface under
+ *  meta.innerInstructions. Only PARSED instructions can be read; a partially-decoded one (an unknown
+ *  program) is not a token transfer whatever else it is. */
+function parsedInstructionsOf(tx: ParsedTransactionWithMeta): ParsedIx[] {
+  return [
     ...tx.transaction.message.instructions,
     ...(tx.meta?.innerInstructions ?? []).flatMap((inner) => inner.instructions),
   ].filter((ix): ix is ParsedInstruction => 'parsed' in ix);
-  return instructionsMove(instructions, { mint, destination, amount: want, authority: row.from_address, memo });
+}
+
+/** What one signature deposited into the stake treasury, read off the chain (docs/20). The stake
+ *  CLAIM route asks this at submit time so the claim stores what the chain says — the amount is never
+ *  typed — and admin reads the same facts before attributing it. */
+export type StakeDepositRead =
+  | { kind: 'not_found' } // the RPC has no record yet (or ever) — ask again in a minute
+  | { kind: 'failed' } // landed and failed
+  | { kind: 'none' } // landed, no USDC into the treasury
+  | { kind: 'shared'; count: number } // two or more transfers into the treasury in one tx — one signature is one transfers row, so this cannot be represented; a human sorts it
+  | { kind: 'ok'; amountUsdc: string; sender: string | null; memo: string | null; blockTime: number | null; slot: number };
+
+export async function readStakeDeposit(signature: string, treasuryOwner: string): Promise<StakeDepositRead> {
+  const tx = await connection().getParsedTransaction(signature, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' });
+  if (!tx) return { kind: 'not_found' };
+  if (tx.meta?.err) return { kind: 'failed' };
+  const mint = usdcMint().toBase58();
+  const destination = (await getAssociatedTokenAddress(new PublicKey(mint), new PublicKey(treasuryOwner))).toBase58();
+  const instructions = parsedInstructionsOf(tx);
+  const found = treasuryDepositsIn(instructions, { mint, destination });
+  if (found.length === 0) return { kind: 'none' };
+  if (found.length > 1) return { kind: 'shared', count: found.length };
+  const [d] = found;
+  return {
+    kind: 'ok',
+    amountUsdc: formatAmount(fromBaseUnits(BigInt(d.amount), await decimals()), await decimals()),
+    sender: d.sender,
+    memo: memoOf(instructions),
+    blockTime: tx.blockTime ?? null,
+    slot: tx.slot,
+  };
+}
+
+/** One SPL transfer into `destination`, as read off the chain. */
+export interface ParsedDeposit {
+  /** Base units, as a string — never a number (see instructionsMove). */
+  amount: string;
+  /** `authority` for a plain owner; `multisigAuthority` for an exchange hot wallet behind a multisig;
+   *  null when the parsed form carries neither. Display only — nothing verifies against it. */
+  sender: string | null;
+}
+
+/**
+ * Every spl-token transfer in `instructions` whose destination is `destination` (the treasury's USDC
+ * ATA). The other legs of a batched exchange withdrawal — one tx, many customers — are ignored, so a
+ * batch that pays one partner still reads as one deposit. Pure, for check-transfer-verify.
+ */
+export function treasuryDepositsIn(instructions: readonly ParsedIx[], expect: { mint: string; destination: string }): ParsedDeposit[] {
+  const out: ParsedDeposit[] = [];
+  for (const ix of instructions) {
+    const t = splTransfer(ix);
+    if (!t || t.destination !== expect.destination) continue;
+    if (!(t.type === 'transfer' || t.mint === expect.mint)) continue;
+    if (typeof t.amount !== 'string') continue;
+    out.push({ amount: t.amount, sender: t.sender });
+  }
+  return out;
 }
 
 /** The memo a parsed tx carries, if any — the RPC parses the Memo program's data as a bare string. */
@@ -118,23 +182,43 @@ export interface ParsedIx {
  */
 export function instructionsMove(
   instructions: readonly ParsedIx[],
-  expect: { mint: string; destination: string; amount: string; authority: string; memo?: string },
+  expect: { mint: string; destination: string; amount: string; authority?: string; memo?: string },
 ): boolean {
   // When a memo is expected, the tx must carry exactly that one — a deposit for a different order
   // (or with no memo at all) does not verify this row, whatever else matches.
   if (expect.memo !== undefined && memoOf(instructions) !== expect.memo) return false;
   return instructions.some((ix) => {
-    if (ix.program !== 'spl-token' || !ix.parsed || typeof ix.parsed === 'string') return false;
-    const { type, info = {} } = ix.parsed;
-    const amount =
-      type === 'transferChecked'
-        ? (info.tokenAmount as { amount?: string } | undefined)?.amount
-        : type === 'transfer'
-          ? (info.amount as string | undefined)
-          : undefined;
+    const t = splTransfer(ix);
+    if (!t) return false;
     // A plain `transfer` carries no mint, but the destination is USDC's ATA for the recipient, which
     // pins it just as well.
-    const mintOk = type === 'transfer' || info.mint === expect.mint;
-    return mintOk && amount === expect.amount && info.destination === expect.destination && info.authority === expect.authority;
+    const mintOk = t.type === 'transfer' || t.mint === expect.mint;
+    // No expected authority = the row asserts no sender (a stake claim): not checked, not ignored —
+    // there is nothing to compare. Every row with a sender is still held to it.
+    const authorityOk = expect.authority === undefined || t.authority === expect.authority;
+    return mintOk && t.amount === expect.amount && t.destination === expect.destination && authorityOk;
   });
+}
+
+/** The fields of a parsed spl-token transfer, or null for any other instruction. `amount` is left
+ *  exactly as parsed — a numeric amount must NOT compare equal to a base-unit string. */
+function splTransfer(ix: ParsedIx): {
+  type: string;
+  amount: unknown;
+  destination: unknown;
+  mint: unknown;
+  authority: unknown;
+  sender: string | null;
+} | null {
+  if (ix.program !== 'spl-token' || !ix.parsed || typeof ix.parsed === 'string') return null;
+  const { type, info = {} } = ix.parsed;
+  const amount =
+    type === 'transferChecked'
+      ? (info.tokenAmount as { amount?: unknown } | undefined)?.amount
+      : type === 'transfer'
+        ? info.amount
+        : undefined;
+  if (type !== 'transfer' && type !== 'transferChecked') return null;
+  const s = info.authority ?? info.multisigAuthority;
+  return { type, amount, destination: info.destination, mint: info.mint, authority: info.authority, sender: typeof s === 'string' ? s : null };
 }

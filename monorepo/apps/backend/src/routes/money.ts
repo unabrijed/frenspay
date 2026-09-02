@@ -6,9 +6,11 @@ import type { FastifyInstance } from 'fastify';
 import type {
   BalanceResponse,
   CreateRequestRequest,
+  MoveTransferRequest,
   PrepareTransferRequest,
   PrepareTransferResponse,
   RequestsResponse,
+  SplitRequest,
   SubmitTransferRequest,
   SubmitTransferResponse,
   TransactionsResponse,
@@ -32,6 +34,8 @@ import {
   listRequestsForUser,
   listTransactionsForUser,
   markRequestPaid,
+  replaceShares,
+  setTransferGroup,
   withUserLock,
 } from '../db/queries';
 import { amt, positiveAmount, USDC_DECIMALS } from '../lib/amount';
@@ -39,26 +43,22 @@ import { formatAmount } from '../lib/units';
 import { checkSendLimit, scoreAndRecord, screenAddress, screenHandle } from '../services/compliance';
 import { KYC_APPROVED_TIER } from '../services/kyc';
 import { metrics } from '../services/metrics';
-import { notifyRequestPaid } from '../services/notify';
+import { notifyRequestPaid, notifyShare } from '../services/notify';
 import {
   buildUsdcTransfer,
-  feePayerAddress,
   getUsdcBalance,
+  isOperationalAddress,
   isValidRecipientOwner,
+  SIGNATURE_RE,
 } from '../services/solana';
 
 // External (raw-address) send guards — both bound the fee-payer ATA-rent drain (~0.002 SOL per
 // fresh recipient token account) and keep dust-spam off the rail. See docs/16 §6.
 const MIN_EXTERNAL_SEND_USD = 1;
 const MAX_EXTERNAL_RECIPIENTS_PER_DAY = 10;
+// A split names at most this many friends — a bound on a request fan-out, not a product limit.
+const MAX_SHARES = 20;
 const EVM_ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
-// Well-known program addresses that pass the on-curve check (32 zero bytes IS a valid curve
-// encoding) but can never sign — USDC sent to them is burned. Users copy these off explorers.
-const KNOWN_UNSPENDABLE = new Set([
-  '11111111111111111111111111111111', // system program
-  'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', // SPL token program
-  'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL', // associated token account program
-]);
 
 export async function registerMoneyRoutes(app: FastifyInstance) {
   // --- balance / activity ---
@@ -98,8 +98,54 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
     const { toHandle, note } = req.body ?? ({} as CreateRequestRequest);
     const amountUsd = positiveAmount(req.body?.amountUsd);
     if (amountUsd === null) return reply.code(400).send({ error: 'invalid_amount' });
+    // A request addressed to nobody can never be paid — before 0026 an unknown handle wrote one.
     const to = toHandle ? await findUserByHandle(toHandle) : null;
-    return createRequest({ fromUserId: userId, toUserId: to?.id ?? null, amountUsd, note });
+    if (!to) return reply.code(404).send({ error: 'unknown_handle' });
+    return createRequest({ fromUserId: userId, toUserId: to.id, amountUsd, note });
+  });
+
+  // --- trips & splitting (docs/04 §Trips): an expense is a transfer; a share is a request ---
+  // Move an expense into a trip, or back to personal. The payer's own rows only (setTransferGroup).
+  app.patch<{ Params: { id: string }; Body: MoveTransferRequest }>('/transfers/:id', async (req, reply) => {
+    const userId = requireUserId(req);
+    const groupId = req.body?.groupId ?? null;
+    if (groupId !== null && typeof groupId !== 'string') return reply.code(400).send({ error: 'missing_fields' });
+    const ok = await setTransferGroup(req.params.id, userId, groupId);
+    if (!ok) return reply.code(404).send({ error: 'transfer_not_found' });
+    return { ok: true };
+  });
+
+  // Split an expense among friends: one open request per share, each naming the expense. Replaces
+  // the open shares; the ones a transfer already settled are kept (replaceShares). The payer's own
+  // part is what is left, never a stored number.
+  app.post<{ Params: { id: string }; Body: SplitRequest }>('/transfers/:id/split', async (req, reply) => {
+    const userId = requireUserId(req);
+    const body = req.body ?? ({} as SplitRequest);
+    if (!Array.isArray(body.shares) || body.shares.length > MAX_SHARES) {
+      return reply.code(400).send({ error: 'missing_fields' });
+    }
+    const shares: { toUserId: string; amountUsd: unknown; settled: boolean }[] = [];
+    for (const s of body.shares) {
+      const to = s?.handle ? await findUserByHandle(s.handle) : null;
+      if (!to) return reply.code(404).send({ error: 'unknown_handle' });
+      // Your own share is what is left, not a request to yourself; the same friend twice is a client bug.
+      if (to.id === userId || shares.some((x) => x.toUserId === to.id)) {
+        return reply.code(400).send({ error: 'invalid_share' });
+      }
+      shares.push({ toUserId: to.id, amountUsd: s.amountUsd, settled: s.settled === true });
+    }
+    const note = typeof body.note === 'string' && body.note.trim() ? body.note.trim().slice(0, 80) : null;
+    const result = await replaceShares({ transferId: req.params.id, payerUserId: userId, note, shares });
+    if (!result.ok) {
+      const status = result.error === 'not_found' ? 404 : result.error === 'transfer_failed' || result.error === 'is_settlement' || result.error === 'share_already_paid' ? 409 : 400;
+      return reply.code(status).send({ error: result.error === 'not_found' ? 'transfer_not_found' : result.error });
+    }
+    // Best-effort, after commit: the friends learn there is a request waiting (notify never throws).
+    const me = await findUserById(userId);
+    for (const o of result.opened) {
+      await notifyShare(o.toUserId, Number(o.amountUsd), me?.handle ?? 'A friend', note ?? 'a bill');
+    }
+    return { ok: true };
   });
 
   // Resolve a request as paid, linking the transfer that fulfilled it. The payer (request's
@@ -165,18 +211,11 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
       // program ids all fail HERE as a clean 400 instead of inside the builder as a 503.
       if (!isValidRecipientOwner(addr)) return reply.code(400).send({ error: 'invalid_recipient' });
       if (addr === fromWallet.address) return reply.code(400).send({ error: 'self_send_not_allowed' });
-      // The app's operational wallets are valid on-curve recipients; deposits there are lost funds.
-      // Same for known program ids and the mint itself (all on-curve encodings, none can sign).
-      // The stake treasury is included on purpose: staking has its own route that records the
-      // merchant it belongs to. USDC sent here through the plain send path would be credited to
-      // nobody's bond and silently lost.
-      if (
-        addr === feePayerAddress() ||
-        addr === config.usdcMint ||
-        (config.stakeTreasuryAddress && addr === config.stakeTreasuryAddress) ||
-        KNOWN_UNSPENDABLE.has(addr) ||
-        (await isMerchantTreasuryAddress(addr))
-      ) {
+      // The app's operational wallets, the mint and the known program ids are valid on-curve
+      // recipients; deposits there are lost funds (isOperationalAddress — the stake treasury among
+      // them, on purpose: staking has its own routes that record whose deposit it is). A partner's
+      // release address is refused here too: it is where escrow pays them, not a wallet they send from.
+      if (isOperationalAddress(addr) || (await isMerchantTreasuryAddress(addr))) {
         return reply.code(400).send({ error: 'invalid_recipient' });
       }
       // Withdrawal to an unhosted wallet — verified tier required. LimitExceededError shape so the
@@ -307,6 +346,9 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
     const userId = requireUserId(req);
     const { transferId, signature } = req.body ?? ({} as SubmitTransferRequest);
     if (!transferId || !signature) return reply.code(400).send({ error: 'missing_fields' });
+    // Shape first: a string that is not a signature would sit 'pending' in the confirmer forever —
+    // getSignatureStatuses answers null for it every tick, and null reads as "not yet".
+    if (!SIGNATURE_RE.test(signature)) return reply.code(400).send({ error: 'invalid_signature' });
 
     // The client already signed + broadcast (Privy / dev keypair); just record the signature.
     // Scoped to the owner so a user can only attach to their own transfer.

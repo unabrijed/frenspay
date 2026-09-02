@@ -4,11 +4,12 @@ import type {
   MerchantLedgerResponse,
   MerchantOrder,
   MerchantOrdersResponse,
+  MerchantStakeClaimsResponse,
   PayoutMethod,
   PrepareTransferResponse,
 } from '@fpay/shared';
 
-import { req } from './api';
+import { ApiError, req } from './api';
 import { getActiveSigner } from './signer';
 
 export async function applyAsMerchant(input: {
@@ -105,11 +106,12 @@ export async function setMerchantSpread(spreadBps: number): Promise<void> {
 /**
  * Ask for stake back. Debits the bond immediately and records a request — the USDC itself is sent by
  * hand, because the stake vault has no signer by design. Refused while anything is still in flight.
+ * `payoutAddress` is where it goes: any Solana wallet the partner holds; null = their fpay wallet.
  */
-export async function requestStakeWithdrawal(amountUsd: number): Promise<{ id: string }> {
+export async function requestStakeWithdrawal(amountUsd: number, payoutAddress: string | null = null): Promise<{ id: string }> {
   return req<{ id: string; amountUsdc: string }>('/merchants/stake/withdraw', {
     method: 'POST',
-    body: JSON.stringify({ amountUsd }),
+    body: JSON.stringify({ amountUsd, payoutAddress: payoutAddress ?? undefined }),
   });
 }
 
@@ -117,12 +119,42 @@ export async function cancelStakeWithdrawal(id: string): Promise<void> {
   await req<{ ok: true }>(`/merchants/stake/withdraw/${id}/cancel`, { method: 'POST' });
 }
 
+/** Change where an OPEN request goes. Exists because leaving cannot be cancelled — a typo in that
+ *  address would otherwise be a support ticket. */
+export async function setWithdrawalAddress(id: string, payoutAddress: string | null): Promise<void> {
+  await req<{ ok: true }>(`/merchants/stake/withdraw/${id}/address`, {
+    method: 'POST',
+    body: JSON.stringify({ payoutAddress: payoutAddress ?? undefined }),
+  });
+}
+
+/** Where to pay, and every claim this partner has made (docs/20). `address` null = staking is not
+ *  configured on this tier; the screen says so rather than offering a button that 503s. */
+export async function getStakeClaims(): Promise<MerchantStakeClaimsResponse> {
+  return req<MerchantStakeClaimsResponse>('/merchants/stake/claims');
+}
+
+/**
+ * "This transaction is my stake." The server reads it off the chain — amount, sender, memo — and a
+ * person attributes it; the bond lands only after the confirmer's own chain check. Nothing is typed
+ * but the signature, so nothing can be mistyped into a burned deposit.
+ */
+export async function submitStakeClaim(signature: string): Promise<void> {
+  await req<{ id: string; status: string }>('/merchants/stake/claims', {
+    method: 'POST',
+    body: JSON.stringify({ signature }),
+  });
+}
+
 /**
  * Leave fpay as a partner: the whole stake becomes one withdrawal, sent by hand like any other,
  * and the account is marked as left — never deleted, and not reversible from here.
  */
-export async function exitMerchant(): Promise<{ withdrawalId: string | null }> {
-  return req<{ ok: true; withdrawalId: string | null }>('/merchants/exit', { method: 'POST' });
+export async function exitMerchant(payoutAddress: string | null = null): Promise<{ withdrawalId: string | null }> {
+  return req<{ ok: true; withdrawalId: string | null }>('/merchants/exit', {
+    method: 'POST',
+    body: JSON.stringify({ payoutAddress: payoutAddress ?? undefined }),
+  });
 }
 
 /**
@@ -131,7 +163,7 @@ export async function exitMerchant(): Promise<{ withdrawalId: string | null }> {
  * the EXISTING /transfer/submit records the signature. The bond is credited when it confirms — which
  * is why this returns after submit rather than pretending the stake is live.
  */
-export async function depositStake(amountUsd: number): Promise<void> {
+export async function depositStake(amountUsd: number): Promise<'sent' | 'claimed'> {
   const prep = await req<PrepareTransferResponse>('/merchants/stake/prepare', {
     method: 'POST',
     body: JSON.stringify({ amountUsd }),
@@ -140,8 +172,20 @@ export async function depositStake(amountUsd: number): Promise<void> {
   // The same /transfer/submit every money movement uses — it is scoped to from_user_id, so it
   // accepts any transfer the caller owns. This console needs exactly this one call from it, so it
   // is written out rather than dragging the payer app's 40-method client across.
-  await req<{ ok: true }>('/transfer/submit', {
-    method: 'POST',
-    body: JSON.stringify({ transferId: prep.transferId, signature }),
-  });
+  try {
+    await req<{ ok: true }>('/transfer/submit', {
+      method: 'POST',
+      body: JSON.stringify({ transferId: prep.transferId, signature }),
+    });
+    return 'sent';
+  } catch (e) {
+    // The prepared row was swept while the wallet sat on the approval screen (unsigned rows expire
+    // after 15 minutes) — but the USDC moved. Hand the signature to the claim path instead of losing
+    // it: same deposit, a person attributes it (docs/20). Before this it landed nowhere.
+    if (e instanceof ApiError && e.code === 'transfer_not_found') {
+      await submitStakeClaim(signature);
+      return 'claimed';
+    }
+    throw e;
+  }
 }

@@ -1,11 +1,12 @@
 'use client';
 
-// pay.tsx — the merchant pay entry sheets: Scan → Amount. Amount runs the REAL order lifecycle
-// (getQuote → Quote sheet → confirmOrder/escrow → OrderTracking); there is no client-side settlement.
+// pay.tsx — the scan-and-pay entry sheets: Scan → Amount. Amount is the whole pre-pay screen, the
+// way it is in any everyday payments app: the quote is polled live under the amount and the one
+// action is Pay (confirmOrder → escrow funding → OrderTracking); there is no client-side settlement.
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 
-import { Btn, colors, fonts, Grab, Icons, Keypad, Pressable, SearchBar, SheetBody, SheetHeader, Txt, type, View } from '@fpay/ui';
+import { Btn, colors, fonts, Grab, Icons, Keypad, Pressable, SearchBar, SheetBody, SheetHeader, TextLink, Txt, type, View } from '@fpay/ui';
 import { fiatDecimals, fiatRaw, usd } from '@fpay/shared';
 
 import { usePayStore } from '../store';
@@ -101,10 +102,20 @@ const CORNER_GUIDES = (
 // digit counts when a coffee costs ₹300 in one corridor and Rp 30,000 in the other.
 const WHOLE_DIGITS: Record<string, number> = { INR: 6, IDR: 8 };
 
+/** "30–90 sec" / "1–3 min" — the quote's ETA, shown before Pay and again while it runs. */
+export const fmtEta = (minSecs: number, maxSecs: number): string =>
+  maxSecs < 90 ? `${minSecs}–${maxSecs} sec` : `${Math.round(minSecs / 60)}–${Math.round(maxSecs / 60)} min`;
+
 export function Amount() {
   const close = usePayStore((s) => s.close);
+  const open = usePayStore((s) => s.open);
   const getQuote = usePayStore((s) => s.getQuote);
+  const refreshQuote = usePayStore((s) => s.refreshQuote);
+  const confirmOrder = usePayStore((s) => s.confirmOrder);
+  const quote = usePayStore((s) => s.quote);
   const busy = usePayStore((s) => s.busy);
+  const error = usePayStore((s) => s.error);
+  const pendingPay = usePayStore((s) => s.pendingPay);
   const payee = usePayStore((s) => s.payee);
   const scannedRupees = usePayStore((s) => s.scannedRupees);
   const fxRates = usePayStore((s) => s.fxRates);
@@ -128,17 +139,58 @@ export function Amount() {
   // Number(), not parseInt(): parseInt("249.5") is 249. Tolerates a mid-edit trailing '.'.
   const amount = Number(d) || 0;
   const u = amount / rate;
+  // The quote that prices THIS amount on THIS rail, or nothing. A quote for a previous amount is
+  // not "a bit stale", it is for a different payment — Pay stays off until the current one lands.
+  const live = quote && Number(quote.amountInr) === amount && quote.currency === currency ? quote : null;
+
+  // Quote once the keys go quiet, not on every key: one call per pause, well inside the 30/min cap.
+  // A failed quote leaves `quote` alone, so nothing here retries until the amount changes.
+  useEffect(() => {
+    if (amount <= 0 || live) return undefined;
+    const t = setTimeout(() => void getQuote(amount), 400);
+    return () => clearTimeout(t);
+  }, [amount, live, getQuote]);
+  // Keep the live quote fresh under the user — the store no-ops until near expiry, then swaps the
+  // quote in place. The amount never changes; only the rate/USDC recalculate.
+  useEffect(() => {
+    const t = setInterval(() => void refreshQuote(), 1000);
+    return () => clearInterval(t);
+  }, [refreshQuote]);
+
   return (
     <>
       <Grab />
       <SheetHeader eyebrow="Paying" title={payee.name} onClose={close} />
       <SheetBody>
+        {/* Where the money will actually land — the anti-wrong-send line every UPI app shows, the
+            last chance to catch a bad scan. Named on the one screen there is before Pay. */}
+        {payee.vpa ? <Txt style={styles.vpa}>{payee.vpa}</Txt> : null}
         <View style={styles.amountbig}>
           <Txt style={[type.bigAmount, { color: colors.ink }]}>{fiatRaw(amount, currency)}</Txt>
-          <Txt style={type.conv}>{usd(u)} from your balance</Txt>
+          {/* The mid-rate estimate until the live quote lands, then the all-in price. No fee line —
+              the platform's cut lives inside the rate (the user only ever sees the conversion). */}
+          <Txt style={type.conv}>
+            {live ? `${usd(live.amountUsdc)} from your balance · $1 = ${fiatRaw(live.rate, currency)}` : `≈ ${usd(u)} from your balance`}
+          </Txt>
+          {/* The receiver will see N separate credits. Said here, before committing, because the
+              person at the counter is the one who has to add them up — nothing about who sends them. */}
+          {live ? (
+            <Txt style={type.inst}>
+              Arrives in {fmtEta(live.etaMinSecs, live.etaMaxSecs)}
+              {live.parts ? ` · as ${live.parts} payments` : ''}
+            </Txt>
+          ) : null}
+          {error ? <Txt style={[type.inst, styles.quoteError]}>{error}</Txt> : null}
+          {pendingPay && error ? <TextLink label="Verify identity" onPress={() => open('verify')} /> : null}
         </View>
         <Keypad onPress={press} />
-        <Btn label={busy ? 'Getting quote…' : 'Get quote'} variant="ink" disabled={amount <= 0 || busy} onPress={() => void getQuote(amount)} />
+        <Btn
+          label={busy ? 'Paying…' : `Pay ${fiatRaw(amount, currency)}`}
+          variant="ink"
+          pending={busy}
+          disabled={!live || busy}
+          onPress={() => void confirmOrder()}
+        />
       </SheetBody>
     </>
   );
@@ -165,4 +217,6 @@ const styles = {
   retryRow: { alignItems: 'center', marginBottom: 14 },
   myqr: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, paddingTop: 2, paddingBottom: 14 },
   amountbig: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },
+  vpa: { ...type.sub, textAlign: 'center' },
+  quoteError: { textAlign: 'center', color: colors.danger },
 } satisfies Record<string, CSSProperties>;

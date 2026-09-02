@@ -225,6 +225,39 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     only with a body — Fastify parses a DELETE body whenever a content-type is present and 400s an
     empty one before any preHandler (`check:api` in web, lp AND admin). LP's `useWallets()` is read
     WITH `ready`, and a bridge failure there is a toast, never `onSignedOut()`.
+55. **The pay sheet is amount → Pay; the wait is a scene** (2026-09-02): no quote button, no review
+    sheet. `Amount` quotes 400 ms after the keys go quiet, only while no quote for the current
+    amount + rail is live, and refreshes at expiry; `quoteSeq` in the store drops any response whose
+    amount moved on, `confirmOrder` orphans in-flight quotes first, `payPayee` clears the quote. Both
+    order paths speak `errors.ts` (`payments_unavailable`, `no_merchant`). Between Pay and Paid the
+    tracker shows `PayScene` — one of three brand scenes keyed on the order id, two phases
+    (`securing` / `sending`), rotating copy — never a step list and never anything LP-aware (21).
+    Web motion lives in `globals.css`; native renders the same file static.
+56. **A share is a `payment_requests` row with `split_of`; the payer's own part is DERIVED**
+    (`amount − Σ shares(open|paid)`), computed in `listTransactionsForUser` (`your_part_usdc`) and
+    `getGroupDetail`, enforced only in `replaceShares` under `FOR UPDATE` — never a stored number
+    (0026, docs/04 §Trips). A paid share with no `transfer_id` was ticked by hand and is replaced on
+    re-split; one a transfer settled survives it and its friend cannot be asked again.
+57. **Spend counts OUT rows at their part and IN rows never** — the netting happens once, on the
+    source row, so a friend's reimbursement (an IN row carrying `settlesNote`) is never netted
+    twice; the one exception is a refunded order (`your_part_usdc = 0`, because the refund is an IN
+    `escrow_release` the rule would otherwise ignore). Trip totals exclude settlements and refunds
+    (`EXPENSE_SQL`, one fragment, two readers).
+58. **`markRequestPaid` verifies the transfer** — the payer's, to the requester, unfailed, ≥ the
+    amount — and `uq_payment_requests_transfer` makes reuse unrepresentable (0026). Before this any
+    client-supplied id marked any debt paid. Every future "settle" path must keep both halves.
+59. **A stake claim never moves `bond_usdc`** (2026-09-02, docs/20): `merchant_stake_claims` is intake +
+    a human attribution; admin's credit inserts a PENDING `transfers` row (`from_address` NULL — the
+    verifier skips the sender only when a row asserts none, `instructionsMove` `authority?`) and the
+    confirmer's chain check + `creditStakeOnConfirm` remain the only path to the credit. The amount is
+    read off the chain at submit (`readStakeDeposit`), never typed. One claim per partner per signature
+    (`uq_stake_claim_partner_sig`); one LIVE claim per signature (`uq_stake_claim_live_sig`, partial on
+    submitted/accepted) so a rejected impostor frees it; a second submission is stored as `duplicate`
+    and the admin queue lists duplicates by default. `attachTransferSignature` matches the same
+    signature or an unsigned pending row — never re-points a signed row (a confirmed row's signature
+    could be freed from the unique index and re-verified on a fresh row: a double credit). The refund
+    destination is the partner's (`merchant_stake_withdrawals.payout_address`, `isValidRecipientOwner`
+    + `isOperationalAddress`), changeable while open because an exit cannot be cancelled.
 
 ## Danger zones
 
@@ -322,6 +355,18 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   adoption was decided inside the sync; the verified email — already fetched on the same call — told the
   two apart the whole time. When a screen asks for something the server then discards, look for the fact
   the server used instead and let the client ask for THAT first (here: a sync with no handle).
+- **Two sessions, one day, one migration number** (2026-09-02). Trips took `0026` and docs/19 between
+  this plan's first `ls migrations/` and its first commit; the migrator keys applied rows by the numeric
+  prefix, so the second `0026` would have been applied-or-skipped by whichever ran first. `ls` the
+  directory the moment before creating a migration AND before committing it; same for `docs/NN`. Line
+  numbers drifting ~300 in `queries.ts` mid-session was the tell that someone else was landing work.
+- **A skeptic can be wrong with a citation, again** (2026-09-02). Round 2 refuted `uq_stake_withdrawal_open`
+  as non-existent by reading 0024 only; it is in 0014:93. Grounding outranked it — the conclusion
+  (cancel + re-request works) held either way, but the stated reason was false.
+- **"Exactly one" is a claim about the world, not the code** (2026-09-02). "Exactly one SPL transfer in the
+  tx" was refuted by how exchanges batch withdrawals; scoping to "into the treasury ATA" fixed the reader,
+  and the residual (two partners in one batch) is a ceiling of `transfers.signature unique` — named, with
+  its own error code, not solved.
 - **`open(path, 'w')` runs before the function that reads `path`** (2026-09-01). One line —
   `open(p,'w').write(apply(p))` — truncated `.prism/project-model.md` to zero bytes when `apply` raised,
   during a window where a concurrent session had just committed invariant 49 (`f99325f`, seconds
@@ -480,7 +525,7 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   (`ESCROW_SECRET_KEY`, `PLATFORM_FEE_DESTINATION`, `STAKE_TREASURY_ADDRESS`; `KYC_PROVIDER` unset), one
   approved ≥$100-bonded online UPI partner per tier (else 503 `no_merchant`), push stage → soak → PR stage→sacred
   (runs 0024 on prod at boot; "Create a merge commit"). **Open for retro:** did Vercel BUILD (not "skipped by
-  ignore command") on the first stage push; fee-payer vs sponsored on prod; raw `payments_unavailable` copy;
+  ignore command") on the first stage push; fee-payer vs sponsored on prod; raw `payments_unavailable` copy (closed 2026-09-02, invariant 55);
   `smallestTierFor` still advertising tier 2 with the vendor off.
 
 - 2026-08-31 (night) · **One Privy app on every tier; the LP console behind the deploy gate** (plan:
@@ -566,6 +611,106 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   empty" address write (the signer can't sign the retained one); `signedIn` on a null token. Not
   built: a shared request core / `useApi()`, admin self-adopting via `/auth/sync` (no wallet).
   Bridge's hands: push on ack; merge stage → sacred for prod; admin prod config; a device run.
+
+- 2026-09-02 · **The partner form asks about a person, not a business** (plan:
+  `~/.claude/plans/it-is-not-necessary-steady-galaxy.md`; quick mode, no fleet — Bridge: "please dont go
+  wild and wide"). Bridge: "it is not necessary that a provider/merchant has a business. why are we asking
+  for it." The p2p.me questionnaire he pasted was already the `SCREENING` block, field for field (see
+  Lessons); what went was the registered-business block ahead of it — legal name, entity type, GSTIN,
+  registered address (IN); NIB, NPWP (ID) — from `kyb.ts` + the backend mirror + check-kyb fixtures.
+  Kept: PAN/NIK (invariant 30) and `payoutAccount` (check-kyb), both personal. Copy: "About you" /
+  "Your details" in the console, "The details check out" in admin, apply's "Business name" → "Name".
+  No migration; old keys stay in jsonb and stop rendering. **Open for retro:** whether PAN/NIK stays at
+  all (Bridge's call — dropping it retires invariant 30 and the reviewer's identity decision);
+  `referredBy`, platform-experience and a pick-list `heardAbout` not added; the `/business` route name
+  unchanged; `docs/13:44` still says apply collects a "business name".
+
+- 2026-09-02 · **Pay like any other app** (plan: `~/.claude/plans/on-the-client-app-silly-torvalds.md`):
+  the Quote sheet retired, the quote polled live under the amount, one Pay button; the tracker's
+  seven-step list replaced by three brand scenes with rotating copy (`PayScene`);
+  `payments_unavailable` / `no_merchant` got catalog copy. The "Get quote → payment unavailable"
+  report was `escrowLive` false on the local backend (no escrow key / fee destination in
+  `apps/backend/.env`; same on stage until the two `STAGE_` vars land). Deliberate cuts: no `/me
+  paymentsAvailable` flag (the catalog line covers it), no native motion (the phone cannot pay in
+  sponsored mode), two phases not four (the claim flips to Paid). Invariant 55.
+
+- 2026-09-02 · **Trips, circles and bill splitting — shares are requests, the payer's part is derived**
+  (plan: `~/.claude/plans/we-are-missing-the-distributed-bumblebee.md` → docs/19; commits `6bf66e0`
+  `5d02d2f` `8a6bc66` `a6b6ffb` `3bc662b` + docs, on `stage`, unpushed). Bridge: "we are missing the trip
+  or friends creation and easily bill splitting feature… half baked… allow moving transactions… all
+  transactions can be seen with their parts… only my part… make sure of receiving things… duplicate
+  record removal." Grounded first: NOTHING existed — "Trip balance" was a label on the wallet balance,
+  the Payments/Friends filters tested a kind no real row has, `group_id` is LP legs. Shipped: 0026
+  (groups, group_members, `transfers.group_id`, `payment_requests.split_of`, the transfer→request unique
+  index); `/groups` CRUD-lite gated in SQL; `PATCH /transfers/:id` + `POST /transfers/:id/split`
+  (`replaceShares` txn under FOR UPDATE, `check:split` in check:all); the feed's `your_part_usdc` /
+  `settlesNote` / payee name; `splitEqual` in cents (check:money); five shared sheets (`groups.tsx`,
+  the trip view is a SHEET so both renderers get one implementation); Activity's card becomes
+  "Spent this month / Your share", a trips strip, All · Personal · Trips; detail gains Trip › and
+  Split ›; mobile twins ported. **Fixed on the way:** TxCard's sign came from the kind (a received
+  send printed −); `markRequestPaid` trusted the client's transferId (invariant 58); `POST /requests`
+  wrote `to_user_id = null` for an unknown handle; scan-and-pay rows were titled with the pool
+  address; the detail page's mock date/reference. **Rejected with evidence:** a `transfer_shares`
+  table (re-implements settle/lifecycle/link/notify), tags-as-groups (no roster → pointer 5 fails),
+  a server spend aggregate (client holds one page), a row-amount toggle (Bridge: caption + totals).
+  **Fleet note:** 3 lenses + 1 planner died on a 429; the orchestrator ran the passes by source.
+  **Bridge's hands:** `yarn db:migrate` (0026) on stage; the docs/04 §Status walkthrough with two
+  accounts; push on ack. **Open for retro:** the two-phase pay is still non-atomic; `Txn.rupees` is
+  INR-only (IDR detail shows dollars); a friend who paid BEFORE the split is a double-ask unless
+  ticked "already paid"; Spent sums the loaded page; no netting across a trip.
+
+- 2026-09-02 · **Stake by paying the treasury directly — a chain-checked, admin-attributed claim** (plan:
+  `~/.claude/plans/staking-part-is-missing-federated-crab.md` → docs/20; commits `44a45a6` `6fdb1b6`
+  `fd38b26` `67d17dd` `a1aa576` `47219f8` `de3469e` `a1097d6` + docs, on `stage`, unpushed). Bridge:
+  "staking part is missing… pay to this (our receive address) and submit the transaction hash… admin
+  internally marks… ask for their telegram… if duplicate, flag it." Grounded first: `/stake` only signed
+  out of the fpay wallet and the console cannot fund it; the verifier required `authority ==
+  from_address`; a duplicate signature was a swallowed 409; `attachTransferSignature` could re-point a
+  confirmed row (live double credit). Shipped: claims table + two unique indexes (0027), `readStakeDeposit`
+  / `treasuryDepositsIn` (batched CEX legs ignored; two into the treasury refused `shared_transaction`),
+  `GET/POST /merchants/stake/claims`, admin list/credit/reject (any admin; credit = a pending transfers
+  row, the confirmer lands it), the attach guard, base58 on submit, Telegram required (+ reverse mirror
+  in check-kyb), the refund address on withdraw/exit + an edit route, LP `/stake` rewritten (poll while
+  pending; the in-wallet path kept behind a balance-gated link; the 15-min 404 rerouted into a claim),
+  admin "Stake deposits to check" table. Bridge's four calls: keep the in-wallet door; Telegram required
+  on About-you; any admin credits; the partner names the refund wallet. **Rejected with evidence:**
+  submit-time transfers row + auto-credit (public address, invisible 409, typed amount burns deposits);
+  memo-required lane (exchanges cannot memo — hint + stored + shown instead); risk_events-only flag;
+  `MAX_STAKE_DEPOSIT_USD` on the credit (guards a typed amount; this one is read); `/me` in the 3 s loop.
+  **Critics refuted six of the draft's own remedies** — see docs/20 §Verification record. **Found on the
+  way:** a concurrent session took 0026 + docs/19 mid-plan → 0027 / docs/20 (the migrator keys by version;
+  a collision is silently skipped). **Bridge's hands:** `yarn db:migrate` (0027) on stage; the stage test
+  (docs/20 §How a partner stakes now); push on ack. **Open for retro:** two deposits in one CEX batch
+  (`shared_transaction`, by hand via the ledger's unrouted `adjust`); both chain reads at `confirmed`, not
+  finalized; the external stake counts against the partner's daily send cap; `listPendingSolanaTransfers`
+  unbounded; a dashboard-resident partner sees the stake card until the next `load()`; sender-address
+  screening before a stranger stakes (counsel list, docs/15).
+
+## Telemetry (2026-09-02 stake claims plan)
+- divergence: 0.75 (evidence 0.80, conclusion 0.67) | threshold 0.30 UNCALIBRATED
+- models: draft=fable · lenses=3× Explore (opus) + 2× Plan critic (opus); skeptic trio NOT RUN (plan mode) —
+  every load-bearing claim grounded by re-opening source (orchestrator + critics), which outranks
+  cross-tier survival; version axis unavailable
+- claims: C1 grounded · C2 grounded · C3 REFUTED → corrected · C4 REFUTED → corrected · C5 corrected ·
+  C6 REFUTED → corrected · C7 grounded · C8 corrected · N1 corrected · N2 grounded · N3 REFUTED → corrected
+  (one skeptic citation struck by grounding) · N4 REFUTED → ceiling named · N5 corrected
+- grounding: ~55 anchors re-opened by the orchestrator, ~100 by the two critics; 0 struck for being wrong
+  about current code, 1 skeptic refutation struck, 6 draft remedies refuted and replaced
+- fleet: 3 lenses + 2 critics; loop stopped after round 2
+
+## Telemetry (2026-09-02 trips & splitting plan)
+- divergence: evidence ≈ 1.0 by construction (three disjoint orchestrator file sets: backend / frontend /
+  model+docs; pairwise Jaccard 0) · conclusion n/a (single judge) | threshold 0.30 UNCALIBRATED — FLAG:
+  no independent lenses ran, so conclusion diversity is unmeasured
+- models: draft=fable · lenses: 2× Explore (opus) completed; 3× Explore + 1× Plan FAILED (HTTP 429 session
+  limit, reset 16:40 IST); skeptic trio NOT RUN (plan mode). Version axis unavailable.
+- claims: C1 feature-absent grounded (2 explorers + orchestrator) · C2 TxCard-sign grounded · C3
+  request-pay-unverified grounded (`queries.ts:651-663` pre-change) · C4 request_id-never-written grounded ·
+  C5 escrow_fund-is-the-activity-row grounded (`orderMachine.ts:184`) · C6 refund-is-IN-row grounded
+  (`orderMachine.ts:571-578`) · C7 PeopleSearch-not-exported grounded · C8 payee-name-one-join-away grounded ·
+  C9 client-holds-one-page grounded (`api.ts:137`)
+- grounding: 31 anchors re-opened by the orchestrator, 0 struck, 2 corrected
+- fleet: 2 of 6 lenses completed; loop stopped after round 1 (Bridge's four answers all defaults)
 
 ## Telemetry (2026-09-01 sessions/boot plan)
 - divergence: 0.72 (evidence 0.76, conclusion 0.67) | threshold 0.30 UNCALIBRATED

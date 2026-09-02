@@ -128,12 +128,23 @@ Reinstate. It still takes no reason — that asymmetry with the other writes sta
 ### Stake withdrawals
 
 A partner's withdrawal (or exit) debits their bond immediately and waits for a human. The console
-lists what is owed — who, how much, the wallet it goes to (the one they staked from; never typed) —
-and one action, **Record as sent**: a **root** admin moves the USDC from the cold stake treasury by
+lists what is owed — who, how much, the wallet it goes to (the address the partner named when they
+asked, else their fpay wallet — [20](20-stake-claims.md)) — and one action, **Record as sent**: a **root** admin moves the USDC from the cold stake treasury by
 hand and records the transaction signature here. Record-only, root-only (`requireAdmin` is flat, and
 a route that stands in for a money movement must not inherit every console-granted admin), one
 signature good for one release (unique), and an `admin_actions` row. Docs/15 has the reasoning.
 
+### Stake deposits to check
+
+The other direction ([20](20-stake-claims.md)). A partner pays the stake treasury from wherever their
+USDC is and pastes the signature; the server reads what that transaction moved off the chain. The
+console lists every open claim — who says it is theirs, the amount **as read from the chain**, the
+sender, when it landed, a Solscan link, and **"also claimed by @x"** when another partner pasted the
+same signature (the treasury address is public; the first to paste is not necessarily the one who paid).
+Two verbs, any console admin: **Credit** attributes the deposit — the server inserts a pending
+`transfers` row and the confirmer's chain check lands the bond, so nobody types a number into a bond;
+**Reject** takes the reason the partner reads and frees the signature for whoever actually paid. Both
+write `admin_actions`.
 ## Invite administration
 
 **Schema** (migration `0007_invite_codes.sql`): `invite_codes` is real rows, not a counter. `code`
@@ -264,11 +275,9 @@ Every decision appends to `merchant_kyb_events`, which is what the merchant's ow
 decidable — there is nothing to judge before a submission exists, and reopening a terminal is a
 separate deliberate act.
 
-**Gap, named rather than buried: stake-withdrawal release has no surface here.** An LP can request
-their stake back, and the request debits their bond immediately. Sending the USDC is a human action
-— and today it is manual SQL, because `releaseStakeWithdrawal` has no route and no console page.
-Automating it needs a signer for the stake treasury, which deliberately has none
-([11](11-lp-console.md) § The stake).
+**Stake-withdrawal release has a surface now** (§Stake withdrawals above; it was manual SQL until
+2026-08-31). Sending the USDC is still a human action, on purpose: automating it needs a signer for the
+stake treasury, which deliberately has none ([11](11-lp-console.md) § The stake).
 
 ## Status
 

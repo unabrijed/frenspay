@@ -15,8 +15,11 @@ import type {
   MerchantLedgerResponse,
   MerchantOrdersResponse,
   MerchantProfile,
+  MerchantStakeClaimsResponse,
   PayoutMethod,
   PrepareTransferResponse,
+  StakeClaim,
+  StakeClaimRequest,
   StakePrepareRequest,
   SubmitPayoutRequest,
 } from '@fpay/shared';
@@ -32,6 +35,9 @@ import {
   getWalletForUser,
   appendKybEvent,
   insertMerchantApplication,
+  insertStakeClaim,
+  listStakeClaimsForMerchant,
+  type StakeClaimRow,
   listMerchantDisputes,
   normalizePhone,
   setMerchantContactPhone,
@@ -40,6 +46,7 @@ import {
   setMerchantAlertChannel,
   listStakeWithdrawals,
   requestStakeWithdrawal,
+  setStakeWithdrawalAddress,
   type KybEventRow,
   type MerchantOrderRow,
   type MerchantRow,
@@ -54,7 +61,8 @@ import { formatAmount } from '../lib/units';
 import { KYC_APPROVED_TIER } from '../services/kyc';
 import * as ops from '../services/merchantOps';
 import { DISPUTE_CLAW_WINDOW_H, leverageFor, MIN_BOND, spreadCapFor, tierProgress } from '../services/merchantStats';
-import { buildUsdcTransfer } from '../services/solana';
+import { buildUsdcTransfer, isOperationalAddress, isValidRecipientOwner, SIGNATURE_RE } from '../services/solana';
+import { readStakeDeposit } from '../services/transferVerify';
 
 /** Cap on a single stake deposit — a typo shouldn't be able to move a merchant's whole balance. */
 const MAX_STAKE_DEPOSIT_USD = 50_000;
@@ -99,7 +107,8 @@ export function toMerchantProfile(
     // is the bond floor or a human, and the console words them differently.
     suspendReason: m.suspend_reason ?? undefined,
     exitedAt: m.exited_at?.toISOString(),
-    // The only place a released stake ever goes — the wallet it was staked from.
+    // The DEFAULT destination for a released stake — their fpay wallet. The partner may name another
+    // when they ask (pendingWithdrawal.payoutAddress); this is what that prompt is prefilled with.
     payoutWallet,
     clawWindowHours: DISPUTE_CLAW_WINDOW_H,
     kybStatus: m.kyb_status,
@@ -142,13 +151,50 @@ export function toMerchantProfile(
     spreadBps: m.spread_bps,
     maxSpreadBps: spreadCapFor(m.tier),
     pendingWithdrawal: pending
-      ? { id: pending.id, amountUsdc: pending.amount_usdc, requestedAt: pending.requested_at.toISOString(), exit: pending.exit }
+      ? {
+          id: pending.id,
+          amountUsdc: pending.amount_usdc,
+          requestedAt: pending.requested_at.toISOString(),
+          exit: pending.exit,
+          payoutAddress: pending.payout_address ?? undefined,
+        }
       : undefined,
     successRate: Number(m.success_rate),
     disputeRate: Number(m.dispute_rate),
     positiveRate: Number(m.positive_rate),
     contactPhone: m.contact_phone ?? undefined,
     contactPhoneVerified: m.contact_phone_verified_at != null,
+  };
+}
+
+/**
+ * A refund destination the partner typed: null for "my fpay wallet", the address when it holds up,
+ * undefined when it does not. Held to the same test a plain send's recipient is — an on-curve owner
+ * that is not one of ours — because a token account pasted off an explorer, or the treasury itself,
+ * would be a refund nobody can spend. A partner's own release address is fine here (a send refuses it).
+ */
+function parsePayoutAddress(raw: unknown): string | null | undefined {
+  if (raw == null || raw === '') return null;
+  if (typeof raw !== 'string') return undefined;
+  const a = raw.trim();
+  if (!a) return null;
+  return isValidRecipientOwner(a) && !isOperationalAddress(a) ? a : undefined;
+}
+
+/** Shared with the admin console's view of the same row — the two must read identical words. */
+export function toStakeClaim(c: StakeClaimRow): StakeClaim {
+  return {
+    id: c.id,
+    signature: c.signature,
+    status: c.status,
+    amountUsdc: c.chain.amountUsdc,
+    sender: c.chain.sender ?? undefined,
+    memo: c.chain.memo ?? undefined,
+    paidAt: c.chain.blockTime != null ? new Date(c.chain.blockTime * 1000).toISOString() : undefined,
+    transferStatus: c.transfer_status ?? undefined,
+    // Only a rejection carries words for the partner; a credit's note is the admin's own.
+    note: c.status === 'rejected' ? (c.note ?? undefined) : undefined,
+    createdAt: c.created_at.toISOString(),
   };
 }
 
@@ -461,6 +507,51 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
   });
 
   /**
+   * Stake by paying the treasury directly (docs/20). The partner pays `address` from wherever their
+   * USDC is and pastes the signature; the chain is read HERE, at submit — what it moved, from whom,
+   * under what memo — and stored as the claim. Nothing moves: a human attributes it in the admin
+   * console, and only then does a pending `transfers` row exist for the confirmer to verify and
+   * creditStakeOnConfirm to credit. The amount is never typed, so a typo can never burn a real deposit.
+   */
+  app.get('/merchants/stake/claims', async (req): Promise<MerchantStakeClaimsResponse> => {
+    const merchant = await requireMerchant(req);
+    const claims = await listStakeClaimsForMerchant(merchant.id);
+    return { address: config.stakeTreasuryAddress || null, claims: claims.map(toStakeClaim) };
+  });
+
+  app.post<{ Body: StakeClaimRequest }>('/merchants/stake/claims', async (req, reply) => {
+    const merchant = await requireMerchant(req);
+    if (!config.stakeTreasuryAddress) return reply.code(503).send({ error: 'staking_unavailable' });
+    if (merchant.suspend_reason === 'exited') return reply.code(409).send({ error: 'already_exited' });
+    const signature = req.body?.signature?.trim();
+    if (!signature || !SIGNATURE_RE.test(signature)) return reply.code(400).send({ error: 'invalid_signature' });
+    let read: Awaited<ReturnType<typeof readStakeDeposit>>;
+    try {
+      read = await readStakeDeposit(signature, config.stakeTreasuryAddress);
+    } catch (e) {
+      req.log.error({ err: e }, 'stake claim: chain read failed');
+      return reply.code(503).send({ error: 'solana_unavailable' });
+    }
+    // Refused claims are not stored — there is nothing for a reviewer to decide about a signature that
+    // never landed, failed, or paid someone else. 'shared' is the one honest dead end: two deposits
+    // into the treasury in one tx (two partners in the same exchange batch) — one signature is one
+    // transfers row, so a human sorts it by hand.
+    if (read.kind === 'not_found') return reply.code(409).send({ error: 'transaction_not_found' });
+    if (read.kind === 'failed') return reply.code(400).send({ error: 'transaction_failed' });
+    if (read.kind === 'none') return reply.code(400).send({ error: 'not_a_stake_payment' });
+    if (read.kind === 'shared') return reply.code(400).send({ error: 'shared_transaction' });
+    const r = await insertStakeClaim({
+      merchantId: merchant.id,
+      signature,
+      chain: { amountUsdc: read.amountUsdc, sender: read.sender, memo: read.memo, blockTime: read.blockTime, slot: read.slot },
+    });
+    // A duplicate IS stored (the reviewer sees both claims) — but the answer to this partner is the
+    // same as for their own re-submission: already submitted, a human will sort it out.
+    if (r.kind !== 'submitted') return reply.code(409).send({ error: 'signature_already_used' });
+    return reply.code(201).send({ id: r.id, status: 'submitted' });
+  });
+
+  /**
    * Ask for stake back — the way OUT, which did not exist. `bond_usdc` could only ever be credited
    * on a confirmed deposit or fined down by a dispute, which makes staking a one-way door.
    *
@@ -474,12 +565,15 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
    * new orders immediately; every precondition (no open request, nothing in flight, no open dispute,
    * enough bond) is a predicate inside the one statement, so two concurrent requests cannot both win.
    */
-  app.post<{ Body: { amountUsd?: string | number } }>('/merchants/stake/withdraw', async (req, reply) => {
+  app.post<{ Body: { amountUsd?: string | number; payoutAddress?: string } }>('/merchants/stake/withdraw', async (req, reply) => {
     const merchant = await requireMerchant(req);
     const amountUsd = positiveAmount(req.body?.amountUsd);
     if (amountUsd === null) return reply.code(400).send({ error: 'invalid_amount' });
+    // Where it goes is the partner's to say (docs/20): any wallet they hold, their fpay wallet when blank.
+    const payoutAddress = parsePayoutAddress(req.body?.payoutAddress);
+    if (payoutAddress === undefined) return reply.code(400).send({ error: 'invalid_payout_address' });
 
-    const id = await requestStakeWithdrawal(merchant.id, amountUsd, DISPUTE_CLAW_WINDOW_H);
+    const id = await requestStakeWithdrawal(merchant.id, amountUsd, DISPUTE_CLAW_WINDOW_H, false, payoutAddress);
     if (!id) {
       // One refusal for four causes would be useless to the person reading it, so re-read and say
       // which. Racy by nature — this is an error message, not a gate; the gate is the statement above.
@@ -502,14 +596,28 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  /** Change where an OPEN request goes. An exit cannot be cancelled, so without this a typo in its
+   *  address is a support ticket; with it, one more prompt. Same test as at request time. */
+  app.post<{ Params: { id: string }; Body: { payoutAddress?: string } }>('/merchants/stake/withdraw/:id/address', async (req, reply) => {
+    const merchant = await requireMerchant(req);
+    const payoutAddress = parsePayoutAddress(req.body?.payoutAddress);
+    if (payoutAddress === undefined) return reply.code(400).send({ error: 'invalid_payout_address' });
+    if (!(await setStakeWithdrawalAddress(merchant.id, req.params.id, payoutAddress))) {
+      return reply.code(409).send({ error: 'withdrawal_not_open' });
+    }
+    return { ok: true };
+  });
+
   /**
    * Leave fpay as a partner. One statement (queries.ts exitMerchant): the whole bond becomes a
    * withdrawal request flagged `exit`, and the row is marked — never deleted — and frozen. Same
    * preconditions as a withdrawal, and the same 409s say which one refused.
    */
-  app.post('/merchants/exit', async (req, reply) => {
+  app.post<{ Body: { payoutAddress?: string } }>('/merchants/exit', async (req, reply) => {
     const merchant = await requireMerchant(req);
-    const done = await exitMerchant(merchant.id, DISPUTE_CLAW_WINDOW_H);
+    const payoutAddress = parsePayoutAddress(req.body?.payoutAddress);
+    if (payoutAddress === undefined) return reply.code(400).send({ error: 'invalid_payout_address' });
+    const done = await exitMerchant(merchant.id, DISPUTE_CLAW_WINDOW_H, payoutAddress);
     if (!done) {
       if (merchant.suspend_reason === 'exited') return reply.code(409).send({ error: 'already_exited' });
       const open = (await listStakeWithdrawals(merchant.id)).find((w) => w.status === 'requested');

@@ -11,9 +11,17 @@ export interface Txn {
   type: TxnType;
   title: string;
   time: string;
+  /** ISO 8601, when known (real rows). The optimistic rows the store prepends have only `time`. */
+  createdAt?: string;
   usd: number; // signed: negative = outgoing, positive = top-up
   rupees?: number; // merchant pays only
   status?: 'pending' | 'confirmed' | 'failed'; // real-mode only; optional so mobile (never sets it) is unaffected
+  /** Trips & splitting (docs/04). The trip this expense sits in; absent = personal. */
+  groupId?: string;
+  /** Your part of what YOU paid, after the shares you handed out (absent on incoming rows). */
+  yourPart?: number;
+  /** Set when this row paid a share of someone's bill (or someone paid theirs to you): the bill's label. */
+  settlesNote?: string;
 }
 
 /**
@@ -177,9 +185,11 @@ export interface MerchantProfile {
     needs: Array<{ key: string; have: number; need: number }>;
   };
   /** An open stake-withdrawal request. The bond is already debited; a human releases the USDC to
-   *  `payoutWallet`. `exit` = the whole bond on the way out, which cannot be cancelled. */
-  pendingWithdrawal?: { id: string; amountUsdc: string; requestedAt: string; exit: boolean };
-  /** The wallet a released stake goes back to — the one it was staked from. Fixed, never typed. */
+   *  `payoutAddress` when the partner named one, else to `payoutWallet`. `exit` = the whole bond on
+   *  the way out, which cannot be cancelled (the address can still be changed while it is open). */
+  pendingWithdrawal?: { id: string; amountUsdc: string; requestedAt: string; exit: boolean; payoutAddress?: string };
+  /** The DEFAULT destination for a released stake — the partner's fpay wallet. They may name any
+   *  wallet they hold when they ask (docs/20); this is what the prompt is prefilled with. */
   payoutWallet?: string;
   /** Why `status` is 'suspended': 'exited' is the partner's own final decision; 'bond' is the floor;
    *  anything else a human. */
@@ -281,6 +291,42 @@ export interface SubmitPayoutRequest {
 
 export interface StakePrepareRequest {
   amountUsd: string | number;
+}
+
+/** Lifecycle of a stake CLAIM (docs/20) — a signature a partner says is their stake, paid to the
+ *  treasury from wherever their USDC was. Never a bond movement itself: admin's credit creates the
+ *  transfers row and the confirmer credits it. 'duplicate' = the signature was already claimed or
+ *  already recorded; both claims are kept so a reviewer sees them side by side. */
+export type StakeClaimStatus = 'submitted' | 'accepted' | 'rejected' | 'duplicate';
+
+export interface StakeClaim {
+  id: string;
+  signature: string;
+  status: StakeClaimStatus;
+  /** What the chain said the signature deposited — read at submit time, never typed. */
+  amountUsdc: string;
+  /** The on-chain sender (an exchange hot wallet, a friend's wallet). Display only. */
+  sender?: string;
+  memo?: string;
+  /** When the deposit landed on chain. */
+  paidAt?: string; // ISO 8601
+  /** Once accepted, the truth: 'pending' until the confirmer's chain check, 'confirmed' when the
+   *  bond landed, 'failed' when the chain contradicted the row. */
+  transferStatus?: 'pending' | 'confirmed' | 'failed';
+  /** The reviewer's reason on a rejection — written to be read by the partner. */
+  note?: string;
+  createdAt: string; // ISO 8601
+}
+
+export interface StakeClaimRequest {
+  signature: string;
+}
+
+/** GET /merchants/stake/claims — where to pay, and what this partner has submitted. `address` is
+ *  null when staking is not configured on this tier; the screen says so instead of offering a 503. */
+export interface MerchantStakeClaimsResponse {
+  address: string | null;
+  claims: StakeClaim[];
 }
 
 /** M7: lifecycle of a real-vendor identity check. */
@@ -396,7 +442,9 @@ export interface ResolveHandleResponse {
  */
 export interface ApiTxn {
   id: string; // transfers.id (uuid)
-  kind: TxnType;
+  /** The transfers.kind as stored. The escrow kinds are real rows in every feed (a scan-and-pay
+   *  debit, a refund) — the mapper folds them into the three view kinds. */
+  kind: TxnType | 'escrow_fund' | 'escrow_release';
   direction: 'in' | 'out';
   amountUsd: string; // unsigned magnitude
   counterpartyHandle?: string;
@@ -408,6 +456,19 @@ export interface ApiTxn {
   status: 'pending' | 'confirmed' | 'failed';
   createdAt: string; // ISO 8601
   signature?: string;
+  /* ---- trips & splitting (0026, docs/04) — all optional so every pre-existing reader is unaffected ---- */
+  /** The trip this expense belongs to; absent = personal. */
+  groupId?: string;
+  /** OUT rows only: amount − Σ shares you handed out (open or paid); '0' when the order was refunded.
+   *  This — never the face amount — is what "your share" sums. Incoming rows never carry it. */
+  yourPartUsd?: string;
+  /** Present when this transfer settled a share: the label the split was given ("Dinner"). */
+  settlesNote?: string;
+  /** Scan-and-pay rows: who received the fiat (the quote's payee name) and the fiat leg, so the feed
+   *  can title the row by the place instead of the escrow pool's address. */
+  payeeName?: string;
+  amountFiat?: string;
+  fiatCurrency?: string;
 }
 
 export interface TransactionsResponse {
@@ -504,6 +565,10 @@ export interface ApiPaymentRequest {
   note?: string;
   status: 'open' | 'paid' | 'cancelled';
   createdAt: string; // ISO 8601
+  /** A share: the expense (transfers.id) this request divides. Absent on a plain request. */
+  splitOf?: string;
+  /** The transfer that paid it. A paid share WITHOUT one was ticked off by hand ("already paid"). */
+  transferId?: string;
 }
 
 export interface RequestsResponse {
@@ -513,6 +578,79 @@ export interface RequestsResponse {
 export interface CreateRequestRequest {
   toHandle: string;
   amountUsd: string | number;
+  note?: string;
+}
+
+/* ---- trips, circles and splitting (0026, docs/04 §Trips) ---- */
+
+export interface ApiGroupMember {
+  userId: string;
+  handle: string;
+}
+
+/** A trip or circle you belong to. `totalUsd` = Σ its expenses (settlements and refunds excluded). */
+export interface ApiGroup {
+  id: string;
+  name: string;
+  ownerHandle: string;
+  members: ApiGroupMember[];
+  totalUsd: string;
+}
+
+/** One friend's part of one expense. `paid` covers both a settled request and "already paid" by hand. */
+export interface ApiShare {
+  handle: string;
+  amountUsd: string;
+  status: 'open' | 'paid';
+}
+
+export interface ApiGroupExpense {
+  transferId: string;
+  kind: TxnType | 'escrow_fund' | 'escrow_release';
+  paidByHandle: string;
+  payeeName?: string;
+  amountUsd: string;
+  note?: string;
+  createdAt: string; // ISO 8601
+  /** Your part: payer → amount − Σ shares; member → your share (or '0'). */
+  yourPartUsd: string;
+  shares: ApiShare[];
+}
+
+export interface ApiGroupDetail extends ApiGroup {
+  yourPartUsd: string;
+  expenses: ApiGroupExpense[];
+}
+
+export interface GroupsResponse {
+  groups: ApiGroup[];
+}
+
+export interface CreateGroupRequest {
+  name: string;
+}
+
+export interface AddMemberRequest {
+  handle: string;
+}
+
+/** `PATCH /transfers/:id` — null moves the expense back to personal. */
+export interface MoveTransferRequest {
+  groupId: string | null;
+}
+
+export interface SplitShareInput {
+  handle: string;
+  amountUsd: string | number;
+  /** The friend already covered this (cash, or a send that predates the split): recorded as paid,
+   *  no request goes out. */
+  settled?: boolean;
+}
+
+/** `POST /transfers/:id/split` — replaces every open share; chain-settled ones are kept. */
+export interface SplitRequest {
+  shares: SplitShareInput[];
+  /** What the friends see on their request ("Dinner"). Defaults to the expense's own note. */
   note?: string;
 }
 
@@ -867,6 +1005,24 @@ export interface AdminStakeWithdrawal {
 
 export interface AdminStakeWithdrawalsResponse {
   withdrawals: AdminStakeWithdrawal[];
+}
+
+/** A stake claim as the console sees it: who says it is theirs, what the chain says it moved, and
+ *  whether anyone else has claimed the same signature (docs/20). */
+export interface AdminStakeClaim extends StakeClaim {
+  merchantId: string;
+  merchantName: string;
+  ownerHandle?: string;
+  ownerEmail?: string;
+  /** Handles (or names) of OTHER partners with a claim on this signature — the flag. */
+  alsoClaimedBy?: string;
+  duplicateOf?: string;
+  transferId?: string;
+  reviewedAt?: string; // ISO 8601
+}
+
+export interface AdminStakeClaimsResponse {
+  claims: AdminStakeClaim[];
 }
 
 export interface AdminRiskEvent {

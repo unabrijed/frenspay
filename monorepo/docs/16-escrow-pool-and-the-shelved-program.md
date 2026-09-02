@@ -87,7 +87,8 @@ field and latest blockhash", billed through Privy) is the sponsored mode. Nothin
 automatically": the backend selects the mode and the client asks for it.
 
 **`escrowLive`** — payments are a capability, not a tier: `envConfig.ts` derives it as _escrow key
-usable ∧ fee-payer usable ∧ earnings address a valid pubkey_ (shape-checked; a base58 secret, a
+usable ∧ earnings address a valid pubkey_ — the fee-payer is optional and only picks who pays gas
+(§Who pays gas) — (shape-checked; a base58 secret, a
 placeholder or a 63-byte array all read as off). `/orders/quote` and `POST /orders` answer
 `503 payments_unavailable` while it is false, and the boot log names the tier-prefixed variables
 actually read. `check-escrow-switch` asserts every branch; `check-transfer-verify` asserts the memo

@@ -19,22 +19,15 @@ export interface KybFieldSpec {
   options?: string[];
 }
 
+// A partner does not need a business: the person's identifier and the account the fiat leaves from
+// (shared/kyb.ts header, 2026-09-02).
 const INDIA: KybFieldSpec[] = [
-  { key: 'legalName', maxLen: 120 },
-  { key: 'entityType', maxLen: 60 },
   { key: 'pan', pattern: /^[A-Za-z]{5}[0-9]{4}[A-Za-z]$/ },
-  { key: 'gstin', optional: true, pattern: /^[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][0-9A-Za-z]{3}$/ },
-  { key: 'address', maxLen: 300 },
   { key: 'payoutAccount', maxLen: 120 },
 ];
 
 const INDONESIA: KybFieldSpec[] = [
-  { key: 'legalName', maxLen: 120 },
-  { key: 'entityType', maxLen: 60 },
-  { key: 'nib', pattern: /^[0-9]{13}$/ },
-  { key: 'npwp', optional: true, maxLen: 30 },
   { key: 'nik', pattern: /^[0-9]{16}$/ },
-  { key: 'address', maxLen: 300 },
   { key: 'payoutAccount', maxLen: 120 },
 ];
 
@@ -48,7 +41,7 @@ const SCREENING: KybFieldSpec[] = [
   { key: 'accountDedicated', options: ['Yes, dedicated to this', 'No, I also use it personally', 'I’ll open one before starting'] },
   { key: 'otherPlatforms', optional: true, maxLen: 200 },
   { key: 'heardAbout', optional: true, maxLen: 120 },
-  { key: 'contactTelegram', optional: true, maxLen: 64 },
+  { key: 'contactTelegram', maxLen: 64 },
 ];
 
 export const KYB_FIELDS: Record<string, KybFieldSpec[]> = {

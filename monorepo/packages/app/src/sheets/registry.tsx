@@ -4,6 +4,7 @@ import { AddMoney } from './AddMoney';
 import { Country } from './Country';
 import { Currency } from './Currency';
 import { Request, RequestPick, RequestSent, Send, SendAmount, SendFailed, Sent } from './friends';
+import { AddMember, MoveToGroup, NewGroup, Split, Trip } from './groups';
 import { Help } from './Help';
 import { Recovery, Verify } from './identity';
 import { LocalCurrency } from './LocalCurrency';
@@ -11,7 +12,6 @@ import { Notifications } from './notifications';
 import { OrderTracking } from './OrderTracking';
 import { Amount, Scan } from './pay';
 import { PayByPhone } from './PayByPhone';
-import { QuoteSheet } from './Quote';
 import { Receive } from './Receive';
 import { SendAddressAmount, SendAddressConfirm, SendNetwork } from './sendAddress';
 import type { SheetId } from '../store';
@@ -30,9 +30,11 @@ export const TALL = new Set<SheetId>([
   'sent',
   'verify',
   'recovery',
-  'quote',
   'tracking',
   'notifications',
+  'addMember',
+  'split',
+  'trip',
 ]);
 
 export function renderSheet(id: SheetId) {
@@ -77,14 +79,22 @@ export function renderSheet(id: SheetId) {
       return <LocalCurrency />;
     case 'country':
       return <Country />;
-    case 'quote':
-      return <QuoteSheet />;
     case 'tracking':
       return <OrderTracking />;
     case 'help':
       return <Help />;
     case 'notifications':
       return <Notifications />;
+    case 'newGroup':
+      return <NewGroup />;
+    case 'addMember':
+      return <AddMember />;
+    case 'moveToGroup':
+      return <MoveToGroup />;
+    case 'split':
+      return <Split />;
+    case 'trip':
+      return <Trip />;
     default:
       return null;
   }

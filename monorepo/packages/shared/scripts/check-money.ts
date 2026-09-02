@@ -26,6 +26,7 @@ import {
 } from '../src/units';
 import { currencyForCountry } from '../src/currencyCodes';
 import { fiatRaw, fiatSymbol, inrRaw, isDisplayCurrency, rateLabel, secondaryCurrency } from '../src/money';
+import { splitEqual } from '../src/split';
 // The backend's wire-number seam. Imported across the workspace boundary on purpose: the rounding
 // law is one law, and it must hold on both sides of it.
 import { amt, roundDown, roundUp } from '../../../apps/backend/src/lib/amount';
@@ -305,6 +306,24 @@ ok('nobody has taught pg to parse numeric as a float');
   }
   assert.equal(isDisplayCurrency('THB'), false, 'THB is a rail currency, not yet a display one');
   ok('every display currency has a rate to be displayed at');
+}
+
+
+// --- bill splitting (docs/04 §Trips): the parts never exceed the bill, and they are cents ---
+{
+  assert.deepEqual(splitEqual('100', 3), ['33.34', '33.33', '33.33'], 'the payer keeps the remainder');
+  assert.deepEqual(splitEqual('100', 1), ['100.00'], 'one person is the whole bill');
+  assert.deepEqual(splitEqual('100', 4), ['25.00', '25.00', '25.00', '25.00']);
+  assert.deepEqual(splitEqual('0.01', 3), ['0.01', '0.00', '0.00'], 'a cent cannot be split — the friends owe nothing');
+  for (const [total, n] of [['100', 3], ['7.77', 6], ['0.05', 4], ['1234.56', 7]] as const) {
+    const parts = splitEqual(total, n);
+    const sum = parts.reduce((acc, p) => acc.plus(p), new BN(0));
+    assert.equal(sum.toFixed(2), new BN(total).toFixed(2), `${total}/${n} must add back up`);
+    for (const p of parts.slice(1)) assert.ok(new BN(p).lte(parts[0]), 'no friend pays more than the payer');
+  }
+  throws(() => splitEqual('100', 0), 'zero people');
+  throws(() => splitEqual('abc', 2), 'not money');
+  ok('an equal split is cents that add back up to the bill, remainder to the payer');
 }
 
 function grepTs(dir: string, needle: string): string[] {

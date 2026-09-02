@@ -21,7 +21,16 @@ export function TxCard({ tx, onPress, showInr = false }: { tx: Txn; onPress?: ()
   // local so it clears when the row unmounts on navigation.
   const [revealed, setRevealed] = useState(false);
   const merchant = tx.type === 'pay';
-  const positive = tx.type === 'add';
+  // The sign is the money's, not the kind's: a send you RECEIVED used to print a minus.
+  const positive = tx.usd > 0;
+  // Trips & splitting (docs/04): what this row settled, or what of it was yours.
+  const caption = tx.settlesNote
+    ? positive
+      ? `settles ${tx.settlesNote}`
+      : `your part of ${tx.settlesNote}`
+    : tx.yourPart !== undefined && tx.yourPart !== Math.abs(tx.usd)
+      ? `your part ${hideAmounts && !revealed ? '••••' : usd(tx.yourPart)}`
+      : null;
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed ? { backgroundColor: colors.surfaceLow } : null]}>
       <View style={styles.left}>
@@ -38,6 +47,7 @@ export function TxCard({ tx, onPress, showInr = false }: { tx: Txn; onPress?: ()
           <Txt style={[type.rowName, clamp1]}>{tx.title}</Txt>
           <Txt style={[type.rowTime, { marginTop: 2 }]}>
             {tx.time}
+            {caption ? ` · ${caption}` : ''}
             {tx.status === 'pending' && <Txt style={{ color: colors.accent }}> · Processing…</Txt>}
             {tx.status === 'confirmed' && <Txt style={{ color: colors.secondary }}> · Completed</Txt>}
             {tx.status === 'failed' && <Txt style={{ color: colors.danger }}> · Failed</Txt>}

@@ -272,6 +272,55 @@ html.fonts-ready .material-symbols-outlined {
   }
 }
 
+/* ===== the pay scene (packages/app/src/components/PayScene.tsx) =====
+   Three scenes for the wait between Pay and Paid, one per payment. Geometry and colour
+   stay in the component; this is only the motion, and it follows the mark's rules: one
+   rust object per frame, the horizon never moves, every gesture returns home. */
+
+/* relay: in the sending phase the two frens lean in and hold — the rest-lean's own
+   numbers, as a state rather than a beat. In `joining` the dots carry no animation
+   slot, so a plain translate applies without the index-slot trap above. */
+.fp-scene[data-scene='relay'] .fp-logo-dot,
+.fp-scene[data-scene='relay'] .fp-logo-link {
+  transition: translate 1200ms var(--ease-soft);
+}
+.fp-scene[data-scene='relay'][data-phase='sending'] .fp-logo-dot-l {
+  translate: 16% 0;
+}
+.fp-scene[data-scene='relay'][data-phase='sending'] .fp-logo-dot-r {
+  translate: -16% 0;
+}
+.fp-scene[data-scene='relay'][data-phase='sending'] .fp-logo-link {
+  translate: 0 8%;
+}
+
+/* crossing: drybrush water drifts a little; the rust object bobs on it. Both end
+   where they began, so the reduced-motion block below can drop them outright. */
+.fp-drift {
+  animation: fp-drift 6s ease-in-out infinite;
+}
+@keyframes fp-drift {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 6% 0;
+  }
+}
+.fp-bob {
+  animation: fp-bob 2.4s ease-in-out infinite;
+}
+@keyframes fp-bob {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -3px;
+  }
+}
+
 /* Skeleton shimmer — placeholder blocks shown while first-load data arrives (see
    components/ui/Skeleton.tsx). A warm neutral base with a light sweep, so screens read as
    "loading" instead of flashing empty→full. */
@@ -313,7 +362,9 @@ html.fonts-ready .material-symbols-outlined {
   .skeleton::after,
   .pulse-ring,
   .fp-logo *,
-  .fp-arrive {
+  .fp-arrive,
+  .fp-drift,
+  .fp-bob {
     animation: none !important;
   }
 }

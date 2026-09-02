@@ -1,27 +1,20 @@
 'use client';
 
-// OrderTracking.tsx — the live 7-step order timeline + the four failure-resolution states.
-// Polls GET /orders/:id until terminal. Every state answers "what's happening / what to do / ETA",
-// per the architecture: a user must never wonder "did my money disappear?".
+// OrderTracking.tsx — the live tracker: a brand scene that moves with the order (PayScene) + the
+// failure-resolution states + the outcome cards. Polls GET /orders/:id until terminal. Every state
+// answers "what's happening / what to do / ETA", per the architecture: a user must never wonder
+// "did my money disappear?".
 import type { CSSProperties, ReactNode } from 'react';
 import { useEffect } from 'react';
 
-import { fiatRaw, type OrderResolution, type OrderState } from '@fpay/shared';
+import { fiatRaw, type OrderResolution } from '@fpay/shared';
 
 import { Btn, colors, fonts, Grab, Icons, Pressable, radii, SheetBody, SheetHeader, Spacer, TextLink, Txt, type, View } from '@fpay/ui';
+import { type PayPhase, PayScene } from '../components/PayScene';
 import { ResultBlock } from '../components/ResultBlock';
 import { platform } from '../platform';
 import { usePayStore } from '../store';
-
-const STEPS: { state: OrderState; label: string; sub: string }[] = [
-  { state: 'quote_locked', label: 'Quote locked', sub: 'Rate & fee locked in' },
-  { state: 'pay_instructions', label: 'Confirm payment', sub: 'Tap confirm to pay' },
-  { state: 'waiting_payment', label: 'Processing payment', sub: 'Securing your money' },
-  { state: 'payment_detected', label: 'Payment secured', sub: 'Your money is held safely' },
-  { state: 'merchant_confirms', label: 'Paying the recipient', sub: 'Sending it across' },
-  { state: 'funds_released', label: 'Payment sent', sub: 'Almost done' },
-  { state: 'completed', label: 'Completed', sub: 'All done' },
-];
+import { fmtEta } from './pay';
 
 const RES: Record<OrderResolution, { title: string; body: string }> = {
   delayed: {
@@ -37,19 +30,6 @@ const RES: Record<OrderResolution, { title: string; body: string }> = {
     body: 'We’re verifying this payout. We’ll resolve it or refund you in full. You won’t be left out of pocket.',
   },
 };
-
-function Step({ label, sub, status }: { label: string; sub: string; status: 'done' | 'active' | 'todo' }) {
-  const lit = status !== 'todo';
-  return (
-    <View style={stepStyles.row}>
-      <View style={[stepStyles.dot, lit ? { backgroundColor: colors.accent } : null, status === 'active' ? stepStyles.dotActive : null]} />
-      <View style={{ flex: 1 }}>
-        <Txt style={[type.rowAmount, { fontSize: 15 }, status === 'todo' ? { color: colors.muted } : null]}>{label}</Txt>
-        {status === 'active' ? <Txt style={type.inst}>{sub}</Txt> : null}
-      </View>
-    </View>
-  );
-}
 
 // Terminal outcome card — reused for completed / refunded (kind="ok") and failed (kind="no"), so
 // every order outcome reads as the same intentional ResultBlock card.
@@ -202,12 +182,15 @@ export function OrderTracking() {
     );
   }
 
-  const idx = STEPS.findIndex((s) => s.state === order.state);
+  // Two phases the payer can see: the deposit confirming, then the payout crossing. The claim
+  // flips to the Paid card above, so the later states only reach here under a resolution overlay.
+  const phase: PayPhase =
+    order.state === 'payment_detected' || order.state === 'merchant_confirms' || order.state === 'funds_released' ? 'sending' : 'securing';
 
   return (
     <>
       <Grab />
-      <SheetHeader eyebrow={`Receipt ${order.referenceCode}`} title="Tracking your payment" onClose={close} />
+      <SheetHeader eyebrow={`Receipt ${order.referenceCode}`} title={`Paying ${fiatRaw(order.quote.amountInr, order.quote.currency)}`} onClose={close} />
       <SheetBody>
         {order.resolution ? (
           <View style={styles.banner}>
@@ -216,11 +199,8 @@ export function OrderTracking() {
           </View>
         ) : null}
 
-        <View style={styles.steps}>
-          {STEPS.map((s, i) => (
-            <Step key={s.state} label={s.label} sub={s.sub} status={i < idx ? 'done' : i === idx ? 'active' : 'todo'} />
-          ))}
-        </View>
+        <PayScene seed={order.id} phase={phase} />
+        <Txt style={[type.inst, { textAlign: 'center' }]}>Usually {fmtEta(order.quote.etaMinSecs, order.quote.etaMaxSecs)}.</Txt>
 
         <Spacer />
         <View style={styles.cta}>
@@ -236,15 +216,8 @@ export function OrderTracking() {
   );
 }
 
-const stepStyles = {
-  row: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingTop: 9, paddingBottom: 9 },
-  dot: { width: 11, height: 11, borderRadius: 6, backgroundColor: colors.inkSoft, marginTop: 4, flexShrink: 0 },
-  dotActive: { boxShadow: `0 0 0 4px ${colors.accentSoft}` },
-} satisfies Record<string, CSSProperties>;
-
 const styles = {
   banner: { backgroundColor: colors.inkSoft, borderRadius: 16, padding: 16, marginBottom: 6 },
-  steps: { marginTop: 8 },
   cta: { gap: 13, alignItems: 'center' },
   utr: { alignItems: 'center', marginTop: 14, padding: 12, borderRadius: radii.card, backgroundColor: colors.surfaceLow },
   recourse: { alignItems: 'center', gap: 10, marginTop: 16 },

@@ -4,7 +4,7 @@
 //
 // Money flows delegate to the RealWalletProvider (@/services/wallet) → the backend API + on-device
 // signing. The app is always real; balance/activity load from the backend once signed in.
-import { type ApiPaymentRequest, classifyPayTarget, countryFromTimeZone, currencyForCountry, type DisplayCurrency, fiatDecimals, isDisplayCurrency, isoFromE164, type KycStatus, type NetworkId, type Notification, type Order, phoneCandidates, type Quote, truncateAddress } from '@fpay/shared';
+import { type ApiGroup, type ApiGroupDetail, type ApiPaymentRequest, classifyPayTarget, countryFromTimeZone, currencyForCountry, type DisplayCurrency, fiatDecimals, isDisplayCurrency, isoFromE164, type KycStatus, type NetworkId, type Notification, type Order, phoneCandidates, type Quote, type SplitShareInput, truncateAddress } from '@fpay/shared';
 import { useEffect, useState } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
@@ -18,6 +18,9 @@ import { wallet, type Friend, type Payee, type Txn } from './services/wallet';
 
 // In-flight guard for the silent background re-quote (see refreshQuote).
 let refreshingQuote = false;
+// Monotonic id of the newest quote request. A response whose id is no longer current is dropped —
+// the amount moved on, or a confirm started. refreshingQuote stays: it de-dupes the 1s ticker.
+let quoteSeq = 0;
 
 // Same guard for the two data-fetching entry points. Cold boot fires load() (PrivyBridge, on token)
 // and refresh() (useLiveSync, on mount) at the same instant, StrictMode double-mounts the second,
@@ -50,10 +53,15 @@ export type SheetId =
   | 'currency'
   | 'localCurrency'
   | 'country'
-  | 'quote'
   | 'tracking'
   | 'help'
-  | 'notifications';
+  | 'notifications'
+  // trips & splitting (docs/04 §Trips)
+  | 'newGroup'
+  | 'addMember'
+  | 'moveToGroup'
+  | 'split'
+  | 'trip';
 
 const SHEET_EXIT_MS = 280;
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -145,6 +153,12 @@ interface PayState {
   lastRequest: { u: number; handle: string };
   requestDraftUsd: number;
   requests: ApiPaymentRequest[];
+  /** Trips & splitting (docs/04 §Trips). `groups` rides every load/refresh; `trip` is the open
+   *  trip sheet's detail (null while it loads); `expense` is what a split/move sheet is about —
+   *  written by whoever opens it (the detail page, a trip row), like `friend` for Send. */
+  groups: ApiGroup[];
+  trip: ApiGroupDetail | null;
+  expense: { id: string; amountUsd: number; label: string; groupId?: string } | null;
   busy: boolean;
   /** True once the first signed-in load() of this SESSION has resolved. Ephemeral (never persisted)
    *  so every fresh app load starts false → screens show skeletons until live data arrives, instead
@@ -211,6 +225,19 @@ interface PayState {
   requestMoney: (handle: string, amountUsd: number, note?: string) => Promise<void>;
   payRequest: (id: string) => Promise<void>;
   cancelRequest: (id: string) => Promise<void>;
+
+  // ---- trips & splitting ----
+  setExpense: (e: PayState['expense']) => void;
+  /** Open the trip sheet on a group and fetch its detail into `trip`. */
+  openTrip: (id: string) => Promise<void>;
+  createGroup: (name: string) => Promise<void>;
+  /** The next three act on the open trip (`trip`). */
+  addMember: (handle: string) => Promise<void>;
+  removeMember: (userId: string) => Promise<void>;
+  deleteGroup: () => Promise<void>;
+  /** The next two act on `expense`. null = personal. */
+  moveExpense: (groupId: string | null) => Promise<void>;
+  splitExpense: (shares: SplitShareInput[], note?: string) => Promise<void>;
 
   // ---- auth actions (delegate to the Privy bridge) ----
   setAuthBridge: (b: AuthBridge) => void;
@@ -284,19 +311,18 @@ interface PayState {
   doSendExternal: () => Promise<Txn | null>;
 
   // ---- order lifecycle: quote → confirm (sign escrow funding) → poll ----
-  /** Request a locked quote for a rupee amount and open the Quote screen. */
+  /** Live-quote the typed amount. No busy, no sheet: the Amount sheet calls it after the keys go
+   *  quiet and reads `quote` back; a response for an amount that moved on is dropped. */
   getQuote: (rupees: number) => Promise<void>;
   /** Silently re-quote the same rupee amount when the held rate nears expiry. No busy/sheet/error. */
   refreshQuote: () => Promise<void>;
-  /** Confirm the live quote: create the order, sign the escrow funding, open the timeline. */
+  /** Confirm the live quote: create the order, sign the escrow funding, open the tracker. */
   confirmOrder: () => Promise<void>;
   /** Poll the in-flight order; refreshes balance once it reaches a terminal state. */
   refreshOrder: () => Promise<void>;
   /** Payer reports the money never arrived, while the merchant's release window is still open. */
   disputeOrder: (reason?: string, orderId?: string) => Promise<void>;
   feedbackOrder: (up: boolean) => Promise<void>;
-  /** Discard the quote and go back to amount entry. */
-  editQuote: () => void;
 
   // ---- onboarding ----
   completeOnboarding: () => void;
@@ -353,6 +379,9 @@ export const usePayStore = create<PayState>()(
       lastRequest: { u: 0, handle: '' },
       requestDraftUsd: 20,
       requests: [],
+      groups: [],
+      trip: null,
+      expense: null,
       busy: false,
       firstLoadDone: false,
       provisioned: false,
@@ -507,7 +536,7 @@ export const usePayStore = create<PayState>()(
           // letting that zero read as fact. Removing the zero entirely means a nullable balanceUSD
           // threaded through every consumer; do that if "stale" and "unknown" ever need to look
           // different on screen.
-          const [bal, txns, reqs, notifs] = await Promise.all([
+          const [bal, txns, reqs, notifs, grp] = await Promise.all([
             wallet.getBalanceUsd().catch((e) => {
               // A warm refresh holds the last figure silently — it's real, just stale. A cold load
               // has no last figure, so the same fallback would present a made-up $0 as this
@@ -520,6 +549,7 @@ export const usePayStore = create<PayState>()(
             wallet.getRequests().catch(() => get().requests),
             // Non-critical: a failing /notifications must never blank the dashboard.
             api.getNotifications().catch(() => ({ notifications: get().notifications, unread: get().unread })),
+            api.groups().catch(() => ({ groups: get().groups })),
           ]);
           set({
             balanceUSD: bal,
@@ -527,6 +557,7 @@ export const usePayStore = create<PayState>()(
             requests: reqs,
             notifications: notifs.notifications,
             unread: notifs.unread,
+            groups: grp.groups,
             busy: false,
             firstLoadDone: true,
           });
@@ -562,12 +593,13 @@ export const usePayStore = create<PayState>()(
           // without it an open tab served a renamed user's OLD handle in the Receive QR forever
           // (load() only runs on cold sign-in). Also how suspension/reinstatement reaches an open
           // tab within one poll.
-          const [me, bal, txns, reqs, notifs] = await Promise.all([
+          const [me, bal, txns, reqs, notifs, grp] = await Promise.all([
             api.me(),
             wallet.getBalanceUsd(),
             wallet.getTransactions(),
             wallet.getRequests(),
             api.getNotifications().catch(() => null),
+            api.groups().catch(() => null),
             get().syncRates(),
           ]);
           // Don't overwrite notifications while the inbox is open — it would resurrect the just-cleared
@@ -588,6 +620,7 @@ export const usePayStore = create<PayState>()(
             balanceUSD: bal,
             transactions: txns,
             requests: reqs,
+            ...(grp ? { groups: grp.groups } : {}),
             ...(keepInbox ? {} : { notifications: notifs.notifications, unread: notifs.unread }),
           });
         } catch {
@@ -680,6 +713,9 @@ export const usePayStore = create<PayState>()(
           notifications: [],
           unread: 0,
           requests: [],
+          groups: [],
+          trip: null,
+          expense: null,
           kycTier: 1,
           identityCheckAvailable: true,
           invitesTotal: 3,
@@ -927,7 +963,8 @@ export const usePayStore = create<PayState>()(
         // already-clamped value) so a malformed 3dp QR can't seed an amount the backend would
         // reject at quote time. IDR clamps to whole rupiah.
         const minor = 10 ** fiatDecimals(m.currency ?? 'INR');
-        set({ payee: m, scannedRupees: Math.round(rupees * minor) / minor });
+        // quote: null — a previous payee's quote for the same amount must never read as live here.
+        set({ payee: m, scannedRupees: Math.round(rupees * minor) / minor, quote: null });
         // The scanned rail's rate, fetched now rather than kept warm for every rail on every poll.
         // Not awaited: fxRates is seeded and persisted, so the keypad prices off the last known
         // rate immediately and repaints when the fresh one lands — the binding number is the
@@ -1189,7 +1226,10 @@ export const usePayStore = create<PayState>()(
 
       // ---- order lifecycle: quote → confirm (sign escrow funding) → poll ----
       getQuote: async (rupees) => {
-        set({ busy: true, error: null });
+        // A confirm is in flight: its quote must not move under it.
+        if (get().busy) return;
+        const seq = ++quoteSeq;
+        set({ error: null, pendingPay: false });
         try {
           const payee = get().payee;
           const quote = await apiCreateQuote({
@@ -1201,15 +1241,16 @@ export const usePayStore = create<PayState>()(
             payoutDestination: payee.vpa,
             payoutName: payee.name,
           });
-          set({ quote, payRupees: rupees, busy: false });
-          get().open('quote');
+          if (seq !== quoteSeq) return; // superseded
+          set({ quote, payRupees: rupees });
         } catch (e) {
+          if (seq !== quoteSeq) return;
           if (e instanceof ApiError && e.code === 'limit_exceeded' && get().identityCheckAvailable) {
-            set({ busy: false, error: 'Verify your identity to raise your limit.', pendingPay: true });
-            get().open('verify');
+            // No open('verify'): the user is mid-keypad. The Amount sheet renders the link off pendingPay.
+            set({ error: 'Verify your identity to raise your limit.', pendingPay: true });
             return;
           }
-          set({ busy: false, error: e instanceof Error ? e.message : String(e) });
+          set({ error: friendlyError(e) });
         }
       },
 
@@ -1220,6 +1261,7 @@ export const usePayStore = create<PayState>()(
         if (!q || get().busy || refreshingQuote) return;
         if (q.expiresAt - Date.now() > 5_000) return;
         refreshingQuote = true;
+        const seq = quoteSeq;
         try {
           const payee = get().payee;
           const quote = await apiCreateQuote({
@@ -1229,7 +1271,9 @@ export const usePayStore = create<PayState>()(
             payoutDestination: payee.vpa,
             payoutName: payee.name,
           });
-          set({ quote });
+          // A refresh of the old amount landing after a fresh live quote would park a mismatched
+          // quote in the store with nothing left to re-fire it.
+          if (seq === quoteSeq) set({ quote });
         } catch {
           // Keep the stale quote; confirmOrder's quote_expired retry is the backstop.
         } finally {
@@ -1238,34 +1282,34 @@ export const usePayStore = create<PayState>()(
       },
 
       confirmOrder: async () => {
+        let q = get().quote;
+        if (!q) return;
+        // Orphan any live quote still in flight: from here nothing may move the quote under the order.
+        quoteSeq++;
         set({ busy: true, error: null });
         // Two passes: if the quote expired between refresh ticks, silently re-quote the same
         // rupee amount and retry once. Safe — the 409 fires before any order or tx exists.
         for (let attempt = 0; attempt < 2; attempt++) {
-          const q = get().quote;
-          if (!q) {
-            set({ busy: false });
-            return;
-          }
           try {
             const order = await apiConfirmOrder(q.id);
             // Optimistically debit the escrowed USDC so a second order can't see the same balance;
             // refreshOrder() reconciles against the chain on completion/refund.
-            set((s) => ({ order, balanceUSD: +(s.balanceUSD - Number(q.amountUsdc)).toFixed(2), busy: false }));
+            const debit = Number(q.amountUsdc);
+            set((s) => ({ order, balanceUSD: +(s.balanceUSD - debit).toFixed(2), busy: false }));
             get().open('tracking');
             return;
           } catch (e) {
             if (e instanceof ApiError && e.code === 'quote_expired' && attempt === 0) {
               try {
                 const payee = get().payee;
-                const quote = await apiCreateQuote({
+                q = await apiCreateQuote({
                   direction: 'spend',
                   amountInr: q.amountInr,
                   payoutMethod: payee.rail ?? 'UPI',
                   payoutDestination: payee.vpa,
                   payoutName: payee.name,
                 });
-                set({ quote });
+                set({ quote: q });
                 continue;
               } catch {
                 // Re-quote failed; fall through and report the original error.
@@ -1276,7 +1320,7 @@ export const usePayStore = create<PayState>()(
               get().open('verify');
               return;
             }
-            set({ busy: false, error: e instanceof Error ? e.message : String(e) });
+            set({ busy: false, error: friendlyError(e) });
             return;
           }
         }
@@ -1329,11 +1373,6 @@ export const usePayStore = create<PayState>()(
         }
       },
 
-      editQuote: () => {
-        set({ quote: null });
-        get().open('amount');
-      },
-
       // ---- payment requests ----
       requestMoney: async (handle, amountUsd, note) => {
         set({ busy: true, error: null });
@@ -1376,6 +1415,114 @@ export const usePayStore = create<PayState>()(
             requests: s.requests.map((x) => (x.id === id ? { ...x, status: 'cancelled' } : x)),
           }));
         } catch (e) {
+          get().notify(friendlyError(e));
+        }
+      },
+
+      // ---- trips & splitting (docs/04 §Trips) ----
+      // Groups are not money, so they talk to the API directly (like /me and notifications) rather
+      // than through the wallet seam. Every mutation ends in the same three refetches: the trip
+      // (if one is open), the roster list, and the feed — the server derives every total.
+      setExpense: (e) => set({ expense: e }),
+      openTrip: async (id) => {
+        set({ trip: null });
+        get().open('trip');
+        try {
+          set({ trip: await api.groupDetail(id) });
+        } catch (e) {
+          get().notify(friendlyError(e));
+          get().close();
+        }
+      },
+      createGroup: async (name) => {
+        set({ busy: true });
+        try {
+          const { id } = await api.createGroup({ name });
+          set({ groups: (await api.groups()).groups, busy: false });
+          await get().openTrip(id);
+        } catch (e) {
+          set({ busy: false });
+          get().notify(friendlyError(e));
+        }
+      },
+      addMember: async (handle) => {
+        const trip = get().trip;
+        if (!trip) return;
+        set({ busy: true });
+        try {
+          await api.addMember(trip.id, { handle });
+          set({ groups: (await api.groups()).groups, busy: false });
+          await get().openTrip(trip.id);
+        } catch (e) {
+          set({ busy: false });
+          get().notify(friendlyError(e));
+        }
+      },
+      removeMember: async (userId) => {
+        const trip = get().trip;
+        if (!trip) return;
+        try {
+          await api.removeMember(trip.id, userId);
+          const groups = (await api.groups()).groups;
+          // Leaving: the sheet has nothing left to show. Removing someone: show the roster without them.
+          if (groups.some((g) => g.id === trip.id)) {
+            set({ groups });
+            await get().openTrip(trip.id);
+          } else {
+            set({ groups });
+            get().close();
+          }
+        } catch (e) {
+          get().notify(friendlyError(e));
+        }
+      },
+      deleteGroup: async () => {
+        const trip = get().trip;
+        if (!trip) return;
+        try {
+          await api.deleteGroup(trip.id);
+          get().close();
+          set({ groups: (await api.groups()).groups, trip: null });
+          void get().refresh(); // its expenses are personal again (groupId gone from the feed)
+        } catch (e) {
+          get().notify(friendlyError(e));
+        }
+      },
+      moveExpense: async (groupId) => {
+        const expense = get().expense;
+        if (!expense) return;
+        set({ busy: true });
+        try {
+          await api.moveTransfer(expense.id, { groupId });
+          set((s) => ({
+            busy: false,
+            expense: { ...expense, groupId: groupId ?? undefined },
+            // The detail page may be showing this very row.
+            detail: s.detail?.id === expense.id ? { ...s.detail, groupId: groupId ?? undefined } : s.detail,
+          }));
+          void get().refresh();
+          const trip = get().trip;
+          if (trip) await get().openTrip(trip.id);
+          else get().close();
+        } catch (e) {
+          set({ busy: false });
+          get().notify(friendlyError(e));
+        }
+      },
+      splitExpense: async (shares, note) => {
+        const expense = get().expense;
+        if (!expense) return;
+        set({ busy: true });
+        try {
+          await api.splitTransfer(expense.id, { shares, note });
+          set({ busy: false });
+          void get().refresh();
+          const trip = get().trip;
+          if (trip) await get().openTrip(trip.id);
+          else get().close();
+          get().notify(shares.length ? 'Split saved' : 'Split removed', 'success');
+        } catch (e) {
+          set({ busy: false });
           get().notify(friendlyError(e));
         }
       },

@@ -49,7 +49,7 @@ Flow docs follow the **same six-part shape**, so you always know where to look:
 | 01 | [Architecture](01-architecture.md) | the whole system, monorepo layout, request + on-chain lifecycle, mainnet posture |
 | 02 | [Identity & onboarding](02-identity-and-onboarding.md) | email-only entrance, one-email/one-handle rule, invite codes (FREN remint), phone/country aliases, KYC tiers |
 | 03 | [Custody, money-in & confirmation](03-custody-money-in-and-confirmation.md) | self-custody (the key legal lever), fee-payer gas, USDC-only deposits, how the chain tells the app |
-| 04 | [P2P & contacts](04-p2p-and-contacts.md) | send by handle/phone/address, requests, contacts, the minimal Add/Send home |
+| 04 | [P2P & contacts](04-p2p-and-contacts.md) | send by handle/phone/address, requests, contacts, the minimal Add/Send home, trips & circles + bill splitting |
 | 05 | [Fees, FX & display](05-fees-fx-and-display.md) | the flat $0.001 conversion fee folded into the rate, per-currency FX, dual-currency balance + flip + eye-hide |
 | 06 | [Offramp & settlement](06-offramp-and-settlement.md) | quote → escrow → route → payout as one machine; an ordered `settle` preference per corridor — provider-direct (Xendit) with the LP pool as fallback; corridor economics |
 | 07 | [Admin & moderation](07-admin-and-moderation.md) | roles, suspend/reinstate, admin renames, audit trail, soft-delete (decided), ban = suspend + denylist |
@@ -64,6 +64,8 @@ Flow docs follow the **same six-part shape**, so you always know where to look:
 | 16 | [The escrow pool, and the shelved program](16-escrow-pool-and-the-shelved-program.md) | the program audit (dust-lock, refund-to-anyone, what a deploy really costs), why the pilot's escrow is a pooled token account under a backend key, the two PDA guarantees re-implemented (memo attribution, status-checked write-off), webhook-first recovery, and the keys |
 | 17 | [Handle + email: named together, one rule per input, adopt before you ask](17-handle-and-email-identity.md) | why the admin pages showed one of the two, the `Who` cell, one canonical email form (0025 + CHECK) at the single entrance, `draftHandle` for your own name vs reject-mode for anyone else's, and `/auth/sync` adopting by verified email before any screen asks for a name |
 | 18 | [Sessions and boot](18-sessions-and-boot.md) | why people were asked for an OTP again (the LP wallet gate, `no_account` destroying the session, the 5 s fallback), sign-in on the token with the wallet on its own clock, the token on every call, `check:fetch` as the rule, and what a cold load waits for now |
+| 19 | [Trips, circles and bill splitting](19-trips-and-splitting.md) | the decision record: shares are payment requests, the payer's part is derived, the trip view is a sheet |
+| 20 | [Stake claims](20-stake-claims.md) | how a partner stakes without USDC in their fpay wallet — pay the treasury from anywhere, paste the signature, the chain is read, a human attributes, the confirmer credits; duplicates as rows; the refund address is the partner's; Telegram required |
 
 **Deployment is not a numbered doc** — the runbooks live at the repo root, next to the code they
 deploy: [`DEPLOY.stage.md`](../DEPLOY.stage.md) and [`DEPLOY.md`](../DEPLOY.md). One architecture

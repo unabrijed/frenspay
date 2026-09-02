@@ -20,6 +20,7 @@ import type {
   AdminUsersResponse,
   AdminWaitlistResponse,
   MeResponse,
+  AdminStakeClaimsResponse,
   AdminStakeWithdrawalsResponse,
 } from '@fpay/shared';
 
@@ -139,6 +140,14 @@ export const api = {
   // Record-only: the USDC was sent by hand from the cold stake treasury; this is its signature.
   releaseStakeWithdrawal: (id: string, signature: string) =>
     req<{ ok: true }>(`/admin/stake/withdrawals/${id}/release`, { method: 'POST', body: JSON.stringify({ signature }) }),
+  // Stake claims (docs/20): 'open' is what needs a human — submitted, duplicate, failed the chain check.
+  stakeClaims: (scope: 'open' | 'all' = 'open') => req<AdminStakeClaimsResponse>(`/admin/stake/claims?scope=${scope}`),
+  // Attribution, not a credit: the server inserts the pending transfers row; the confirmer's chain
+  // check lands the bond. Refused while another live claim or a transfer holds the signature.
+  creditStakeClaim: (id: string) => req<{ ok: true }>(`/admin/stake/claims/${id}/credit`, { method: 'POST' }),
+  // `note` is shown to the PARTNER verbatim and is required.
+  rejectStakeClaim: (id: string, note: string) =>
+    req<{ ok: true }>(`/admin/stake/claims/${id}/reject`, { method: 'POST', body: JSON.stringify({ note }) }),
   resolveDispute: (id: string, resolution: 'upheld' | 'rejected', note?: string) =>
     req<{ ok: true; resolution: string }>(`/admin/disputes/${id}/resolve`, {
       method: 'POST',

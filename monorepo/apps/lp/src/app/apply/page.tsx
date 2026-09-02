@@ -88,8 +88,8 @@ export default function MerchantApply() {
           </>
         ) : (
           <>
-            <Txt style={[type.kvKey, { marginBottom: 8 }]}>Business name</Txt>
-            <SearchBar placeholder="e.g. Anjuna Exchange" value={name} onChangeText={setName} />
+            <Txt style={[type.kvKey, { marginBottom: 8 }]}>Name</Txt>
+            <SearchBar placeholder="Your name, or what you trade as" value={name} onChangeText={setName} />
 
             <Txt style={[type.kvKey, { marginTop: 18, marginBottom: 8 }]}>Contact number</Txt>
             <SearchBar placeholder="+91 98765 43210" value={phone} onChangeText={setPhone} />

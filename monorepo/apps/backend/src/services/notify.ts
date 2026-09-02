@@ -40,3 +40,7 @@ export const notifyBridgeSettled = (userId: string, amountUsd: number, networkNa
   direction === 'out'
     ? notify(userId, 'payment_sent', 'Payment delivered', `${usd(amountUsd)} arrived on ${networkName}`)
     : notify(userId, 'received', 'Money added', `${usd(amountUsd)} from ${networkName} is in your balance`);
+
+/** A friend split a bill with you (docs/04 §Trips): the share lands as an open request in Activity. */
+export const notifyShare = (userId: string, amountUsd: number, byHandle: string, label: string) =>
+  notify(userId, 'share', 'Split with you', `${byHandle} split ${label} with you — your part ${usd(amountUsd)}`);

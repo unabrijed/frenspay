@@ -1,4 +1,4 @@
-// check-kyb.ts — the business-check field spec, and the backend's mirror of it.
+// check-kyb.ts — the partner-check field spec, and the backend's mirror of it.
 // Run: yarn workspace @fpay/shared check:kyb   (joins check:all)
 //
 // Two things worth defending. First the VALIDATOR, because it decides who is allowed to settle other
@@ -63,30 +63,28 @@ for (const [country, spec] of Object.entries(KYB_FIELDS)) {
 
 // --- validation behaviour ------------------------------------------------------------------------
 const IN_OK = {
-  legalName: 'Sharma Trading Co',
-  entityType: 'Sole proprietor',
   pan: 'ABCDE1234F',
-  address: '12 MG Road, Bengaluru 560001',
   payoutAccount: 'sharma@okaxis',
   // The country-agnostic screening block (SCREENING) — required alongside the identifiers.
   cryptoExperience: 'Active user',
-  profession: 'Business owner',
+  profession: 'Freelancer',
   plannedStake: '$100 — the minimum',
   commitment: 'A year or more',
   accountDedicated: 'Yes, dedicated to this',
+  contactTelegram: '@sharma_pays',
 };
 
 assert.deepEqual(validateKyb('IN', IN_OK), [], 'a complete India submission passes');
-assert.deepEqual(validateKyb('IN', { ...IN_OK, gstin: '29ABCDE1234F1Z5' }), [], 'a valid optional GSTIN passes');
+assert.deepEqual(validateKyb('IN', { ...IN_OK, otherPlatforms: 'Binance P2P' }), [], 'a valid optional field passes');
 
-// An omitted optional field must not be pattern-checked — otherwise "leave blank if not registered"
-// is a lie and every unregistered sole proprietor is rejected.
-assert.deepEqual(validateKyb('IN', { ...IN_OK, gstin: '' }), [], 'blank optional field is fine');
-assert.deepEqual(validateKyb('IN', { ...IN_OK, gstin: '   ' }), [], 'whitespace-only optional is treated as blank');
-assert.deepEqual(validateKyb('IN', { ...IN_OK, gstin: 'nonsense' }), ['gstin'], 'a PRESENT optional field is still checked');
+// An omitted optional field must not be checked — otherwise "leave blank if nowhere" is a lie and
+// everyone who settles nowhere else is rejected.
+assert.deepEqual(validateKyb('IN', { ...IN_OK, otherPlatforms: '' }), [], 'blank optional field is fine');
+assert.deepEqual(validateKyb('IN', { ...IN_OK, otherPlatforms: '   ' }), [], 'whitespace-only optional is treated as blank');
+assert.deepEqual(validateKyb('IN', { ...IN_OK, otherPlatforms: 'x'.repeat(201) }), ['otherPlatforms'], 'a PRESENT optional field is still checked');
 
 // Required fields.
-for (const key of ['legalName', 'entityType', 'pan', 'address', 'payoutAccount', 'cryptoExperience', 'profession', 'plannedStake', 'commitment', 'accountDedicated']) {
+for (const key of ['pan', 'payoutAccount', 'cryptoExperience', 'profession', 'plannedStake', 'commitment', 'accountDedicated', 'contactTelegram']) {
   const missing = { ...IN_OK, [key]: '' };
   assert.deepEqual(validateKyb('IN', missing), [key], `${key} is required`);
   assert.deepEqual(validateKyb('IN', { ...IN_OK, [key]: '   ' }), [key], `${key} cannot be whitespace`);
@@ -96,7 +94,7 @@ for (const key of ['legalName', 'entityType', 'pan', 'address', 'payoutAccount',
 assert.deepEqual(validateKyb('IN', { ...IN_OK, pan: 'ABCD1234F' }), ['pan'], 'PAN too short');
 assert.deepEqual(validateKyb('IN', { ...IN_OK, pan: 'XABCDE1234FX' }), ['pan'], 'PAN must match the WHOLE value');
 assert.deepEqual(validateKyb('IN', { ...IN_OK, pan: 'abcde1234f' }), [], 'PAN is case-insensitive');
-assert.deepEqual(validateKyb('IN', { ...IN_OK, legalName: 'x'.repeat(121) }), ['legalName'], 'maxLen enforced');
+assert.deepEqual(validateKyb('IN', { ...IN_OK, payoutAccount: 'x'.repeat(121) }), ['payoutAccount'], 'maxLen enforced');
 
 // Choice fields are membership, exactly — a free-text answer smuggled into a choice key, or a
 // renamed option lingering in a prefilled form, must be rejected, not stored.
@@ -105,23 +103,24 @@ assert.deepEqual(validateKyb('IN', { ...IN_OK, profession: 'student' }), ['profe
 
 // Several problems at once come back together — a form that reveals one error per round trip is how
 // someone gives up on the fourth attempt.
-const manyBad = validateKyb('IN', { ...IN_OK, pan: 'nope', legalName: '', payoutAccount: '' });
-assert.deepEqual(manyBad.sort(), ['legalName', 'pan', 'payoutAccount'], 'all invalid fields reported at once');
+const manyBad = validateKyb('IN', { ...IN_OK, pan: 'nope', profession: '', payoutAccount: '' });
+assert.deepEqual(manyBad.sort(), ['pan', 'payoutAccount', 'profession'], 'all invalid fields reported at once');
 
 // Indonesia is a different spec, not a translation of India's.
-assert.deepEqual(validateKyb('ID', IN_OK).sort(), ['nib', 'nik'], 'India fields do not satisfy Indonesia');
+assert.deepEqual(validateKyb('ID', IN_OK), ['nik'], 'India fields do not satisfy Indonesia');
 assert.deepEqual(
-  validateKyb('ID', { legalName: 'Warung Sari', entityType: 'Perorangan', nib: '1234567890123', nik: '3175031234567890', address: 'Jl. Sudirman 1', payoutAccount: '900012345678', cryptoExperience: 'Some experience', profession: 'Business owner', plannedStake: 'Not sure yet', commitment: 'Not sure yet', accountDedicated: 'I’ll open one before starting' }),
+  validateKyb('ID', { nik: '3175031234567890', payoutAccount: '900012345678', cryptoExperience: 'Some experience', profession: 'Freelancer', plannedStake: 'Not sure yet', commitment: 'Not sure yet', accountDedicated: 'I’ll open one before starting', contactTelegram: 't.me/budi' }),
   [],
   'a complete Indonesia submission passes',
 );
-assert.deepEqual(validateKyb('ID', { nib: '123' }).includes('nib'), true, 'NIB must be 13 digits');
 assert.deepEqual(validateKyb('ID', { nik: '123' }).includes('nik'), true, 'NIK must be 16 digits');
 
 // An unknown country cannot submit at all. Failing closed matters: the alternative is accepting a
 // blank submission from a corridor whose identifiers nobody has thought about yet.
 assert.deepEqual(validateKyb('ZZ', IN_OK), ['country'], 'unknown country fails closed');
-assert.deepEqual(validateKyb('IN', {}).length, 10, 'an empty submission reports every required field');
+assert.deepEqual(validateKyb('IN', {}).length, 8, 'an empty submission reports every required field');
+// Telegram is where the review conversation happens (2026-09-02) — required, not merely present.
+assert.ok(KYB_FIELDS.IN.some((f) => f.key === 'contactTelegram' && !f.optional), 'contactTelegram is required');
 
 // --- lifecycle helper ----------------------------------------------------------------------------
 assert.equal(kybAwaitingMerchant('pending'), true);
@@ -136,11 +135,14 @@ for (const s of ['submitted', 'under_review', 'approved', 'rejected'] as const) 
   for (const [country, spec] of Object.entries(KYB_FIELDS)) {
     for (const f of spec) {
       assert.ok(backend.includes(`key: '${f.key}'`), `backend lib/kyb.ts is missing field '${f.key}' (${country})`);
+      // Both directions. Optional here but required there = unsubmittable; required here but optional
+      // there = the server silently accepts blank for a field the form insists on (contactTelegram
+      // flipped to required on 2026-09-02 — forgetting the mirror must fail loudly).
+      const backendOptional = new RegExp(`key: '${f.key}',[^\\n]*optional: true`).test(backend);
       if (f.optional) {
-        assert.ok(
-          new RegExp(`key: '${f.key}',[^\\n]*optional: true`).test(backend),
-          `backend lib/kyb.ts: '${f.key}' must be optional there too, or it is unsubmittable`,
-        );
+        assert.ok(backendOptional, `backend lib/kyb.ts: '${f.key}' must be optional there too, or it is unsubmittable`);
+      } else {
+        assert.ok(!backendOptional, `backend lib/kyb.ts: '${f.key}' is required on the form but optional there — the server would accept blank`);
       }
       if (f.maxLen) {
         assert.ok(

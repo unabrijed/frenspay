@@ -254,7 +254,7 @@ function ContactsPrompt({ onAllow }: { onAllow: () => void }) {
   );
 }
 
-function PeopleSearch({
+export function PeopleSearch({
   onPick,
   onPickAddress,
 }: {

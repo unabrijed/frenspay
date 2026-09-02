@@ -26,12 +26,16 @@ import type {
   AdminUserStatusRequest,
   AdminUsersResponse,
   AdminWaitlistResponse,
+  AdminStakeClaim,
+  AdminStakeClaimsResponse,
   AdminStakeWithdrawalsResponse,
 } from '@fpay/shared';
 
 import { effectiveRole, isRootAdminEmail, requireAdmin } from '../auth';
+import { config } from '../envConfig';
 import { KYB_DECIDABLE } from '../lib/kyb';
 import {
+  acceptStakeClaim,
   addDenylistEntry,
   adminOverview,
   canonicalHandle,
@@ -68,16 +72,36 @@ import {
   updateUserProfileAdmin,
   listStakeWithdrawalsAdmin,
   releaseStakeWithdrawal,
+  listStakeClaimsAdmin,
+  rejectStakeClaim,
+  type AdminStakeClaimRow,
 } from '../db/queries';
 import { screenHandle } from '../services/compliance';
 import { canonicalInviteCode } from '../services/invites';
 import { ACTIVITY_SLOTS, activitySlot } from '../services/merchantStats';
 import { settleDispute } from '../services/orderMachine';
 import { providerHasCredentials } from '../services/payout/provider';
+import { SIGNATURE_RE } from '../services/solana';
+
+import { toStakeClaim } from './merchant';
 
 /** The four things a reviewer can say. 'review' is a claim, not a verdict — it tells the next
  *  reviewer someone is already on it. */
 const KYB_DECISIONS: readonly string[] = ['approve', 'reject', 'review', 'more_info'];
+
+function toAdminStakeClaim(c: AdminStakeClaimRow): AdminStakeClaim {
+  return {
+    ...toStakeClaim(c),
+    merchantId: c.merchant_id,
+    merchantName: c.merchant_name,
+    ownerHandle: c.owner_handle ?? undefined,
+    ownerEmail: c.owner_email ?? undefined,
+    alsoClaimedBy: c.also_claimed_by ?? undefined,
+    duplicateOf: c.duplicate_of ?? undefined,
+    transferId: c.transfer_id ?? undefined,
+    reviewedAt: c.reviewed_at?.toISOString(),
+  };
+}
 
 export async function registerAdminRoutes(app: FastifyInstance) {
   /* ---- reads ---- */
@@ -343,7 +367,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       const admin = await findUserById(adminId);
       if (!isRootAdminEmail(admin?.email)) return reply.code(403).send({ error: 'root_admin_required' });
       const signature = req.body?.signature?.trim();
-      if (!signature || !/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(signature)) return reply.code(400).send({ error: 'invalid_signature' });
+      if (!signature || !SIGNATURE_RE.test(signature)) return reply.code(400).send({ error: 'invalid_signature' });
       let released: boolean;
       try {
         released = await releaseStakeWithdrawal(req.params.id, signature, adminId, req.body?.note?.trim() || undefined);
@@ -363,6 +387,48 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return { ok: true };
     },
   );
+
+  /** Stake claims (docs/20): signatures partners say are their stake, with what the chain says each
+   *  moved. 'open' is what needs a human — submitted, duplicate, accepted but failed the chain check. */
+  app.get<{ Querystring: { scope?: string } }>('/admin/stake/claims', async (req): Promise<AdminStakeClaimsResponse> => {
+    await requireAdmin(req);
+    const rows = await listStakeClaimsAdmin(req.query.scope === 'all' ? 'all' : 'open');
+    return { claims: rows.map(toAdminStakeClaim) };
+  });
+
+  /**
+   * Attribute a deposit to the partner who claimed it. NOT a credit: this inserts the pending
+   * `transfers` row (amount = what the chain said, sender none) and the confirmer does the rest —
+   * the chain check first, then creditStakeOnConfirm. Any console admin, unlike the release above:
+   * the chain decides the money; this decides only whose. Refused while another live claim or a
+   * transfers row still holds the signature (resolve that one first).
+   */
+  app.post<{ Params: { id: string }; Body: { note?: string } }>('/admin/stake/claims/:id/credit', async (req, reply) => {
+    const adminId = await requireAdmin(req);
+    if (!config.stakeTreasuryAddress) return reply.code(503).send({ error: 'staking_unavailable' });
+    const r = await acceptStakeClaim(req.params.id, adminId, config.stakeTreasuryAddress);
+    if (r === 'not_found') return reply.code(404).send({ error: 'claim_not_found' });
+    if (r === 'already_accepted') return reply.code(409).send({ error: 'claim_already_accepted' });
+    if (r === 'signature_in_use') return reply.code(409).send({ error: 'signature_already_used' });
+    await insertAdminAction({
+      adminUserId: adminId,
+      action: 'stake_claim_credit',
+      targetKind: 'stake_claim',
+      targetId: req.params.id,
+      note: req.body?.note?.trim() || undefined,
+    });
+    return { ok: true };
+  });
+
+  /** The reason is shown to the partner verbatim, so it is required. */
+  app.post<{ Params: { id: string }; Body: { note?: string } }>('/admin/stake/claims/:id/reject', async (req, reply) => {
+    const adminId = await requireAdmin(req);
+    const note = req.body?.note?.trim();
+    if (!note) return reply.code(400).send({ error: 'note_required' });
+    if (!(await rejectStakeClaim(req.params.id, adminId, note))) return reply.code(409).send({ error: 'claim_not_rejectable' });
+    await insertAdminAction({ adminUserId: adminId, action: 'stake_claim_reject', targetKind: 'stake_claim', targetId: req.params.id, note });
+    return { ok: true };
+  });
 
   app.post<{ Params: { id: string }; Body: AdminDisputeResolveRequest }>(
     '/admin/disputes/:id/resolve',

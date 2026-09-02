@@ -10,6 +10,7 @@ import { rateLimitHook } from '../services/rateLimit';
 import { registerAdminRoutes } from './admin';
 import { registerAuthRoutes } from './auth';
 import { registerCrosschainRoutes } from './crosschain';
+import { registerGroupRoutes } from './groups';
 import { registerKycRoutes } from './kyc';
 import { registerMerchantRoutes } from './merchant';
 import { registerMoneyRoutes } from './money';
@@ -29,6 +30,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await registerSystemRoutes(app);
   await registerAuthRoutes(app);
   await registerMoneyRoutes(app);
+  await registerGroupRoutes(app);
   // Every tier is mainnet on both sides (no Sepolia table any more), so cross-chain registers
   // everywhere; the routes themselves 503 `crosschain_unavailable` until the EVM minter + RPCs exist.
   await registerCrosschainRoutes(app);

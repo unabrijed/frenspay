@@ -13,6 +13,9 @@ import type {
   AdminRiskEvent,
   AdminUser,
   AdminWaitlistEntry,
+  ApiGroup,
+  ApiGroupDetail,
+  ApiGroupExpense,
   ApiPaymentRequest,
   ApiTxn,
   Friend,
@@ -27,6 +30,8 @@ import type {
   RouteQuality,
 } from '@fpay/shared';
 
+import { validateShares } from '../lib/split';
+import { BN, formatAmount, USDC_DECIMALS } from '../lib/units';
 import { INVITES_PER_USER, mintCode } from '../services/invites';
 
 import { getLockPool, getPool } from './pool';
@@ -509,6 +514,13 @@ interface TransferJoinRow {
   bridge_direction: string | null;
   bridge_source_chain: string | null;
   bridge_dest_chain: string | null;
+  // trips & splitting (0026)
+  group_id: string | null;
+  your_part_usdc: string | null;
+  settles_note: string | null;
+  payee_name: string | null;
+  amount_fiat: string | null;
+  fiat_currency: string | null;
 }
 
 export async function listTransactionsForUser(
@@ -520,16 +532,33 @@ export async function listTransactionsForUser(
   const c = parseCursor(cursor);
   // Keyset on (created_at, id): stable under new inserts, rides the created_at ordering. Fetch
   // n+1 rows to learn whether a next page exists without a count.
+  //
+  // your_part_usdc (docs/04 §Trips): what YOU spent on a row you paid — the amount less every share
+  // you handed out (open or paid). An incoming row never carries it: the netting happened once, on
+  // the source row, so a friend's reimbursement must not be netted again. A refunded scan-and-pay
+  // is 0 — its money came back as an incoming escrow_release this rule would otherwise ignore.
+  // The orders/quotes join is the primary leg only (group_id is null): one row per payment.
   const { rows } = await getPool().query<TransferJoinRow>(
     `select t.id, t.kind, t.amount_usdc, t.note, t.status, t.created_at, t.signature,
             t.from_user_id, t.to_user_id, t.from_address, t.to_address, t.chain,
             fu.handle as from_handle, tu.handle as to_handle,
             b.state as bridge_state, b.direction as bridge_direction,
-            b.source_chain as bridge_source_chain, b.destination_chain as bridge_dest_chain
+            b.source_chain as bridge_source_chain, b.destination_chain as bridge_dest_chain,
+            t.group_id,
+            case when t.from_user_id <> $1 then null
+                 when o.state = 'refunded' then 0
+                 else t.amount_usdc - coalesce((select sum(s.amount_usdc) from payment_requests s
+                                                 where s.split_of = t.id and s.status in ('open', 'paid')), 0)
+            end as your_part_usdc,
+            (select s.note from payment_requests s
+              where s.transfer_id = t.id and s.split_of is not null) as settles_note,
+            q.payout_name as payee_name, q.amount_inr as amount_fiat, q.currency as fiat_currency
        from transfers t
        left join users fu on fu.id = t.from_user_id
        left join users tu on tu.id = t.to_user_id
        left join bridge_transfers b on b.transfer_id = t.id
+       left join orders o on o.escrow_fund_transfer_id = t.id and o.group_id is null
+       left join quotes q on q.id = o.quote_id
       where (t.from_user_id = $1 or t.to_user_id = $1)
         and ($3::timestamptz is null or (t.created_at, t.id) < ($3::timestamptz, $4::uuid))
       order by t.created_at desc, t.id desc
@@ -568,6 +597,12 @@ export async function listTransactionsForUser(
       status: bridged ? bridgeStatus : (r.status as ApiTxn['status']),
       createdAt: r.created_at.toISOString(),
       signature: r.signature ?? undefined,
+      groupId: r.group_id ?? undefined,
+      yourPartUsd: r.your_part_usdc ?? undefined,
+      settlesNote: r.settles_note ?? undefined,
+      payeeName: r.payee_name ?? undefined,
+      amountFiat: r.amount_fiat ?? undefined,
+      fiatCurrency: r.fiat_currency ?? undefined,
     };
   });
   return { items, nextCursor };
@@ -583,11 +618,14 @@ interface RequestJoinRow {
   created_at: Date;
   from_handle: string | null;
   to_handle: string | null;
+  split_of?: string | null;
+  transfer_id?: string | null;
 }
 
 export async function listRequestsForUser(userId: string): Promise<ApiPaymentRequest[]> {
   const { rows } = await getPool().query<RequestJoinRow>(
     `select r.id, r.from_user_id, r.to_user_id, r.amount_usdc, r.note, r.status, r.created_at,
+            r.split_of, r.transfer_id,
             fu.handle as from_handle, tu.handle as to_handle
        from payment_requests r
        left join users fu on fu.id = r.from_user_id
@@ -608,6 +646,8 @@ export async function listRequestsForUser(userId: string): Promise<ApiPaymentReq
       note: r.note ?? undefined,
       status: r.status as ApiPaymentRequest['status'],
       createdAt: r.created_at.toISOString(),
+      splitOf: r.split_of ?? undefined,
+      transferId: r.transfer_id ?? undefined,
     };
   });
 }
@@ -646,6 +686,11 @@ export async function createRequest(input: {
 /**
  * Resolve an open request as paid, linking the fulfilling transfer. Scoped to the payer
  * (to_user_id) and to status='open' so only the addressee can pay, and only once.
+ *
+ * The transfer is VERIFIED, not trusted: it must be the payer's, to the requester, not failed, and
+ * for at least the amount — the client posts an id, and until 0026 any id marked any debt paid.
+ * A transfer that already settled a request cannot settle another (`uq_payment_requests_transfer`
+ * makes it unrepresentable; the predicate turns that into a clean "no row" instead of a 23505).
  * Returns false when no open row matched.
  */
 export async function markRequestPaid(
@@ -654,9 +699,13 @@ export async function markRequestPaid(
   transferId: string,
 ): Promise<boolean> {
   const { rowCount } = await getPool().query(
-    `update payment_requests
+    `update payment_requests r
         set status = 'paid', transfer_id = $3
-      where id = $1 and to_user_id = $2 and status = 'open'`,
+      where r.id = $1 and r.to_user_id = $2 and r.status = 'open'
+        and exists (select 1 from transfers t
+                     where t.id = $3 and t.from_user_id = $2 and t.to_user_id = r.from_user_id
+                       and t.status <> 'failed' and t.amount_usdc >= r.amount_usdc)
+        and not exists (select 1 from payment_requests p where p.transfer_id = $3)`,
     [requestId, payerUserId, transferId],
   );
   return (rowCount ?? 0) > 0;
@@ -671,6 +720,258 @@ export async function cancelRequest(requestId: string, requesterUserId: string):
     [requestId, requesterUserId],
   );
   return (rowCount ?? 0) > 0;
+}
+
+/* ---- trips, circles and splitting (0026, docs/04 §Trips) ---- */
+
+// An EXPENSE of a group: a transfer that did not fail, is not itself a share settlement (a friend
+// paying their part is an internal flow, not a cost of the trip) and whose order, if any, was not
+// refunded. One fragment, two readers (the list's totals and the detail) — both alias the transfer
+// `t` and left-join the primary order `o` (invariant 26 is the pattern: one predicate, N attach points).
+const EXPENSE_SQL = `t.status <> 'failed'
+        and coalesce(o.state, '') <> 'refunded'
+        and not exists (select 1 from payment_requests p where p.transfer_id = t.id and p.split_of is not null)`;
+const EXPENSE_JOIN_SQL = `left join orders o on o.escrow_fund_transfer_id = t.id and o.group_id is null`;
+// Members as JSON, in join order. Amounts are cast to text wherever they ride JSON — a JSON number
+// would hand the client a float (docs/01 money law).
+const MEMBERS_SQL = `coalesce((select json_agg(json_build_object('userId', m.user_id, 'handle', mu.handle) order by m.created_at)
+                        from group_members m join users mu on mu.id = m.user_id where m.group_id = g.id), '[]'::json)`;
+
+interface GroupRow {
+  id: string;
+  name: string;
+  owner_handle: string;
+  members: { userId: string; handle: string }[];
+  total_usdc: string;
+}
+
+const toApiGroup = (r: GroupRow): ApiGroup => ({
+  id: r.id,
+  name: r.name,
+  ownerHandle: r.owner_handle,
+  members: r.members,
+  totalUsd: r.total_usdc,
+});
+
+/** Create a group. The owner is a member from the same statement — membership is the read gate. */
+export async function createGroup(ownerUserId: string, name: string): Promise<string> {
+  const { rows } = await getPool().query<{ group_id: string }>(
+    `with g as (insert into groups (owner_user_id, name) values ($1, $2) returning id)
+     insert into group_members (group_id, user_id, added_by) select id, $1, $1 from g returning group_id`,
+    [ownerUserId, name],
+  );
+  return rows[0].group_id;
+}
+
+/** Every group the user belongs to, newest first, with its roster and total. */
+export async function listGroupsForUser(userId: string): Promise<ApiGroup[]> {
+  const { rows } = await getPool().query<GroupRow>(
+    `select g.id, g.name, ou.handle as owner_handle, ${MEMBERS_SQL} as members,
+            coalesce((select sum(t.amount_usdc) from transfers t ${EXPENSE_JOIN_SQL}
+                       where t.group_id = g.id and ${EXPENSE_SQL}), 0) as total_usdc
+       from groups g
+       join users ou on ou.id = g.owner_user_id
+      where exists (select 1 from group_members me where me.group_id = g.id and me.user_id = $1)
+      order by g.created_at desc`,
+    [userId],
+  );
+  return rows.map(toApiGroup);
+}
+
+interface GroupExpenseRow {
+  id: string;
+  kind: ApiGroupExpense['kind'];
+  amount_usdc: string;
+  note: string | null;
+  created_at: Date;
+  from_user_id: string;
+  paid_by_handle: string;
+  payee_name: string | null;
+  shares: { userId: string; handle: string; amountUsd: string; status: 'open' | 'paid' }[];
+}
+
+/**
+ * The trip sheet. Null unless the reader is a member. Your part is computed here, not stored:
+ * the payer's is amount − Σ shares; a member's is their own share (or 0). No addresses leave.
+ */
+export async function getGroupDetail(groupId: string, userId: string): Promise<ApiGroupDetail | null> {
+  const { rows: groups } = await getPool().query<GroupRow>(
+    `select g.id, g.name, ou.handle as owner_handle, ${MEMBERS_SQL} as members, '0' as total_usdc
+       from groups g
+       join users ou on ou.id = g.owner_user_id
+      where g.id = $1 and exists (select 1 from group_members me where me.group_id = g.id and me.user_id = $2)`,
+    [groupId, userId],
+  );
+  const g = groups[0];
+  if (!g) return null;
+  const { rows } = await getPool().query<GroupExpenseRow>(
+    `select t.id, t.kind, t.amount_usdc, t.note, t.created_at, t.from_user_id,
+            fu.handle as paid_by_handle, q.payout_name as payee_name,
+            coalesce((select json_agg(json_build_object('userId', s.to_user_id, 'handle', su.handle,
+                                                        'amountUsd', s.amount_usdc::text, 'status', s.status)
+                             order by s.created_at)
+                        from payment_requests s join users su on su.id = s.to_user_id
+                       where s.split_of = t.id and s.status in ('open', 'paid')), '[]'::json) as shares
+       from transfers t
+       join users fu on fu.id = t.from_user_id
+       ${EXPENSE_JOIN_SQL}
+       left join quotes q on q.id = o.quote_id
+      where t.group_id = $1 and ${EXPENSE_SQL}
+      order by t.created_at desc`,
+    [groupId],
+  );
+  let total = new BN(0);
+  let yourPart = new BN(0);
+  const expenses = rows.map((r): ApiGroupExpense => {
+    const handedOut = r.shares.reduce((acc, s) => acc.plus(s.amountUsd), new BN(0));
+    const mine =
+      r.from_user_id === userId
+        ? new BN(r.amount_usdc).minus(handedOut)
+        : new BN(r.shares.find((s) => s.userId === userId)?.amountUsd ?? 0);
+    total = total.plus(r.amount_usdc);
+    yourPart = yourPart.plus(mine);
+    return {
+      transferId: r.id,
+      kind: r.kind,
+      paidByHandle: r.paid_by_handle,
+      payeeName: r.payee_name ?? undefined,
+      amountUsd: r.amount_usdc,
+      note: r.note ?? undefined,
+      createdAt: r.created_at.toISOString(),
+      yourPartUsd: formatAmount(mine, USDC_DECIMALS),
+      shares: r.shares.map((s) => ({ handle: s.handle, amountUsd: s.amountUsd, status: s.status })),
+    };
+  });
+  return {
+    ...toApiGroup(g),
+    totalUsd: formatAmount(total, USDC_DECIMALS),
+    yourPartUsd: formatAmount(yourPart, USDC_DECIMALS),
+    expenses,
+  };
+}
+
+/** Owner only. Re-adding a member is a no-op that still reports success. False = not the owner. */
+export async function addGroupMember(groupId: string, ownerUserId: string, userId: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `insert into group_members (group_id, user_id, added_by)
+     select g.id, $3::uuid, $2::uuid from groups g where g.id = $1 and g.owner_user_id = $2
+     on conflict (group_id, user_id) do update set added_by = group_members.added_by`,
+    [groupId, ownerUserId, userId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/** The owner removes anyone but themselves; anyone removes themselves. Shares they hold stay owed. */
+export async function removeGroupMember(groupId: string, actorUserId: string, userId: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `delete from group_members m using groups g
+      where g.id = m.group_id and m.group_id = $1 and m.user_id = $3
+        and (g.owner_user_id = $2 or m.user_id = $2) and m.user_id <> g.owner_user_id`,
+    [groupId, actorUserId, userId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+/** Owner only. The FKs do the rest: members cascade, expenses go back to personal, shares stay. */
+export async function deleteGroup(groupId: string, ownerUserId: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(`delete from groups where id = $1 and owner_user_id = $2`, [
+    groupId,
+    ownerUserId,
+  ]);
+  return (rowCount ?? 0) > 0;
+}
+
+/**
+ * Move an expense into a group (or out, null). The payer's own rows only, of the two kinds that are
+ * spend, into a group they belong to — and never a settlement (a friend's reimbursement is not an
+ * expense of anything). All four are one predicate each; a miss is "not found".
+ */
+export async function setTransferGroup(transferId: string, userId: string, groupId: string | null): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update transfers t set group_id = $3
+      where t.id = $1 and t.from_user_id = $2 and t.kind in ('send', 'escrow_fund')
+        and ($3::uuid is null or exists (select 1 from group_members m where m.group_id = $3 and m.user_id = $2))
+        and not exists (select 1 from payment_requests p where p.transfer_id = t.id and p.split_of is not null)`,
+    [transferId, userId, groupId],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
+export type ReplaceSharesResult =
+  | { ok: true; opened: { toUserId: string; amountUsd: string }[] }
+  | {
+      ok: false;
+      error: 'not_found' | 'transfer_failed' | 'is_settlement' | 'invalid_amount' | 'shares_exceed_amount' | 'share_already_paid';
+    };
+
+/**
+ * Split an expense: replace every open share (and every hand-marked paid one) with the new set,
+ * keeping the shares a transfer actually settled. One transaction under FOR UPDATE on the expense,
+ * so two concurrent splits cannot both pass the sum check. The payer's part is what is left.
+ */
+export async function replaceShares(input: {
+  transferId: string;
+  payerUserId: string;
+  note: string | null;
+  shares: { toUserId: string; amountUsd: unknown; settled: boolean }[];
+}): Promise<ReplaceSharesResult> {
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+    const { rows } = await client.query<{ amount_usdc: string; status: string }>(
+      `select amount_usdc, status from transfers
+        where id = $1 and from_user_id = $2 and kind in ('send', 'escrow_fund') for update`,
+      [input.transferId, input.payerUserId],
+    );
+    const t = rows[0];
+    if (!t) return await bail('not_found');
+    if (t.status === 'failed') return await bail('transfer_failed');
+    const settlement = await client.query(
+      `select 1 from payment_requests where transfer_id = $1 and split_of is not null`,
+      [input.transferId],
+    );
+    if ((settlement.rowCount ?? 0) > 0) return await bail('is_settlement');
+
+    // Open shares are replaced; a "paid by hand" share (no transfer) is too — re-splitting is how a
+    // wrong tick is undone. Only shares a transfer settled survive, and their friends cannot be
+    // asked again.
+    await client.query(
+      `update payment_requests set status = 'cancelled'
+        where split_of = $1 and (status = 'open' or (status = 'paid' and transfer_id is null))`,
+      [input.transferId],
+    );
+    const paid = await client.query<{ to_user_id: string; amount_usdc: string }>(
+      `select to_user_id, amount_usdc from payment_requests where split_of = $1 and status = 'paid'`,
+      [input.transferId],
+    );
+    const paidUsers = new Set(paid.rows.map((r) => r.to_user_id));
+    if (input.shares.some((s) => paidUsers.has(s.toUserId))) return await bail('share_already_paid');
+    const paidSum = paid.rows.reduce((acc, r) => acc.plus(r.amount_usdc), new BN(0));
+    const verdict = validateShares(t.amount_usdc, formatAmount(paidSum, USDC_DECIMALS), input.shares);
+    if (!verdict.ok) return await bail(verdict.error);
+
+    const opened: { toUserId: string; amountUsd: string }[] = [];
+    for (const [i, s] of input.shares.entries()) {
+      await client.query(
+        `insert into payment_requests (from_user_id, to_user_id, amount_usdc, note, status, split_of)
+         values ($1, $2, $3, $4, $5, $6)`,
+        [input.payerUserId, s.toUserId, verdict.amounts[i], input.note, s.settled ? 'paid' : 'open', input.transferId],
+      );
+      if (!s.settled) opened.push({ toUserId: s.toUserId, amountUsd: verdict.amounts[i] });
+    }
+    await client.query('commit');
+    return { ok: true, opened };
+  } catch (err) {
+    await client.query('rollback');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  async function bail(error: Extract<ReplaceSharesResult, { ok: false }>['error']): Promise<ReplaceSharesResult> {
+    await client.query('rollback');
+    return { ok: false, error };
+  }
 }
 
 /* ---- transfers (M1 prepare/submit, M2 confirmation) ---- */
@@ -766,7 +1067,15 @@ export async function isMerchantTreasuryAddress(address: string): Promise<boolea
 /**
  * Record the broadcast signature on a transfer the caller owns. Scoped to from_user_id so a
  * user can only attach a signature to their own transfer. Returns false when no row matched
- * (unknown id or not the owner) so the route can 404 instead of silently no-op'ing.
+ * (unknown id, not the owner, or a row that already carries a DIFFERENT signature) so the route
+ * can 404 instead of silently no-op'ing.
+ *
+ * A row is attached once. Re-posting the SAME signature is idempotent — the Helius webhook attaches
+ * an escrow deposit by memo before the payer's own fund-submit arrives with it, and that must still
+ * match (routes/orders.ts advances the order on the match). Posting a different signature against a
+ * signed row is refused, whatever its status. Without that, a CONFIRMED stake row's signature could
+ * be overwritten — freeing it from the unique index — and re-attached to a fresh pending row that
+ * the verifier would confirm again: same sender, same amount, same treasury (docs/20).
  */
 export async function attachTransferSignature(
   transferId: string,
@@ -774,7 +1083,9 @@ export async function attachTransferSignature(
   ownerUserId: string,
 ): Promise<boolean> {
   const { rowCount } = await getPool().query(
-    'update transfers set signature = $2 where id = $1 and from_user_id = $3',
+    `update transfers set signature = $2
+      where id = $1 and from_user_id = $3
+        and (signature = $2 or (signature is null and status = 'pending'))`,
     [transferId, signature, ownerUserId],
   );
   return (rowCount ?? 0) > 0;
@@ -823,7 +1134,10 @@ export interface PendingTransfer {
   status: 'pending' | 'confirmed' | 'failed';
   from_user_id: string | null;
   to_user_id: string | null;
-  from_address: string;
+  /** NULL on a stake CLAIM row (docs/20): the partner paid the treasury from a wallet we never saw
+   *  — an exchange, a friend's — so the row asserts no sender and the verifier does not check one.
+   *  Every other writer sets it. */
+  from_address: string | null;
   to_address: string;
   amount_usdc: string;
 }
@@ -2346,6 +2660,189 @@ export async function creditStakeOnConfirm(transferId: string, stakeTreasuryAddr
   return rows[0] ? Number(rows[0].amount_usdc) : 0;
 }
 
+/* ---- stake claims (docs/20) ------------------------------------------------------------------ */
+
+export type StakeClaimStatus = 'submitted' | 'accepted' | 'rejected' | 'duplicate';
+
+/** What the chain said the signature moved, read at submit time (transferVerify readStakeDeposit). */
+export interface StakeClaimChain {
+  amountUsdc: string;
+  sender: string | null;
+  memo: string | null;
+  blockTime: number | null;
+  slot: number;
+}
+
+export interface StakeClaimRow {
+  id: string;
+  merchant_id: string;
+  signature: string;
+  status: StakeClaimStatus;
+  chain: StakeClaimChain;
+  duplicate_of: string | null;
+  transfer_id: string | null;
+  reviewed_by: string | null;
+  reviewed_at: Date | null;
+  note: string | null;
+  created_at: Date;
+  /** The transfers row admin's credit created. Once a claim is accepted THIS is the truth: pending
+   *  until the confirmer's chain check, confirmed when the bond landed, failed when the chain
+   *  contradicted the row. Null before acceptance; for a duplicate, the row that already held it. */
+  transfer_status: 'pending' | 'confirmed' | 'failed' | null;
+}
+
+export type StakeClaimInsert = { kind: 'submitted'; id: string } | { kind: 'duplicate'; id: string } | { kind: 'already_submitted' };
+
+/**
+ * A partner says "this signature is my stake". Never a bond movement: admin's credit inserts the
+ * transfers row and the confirmer credits it (creditStakeOnConfirm). Two indexes decide the shape
+ * (0027): one claim per partner per signature, ever; one LIVE claim (submitted/accepted) per
+ * signature. A signature already on a live claim, or already a `transfers` row (the in-wallet path,
+ * an earlier accepted claim), is stored as 'duplicate' — the reviewer must SEE both, because the
+ * treasury address is public and the first to paste is not necessarily the one who paid.
+ *
+ * Plain statements, no transaction: a 23505 aborts a transaction, and the duplicate row is written
+ * after one.
+ */
+export async function insertStakeClaim(input: { merchantId: string; signature: string; chain: StakeClaimChain }): Promise<StakeClaimInsert> {
+  const tryInsert = async (
+    status: 'submitted' | 'duplicate',
+    duplicateOf: string | null,
+    transferId: string | null,
+  ): Promise<{ id: string } | { conflict: string }> => {
+    try {
+      const { rows } = await getPool().query<{ id: string }>(
+        `insert into merchant_stake_claims (merchant_id, signature, status, chain, duplicate_of, transfer_id)
+         values ($1, $2, $3, $4, $5, $6) returning id`,
+        [input.merchantId, input.signature, status, JSON.stringify(input.chain), duplicateOf, transferId],
+      );
+      return { id: rows[0].id };
+    } catch (e) {
+      const err = e as { code?: string; constraint?: string };
+      if (err.code === '23505') return { conflict: err.constraint ?? '' };
+      throw e;
+    }
+  };
+  const { rows: t } = await getPool().query<{ id: string }>('select id from transfers where signature = $1', [input.signature]);
+  const transferId = t[0]?.id ?? null;
+  if (!transferId) {
+    const r = await tryInsert('submitted', null, null);
+    if ('id' in r) return { kind: 'submitted', id: r.id };
+    if (r.conflict === 'uq_stake_claim_partner_sig') return { kind: 'already_submitted' };
+    // uq_stake_claim_live_sig: another partner's live claim holds it — record that, visibly.
+  }
+  const { rows: live } = await getPool().query<{ id: string }>(
+    `select id from merchant_stake_claims where signature = $1 and status in ('submitted', 'accepted') limit 1`,
+    [input.signature],
+  );
+  const r = await tryInsert('duplicate', live[0]?.id ?? null, transferId);
+  return 'id' in r ? { kind: 'duplicate', id: r.id } : { kind: 'already_submitted' };
+}
+
+const STAKE_CLAIM_SELECT = 'c.*, t.status as transfer_status';
+
+export async function listStakeClaimsForMerchant(merchantId: string): Promise<StakeClaimRow[]> {
+  const { rows } = await getPool().query<StakeClaimRow>(
+    `select ${STAKE_CLAIM_SELECT} from merchant_stake_claims c left join transfers t on t.id = c.transfer_id
+      where c.merchant_id = $1 order by c.created_at desc limit 20`,
+    [merchantId],
+  );
+  return rows;
+}
+
+export interface AdminStakeClaimRow extends StakeClaimRow {
+  merchant_name: string;
+  owner_handle: string | null;
+  owner_email: string | null;
+  /** OTHER partners with a claim on the same signature — the flag the reviewer adjudicates on. */
+  also_claimed_by: string | null;
+}
+
+/** Admin: 'open' = what needs a human (submitted, duplicate, accepted but failed the chain check);
+ *  'all' = everything. Newest first. */
+export async function listStakeClaimsAdmin(scope: 'open' | 'all'): Promise<AdminStakeClaimRow[]> {
+  const { rows } = await getPool().query<AdminStakeClaimRow>(
+    `select ${STAKE_CLAIM_SELECT}, m.name as merchant_name, u.handle as owner_handle, u.email as owner_email,
+            (select string_agg(coalesce(u2.handle, m2.name), ', ' order by d.created_at)
+               from merchant_stake_claims d
+               join merchants m2 on m2.id = d.merchant_id
+               left join users u2 on u2.id = m2.user_id
+              where d.signature = c.signature and d.merchant_id <> c.merchant_id) as also_claimed_by
+       from merchant_stake_claims c
+       join merchants m on m.id = c.merchant_id
+       left join users u on u.id = m.user_id
+       left join transfers t on t.id = c.transfer_id
+      where $1 = 'all' or c.status in ('submitted', 'duplicate') or (c.status = 'accepted' and t.status = 'failed')
+      order by c.created_at desc
+      limit 200`,
+    [scope],
+  );
+  return rows;
+}
+
+export type StakeClaimAccept = 'accepted' | 'not_found' | 'already_accepted' | 'signature_in_use';
+
+/**
+ * Admin attributes a deposit to the partner who claimed it. This inserts the MONEY record — a pending
+ * `transfers` row of the same shape the in-wallet stake writes, minus the sender — and nothing else:
+ * the confirmer asks the chain before the flip (invariant 33) and creditStakeOnConfirm credits bond +
+ * ledger in one statement (35). Admin cannot type an amount; the row carries what the chain said.
+ * Allowed from any status but 'accepted' — a rejected impostor frees the signature for the rightful
+ * owner's 'duplicate' row, and a mistaken reject is one click back. The two unique indexes (the
+ * claims' live signature, transfers.signature) refuse it while anything else still holds the signature.
+ */
+export async function acceptStakeClaim(claimId: string, adminUserId: string, stakeTreasuryAddress: string): Promise<StakeClaimAccept> {
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+    const { rows } = await client.query<{ id: string; user_id: string | null; signature: string; chain: StakeClaimChain; status: StakeClaimStatus }>(
+      `select c.id, m.user_id, c.signature, c.chain, c.status
+         from merchant_stake_claims c join merchants m on m.id = c.merchant_id
+        where c.id = $1 for update of c`,
+      [claimId],
+    );
+    const c = rows[0];
+    if (!c || !c.user_id) {
+      await client.query('rollback');
+      return 'not_found';
+    }
+    if (c.status === 'accepted') {
+      await client.query('rollback');
+      return 'already_accepted';
+    }
+    const { rows: t } = await client.query<{ id: string }>(
+      `insert into transfers (from_user_id, to_user_id, from_address, to_address, amount_usdc, kind, note, status, chain, signature)
+       values ($1, null, null, $2, $3, 'send', $4, 'pending', 'solana', $5) returning id`,
+      [c.user_id, stakeTreasuryAddress, c.chain.amountUsdc, `stake claim ${c.id}`, c.signature],
+    );
+    await client.query(
+      `update merchant_stake_claims
+          set status = 'accepted', transfer_id = $2, reviewed_by = $3, reviewed_at = now(), note = null
+        where id = $1`,
+      [c.id, t[0].id, adminUserId],
+    );
+    await client.query('commit');
+    return 'accepted';
+  } catch (e) {
+    await client.query('rollback').catch(() => {});
+    if ((e as { code?: string }).code === '23505') return 'signature_in_use';
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** The reason is shown to the partner verbatim — the route requires one. An accepted claim is not
+ *  rejectable: its transfers row exists and the confirmer owns what happens to it. */
+export async function rejectStakeClaim(claimId: string, adminUserId: string, note: string): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update merchant_stake_claims set status = 'rejected', reviewed_by = $2, reviewed_at = now(), note = $3
+      where id = $1 and status <> 'accepted'`,
+    [claimId, adminUserId, note],
+  );
+  return (rowCount ?? 0) > 0;
+}
+
 /**
  * The claw window's predicate, shared by a withdrawal, an exit and (mirrored on the payer side)
  * a dispute: has any of this LP's orders completed inside the last N hours? orders has no
@@ -2382,6 +2879,8 @@ export async function requestStakeWithdrawal(
   amountUsdc: number,
   clawWindowHours: number,
   exit = false,
+  /** Where the partner asked it to go. Null = their fpay wallet, resolved at release time. */
+  payoutAddress: string | null = null,
 ): Promise<string | null> {
   const { rows } = await getPool().query<{ id: string }>(
     `with debited as (
@@ -2397,8 +2896,8 @@ export async function requestStakeWithdrawal(
        returning id
      ),
      w as (
-       insert into merchant_stake_withdrawals (merchant_id, amount_usdc, exit)
-       select id, $2, $4 from debited
+       insert into merchant_stake_withdrawals (merchant_id, amount_usdc, exit, payout_address)
+       select id, $2, $4, $5 from debited
        returning id, merchant_id, amount_usdc
      ),
      ev as (
@@ -2406,7 +2905,7 @@ export async function requestStakeWithdrawal(
        select merchant_id, 'withdraw_request', -amount_usdc, id, case when $4 then 'exit' else null end from w
      )
      select id from w`,
-    [merchantId, amountUsdc, clawWindowHours, exit],
+    [merchantId, amountUsdc, clawWindowHours, exit, payoutAddress],
   );
   return rows[0]?.id ?? null;
 }
@@ -2421,6 +2920,7 @@ export async function requestStakeWithdrawal(
 export async function exitMerchant(
   merchantId: string,
   clawWindowHours: number,
+  payoutAddress: string | null = null,
 ): Promise<{ withdrawalId: string | null } | null> {
   const { rows } = await getPool().query<{ withdrawal_id: string | null }>(
     `with eligible as (
@@ -2443,8 +2943,8 @@ export async function exitMerchant(
         returning m.id, e.bond_usdc as bond
      ),
      w as (
-       insert into merchant_stake_withdrawals (merchant_id, amount_usdc, exit)
-       select id, bond, true from flipped where bond > 0
+       insert into merchant_stake_withdrawals (merchant_id, amount_usdc, exit, payout_address)
+       select id, bond, true, $3 from flipped where bond > 0
        returning id, merchant_id, amount_usdc
      ),
      ev as (
@@ -2452,7 +2952,7 @@ export async function exitMerchant(
        select merchant_id, 'withdraw_request', -amount_usdc, id, 'exit' from w
      )
      select (select id from w) as withdrawal_id from flipped`,
-    [merchantId, clawWindowHours],
+    [merchantId, clawWindowHours, payoutAddress],
   );
   return rows[0] ? { withdrawalId: rows[0].withdrawal_id } : null;
 }
@@ -2490,11 +2990,23 @@ export interface StakeWithdrawalRow {
   requested_at: Date;
   settled_at: Date | null;
   note: string | null;
+  /** Where the partner asked it to go; null = their fpay wallet at release time (0027). */
+  payout_address: string | null;
   /** The whole bond, on the way out. Cannot be cancelled. */
   exit: boolean;
   /** The Solana signature of the USDC the admin sent by hand — unique; the LP can verify it. */
   release_signature: string | null;
   released_by: string | null;
+}
+
+/** The partner changes where an OPEN request goes. Exists because an exit cannot be cancelled
+ *  (leaving is final) — a typo in that address would otherwise be unfixable in-product. */
+export async function setStakeWithdrawalAddress(merchantId: string, withdrawalId: string, payoutAddress: string | null): Promise<boolean> {
+  const { rowCount } = await getPool().query(
+    `update merchant_stake_withdrawals set payout_address = $3 where id = $2 and merchant_id = $1 and status = 'requested'`,
+    [merchantId, withdrawalId, payoutAddress],
+  );
+  return (rowCount ?? 0) > 0;
 }
 
 export async function listStakeWithdrawals(merchantId: string): Promise<StakeWithdrawalRow[]> {
@@ -2521,7 +3033,7 @@ export async function releaseStakeWithdrawal(withdrawalId: string, signature: st
 
 export interface AdminStakeWithdrawalRow extends StakeWithdrawalRow {
   merchant_name: string;
-  /** The wallet the LP staked FROM — the only place the money goes back to. */
+  /** Where the USDC goes: the address the partner named on the request, else their fpay wallet. */
   payout_wallet: string | null;
 }
 
@@ -2529,7 +3041,8 @@ export interface AdminStakeWithdrawalRow extends StakeWithdrawalRow {
 export async function listStakeWithdrawalsAdmin(status: 'requested' | 'released' | 'cancelled'): Promise<AdminStakeWithdrawalRow[]> {
   const { rows } = await getPool().query<AdminStakeWithdrawalRow>(
     `select w.*, m.name as merchant_name,
-            (select address from wallets where user_id = m.user_id and chain = 'solana' order by created_at limit 1) as payout_wallet
+            coalesce(w.payout_address,
+                     (select address from wallets where user_id = m.user_id and chain = 'solana' order by created_at limit 1)) as payout_wallet
        from merchant_stake_withdrawals w join merchants m on m.id = w.merchant_id
       where w.status = $1
       order by w.requested_at`,
