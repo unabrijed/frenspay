@@ -854,7 +854,7 @@ export async function getGroupDetail(groupId: string, userId: string): Promise<A
 export async function addGroupMember(groupId: string, ownerUserId: string, userId: string): Promise<boolean> {
   const { rowCount } = await getPool().query(
     `insert into group_members (group_id, user_id, added_by)
-     select g.id, $3, $2 from groups g where g.id = $1 and g.owner_user_id = $2
+     select g.id, $3::uuid, $2::uuid from groups g where g.id = $1 and g.owner_user_id = $2
      on conflict (group_id, user_id) do update set added_by = group_members.added_by`,
     [groupId, ownerUserId, userId],
   );
