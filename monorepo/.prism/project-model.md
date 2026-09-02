@@ -79,10 +79,13 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     turns a variable edit into a crash-loop, which is exactly the bug docs/14 exists to have fixed.
     `KYC_PROVIDER=""` can never express "off": `env()` collapses empty to its fallback, `'persona'`.
     Asserted by `check-kyc-switch.ts` (a process per scenario — envConfig reads env once at load).
-30. **Every KYB country spec carries exactly one required `identity: true` field** (kyb.ts;
-    check-kyb enforces). While the vendor is off, approving that form IS the identity decision, so a
-    spec with only business identifiers would make the approval a judgment about a business nobody
-    was asked to identify. India: PAN. Indonesia: NIK — NIB and NPWP are both the business.
+30. **Every KYB country spec carries exactly one `identity: true` field, and since 2026-09-03 it is
+    `hidden` + `optional`** (kyb.ts; check-kyb asserts exactly one, and that hidden ⇒ optional). PAN/NIK
+    were never screened or read by any code and the peer product never asked; the slot stays so asking
+    again is deleting one flag. While the vendor is off the reviewer's approval rests on the person as
+    described (name, phone, Telegram, the account questions, the screening answers) — docs/14.
+    `payoutAccount` is optional the same day (no UTR ↔ account comparison ever existed);
+    `accountDedicated` carries the account-freeze question.
 31. **Dev-only capabilities gate on `isLocal`, never `isDevelopment`** — and the gate belongs at the
     SELECTOR, not at each caller. `isDevelopment = isStage || isLocal`, and stage is mainnet. Three
     sites had this wrong on 2026-08-29 and each was one word: `/sim/kyc/:tier` (self-promote to tier
@@ -258,6 +261,19 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     could be freed from the unique index and re-verified on a fresh row: a double credit). The refund
     destination is the partner's (`merchant_stake_withdrawals.payout_address`, `isValidRecipientOwner`
     + `isOperationalAddress`), changeable while open because an exit cannot be cancelled.
+60. **An approved partner's edit to a `recheck` field flips `kyb_status` to `submitted` and `status` to
+    `offline` in the same statement that computed the diff** (`editMerchantKyb`: prev/diff CTEs over the
+    spec's recheck keys, `coalesce(array_agg…, '{}')`, `$2::jsonb`; 2026-09-03). Cosmetic edits save in
+    place. `POST /merchants/kyb` accepts `approved` as an EDIT (`KYB_EDITABLE_FROM`), never
+    `submitted`/`under_review`. **Hidden spec keys are carried forward server-side and WIN over the
+    client** (`{ ...checked.fields, ...pick(stored, hiddenKeys) }` — the mirror validates the full spec,
+    so a client-sent hidden value would otherwise override). Events `kyb_edited` / `kyb_edited_recheck`
+    carry keys only. The LP form re-seeds `values` on `[merchant?.id, editing]` (a hard refresh seeded
+    it blank before). `hidden`/`recheck`/`optional` are asserted mirrored BOTH ways by check-kyb.
+61. **No em dashes in any app's prose** (Bridge, 2026-09-03: "dont use emdashes at all… everything
+    including admin"). `check-copy.mjs` scans every prose dir + `apps/admin/src` + `packages/shared/src`
+    with comments stripped; a comma, period or colon instead, a plain hyphen for an empty cell. En dashes
+    stay. `units.ts` is byte-identical in shared and backend (check:money) — change both.
 
 ## Danger zones
 
@@ -685,6 +701,38 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   finalized; the external stake counts against the partner's daily send cap; `listPendingSolanaTransfers`
   unbounded; a dashboard-resident partner sees the stake card until the next `load()`; sender-address
   screening before a stranger stakes (counsel list, docs/15).
+
+- 2026-09-03 · **The partner form, second pass: fewer fixed facts, clearer copy, editable after approval**
+  (plan: `~/.claude/plans/staking-part-is-missing-federated-crab.md` Part A → docs/14 §Editing, docs/08,
+  docs/11, docs/07; commits `1c1be05` `49a7738` `4bfedee` `7f1b95d`, on `stage`, unpushed). Bridge: "upi
+  id… doesn't have to be fixed, users pay from multiple accounts… don't mention p2p, binance… remove the
+  error underneath once filled… mention the tier benefits… don't use em dashes at all… PAN should be
+  optional (hide if the peer product didn't ask; keep in the database)… allow editing details; important
+  edits need a re-check before orders again." Grounded first: nothing reads pan/nik/payoutAccount outside
+  the spec, mirror and check; PAN was never screened; the account was never compared with a UTR; the peer
+  form (the SCREENING block) never had PAN; `/business` seeded `values` once (blank after a hard
+  refresh); the timeline records keys, never values. Shipped: `hidden` + `recheck` flags (mirrored both
+  ways), PAN/NIK hidden, account optional, dedicated-account reworded, tier copy in the hint (accurate to
+  settled + windowed rates, "down as well as up"), competitor names gone, clear-on-change errors,
+  `editMerchantKyb` one statement, admin "re-check: <field>" badge, Edit details on the partner screen,
+  105 em dashes replaced + the check (invariant 61). Bridge's four calls: everything incl. admin; keep en
+  dashes; hide PAN; re-check on the account fields only. **Critic (8 claims): 2 refuted → corrected**
+  (spread order of the carry-forward — hidden keys must WIN; "10 clean payouts" — the gate is settled +
+  windowed rates and tiers drop), 6 corrected (array_agg NULL → coalesce; `$2::jsonb`; the trigger fires
+  but does not raise; `values` never re-seeded; event titles by event; `envConfig.ts:28`). **Open for
+  retro:** an existing partner's stored `'$100 — the minimum'` needs a re-tap; `kybRecheck` shows the
+  LATEST edit's keys only; docs/15 §Before a third party inherits "no identifier at all" as a counsel item.
+
+## Telemetry (2026-09-03 partner form plan, Part A)
+- divergence: 0.72 (evidence 0.75, conclusion 0.67) | threshold 0.30 UNCALIBRATED
+- models: draft=fable · lenses=3× Explore (opus) + 1× Plan critic (opus); skeptic trio NOT RUN (plan
+  mode) — every load-bearing claim grounded by re-opening source; version axis unavailable
+- claims: C1 corrected · C2 grounded · C3 REFUTED → corrected · C4 corrected · C5 corrected · C6 grounded ·
+  C7 REFUTED → corrected · C8 corrected · no-readers grounded · never-screened grounded · em-dash count
+  measured (105 prose, comments stripped)
+- grounding: ~30 anchors by the orchestrator, ~70 by lenses + critic; 0 struck for being wrong about
+  current code; 2 draft remedies refuted, 6 corrected
+- fleet: 3 lenses + 1 critic; loop stopped after round 1
 
 ## Telemetry (2026-09-02 stake claims plan)
 - divergence: 0.75 (evidence 0.80, conclusion 0.67) | threshold 0.30 UNCALIBRATED
