@@ -11,6 +11,8 @@ export interface Txn {
   type: TxnType;
   title: string;
   time: string;
+  /** ISO 8601, when known (real rows). The optimistic rows the store prepends have only `time`. */
+  createdAt?: string;
   usd: number; // signed: negative = outgoing, positive = top-up
   rupees?: number; // merchant pays only
   status?: 'pending' | 'confirmed' | 'failed'; // real-mode only; optional so mobile (never sets it) is unaffected
@@ -402,7 +404,9 @@ export interface ResolveHandleResponse {
  */
 export interface ApiTxn {
   id: string; // transfers.id (uuid)
-  kind: TxnType;
+  /** The transfers.kind as stored. The escrow kinds are real rows in every feed (a scan-and-pay
+   *  debit, a refund) — the mapper folds them into the three view kinds. */
+  kind: TxnType | 'escrow_fund' | 'escrow_release';
   direction: 'in' | 'out';
   amountUsd: string; // unsigned magnitude
   counterpartyHandle?: string;
@@ -523,6 +527,10 @@ export interface ApiPaymentRequest {
   note?: string;
   status: 'open' | 'paid' | 'cancelled';
   createdAt: string; // ISO 8601
+  /** A share: the expense (transfers.id) this request divides. Absent on a plain request. */
+  splitOf?: string;
+  /** The transfer that paid it. A paid share WITHOUT one was ticked off by hand ("already paid"). */
+  transferId?: string;
 }
 
 export interface RequestsResponse {

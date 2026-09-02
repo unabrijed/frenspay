@@ -618,11 +618,14 @@ interface RequestJoinRow {
   created_at: Date;
   from_handle: string | null;
   to_handle: string | null;
+  split_of?: string | null;
+  transfer_id?: string | null;
 }
 
 export async function listRequestsForUser(userId: string): Promise<ApiPaymentRequest[]> {
   const { rows } = await getPool().query<RequestJoinRow>(
     `select r.id, r.from_user_id, r.to_user_id, r.amount_usdc, r.note, r.status, r.created_at,
+            r.split_of, r.transfer_id,
             fu.handle as from_handle, tu.handle as to_handle
        from payment_requests r
        left join users fu on fu.id = r.from_user_id
@@ -643,6 +646,8 @@ export async function listRequestsForUser(userId: string): Promise<ApiPaymentReq
       note: r.note ?? undefined,
       status: r.status as ApiPaymentRequest['status'],
       createdAt: r.created_at.toISOString(),
+      splitOf: r.split_of ?? undefined,
+      transferId: r.transfer_id ?? undefined,
     };
   });
 }
