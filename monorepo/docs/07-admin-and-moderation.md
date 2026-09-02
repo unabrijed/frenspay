@@ -279,6 +279,12 @@ separate deliberate act.
 2026-08-31). Sending the USDC is still a human action, on purpose: automating it needs a signer for the
 stake treasury, which deliberately has none ([11](11-lp-console.md) § The stake).
 
+**Re-check after an edit (2026-09-03, [14](14-manual-onboarding-fallback.md) §Editing).** An approved
+partner who changes one of the account fields comes back to this queue as `submitted` and offline,
+with a **"re-check: <field>"** badge beside the status naming what changed (`AdminMerchant.kybRecheck`,
+from the latest `kyb_edited_recheck` event — keys only). Approve re-admits them, still offline; they
+flip online themselves. Edits to anything else never appear here; they save in place.
+
 ## Status
 
 ✅ Suspend/reinstate, rename/display-name edit, role grant/revoke, invite mint/revoke, and the full

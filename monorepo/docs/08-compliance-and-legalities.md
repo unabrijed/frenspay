@@ -197,10 +197,12 @@ partner needs no business, 2026-09-02), a six-state lifecycle with a `more_info`
 reviewer can ask rather than only refuse, mandatory reviewer notes the merchant reads verbatim, and
 an append-only timeline. The spec is defined once and mirrored into the backend, drift-checked.
 
-**The load-bearing field is "which account will you pay from".** That is a direct answer to the
-account-freeze finding in §3 above: the failure mode is third-party money moving through a personal
-account, and asking *which* account before anyone is onboarded makes that reviewable rather than
-discoverable afterwards.
+**The account a partner pays from is asked, and optional since 2026-09-03** — partners pay from
+several accounts, and no code ever compared the answer with a UTR. The question that carries the
+account-freeze finding in §3 above is now *whether the account they pay from is only for this work*
+(`accountDedicated`, required): the failure mode is third-party money moving through a personal
+account, and asking before anyone is onboarded still makes that reviewable rather than discoverable
+afterwards; the reviewer follows up over Telegram. PAN and NIK are hidden the same day (docs/14).
 
 **No document upload, deliberately** — there is no file storage in this system, and the identity
 documents already sit with the KYC vendor. Typed fields plus a human reading them is the honest

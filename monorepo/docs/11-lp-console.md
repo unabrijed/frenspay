@@ -52,8 +52,8 @@ console still sends people to the wallet app first.
 flowchart TB
     A["apply<br/>tier-2 KYC only while the vendor is live"] --> B["submit KYB<br/>10 typed fields, their own screen"]
     B --> B2["a human decides<br/>approve · reject · ask for more · review"]
-    B2 --> C["stake<br/>≥ $2,000 USDC"]
-    C --> D["go online<br/>their own switch — needs KYB approved AND bond ≥ $2,000"]
+    B2 --> C["stake<br/>≥ $100 USDC"]
+    C --> D["go online<br/>their own switch — needs KYB approved AND bond ≥ $100"]
     D --> E["an order is offered<br/>alert + in-app inbox"]
     E --> F["take it<br/>payee revealed, 5 min held"]
     F --> G["pay it, out of band<br/>their own banking app"]
@@ -66,15 +66,18 @@ flowchart TB
 Every step is refusable and every step is reversible except the last. An LP can hand an order back
 free of penalty, go offline, or ask for their stake back.
 
-The KYB submission asks more than identity — a partner needs no business, so there are no business
-identifiers at all (2026-09-02). Alongside the PAN and the payout account go
-screening questions — experience, profession, intended stake, commitment, and whether the payout
-account is dedicated or shared — the same signal peer platforms collect before letting anyone in.
-Nothing in them is verifiable and nothing gates on them; they exist so the human deciding is reading
-a person with a stated intent, and the dedicated-account question aims straight at the frozen-account
-pattern ([08](08-compliance-and-legalities.md)). One spec drives all of it
-(`packages/shared/src/kyb.ts`): the form renders it, both sides validate it, and the admin review
-shows the answers under the same labels the applicant saw.
+The submission asks about a person, not a business (2026-09-02), and since 2026-09-03 about no
+government identifier by default: PAN and NIK are hidden, optional slots in the spec ([14](14-manual-onboarding-fallback.md)).
+The account they usually pay from is asked, optionally; alongside it go screening questions —
+experience, profession, intended stake (its hint says what staking more buys), commitment, Telegram,
+and whether the account they pay from is only for this work — the same signal peer platforms collect
+before letting anyone in. Nothing in them is verifiable and nothing gates on them; they exist so the
+human deciding is reading a person with a stated intent, and the dedicated-account question aims
+straight at the frozen-account pattern ([08](08-compliance-and-legalities.md)). One spec drives all
+of it (`packages/shared/src/kyb.ts`): the form renders it, both sides validate it, and the admin
+review shows the answers under the same labels the applicant saw. **Once approved, the same screen
+edits**: a change to the account fields sends the partner back to the queue and offline until a human
+re-approves; everything else saves in place.
 
 ## The score, and what it buys
 
