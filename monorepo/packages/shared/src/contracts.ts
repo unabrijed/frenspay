@@ -14,6 +14,12 @@ export interface Txn {
   usd: number; // signed: negative = outgoing, positive = top-up
   rupees?: number; // merchant pays only
   status?: 'pending' | 'confirmed' | 'failed'; // real-mode only; optional so mobile (never sets it) is unaffected
+  /** Trips & splitting (docs/04). The trip this expense sits in; absent = personal. */
+  groupId?: string;
+  /** Your part of what YOU paid, after the shares you handed out (absent on incoming rows). */
+  yourPart?: number;
+  /** Set when this row paid a share of someone's bill (or someone paid theirs to you): the bill's label. */
+  settlesNote?: string;
 }
 
 /**
@@ -408,6 +414,19 @@ export interface ApiTxn {
   status: 'pending' | 'confirmed' | 'failed';
   createdAt: string; // ISO 8601
   signature?: string;
+  /* ---- trips & splitting (0026, docs/04) — all optional so every pre-existing reader is unaffected ---- */
+  /** The trip this expense belongs to; absent = personal. */
+  groupId?: string;
+  /** OUT rows only: amount − Σ shares you handed out (open or paid); '0' when the order was refunded.
+   *  This — never the face amount — is what "your share" sums. Incoming rows never carry it. */
+  yourPartUsd?: string;
+  /** Present when this transfer settled a share: the label the split was given ("Dinner"). */
+  settlesNote?: string;
+  /** Scan-and-pay rows: who received the fiat (the quote's payee name) and the fiat leg, so the feed
+   *  can title the row by the place instead of the escrow pool's address. */
+  payeeName?: string;
+  amountFiat?: string;
+  fiatCurrency?: string;
 }
 
 export interface TransactionsResponse {
@@ -513,6 +532,79 @@ export interface RequestsResponse {
 export interface CreateRequestRequest {
   toHandle: string;
   amountUsd: string | number;
+  note?: string;
+}
+
+/* ---- trips, circles and splitting (0026, docs/04 §Trips) ---- */
+
+export interface ApiGroupMember {
+  userId: string;
+  handle: string;
+}
+
+/** A trip or circle you belong to. `totalUsd` = Σ its expenses (settlements and refunds excluded). */
+export interface ApiGroup {
+  id: string;
+  name: string;
+  ownerHandle: string;
+  members: ApiGroupMember[];
+  totalUsd: string;
+}
+
+/** One friend's part of one expense. `paid` covers both a settled request and "already paid" by hand. */
+export interface ApiShare {
+  handle: string;
+  amountUsd: string;
+  status: 'open' | 'paid';
+}
+
+export interface ApiGroupExpense {
+  transferId: string;
+  kind: TxnType | 'escrow_fund' | 'escrow_release';
+  paidByHandle: string;
+  payeeName?: string;
+  amountUsd: string;
+  note?: string;
+  createdAt: string; // ISO 8601
+  /** Your part: payer → amount − Σ shares; member → your share (or '0'). */
+  yourPartUsd: string;
+  shares: ApiShare[];
+}
+
+export interface ApiGroupDetail extends ApiGroup {
+  yourPartUsd: string;
+  expenses: ApiGroupExpense[];
+}
+
+export interface GroupsResponse {
+  groups: ApiGroup[];
+}
+
+export interface CreateGroupRequest {
+  name: string;
+}
+
+export interface AddMemberRequest {
+  handle: string;
+}
+
+/** `PATCH /transfers/:id` — null moves the expense back to personal. */
+export interface MoveTransferRequest {
+  groupId: string | null;
+}
+
+export interface SplitShareInput {
+  handle: string;
+  amountUsd: string | number;
+  /** The friend already covered this (cash, or a send that predates the split): recorded as paid,
+   *  no request goes out. */
+  settled?: boolean;
+}
+
+/** `POST /transfers/:id/split` — replaces every open share; chain-settled ones are kept. */
+export interface SplitRequest {
+  shares: SplitShareInput[];
+  /** What the friends see on their request ("Dinner"). Defaults to the expense's own note. */
   note?: string;
 }
 

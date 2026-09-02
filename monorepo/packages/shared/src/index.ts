@@ -11,3 +11,4 @@ export * from './kyb';
 export * from './emvqr';
 export * from './payTarget';
 export * from './email';
+export * from './split';
