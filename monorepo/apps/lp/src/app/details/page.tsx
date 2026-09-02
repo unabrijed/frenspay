@@ -1,6 +1,7 @@
 'use client';
 
-// /business — the partner check: what the LP submits, and where it got to.
+// /details — the partner check: what the LP submits, and where it got to. Step 2 of onboarding, and
+// later the place an approved partner edits.
 //
 // A partner does not need a business. This screen is about the PERSON — who they are, how they pay,
 // and whether the account they pay from is only for this work: the documented failure mode for this
@@ -22,6 +23,7 @@ import { Hairline, List, Row, RowMeta, SearchBar, Spacer } from '@fpay/ui/primit
 import { Pressable, ScrollView, View } from '@fpay/ui/rn';
 import { Screen } from '@fpay/ui/Screen';
 import { Txt } from '@fpay/ui/Txt';
+import { StepHeader } from '@/components/StepHeader';
 import { friendlyError } from '@/lib/errors';
 import { KYB_COPY, KYB_EVENT_COPY } from '@/lib/kybCopy';
 import { colors, GUTTER, radii, type } from '@fpay/ui/theme';
@@ -80,6 +82,9 @@ export default function MerchantVerify() {
 
   const approved = merchant.kybStatus === 'approved';
   const canEdit = approved && merchant.suspendReason !== 'exited';
+  // On the onboarding chain until approved; from Account afterwards. Decides the header and the way back.
+  const onboarding = !approved;
+  const back = onboarding ? '/' : '/account';
   const editable = kybAwaitingMerchant(merchant.kybStatus) || (canEdit && editing);
   // The header says what this screen is right now. "Approved / go online" over an edit form would lie.
   const copy =
@@ -104,6 +109,8 @@ export default function MerchantVerify() {
       if (canEdit && editing) {
         setEditing(false);
         notify(recheck ? 'Saved. We’ll re-check the changed details before you take orders again.' : 'Saved.', 'success');
+      } else if (merchant.kybStatus === 'pending') {
+        router.push('/stake'); // step 3 of the chain; a more-info resubmission stays to show "With us now"
       }
     } catch (e) {
       setErr(friendlyError(e));
@@ -115,9 +122,10 @@ export default function MerchantVerify() {
   return (
     <Screen edges={['top']} style={styles.safe}>
       <View style={styles.head}>
-        <BackButton onPress={() => router.push('/')} />
+        <BackButton onPress={() => router.push(back)} />
       </View>
       <ScrollView style={styles.scroll}>
+        {onboarding ? <StepHeader step={2} /> : null}
         <Txt style={type.handle}>{copy.title}</Txt>
         <Txt style={[type.lead, { marginTop: 8 }]}>{copy.body}</Txt>
 

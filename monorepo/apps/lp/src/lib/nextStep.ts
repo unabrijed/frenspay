@@ -21,7 +21,7 @@ export function nextStep(m: MerchantProfile): NextStep | null {
     const copy = KYB_COPY[m.kybStatus];
     // A more-info request is the reviewer's own words when we have them — that is the actionable part.
     const body = m.kybStatus === 'more_info' ? (m.kybNote ?? 'Update what we’ve asked for and send it again.') : copy.body;
-    return { title: copy.title, body, cta: 'Add details', href: '/business' };
+    return { title: copy.title, body, cta: 'Add details', href: '/details' };
   }
   if (Number(m.bondUsdc) < Number(m.minBondUsdc)) {
     return {

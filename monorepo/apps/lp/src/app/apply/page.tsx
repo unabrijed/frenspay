@@ -6,12 +6,12 @@ import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 
-import { BackButton } from '@fpay/ui/BackButton';
 import { Btn } from '@fpay/ui/Button';
 import { SearchBar, Spacer } from '@fpay/ui/primitives';
-import { ScrollView, View } from '@fpay/ui/rn';
+import { ScrollView } from '@fpay/ui/rn';
 import { Screen } from '@fpay/ui/Screen';
 import { Txt } from '@fpay/ui/Txt';
+import { StepHeader } from '@/components/StepHeader';
 import { friendlyError } from '@/lib/errors';
 import { colors, GUTTER, type } from '@fpay/ui/theme';
 import { applyAsMerchant } from '@/services/merchant';
@@ -53,7 +53,7 @@ export default function MerchantApply() {
         contactPhone: phone.replace(/\s/g, ''),
       });
       await load(); // /me now carries the merchant profile
-      router.push('/');
+      router.push('/details'); // step 2 of the chain
     } catch (e) {
       setErr(friendlyError(e));
       setBusy(false);
@@ -62,14 +62,12 @@ export default function MerchantApply() {
 
   return (
     <Screen edges={['top']} style={styles.safe}>
-      <View style={styles.head}>
-        <BackButton onPress={() => router.push('/')} />
-      </View>
+      {/* Step 1 has no previous step: no back button (Home is where this came from). */}
       <ScrollView style={styles.scroll}>
+        <StepHeader step={1} />
         <Txt style={type.handle}>Apply as a partner</Txt>
         <Txt style={[type.lead, { marginTop: 10, marginBottom: 22 }]}>
-          You’ll pay people in rupees from your own account and get paid back here, plus a spread. You
-          put up a stake first. If you don’t pay someone, it covers them.
+          You pay people in rupees from your own account and get paid back here, plus a spread.
         </Txt>
 
         {/* Merchant KYC: the human behind the merchant must be identity-verified before the form.
@@ -97,15 +95,13 @@ export default function MerchantApply() {
               How we reach you if a payout goes wrong. Not shown to anyone you pay.
             </Txt>
 
-            <Txt style={[type.inst, { marginTop: 18 }]}>
-              Payouts settle to your fpay balance. We’ll review your application before you can take orders.
-            </Txt>
+            <Txt style={[type.inst, { marginTop: 18 }]}>Payouts settle to your fpay balance.</Txt>
 
             {err ? <Txt style={[type.lead, { color: colors.danger, marginTop: 14 }]}>{err}</Txt> : null}
 
             <Spacer />
             <Btn
-              label={busy ? 'Submitting…' : 'Apply'}
+              label={busy ? 'Submitting…' : 'Continue'}
               variant="ink"
               disabled={busy || name.trim().length < 2 || !walletAddress || !/^\+[1-9]\d{6,14}$/.test(phone.replace(/\s/g, ''))}
               onPress={() => void submit()}
@@ -119,8 +115,8 @@ export default function MerchantApply() {
 
 const styles = {
   safe: { backgroundColor: colors.canvas },
-  head: { paddingLeft: GUTTER, paddingRight: GUTTER, paddingTop: 6, paddingBottom: 2 },
   scroll: {
+    paddingTop: 14,
     paddingLeft: GUTTER,
     paddingRight: GUTTER,
     paddingBottom: 28,
