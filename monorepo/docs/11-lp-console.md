@@ -18,6 +18,14 @@ amount; they pay it; they come back and report the reference. We are a notice bo
 not a payment rail. The machine behind all of it — quoting, escrow, routing, the offer/lock, release
 — is [06](06-offramp-and-settlement.md).
 
+**Three tabs, and a chain in front of them (2026-09-03).** *Home* is the online switch and the two
+queues (to pay, up for grabs), nothing else. *Activity* is what happened: payouts, disputes, stake in
+and out. *Account* is the stake, the tier and every setting, each on its own small route — capacity,
+margin, contact number, take stake back, refund address, leave; nothing is a browser prompt. Before a
+partner is approved the same screens run as a chain — `/apply` → `/details` → `/stake` → Home — with a
+step header and Continue; afterwards the same routes are reached from Account. One idea per screen, a
+heading, at most one sentence of instruction, then the control; no em dashes anywhere (`check:copy`).
+
 **It is a separate app, on its own domain.** It has to be: a payer must never perceive that a person
 settles their payment ([06](06-offramp-and-settlement.md) § Why this way), and while the console
 lived inside the wallet app that promise held only as far as the URL bar. Anyone signed in could
@@ -243,6 +251,8 @@ accepted into a dead end.
   same rules routing scores on.
 - ✅ Its own Vercel project and domain (`provider.frenspay.xyz`, `DEPLOY.stage.md`), behind the same
   deploy access gate as the wallet app — its own key, its own cookie.
+- ✅ Home · Activity · Account on routes, the onboarding chain, editing details after approval with a
+  re-check on the account fields (2026-09-03).
 - ✅ Staking by paying the treasury from anywhere, with the admin attribution queue and the refund
   address on the request ([20](20-stake-claims.md), 2026-09-02); the admin surface for releasing a
   withdrawal ([07](07-admin-and-moderation.md), 2026-08-31).
@@ -250,6 +260,8 @@ accepted into a dead end.
 
 ## Key files
 
+- `apps/lp/src/app/(tabs)/{page,activity/page,account/page}.tsx` — the three tabs; `account/*` the settings routes; `components/{OneField,OrderRow,StepHeader}.tsx`
+- `apps/lp/src/app/{apply,details,stake}/page.tsx` — the onboarding chain, and the same screens from Account
 - `apps/backend/src/routes/merchant.ts` — every LP-facing endpoint
 - `apps/backend/src/services/{routing,merchantStats}.ts` — the score, the tier, the leverage table
 - `apps/backend/src/services/alert/{index,provider,telegram}.ts` — the notifier seam

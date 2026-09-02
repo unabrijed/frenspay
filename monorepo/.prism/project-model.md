@@ -723,6 +723,44 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   retro:** an existing partner's stored `'$100 — the minimum'` needs a re-tap; `kybRecheck` shows the
   LATEST edit's keys only; docs/15 §Before a third party inherits "no identifier at all" as a counsel item.
 
+- 2026-09-03 · **The console on routes: Home · Activity · Account, onboarding as a chain, the paid
+  moment simplified** (plan: `~/.claude/plans/staking-part-is-missing-federated-crab.md` Part B →
+  docs/11; commits `ebddd79` (ui TabBar) `5f610a8` (order screen) + the console commit, on `stage`,
+  unpushed). Bridge: "user has to just state that they paid, then submit the UTR… once confirmed paid we
+  show the payer it's paid… the dispute window is where the main part happens… not sure of the current
+  structure… screens are pretty bad… use routes… minimal, lesser text… a section to see activity."
+  Grounded first (lens D): the machine already does that except paid + UTR are ONE call with the UTR
+  required — `claimOrderPayout` sets `payout_claimed_at` and the 2-min `expires_at` together, the payer's
+  tracker flips to "Paid" on `payoutClaimedAt` and shows the UTR; splitting would show Paid with no
+  reference and start the clock early → Bridge kept one step. Lens E: the dashboard was 618 lines, eight
+  concerns, six prompts; `/apply` asks name + phone only; Telegram alerts have no UI; `BottomNav` needs
+  `usePayStore`. Lens F: `/merchants/orders` already returns completed rows (cap 50, no refunded/failed);
+  the 72 h post-completion dispute is unreachable from the payer UI (pre-existing, not in scope).
+  Shipped: `@fpay/ui/TabBar` (props-only, out of the barrel so Metro never loads it) + `Icons.Person`
+  (both maps); `(tabs)/` layout with NO redirect gate (a transient `/me` failure would otherwise kick a
+  working partner off a queue) — Home renders the inline pitch when there is no partner; Activity from
+  existing data (`!isLive`, not `completed`-only); Account with six `OneField` routes replacing the
+  prompts; the chain on the existing routes (`/business` → `/details`, StepHeader keyed on `kybStatus
+  !== 'approved'`, back by entry, `/apply` has no back); the order screen's `claimedLine(order, secs |
+  null)`; `check:next` hrefs updated, order assertions untouched; `vercel-ignore` fixture string
+  updated. **Critic (8 claims, 12 fixes):** B1 REFUTED twice (redirect gate; `/apply` back trap), B4
+  REFUTED (`completed`-only), B2/B5/B6/B7 corrected (exited partners are approved with bond 0; margin
+  error copy hardcoded 3.00%; frozen clock → null; icons.native twin). **Open for retro:** Telegram
+  alerts still have no UI; Activity omits refunded/failed orders and the bond ledger (a
+  `GET /merchants/stake/history` read is the fix if it bites); a dashboard-resident partner sees stale
+  state until the 3 s poll; `merchantName` on the payer's `Order` DTO is a latent leak (invariant 21).
+
+## Telemetry (2026-09-03 partner console plan, Part B)
+- divergence: evidence ≈ 0.9 (three disjoint file sets: machine · console · payer/data), conclusion 0.33 | threshold 0.30 UNCALIBRATED
+- models: draft=fable · lenses=3× Explore (opus) + 1× Plan critic (opus); skeptic trio NOT RUN (plan
+  mode) — every load-bearing claim grounded by re-opening source; version axis unavailable
+- claims: flow-matches-except-one-step grounded · completed-orders-in-list grounded · BottomNav-not-
+  reusable grounded · check:next-hrefs grounded · B1 REFUTED→corrected · B2 corrected · B3 grounded ·
+  B4 REFUTED→corrected · B5 corrected · B6 corrected · B7 corrected · B8 grounded
+- grounding: ~25 anchors by the orchestrator, ~110 by lenses + critic; 0 struck for being wrong about
+  current code; 2 draft claims refuted, 5 corrected
+- fleet: 3 lenses + 1 critic; loop stopped after round 1; `next build` green with 19 routes
+
 ## Telemetry (2026-09-03 partner form plan, Part A)
 - divergence: 0.72 (evidence 0.75, conclusion 0.67) | threshold 0.30 UNCALIBRATED
 - models: draft=fable · lenses=3× Explore (opus) + 1× Plan critic (opus); skeptic trio NOT RUN (plan
