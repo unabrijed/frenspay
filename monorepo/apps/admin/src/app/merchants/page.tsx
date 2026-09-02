@@ -5,7 +5,7 @@
 // first and lands in the audit trail server-side.
 import { Fragment, useCallback, useState } from 'react';
 
-import type { AdminMerchant, AdminStakeWithdrawal } from '@fpay/shared';
+import type { AdminMerchant, AdminStakeClaim, AdminStakeWithdrawal } from '@fpay/shared';
 import { KYB_DECIDABLE, KYB_FIELDS } from '@fpay/shared';
 import { api } from '@/services/api';
 import {
@@ -26,12 +26,33 @@ import {
 } from '@/components/ui';
 
 const pct = (f: number) => `${(f * 100).toFixed(1)}%`;
+const shortAddr = (s: string) => `${s.slice(0, 6)}…${s.slice(-6)}`;
+
+/** The claim's state in one badge. Once accepted, the transfers row's status is the truth. */
+const claimTone = (c: AdminStakeClaim): 'ok' | 'warn' | 'danger' | 'muted' =>
+  c.status === 'duplicate' || (c.status === 'accepted' && c.transferStatus === 'failed')
+    ? 'danger'
+    : c.status === 'accepted'
+      ? 'ok'
+      : c.status === 'rejected'
+        ? 'muted'
+        : 'warn';
+const claimText = (c: AdminStakeClaim): string => {
+  if (c.status === 'accepted') {
+    if (c.transferStatus === 'failed') return 'failed on check';
+    return c.transferStatus === 'confirmed' ? 'credited' : 'accepted · confirming';
+  }
+  if (c.status === 'duplicate') return c.transferId ? 'duplicate · already a recorded transfer' : 'duplicate';
+  return c.status;
+};
 
 export default function Merchants() {
   const fetchMerchants = useCallback(() => api.merchants(), []);
   const { data, err, denied, reload } = usePoll(fetchMerchants, 15000);
   const fetchWithdrawals = useCallback(() => api.stakeWithdrawals('requested'), []);
   const { data: withdrawals, reload: reloadWithdrawals } = usePoll(fetchWithdrawals, 15000);
+  const fetchClaims = useCallback(() => api.stakeClaims('open'), []);
+  const { data: claims, reload: reloadClaims } = usePoll(fetchClaims, 15000);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
 
   if (denied) return <Denied />;
@@ -127,6 +148,32 @@ export default function Merchants() {
     return list;
   };
 
+  // Attribute a deposit to the partner who claimed it (docs/19). NOT a credit: the server inserts the
+  // pending transfers row and the confirmer's chain check lands the bond — the chain decides the
+  // money, this decides only whose. The confirm names the sender and any rival claimant, because the
+  // treasury address is public and the first to paste is not necessarily the one who paid.
+  const creditClaim = (c: AdminStakeClaim): Confirm => ({
+    title: `Credit ${usd(c.amountUsdc)} to ${c.ownerHandle ? `@${c.ownerHandle}` : c.merchantName}`,
+    body: `Sent from ${c.sender ?? 'an unknown wallet'}.${c.alsoClaimedBy ? ` ALSO CLAIMED BY ${c.alsoClaimedBy} — credit only the one who actually paid.` : ''} The bond lands after the chain check, not now.`,
+    confirmLabel: 'Credit',
+    onConfirm: async () => {
+      await api.creditStakeClaim(c.id);
+      await Promise.all([reload(), reloadClaims()]);
+    },
+  });
+  const rejectClaim = (c: AdminStakeClaim): Confirm => ({
+    title: `Don’t credit: ${c.ownerHandle ? `@${c.ownerHandle}` : c.merchantName}`,
+    body: 'The partner sees your reason. Rejecting frees the signature for whoever actually paid.',
+    confirmLabel: 'Reject',
+    danger: true,
+    onConfirm: async () => {
+      const note = window.prompt('Why is this not credited? — this is shown to the partner:')?.trim();
+      if (!note) return;
+      await api.rejectStakeClaim(c.id, note);
+      await reloadClaims();
+    },
+  });
+
   // A root admin sends the USDC from the cold stake treasury by hand, then records the signature
   // here. window.prompt on purpose: one rare, single-field entry by the one person who holds the key.
   const release = async (w: AdminStakeWithdrawal) => {
@@ -142,6 +189,77 @@ export default function Merchants() {
     <>
       <PageHead title="Merchants" sub="LPs settling the fiat leg: reputation signals and lifecycle actions" />
       <ErrorBanner msg={err} />
+      {/* Stake deposits waiting for a human (docs/19): a partner paid the treasury from somewhere and
+          pasted the signature; the server read what it moved. Crediting ATTRIBUTES it — the confirmer's
+          chain check lands the bond. A signature claimed twice shows BOTH rows, each naming the other. */}
+      {claims && claims.claims.length > 0 ? (
+        <div className="mb-6">
+          <h2 className="mb-2 text-sm font-medium">Stake deposits to check</h2>
+          <Table head={['Who', 'Amount seen', 'From', 'Paid', 'Signature', 'Status', '']}>
+            {claims.claims.map((c) => (
+              <Fragment key={c.id}>
+                <tr className="hover:bg-surface-low">
+                  <Td>{c.ownerHandle ? <Who handle={c.ownerHandle} email={c.ownerEmail} /> : <span className="font-medium">{c.merchantName}</span>}</Td>
+                  <Td className="whitespace-nowrap">{usd(c.amountUsdc)}</Td>
+                  <Td className="font-mono text-[12px]">{c.sender ? shortAddr(c.sender) : <span className="text-muted">—</span>}</Td>
+                  <Td className="whitespace-nowrap">{c.paidAt ? new Date(c.paidAt).toLocaleString() : <span className="text-muted">—</span>}</Td>
+                  <Td className="font-mono text-[12px]">
+                    <a href={`https://solscan.io/tx/${c.signature}`} target="_blank" rel="noreferrer" className="underline">
+                      {shortAddr(c.signature)}
+                    </a>
+                  </Td>
+                  <Td>
+                    <div className="flex flex-wrap gap-1">
+                      <Badge tone={claimTone(c)}>{claimText(c)}</Badge>
+                      {c.alsoClaimedBy ? <Badge tone="danger">{`also claimed by ${c.alsoClaimedBy}`}</Badge> : null}
+                    </div>
+                  </Td>
+                  <Td>
+                    <div className="flex flex-wrap gap-1">
+                      {c.status !== 'accepted' ? (
+                        <Btn variant="primary" onClick={() => setConfirm(creditClaim(c))}>
+                          Credit
+                        </Btn>
+                      ) : null}
+                      {c.status === 'submitted' || c.status === 'duplicate' ? (
+                        <Btn variant="danger" onClick={() => setConfirm(rejectClaim(c))}>
+                          Reject
+                        </Btn>
+                      ) : null}
+                    </div>
+                  </Td>
+                </tr>
+                {/* The whole record, for the decision: full sender, memo (a partner may have put their
+                    @handle in it), when it was submitted, and the transfer's status once accepted. */}
+                <tr className="bg-surface-low/40">
+                  <td colSpan={7} className="px-3 pb-2 pt-0">
+                    <div className="flex flex-wrap gap-x-6 gap-y-0.5 text-[12px] text-muted">
+                      {c.sender ? (
+                        <span>
+                          Sender: <span className="font-mono text-ink">{c.sender}</span>
+                        </span>
+                      ) : null}
+                      {c.memo ? (
+                        <span>
+                          Memo: <span className="text-ink">{c.memo}</span>
+                        </span>
+                      ) : null}
+                      <span>
+                        Submitted: <span className="text-ink">{new Date(c.createdAt).toLocaleString()}</span>
+                      </span>
+                      {c.transferStatus ? (
+                        <span>
+                          Transfer: <span className="text-ink">{c.transferStatus}</span>
+                        </span>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
+              </Fragment>
+            ))}
+          </Table>
+        </div>
+      ) : null}
       {/* Stake on its way back. The bond is already debited; nothing here moves money — a root admin
           sends the USDC from the cold treasury by hand and records the signature (docs/15). */}
       {withdrawals && withdrawals.withdrawals.length > 0 ? (
