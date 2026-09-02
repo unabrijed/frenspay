@@ -129,13 +129,12 @@ const SCREENING: KybField[] = [
   },
   { key: 'heardAbout', label: 'How you found us', optional: true, maxLen: 120 },
   {
-    // Optional because /merchants/apply already takes a contact number and refuses without one, so
-    // nobody is ever unreachable. It is here because when the identity vendor is off the review turns
-    // into a conversation, and this is the channel peer platforms actually hold that conversation on.
+    // Required since 2026-09-02 (Bridge: "ask for their telegram as well"). The number on /apply is
+    // for when a payout goes wrong; this is where the review conversation happens while the identity
+    // vendor is off, and where a partner is reached about orders — the channel peer platforms use.
     key: 'contactTelegram',
-    label: 'Your Telegram, if you use it',
-    hint: 'Where we follow up if the review needs anything else. Blank is fine — we’ll use your number.',
-    optional: true,
+    label: 'Your Telegram',
+    hint: 'Where we follow up during review and reach you about orders — @username or a t.me link.',
     maxLen: 64,
   },
 ];

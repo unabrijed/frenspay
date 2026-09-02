@@ -71,6 +71,7 @@ const IN_OK = {
   plannedStake: '$100 — the minimum',
   commitment: 'A year or more',
   accountDedicated: 'Yes, dedicated to this',
+  contactTelegram: '@sharma_pays',
 };
 
 assert.deepEqual(validateKyb('IN', IN_OK), [], 'a complete India submission passes');
@@ -83,7 +84,7 @@ assert.deepEqual(validateKyb('IN', { ...IN_OK, otherPlatforms: '   ' }), [], 'wh
 assert.deepEqual(validateKyb('IN', { ...IN_OK, otherPlatforms: 'x'.repeat(201) }), ['otherPlatforms'], 'a PRESENT optional field is still checked');
 
 // Required fields.
-for (const key of ['pan', 'payoutAccount', 'cryptoExperience', 'profession', 'plannedStake', 'commitment', 'accountDedicated']) {
+for (const key of ['pan', 'payoutAccount', 'cryptoExperience', 'profession', 'plannedStake', 'commitment', 'accountDedicated', 'contactTelegram']) {
   const missing = { ...IN_OK, [key]: '' };
   assert.deepEqual(validateKyb('IN', missing), [key], `${key} is required`);
   assert.deepEqual(validateKyb('IN', { ...IN_OK, [key]: '   ' }), [key], `${key} cannot be whitespace`);
@@ -108,7 +109,7 @@ assert.deepEqual(manyBad.sort(), ['pan', 'payoutAccount', 'profession'], 'all in
 // Indonesia is a different spec, not a translation of India's.
 assert.deepEqual(validateKyb('ID', IN_OK), ['nik'], 'India fields do not satisfy Indonesia');
 assert.deepEqual(
-  validateKyb('ID', { nik: '3175031234567890', payoutAccount: '900012345678', cryptoExperience: 'Some experience', profession: 'Freelancer', plannedStake: 'Not sure yet', commitment: 'Not sure yet', accountDedicated: 'I’ll open one before starting' }),
+  validateKyb('ID', { nik: '3175031234567890', payoutAccount: '900012345678', cryptoExperience: 'Some experience', profession: 'Freelancer', plannedStake: 'Not sure yet', commitment: 'Not sure yet', accountDedicated: 'I’ll open one before starting', contactTelegram: 't.me/budi' }),
   [],
   'a complete Indonesia submission passes',
 );
@@ -117,7 +118,9 @@ assert.deepEqual(validateKyb('ID', { nik: '123' }).includes('nik'), true, 'NIK m
 // An unknown country cannot submit at all. Failing closed matters: the alternative is accepting a
 // blank submission from a corridor whose identifiers nobody has thought about yet.
 assert.deepEqual(validateKyb('ZZ', IN_OK), ['country'], 'unknown country fails closed');
-assert.deepEqual(validateKyb('IN', {}).length, 7, 'an empty submission reports every required field');
+assert.deepEqual(validateKyb('IN', {}).length, 8, 'an empty submission reports every required field');
+// Telegram is where the review conversation happens (2026-09-02) — required, not merely present.
+assert.ok(KYB_FIELDS.IN.some((f) => f.key === 'contactTelegram' && !f.optional), 'contactTelegram is required');
 
 // --- lifecycle helper ----------------------------------------------------------------------------
 assert.equal(kybAwaitingMerchant('pending'), true);
@@ -132,11 +135,14 @@ for (const s of ['submitted', 'under_review', 'approved', 'rejected'] as const) 
   for (const [country, spec] of Object.entries(KYB_FIELDS)) {
     for (const f of spec) {
       assert.ok(backend.includes(`key: '${f.key}'`), `backend lib/kyb.ts is missing field '${f.key}' (${country})`);
+      // Both directions. Optional here but required there = unsubmittable; required here but optional
+      // there = the server silently accepts blank for a field the form insists on (contactTelegram
+      // flipped to required on 2026-09-02 — forgetting the mirror must fail loudly).
+      const backendOptional = new RegExp(`key: '${f.key}',[^\\n]*optional: true`).test(backend);
       if (f.optional) {
-        assert.ok(
-          new RegExp(`key: '${f.key}',[^\\n]*optional: true`).test(backend),
-          `backend lib/kyb.ts: '${f.key}' must be optional there too, or it is unsubmittable`,
-        );
+        assert.ok(backendOptional, `backend lib/kyb.ts: '${f.key}' must be optional there too, or it is unsubmittable`);
+      } else {
+        assert.ok(!backendOptional, `backend lib/kyb.ts: '${f.key}' is required on the form but optional there — the server would accept blank`);
       }
       if (f.maxLen) {
         assert.ok(

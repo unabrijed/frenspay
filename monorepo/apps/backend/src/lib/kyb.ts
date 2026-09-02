@@ -41,7 +41,7 @@ const SCREENING: KybFieldSpec[] = [
   { key: 'accountDedicated', options: ['Yes, dedicated to this', 'No, I also use it personally', 'I’ll open one before starting'] },
   { key: 'otherPlatforms', optional: true, maxLen: 200 },
   { key: 'heardAbout', optional: true, maxLen: 120 },
-  { key: 'contactTelegram', optional: true, maxLen: 64 },
+  { key: 'contactTelegram', maxLen: 64 },
 ];
 
 export const KYB_FIELDS: Record<string, KybFieldSpec[]> = {
