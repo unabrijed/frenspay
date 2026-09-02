@@ -322,9 +322,18 @@ export default function Merchants() {
                 </Badge>
               </Td>
               <Td>
-                <Badge tone={m.kybStatus === 'approved' ? 'ok' : m.kybStatus === 'rejected' ? 'danger' : 'warn'}>
-                  {m.kybStatus}
-                </Badge>
+                <div className="flex flex-wrap gap-1">
+                  <Badge tone={m.kybStatus === 'approved' ? 'ok' : m.kybStatus === 'rejected' ? 'danger' : 'warn'}>
+                    {m.kybStatus}
+                  </Badge>
+                  {/* An approved partner edited one of the fields that matter and is back in the queue:
+                      re-check THAT, not the whole form (the spec's `recheck` fields). */}
+                  {m.kybRecheck?.length ? (
+                    <Badge tone="warn">
+                      {`re-check: ${m.kybRecheck.map((k) => (KYB_FIELDS[m.country] ?? []).find((f) => f.key === k)?.label ?? k).join(', ')}`}
+                    </Badge>
+                  ) : null}
+                </div>
               </Td>
               <Td className="whitespace-nowrap">{usd(m.bondUsdc)}</Td>
               <Td className="whitespace-nowrap">{usd(m.floatUsdc)}</Td>

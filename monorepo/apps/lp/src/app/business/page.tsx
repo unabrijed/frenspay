@@ -2,15 +2,17 @@
 
 // /business — the partner check: what the LP submits, and where it got to.
 //
-// A partner does not need a business. This screen is about the PERSON — who they are, and above all
-// which account the fiat will actually leave from — the documented failure mode for this whole model
-// is third-party money moving through a personal account and that account being frozen.
+// A partner does not need a business. This screen is about the PERSON — who they are, how they pay,
+// and whether the account they pay from is only for this work: the documented failure mode for this
+// whole model is third-party money moving through a personal account and that account being frozen.
 //
 // Both halves live on one screen on purpose. A form with the decision history underneath it is how
-// someone understands "we asked you for something" without being told twice.
+// someone understands "we asked you for something" without being told twice. Once approved, the same
+// screen is where a partner EDITS: everything saves in place except the account fields (the spec's
+// `recheck` flags), which send them back to the queue, offline, until a human looks again.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { KYB_FIELDS, kybAwaitingMerchant, validateKyb } from '@fpay/shared';
 
@@ -21,7 +23,7 @@ import { Pressable, ScrollView, View } from '@fpay/ui/rn';
 import { Screen } from '@fpay/ui/Screen';
 import { Txt } from '@fpay/ui/Txt';
 import { friendlyError } from '@/lib/errors';
-import { KYB_COPY } from '@/lib/kybCopy';
+import { KYB_COPY, KYB_EVENT_COPY } from '@/lib/kybCopy';
 import { colors, GUTTER, radii, type } from '@fpay/ui/theme';
 import { submitMerchantKyb } from '@/services/merchant';
 import { useLpStore } from '@/store/useLpStore';
@@ -32,6 +34,7 @@ export default function MerchantVerify() {
   const router = useRouter();
   const merchant = useLpStore((s) => s.merchant);
   const load = useLpStore((s) => s.load);
+  const notify = useLpStore((s) => s.notify);
 
   const spec = useMemo(() => (merchant ? (KYB_FIELDS[merchant.country] ?? []) : []), [merchant?.country]);
   // Seeded from what they already sent, so a more-info request reopens the form filled in rather
@@ -40,6 +43,27 @@ export default function MerchantVerify() {
   const [invalid, setInvalid] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // An approved partner editing. Off again after a save, and never on for anyone else.
+  const [editing, setEditing] = useState(false);
+
+  // Re-seed when the profile lands and when editing begins. The store starts with no profile, so a
+  // hard refresh of this page used to seed `{}` and never recover — with the account field now
+  // optional, submitting that blank form would have silently cleared it. Hidden fields ride along in
+  // `values` too, unrendered, so a stored PAN is re-sent (the server also carries it forward).
+  useEffect(() => {
+    setValues({ ...(merchant?.kybFields ?? {}) });
+    setInvalid([]);
+    setErr(null);
+  }, [merchant?.id, editing]);
+
+  // One setter for every input. A field's message goes the moment it is filled or a choice tapped —
+  // clear-on-change, not re-validate-on-change, which would keep "That doesn’t look right" lit while a
+  // value is half-typed. The next submit re-checks everything.
+  const set = (k: string, v: string) => {
+    setValues((prev) => ({ ...prev, [k]: v }));
+    setInvalid((prev) => prev.filter((x) => x !== k));
+    setErr(null);
+  };
 
   if (!merchant) {
     return (
@@ -54,8 +78,14 @@ export default function MerchantVerify() {
     );
   }
 
-  const editable = kybAwaitingMerchant(merchant.kybStatus);
-  const copy = KYB_COPY[merchant.kybStatus] ?? KYB_COPY.pending;
+  const approved = merchant.kybStatus === 'approved';
+  const canEdit = approved && merchant.suspendReason !== 'exited';
+  const editable = kybAwaitingMerchant(merchant.kybStatus) || (canEdit && editing);
+  // The header says what this screen is right now. "Approved / go online" over an edit form would lie.
+  const copy =
+    canEdit && editing
+      ? { title: 'Edit your details', body: 'Changing which account you pay from pauses orders until we re-check. Everything else updates right away.' }
+      : (KYB_COPY[merchant.kybStatus] ?? KYB_COPY.pending);
 
   const submit = async () => {
     // Client-side validation is a COURTESY — it saves a round trip on a typo. The server runs the
@@ -69,8 +99,12 @@ export default function MerchantVerify() {
     setBusy(true);
     setErr(null);
     try {
-      await submitMerchantKyb(values);
+      const { recheck } = await submitMerchantKyb(values);
       await load();
+      if (canEdit && editing) {
+        setEditing(false);
+        notify(recheck ? 'Saved. We’ll re-check the changed details before you take orders again.' : 'Saved.', 'success');
+      }
     } catch (e) {
       setErr(friendlyError(e));
     } finally {
@@ -99,7 +133,8 @@ export default function MerchantVerify() {
         {editable ? (
           <>
             <Txt style={[type.kvKey, styles.section]}>About you</Txt>
-            {spec.map((f) => (
+            {/* Hidden fields (PAN, NIK) are not asked; they stay in `values` and in the recap below. */}
+            {spec.filter((f) => !f.hidden).map((f) => (
               <View key={f.key} style={{ marginBottom: 14 }}>
                 <Txt style={type.kvKey}>
                   {f.label}
@@ -113,7 +148,7 @@ export default function MerchantVerify() {
                       return (
                         <Pressable
                           key={o}
-                          onPress={() => setValues((prev) => ({ ...prev, [f.key]: o }))}
+                          onPress={() => set(f.key, o)}
                           style={({ pressed }) => [styles.pill, on && styles.pillOn, pressed && { opacity: 0.7 }]}
                         >
                           <Txt style={[type.inst, { color: on ? colors.white : colors.ink }]}>{o}</Txt>
@@ -123,11 +158,7 @@ export default function MerchantVerify() {
                   </View>
                 ) : (
                   <View style={{ marginTop: 6 }}>
-                    <SearchBar
-                      placeholder={f.label}
-                      value={values[f.key] ?? ''}
-                      onChangeText={(v: string) => setValues((prev) => ({ ...prev, [f.key]: v }))}
-                    />
+                    <SearchBar placeholder={f.label} value={values[f.key] ?? ''} onChangeText={(v: string) => set(f.key, v)} />
                   </View>
                 )}
                 {f.hint ? <Txt style={[type.inst, { marginTop: 4 }]}>{f.hint}</Txt> : null}
@@ -140,7 +171,8 @@ export default function MerchantVerify() {
             ))}
           </>
         ) : (
-          // Read-only: what they sent, so "with us now" isn't a black box.
+          // Read-only: what they sent, so "with us now" isn't a black box. Hidden fields with a stored
+          // value still show here — it is their own answer, and admin sees the same list.
           <>
             <Txt style={[type.kvKey, styles.section]}>What you sent</Txt>
             <List>
@@ -155,6 +187,11 @@ export default function MerchantVerify() {
                   </Row>
                 ))}
             </List>
+            {canEdit ? (
+              <Pressable onPress={() => setEditing(true)}>
+                <Txt style={[type.rowTime, { marginTop: 10, color: colors.accent }]}>Edit details</Txt>
+              </Pressable>
+            ) : null}
           </>
         )}
 
@@ -167,7 +204,7 @@ export default function MerchantVerify() {
               {merchant.kybEvents.map((e, i) => (
                 <Row key={`${e.createdAt}-${i}`}>
                   <RowMeta>
-                    <Txt style={type.rowName}>{KYB_COPY[e.toStatus]?.title ?? e.toStatus}</Txt>
+                    <Txt style={type.rowName}>{KYB_EVENT_COPY[e.event] ?? KYB_COPY[e.toStatus]?.title ?? e.toStatus}</Txt>
                     {e.note ? <Txt style={[type.rowTime, { marginTop: 2 }]}>{e.note}</Txt> : null}
                   </RowMeta>
                   <Txt style={type.rowTime}>{relTime(e.createdAt)}</Txt>
@@ -181,12 +218,19 @@ export default function MerchantVerify() {
 
         <Spacer />
         {editable ? (
-          <Btn
-            label={busy ? 'Sending…' : merchant.kybStatus === 'more_info' ? 'Send again' : 'Submit'}
-            variant="ink"
-            disabled={busy}
-            onPress={() => void submit()}
-          />
+          <>
+            <Btn
+              label={busy ? 'Sending…' : editing ? 'Save changes' : merchant.kybStatus === 'more_info' ? 'Send again' : 'Submit'}
+              variant="ink"
+              disabled={busy}
+              onPress={() => void submit()}
+            />
+            {editing ? (
+              <Pressable onPress={() => setEditing(false)} disabled={busy}>
+                <Txt style={[type.rowTime, { marginTop: 12, textAlign: 'center', color: colors.accent }]}>Cancel</Txt>
+              </Pressable>
+            ) : null}
+          </>
         ) : null}
         <Hairline />
       </ScrollView>

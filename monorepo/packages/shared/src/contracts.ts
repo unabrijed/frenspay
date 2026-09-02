@@ -963,6 +963,9 @@ export interface AdminMerchant {
   /** What they submitted for review (0016), screening answers included — a reviewer deciding
    *  without these is deciding blind. */
   kybFields?: Record<string, string>;
+  /** Set while an approved partner is back in the queue because they changed one of these keys
+   *  (the spec's `recheck` fields). The reviewer re-checks that, not the whole form. */
+  kybRecheck?: string[];
   payoutRail: string;
   bondUsdc: string;
   floatUsdc: string;

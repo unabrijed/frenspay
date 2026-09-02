@@ -3647,6 +3647,41 @@ export async function submitMerchantKyb(
 }
 
 /**
+ * An APPROVED partner changes what they sent. One statement: the diff over the `recheck` keys is
+ * computed in SQL against the stored jsonb and the status flips in the same UPDATE, so there is no
+ * read-then-write window and the row that decided "this matters" is the row that acted on it.
+ *
+ * Changed on a recheck key → back to 'submitted', offline if online (routing already excludes
+ * non-approved rows; setMerchantOnlineSelf refuses online without approval; in-flight locked orders
+ * finish). Nothing changed → fields updated in place, status untouched. Returns the changed keys
+ * (possibly empty), or null when the row was not approved (a reviewer moved it mid-request).
+ *
+ * `array_agg` over zero rows still yields one row, so the update always joins; coalesce keeps
+ * `changed` an array. The exited trigger fires on the `status` write and raises only if the value
+ * changes — the route refuses exited partners before this runs.
+ */
+export async function editMerchantKyb(id: string, fields: Record<string, string>, recheckKeys: string[]): Promise<string[] | null> {
+  const { rows } = await getPool().query<{ changed: string[] }>(
+    `with prev as (select kyb_fields from merchants where id = $1 and kyb_status = 'approved'),
+          diff as (select coalesce(array_agg(k), '{}'::text[]) as changed
+                     from prev, unnest($3::text[]) k
+                    where coalesce(prev.kyb_fields->>k, '') <> coalesce($2::jsonb->>k, '')),
+          upd as (update merchants m
+                     set kyb_fields = $2::jsonb,
+                         kyb_status = case when cardinality(d.changed) > 0 then 'submitted' else m.kyb_status end,
+                         kyb_submitted_at = case when cardinality(d.changed) > 0 then now() else m.kyb_submitted_at end,
+                         kyb_note = case when cardinality(d.changed) > 0 then null else m.kyb_note end,
+                         status = case when cardinality(d.changed) > 0 and m.status = 'online' then 'offline' else m.status end
+                    from diff d
+                   where m.id = $1 and m.kyb_status = 'approved'
+                   returning d.changed)
+     select changed from upd`,
+    [id, JSON.stringify(fields), recheckKeys],
+  );
+  return rows[0]?.changed ?? null;
+}
+
+/**
  * A reviewer decides. One call for all four outcomes because they are one transition with different
  * targets, and splitting them would mean four places that must agree about which prior states are
  * decidable.
@@ -4776,13 +4811,20 @@ export async function listMerchantsAdmin(): Promise<AdminMerchant[]> {
       owner_kyc_provider: string | null;
       owner_handle: string | null;
       owner_email: string | null;
+      kyb_recheck: string[] | null;
     }
   >(
     `select m.*, u.kyc_tier as owner_kyc_tier, u.kyc_provider as owner_kyc_provider,
-            u.handle as owner_handle, u.email as owner_email
+            u.handle as owner_handle, u.email as owner_email,
+            (select e.detail->'changed' from merchant_kyb_events e
+              where e.merchant_id = m.id and e.event = 'kyb_edited_recheck'
+              order by e.created_at desc limit 1) as kyb_recheck
        from merchants m left join users u on u.id = m.user_id`,
   );
   return rows.map((m) => ({
+    // What an approved partner changed to land back in the queue — the reviewer re-checks THAT, not
+    // the whole form. Only meaningful while the row is waiting; the latest edit wins.
+    kybRecheck: m.kyb_status === 'submitted' && Array.isArray(m.kyb_recheck) && m.kyb_recheck.length ? m.kyb_recheck : undefined,
     id: m.id,
     name: m.name,
     status: m.status,

@@ -50,11 +50,13 @@ export async function unlockOrder(orderId: string): Promise<void> {
 }
 
 /**
- * Submit (or resubmit) the business details. Validated client-side first purely to save a round
- * trip on a typo — the server runs the same rules and is the only one that decides.
+ * Submit (or resubmit, or — once approved — EDIT) the partner's details. Validated client-side first
+ * purely to save a round trip on a typo — the server runs the same rules and is the only one that
+ * decides. `recheck` is true when an edit touched a field that matters and the partner is back in the
+ * queue, offline, until a human looks again.
  */
-export async function submitMerchantKyb(fields: Record<string, string>): Promise<void> {
-  await req<{ ok: true; kybStatus: string }>('/merchants/kyb', {
+export async function submitMerchantKyb(fields: Record<string, string>): Promise<{ kybStatus: string; recheck?: boolean }> {
+  return req<{ ok: true; kybStatus: string; recheck?: boolean }>('/merchants/kyb', {
     method: 'POST',
     body: JSON.stringify({ fields }),
   });
