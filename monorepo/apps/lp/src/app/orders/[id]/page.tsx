@@ -37,6 +37,14 @@ function useCountdown(iso?: string): number | null {
 
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
+/** The one line over a claimed order. `secs` is null when a dispute froze the clock (expires_at is
+ *  NULLed by the freeze), so a frozen order reads as on hold, never as "releasing in 0:00". */
+function claimedLine(order: MerchantOrder, secs: number | null): string {
+  if (order.resolution === 'under_review') return 'On hold: the payer reported a problem';
+  if (secs === null || secs === 0) return 'Releasing your money';
+  return `Paid. Releases to you in ${mmss(secs)}`;
+}
+
 /** Mirrors LOCK_TTL_MS in services/orderMachine.ts — copy shown to the LP before they commit, so
  *  it only has to be roughly right; the server's timer is the one that decides. */
 const LOCK_MINUTES = 5;
@@ -184,10 +192,7 @@ export default function MerchantOrder() {
           // payee, so two people can never pay the same person for the same order.
           <View style={styles.vpaCard}>
             <Txt style={type.kvKey}>Who to pay</Txt>
-            <Txt style={[type.lead, { marginTop: 4 }]}>
-              Take this order and we’ll show you. It’s yours for {Math.round(LOCK_MINUTES)} minutes. Nobody
-              else can pay it while you hold it.
-            </Txt>
+            <Txt style={[type.lead, { marginTop: 4 }]}>{`Take it and we’ll show you who. Yours for ${Math.round(LOCK_MINUTES)} minutes.`}</Txt>
           </View>
         )}
 
@@ -202,26 +207,14 @@ export default function MerchantOrder() {
 
         {claimed ? (
           <View style={styles.claimed}>
-            <Txt style={[type.rowAmount, { fontSize: 15 }]}>
-              {order.resolution === 'under_review'
-                ? 'On hold: the payer reported a problem'
-                : secsLeft === 0
-                  ? 'Releasing your money…'
-                  : `Releases to you in ${mmss(secsLeft ?? 0)}`}
-            </Txt>
-            <Txt style={[type.inst, { marginTop: 4 }]}>
-              {order.resolution === 'under_review'
-                ? 'We’re reviewing it. Your stake covers the payer if the money never arrived.'
-                : order.payoutUtr ? `You reported reference ${order.payoutUtr}.` : 'You reported this as paid.'}
-            </Txt>
-            {/* What an LP under dispute can actually DO. Before this the entire experience of
-                losing 1,500 USDC of bond was the sentence above — no way to say "here is the
-                proof", which is the one thing they have and we don't. */}
+            <Txt style={[type.rowAmount, { fontSize: 15 }]}>{claimedLine(order, secsLeft)}</Txt>
+            {/* Under dispute, what the partner can DO: the proof is the one thing they have and we don't. */}
             {order.resolution === 'under_review' ? (
-              <Txt style={[type.inst, { marginTop: 8 }]}>
-                If you have proof this was paid, a bank reference or screenshot, send it to support
-                with {order.referenceCode}. That’s what decides it.
+              <Txt style={[type.inst, { marginTop: 4 }]}>
+                {`Your stake covers the payer if the money never arrived. Proof, a bank reference or screenshot, goes to support with ${order.referenceCode}.`}
               </Txt>
+            ) : order.payoutUtr ? (
+              <Txt style={[type.inst, { marginTop: 4 }]}>{`Reference ${order.payoutUtr}`}</Txt>
             ) : null}
           </View>
         ) : held ? (
@@ -231,15 +224,14 @@ export default function MerchantOrder() {
                 <Btn label="Open in UPI app" onPress={() => window.location.assign(deepLink)} />
               </View>
             ) : null}
+            {/* The paid moment: one field, one button. The UTR is what the payer sees on their receipt
+                and what a dispute is decided on, so it is required to say "paid" (decision 4, docs/21). */}
             <Txt style={[type.kvKey, { marginTop: 22, marginBottom: 8 }]}>Once you’ve paid</Txt>
-            <SearchBar placeholder="Reference / UTR number" value={reference} onChangeText={setReference} />
-            <Txt style={[type.inst, { marginTop: 8 }]}>
-              Only mark this paid after the money has actually left your account. Your stake covers the
-              payer if it didn’t.
-            </Txt>
+            <SearchBar placeholder="UTR from your bank app" value={reference} onChangeText={setReference} />
+            <Txt style={[type.inst, { marginTop: 8 }]}>Only after the money has left your account. Your stake covers the payer if it didn’t.</Txt>
             {secsLeft != null && secsLeft > 0 ? (
               <Txt style={[type.inst, { marginTop: 8, color: secsLeft < 60 ? colors.danger : colors.muted }]}>
-                Yours for {mmss(secsLeft)}. After that it goes back to everyone. Don’t pay it once it does.
+                {`Yours for ${mmss(secsLeft)}, then it goes back to everyone.`}
               </Txt>
             ) : null}
           </>
