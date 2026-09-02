@@ -57,11 +57,11 @@ const DECIMAL_RE = /^\d+(\.\d+)?$/;
  */
 export function parseAmount(raw: string, decimals: number): Amount {
   if (typeof raw !== 'string' || !DECIMAL_RE.test(raw)) {
-    throw new Error(`invalid amount ${JSON.stringify(raw)} — expected a plain decimal string like "12.50"`);
+    throw new Error(`invalid amount ${JSON.stringify(raw)}: expected a plain decimal string like "12.50"`);
   }
   const frac = raw.split('.')[1];
   if (frac && frac.length > decimals) {
-    throw new Error(`invalid amount ${raw} — ${frac.length} decimal places, this asset has ${decimals}`);
+    throw new Error(`invalid amount ${raw}: ${frac.length} decimal places, this asset has ${decimals}`);
   }
   const v = new BN(raw);
   if (v.gte(MAX_AMOUNT)) throw new Error(`amount ${raw} is too large to store`);
@@ -75,9 +75,9 @@ export function parseAmount(raw: string, decimals: number): Amount {
  * the asset has means a division skipped divUp/divDown.
  */
 export function formatAmount(v: Amount, decimals: number): string {
-  if (!v.isFinite()) throw new Error(`invalid amount ${v.toFixed()} — division by zero, or arithmetic on a rejected value`);
+  if (!v.isFinite()) throw new Error(`invalid amount ${v.toFixed()}: division by zero, or arithmetic on a rejected value`);
   if ((v.dp() ?? 0) > decimals) {
-    throw new Error(`refusing to format ${v.toFixed()} at ${decimals}dp — it would silently round; use divUp/divDown`);
+    throw new Error(`refusing to format ${v.toFixed()} at ${decimals}dp: it would silently round; use divUp/divDown`);
   }
   return v.toFixed(decimals);
 }
@@ -102,7 +102,7 @@ export function normalizeAmount(raw: unknown, decimals: number): string {
 export function toBaseUnits(v: Amount, decimals: number): bigint {
   const shifted = v.shiftedBy(decimals);
   if (!shifted.isInteger()) {
-    throw new Error(`${v.toFixed()} does not fit ${decimals} decimals — excess precision reached the chain edge`);
+    throw new Error(`${v.toFixed()} does not fit ${decimals} decimals: excess precision reached the chain edge`);
   }
   return BigInt(shifted.toFixed(0));
 }

@@ -54,10 +54,10 @@ export default function Providers() {
     setConfirm({
       title: p.enabled ? `Disable ${p.id}` : `Enable ${p.id}`,
       body: p.enabled
-        ? 'New orders stop selecting this provider immediately. Orders already bound to it keep polling it until they settle — disabling never abandons in-flight money.'
+        ? 'New orders stop selecting this provider immediately. Orders already bound to it keep polling it until they settle. Disabling never abandons in-flight money.'
         : p.hasCredentials
           ? 'New orders on its rail can select this provider immediately.'
-          : 'This row has NO resolvable credential, so enabling it changes nothing until the key ships in a deploy — it will sit enabled but inert.',
+          : 'This row has NO resolvable credential, so enabling it changes nothing until the key ships in a deploy. It will sit enabled but inert.',
       confirmLabel: p.enabled ? 'Disable' : 'Enable',
       onConfirm: async () => {
         await api.payoutProviderUpdate(p.id, { enabled: !p.enabled });
@@ -67,13 +67,13 @@ export default function Providers() {
 
   return (
     <>
-      <PageHead title="Payout providers" sub="Who settles each rail's fiat leg, in what order — the corridor disbursement ladder" />
+      <PageHead title="Payout providers" sub="Who settles each rail's fiat leg, in what order: the corridor disbursement ladder" />
       <ErrorBanner msg={err} />
 
       {!data ? (
         <Spinner />
       ) : data.providers.length === 0 ? (
-        <EmptyState text="No provider rows — seed the registry (yarn db:seed)." />
+        <EmptyState text="No provider rows. Seed the registry (yarn db:seed)." />
       ) : (
         <Table head={['Provider', 'Adapter', 'Rail', 'Priority', 'Creds', 'Status', '']}>
           {data.providers.map((p, i) => (

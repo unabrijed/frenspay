@@ -113,15 +113,32 @@ for (const { dir, banned: BANNED } of RULES) {
   }
 }
 
+/** No em dashes in any app's prose (Bridge, 2026-09-03: "dont use emdashes at all"). Comments are
+ *  stripped first, so this bites only strings and JSX text — the copy a person reads. A placeholder
+ *  glyph is copy too: use a plain hyphen. Wider than the word rules: admin and the shared package are
+ *  in, because their strings reach a screen or an error message. Code comments may keep them. */
+const EMDASH_DIRS = [...new Set(RULES.map((r) => r.dir)), 'apps/admin/src', 'packages/shared/src'];
+for (const dir of EMDASH_DIRS) {
+  for (const file of walk(dir)) {
+    const src = stripComments(readFileSync(join(ROOT, file), 'utf8'));
+    for (const m of src.matchAll(/\u2014/g)) {
+      const line = src.split('\n')[lineOf(src, m.index) - 1].trim();
+      failures.push(`${file}:${lineOf(src, m.index)}  em dash: ${line.slice(0, 100)}`);
+    }
+  }
+}
+
 if (failures.length) {
-  console.error(`check-copy: ${failures.length} banned word(s) in user-facing copy\n`);
+  console.error(`check-copy: ${failures.length} banned word(s) or em dash(es) in user-facing copy\n`);
   for (const f of failures) console.error('  ✗ ' + f);
   console.error('\n  fpay is a software/IT service provider. Say "partner" (the LP that settles),');
   console.error('  or name the action ("scan and pay"). The word is still fine in code,');
   console.error('  comments, type names and API paths — this only reads prose.');
   console.error('\n  On apps/landing the product words are banned too: the landing is the');
   console.error('  invitation, and balance / wallet / forex / exchange rate / QR belong to the');
-  console.error('  reveal. Say what it is for, not how it works.\n');
+  console.error('  reveal. Say what it is for, not how it works.');
+  console.error('\n  No em dashes in copy anywhere: a comma, a period or a colon instead; a plain hyphen');
+  console.error('  for an empty cell. Comments are not copy and may keep them.\n');
   process.exit(1);
 }
 console.log(`check-copy: OK — no banned copy in ${DIRS.join(', ')}.`);

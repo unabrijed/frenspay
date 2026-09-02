@@ -34,10 +34,10 @@ export const metadata: Metadata = {
   // because metadata is evaluated at build time and pulling in the copy module
   // for one string is not worth the coupling — but the two must be changed
   // together.
-  description: 'for people who know people — wherever they are.',
+  description: 'for people who know people, wherever they are.',
   openGraph: {
     title: 'FrensPay',
-    description: 'for people who know people — wherever they are.',
+    description: 'for people who know people, wherever they are.',
     type: 'website',
   },
 };

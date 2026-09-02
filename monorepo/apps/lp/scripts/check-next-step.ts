@@ -34,8 +34,8 @@ const base: MerchantProfile = {
 const at = (patch: Partial<MerchantProfile>): MerchantProfile => ({ ...base, ...patch });
 
 // Fresh from /apply: business first, even though the stake is also missing.
-assert.equal(nextStep(base)?.href, '/business');
-assert.equal(nextStep(at({ bondUsdc: '250' }))?.href, '/business', 'the business check leads even when already staked');
+assert.equal(nextStep(base)?.href, '/details');
+assert.equal(nextStep(at({ bondUsdc: '250' }))?.href, '/details', 'the business check leads even when already staked');
 
 // Sent it in, nothing staked: the stake is the next thing they can actually do while a human reads.
 assert.equal(nextStep(at({ kybStatus: 'submitted' }))?.href, '/stake');
@@ -60,7 +60,7 @@ assert.equal(nextStep(at({ kybStatus: 'approved', bondUsdc: '0', status: 'suspen
 // The reviewer's own words are the card when they asked for more.
 const more = nextStep(at({ kybStatus: 'more_info', kybNote: 'Send the GST certificate.', bondUsdc: '100' }));
 assert.equal(more?.body, 'Send the GST certificate.');
-assert.equal(more?.href, '/business');
+assert.equal(more?.href, '/details');
 
 // Rejected: the reason, no button.
 const no = nextStep(at({ kybStatus: 'rejected', kybNote: 'Not a registered business.', bondUsdc: '100' }));

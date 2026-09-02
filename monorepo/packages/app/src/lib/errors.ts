@@ -23,7 +23,7 @@ const BY_CODE: Record<string, string> = {
   no_merchant: 'Can’t send to this ID right now. Try again in a few minutes.',
   // The phone app cannot complete a payment in sponsored mode (no backend fee-payer, Privy's Expo SDK
   // cannot sponsor). Not a network blip, so the copy points at the way that works.
-  sponsorship_unsupported: 'Payments aren’t available in the phone app yet — use the web app for this one.',
+  sponsorship_unsupported: 'Payments aren’t available in the phone app yet. Use the web app for this one.',
   // limits / verification
   limit_exceeded: 'Verify your identity to raise your limits.',
   kyc_required: 'Verify your identity first to scan and pay.',
@@ -52,12 +52,12 @@ const BY_CODE: Record<string, string> = {
   email_in_use: 'That email is already linked to another fpay account. Contact support.',
   // trips & splitting (docs/04 §Trips)
   unknown_handle: 'Nobody on fpay has that name. Check the spelling.',
-  invalid_name: 'Give it a name — up to 40 characters.',
+  invalid_name: 'Give it a name, up to 40 characters.',
   group_not_found: 'That trip isn’t yours to change, or it’s gone.',
   transfer_not_found: 'Only the person who paid can split or move this.',
   invalid_share: 'Each friend once, and not yourself.',
   shares_exceed_amount: 'The parts add up to more than the bill.',
-  share_already_paid: 'One of them already paid their part — leave them out.',
+  share_already_paid: 'One of them already paid their part. Leave them out.',
   is_settlement: 'That payment settled a share; it can’t be split or moved.',
   transfer_failed: 'That payment didn’t go through, so there’s nothing to split.',
 };

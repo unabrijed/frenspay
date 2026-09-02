@@ -61,4 +61,5 @@ export const Icons = {
   Pin: symbol('location_on', colors.secondary),
   Bell: symbol('notifications', colors.ink),
   Wallet: symbol('account_balance_wallet', colors.accent),
+  Person: symbol('person', colors.muted),
 };

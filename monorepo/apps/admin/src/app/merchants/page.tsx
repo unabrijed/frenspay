@@ -66,7 +66,7 @@ export default function Merchants() {
       // Reasons are typed at the moment of deciding rather than picked from a list: the useful ones
       // are specific ("the PAN doesn't match the registered name"), and a dropdown of generic ones
       // is how "rejected: other" happens.
-      const ask = (what: string) => window.prompt(`${what} — this is shown to the merchant:`)?.trim();
+      const ask = (what: string) => window.prompt(`${what}. This is shown to the merchant:`)?.trim();
       list.push(
         {
           title: `Approve KYB: ${m.name}`,
@@ -76,8 +76,8 @@ export default function Merchants() {
           // person stands, because admitting a partner the vendor never checked is worth seeing.
           body:
             m.ownerKycTier !== undefined && m.ownerKycTier < 2
-              ? 'The details check out. Note this person has NOT passed an identity check — approve on the strength of the details below, and only if they hold up. Their own payment limits are unchanged.'
-              : 'The details check out. They can go online themselves whenever they like — approval does NOT put them into routing.',
+              ? 'The details check out. Note this person has NOT passed an identity check. Approve on the strength of the details below, and only if they hold up. Their own payment limits are unchanged.'
+              : 'The details check out. They can go online themselves whenever they like. Approval does NOT put them into routing.',
           confirmLabel: 'Approve',
           onConfirm: async () => {
             await api.merchantKyb(m.id, 'approve');
@@ -97,7 +97,7 @@ export default function Merchants() {
         },
         {
           title: `Reject KYB: ${m.name}`,
-          body: 'Terminal. The merchant cannot resubmit — prefer "Ask for more" unless the person is the problem.',
+          body: 'Terminal. The merchant cannot resubmit. Prefer "Ask for more" unless the person is the problem.',
           confirmLabel: 'Reject',
           danger: true,
           onConfirm: async () => {
@@ -154,7 +154,7 @@ export default function Merchants() {
   // treasury address is public and the first to paste is not necessarily the one who paid.
   const creditClaim = (c: AdminStakeClaim): Confirm => ({
     title: `Credit ${usd(c.amountUsdc)} to ${c.ownerHandle ? `@${c.ownerHandle}` : c.merchantName}`,
-    body: `Sent from ${c.sender ?? 'an unknown wallet'}.${c.alsoClaimedBy ? ` ALSO CLAIMED BY ${c.alsoClaimedBy} — credit only the one who actually paid.` : ''} The bond lands after the chain check, not now.`,
+    body: `Sent from ${c.sender ?? 'an unknown wallet'}.${c.alsoClaimedBy ? ` ALSO CLAIMED BY ${c.alsoClaimedBy}. Credit only the one who actually paid.` : ''} The bond lands after the chain check, not now.`,
     confirmLabel: 'Credit',
     onConfirm: async () => {
       await api.creditStakeClaim(c.id);
@@ -167,7 +167,7 @@ export default function Merchants() {
     confirmLabel: 'Reject',
     danger: true,
     onConfirm: async () => {
-      const note = window.prompt('Why is this not credited? — this is shown to the partner:')?.trim();
+      const note = window.prompt('Why is this not credited? This is shown to the partner:')?.trim();
       if (!note) return;
       await api.rejectStakeClaim(c.id, note);
       await reloadClaims();
@@ -201,8 +201,8 @@ export default function Merchants() {
                 <tr className="hover:bg-surface-low">
                   <Td>{c.ownerHandle ? <Who handle={c.ownerHandle} email={c.ownerEmail} /> : <span className="font-medium">{c.merchantName}</span>}</Td>
                   <Td className="whitespace-nowrap">{usd(c.amountUsdc)}</Td>
-                  <Td className="font-mono text-[12px]">{c.sender ? shortAddr(c.sender) : <span className="text-muted">—</span>}</Td>
-                  <Td className="whitespace-nowrap">{c.paidAt ? new Date(c.paidAt).toLocaleString() : <span className="text-muted">—</span>}</Td>
+                  <Td className="font-mono text-[12px]">{c.sender ? shortAddr(c.sender) : <span className="text-muted">-</span>}</Td>
+                  <Td className="whitespace-nowrap">{c.paidAt ? new Date(c.paidAt).toLocaleString() : <span className="text-muted">-</span>}</Td>
                   <Td className="font-mono text-[12px]">
                     <a href={`https://solscan.io/tx/${c.signature}`} target="_blank" rel="noreferrer" className="underline">
                       {shortAddr(c.signature)}
@@ -300,15 +300,15 @@ export default function Merchants() {
               </Td>
               {/* The owner's fpay account — the same email they sign in with here and in the wallet app,
                   so a reviewer never has to go and find it on the Users page. Platform rows have none. */}
-              <Td>{m.ownerHandle ? <Who handle={m.ownerHandle} email={m.ownerEmail} /> : <span className="text-muted">—</span>}</Td>
+              <Td>{m.ownerHandle ? <Who handle={m.ownerHandle} email={m.ownerEmail} /> : <span className="text-muted">-</span>}</Td>
               {/* The reviewer's only way to reach a human about the application in front of them. */}
-              <Td>{m.contactPhone ?? <span className="text-muted">—</span>}</Td>
+              <Td>{m.contactPhone ?? <span className="text-muted">-</span>}</Td>
               {/* Where the person stands, and who decided it. A partner sitting at tier 1 is normal
                   while the vendor is off — nothing a partner does reads a tier. It is shown so a
                   reviewer knows an identity check has not happened, not because it blocks anything. */}
               <Td className="whitespace-nowrap">
                 {m.ownerKycTier === undefined ? (
-                  <span className="text-muted">—</span>
+                  <span className="text-muted">-</span>
                 ) : (
                   <Badge tone={m.ownerKycTier >= 2 ? (m.ownerKycProvider === 'manual' ? 'warn' : 'ok') : 'muted'}>
                     {`tier ${m.ownerKycTier}${m.ownerKycProvider ? ` · ${m.ownerKycProvider}` : ''}`}
@@ -322,9 +322,18 @@ export default function Merchants() {
                 </Badge>
               </Td>
               <Td>
-                <Badge tone={m.kybStatus === 'approved' ? 'ok' : m.kybStatus === 'rejected' ? 'danger' : 'warn'}>
-                  {m.kybStatus}
-                </Badge>
+                <div className="flex flex-wrap gap-1">
+                  <Badge tone={m.kybStatus === 'approved' ? 'ok' : m.kybStatus === 'rejected' ? 'danger' : 'warn'}>
+                    {m.kybStatus}
+                  </Badge>
+                  {/* An approved partner edited one of the fields that matter and is back in the queue:
+                      re-check THAT, not the whole form (the spec's `recheck` fields). */}
+                  {m.kybRecheck?.length ? (
+                    <Badge tone="warn">
+                      {`re-check: ${m.kybRecheck.map((k) => (KYB_FIELDS[m.country] ?? []).find((f) => f.key === k)?.label ?? k).join(', ')}`}
+                    </Badge>
+                  ) : null}
+                </div>
               </Td>
               <Td className="whitespace-nowrap">{usd(m.bondUsdc)}</Td>
               <Td className="whitespace-nowrap">{usd(m.floatUsdc)}</Td>

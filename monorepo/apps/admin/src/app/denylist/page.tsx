@@ -108,7 +108,7 @@ export default function Denylist() {
                 <Badge tone="muted">{d.kind}</Badge>
               </Td>
               <Td className="max-w-[320px] truncate font-medium">{d.value}</Td>
-              <Td className="max-w-[280px] truncate text-muted">{d.reason ?? '—'}</Td>
+              <Td className="max-w-[280px] truncate text-muted">{d.reason ?? '-'}</Td>
               <Td className="whitespace-nowrap text-muted">{at(d.createdAt)}</Td>
               <Td>
                 <Btn

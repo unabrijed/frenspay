@@ -101,7 +101,7 @@ penalty is the order.
 ## The runbook
 
 **Partner:** web signup → deposit real USDC → LP `/apply` (UPI, treasury address, phone) →
-`/business` KYB (PAN is the identity field) → **admin approves** → pay **$100** USDC to the stake
+`/details` (the About-you form; PAN is hidden since 2026-09-03) → **admin approves** → pay **$100** USDC to the stake
 address from any wallet, paste the signature on `/stake`, **admin credits**, the confirmer's chain check
 lands it ([20](20-stake-claims.md); or straight from the fpay wallet when it holds USDC) → float $100 → online → keep the console open (3 s poll; no Telegram yet).
 **Payer:** deposit real USDC → scan Bridge's own UPI QR → amount → quote → sign the escrow deposit.

@@ -45,15 +45,15 @@ export default function Risk() {
                 <Who handle={r.userHandle} email={r.userEmail} />
               </Td>
               <Td>{r.kind}</Td>
-              <Td className="whitespace-nowrap">{r.amountUsdc != null ? usd(r.amountUsdc) : '—'}</Td>
+              <Td className="whitespace-nowrap">{r.amountUsdc != null ? usd(r.amountUsdc) : '-'}</Td>
               <Td>
                 <Badge tone={r.decision === 'block' ? 'danger' : r.decision === 'review' ? 'warn' : 'ok'}>
                   {r.decision}
                 </Badge>
               </Td>
               <Td>{r.score}</Td>
-              <Td className="max-w-[180px] truncate text-muted">{r.counterparty ?? '—'}</Td>
-              <Td className="max-w-[240px] truncate text-muted">{r.reason ?? '—'}</Td>
+              <Td className="max-w-[180px] truncate text-muted">{r.counterparty ?? '-'}</Td>
+              <Td className="max-w-[240px] truncate text-muted">{r.reason ?? '-'}</Td>
               <Td className="whitespace-nowrap text-muted">{at(r.createdAt)}</Td>
             </tr>
           ))}

@@ -119,7 +119,7 @@ if (!isMain) {
   t(['monorepo/packages/shared/src/units.ts'], { admin: true, web: true, lp: true, landing: false, backend: true }, 'landing skips shared');
   // The design system is shared by exactly the two apps that render the product's own UI.
   t(['monorepo/packages/ui/src/primitives.tsx'], { admin: false, web: true, lp: true, landing: false, backend: false }, 'ui wakes web + lp only');
-  t(['monorepo/apps/lp/src/app/page.tsx'], { ...none, lp: true }, 'lp code wakes only lp');
+  t(['monorepo/apps/lp/src/app/(tabs)/page.tsx'], { ...none, lp: true }, 'lp code wakes only lp');
   // The product package is web's alone among the deployables; the phone has no deploy to wake.
   t(['monorepo/packages/app/src/store.ts'], { ...none, web: true }, 'the product package wakes web only');
   t(['monorepo/apps/mobile/src/app/_layout.tsx'], none, 'mobile deploys nothing');

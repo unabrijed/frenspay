@@ -62,14 +62,25 @@ whole failure mode is env-shaped and invisible to `tsc`.
 append-only timeline and an audit row. The screening block is close to field-for-field with the
 questionnaires peer platforms use before letting anyone in.
 
-Two things were added so it can carry an identity decision:
+Two things were added so it can carry an identity decision — and one of them was then switched off:
 
-- **`KybField.identity`** marks the one required field naming the *person* rather than the business.
-  India has PAN. Indonesia gained NIK (the 16 digits on the KTP) — NIB and NPWP are both about the
-  business. `check-kyb` asserts exactly one required identity field per country, so a new corridor
-  cannot ship without one.
-- **`contactTelegram`**, optional. `/merchants/apply` already refuses without a contact number, so
-  nobody is unreachable; this is here because with the vendor off the review becomes a conversation.
+- **`KybField.identity`** marks the one field naming the *person* rather than the business. India has
+  PAN, Indonesia NIK (the 16 digits on the KTP). **Since 2026-09-03 both are `hidden` and `optional`**
+  (docs/21, Bridge's call): the peer product's questionnaire never asked for them, nothing in this repo
+  ever screened them, and no code read them. The slot stays in the spec — `check-kyb` still asserts
+  exactly one identity field per country, and that a hidden field is optional — so asking again is
+  deleting one flag. A stored PAN keeps showing in admin and in the partner's own recap, and the
+  server carries it forward on every resubmission. The reviewer's decision now rests on the person as
+  described: name, contact number, Telegram, the account questions and the screening answers.
+- **`contactTelegram`**, required since 2026-09-02. `/merchants/apply` already refuses without a
+  contact number; this is the channel the review conversation actually happens on.
+
+**Editing after approval (2026-09-03).** An approved partner changes what they sent from the same
+screen. The spec's `recheck` fields — the account they usually pay from, whether it is dedicated, and
+PAN/NIK if ever shown — send them back to `submitted` and offline in the same statement that computed
+the diff (`editMerchantKyb`); everything else updates in place. The reviewer sees "re-check: <field>"
+beside the status and re-approves; the timeline records `kyb_edited` / `kyb_edited_recheck` with the
+changed keys, never the values.
 
 **No documents are collected.** Nothing in this repo stores files, deliberately
 (`0016_merchant_kyb.sql`), and that has not changed. The reviewer asks for whatever they need over the
@@ -110,7 +121,9 @@ The rule this leaves behind: **approve the business, and leave the person's tier
 A partner is admitted on a human's reading of a form rather than a vendor's identity check. That is a
 real exception to the rule in [08-compliance-and-legalities](08-compliance-and-legalities.md) that no
 real payout precedes a real KYC/AML vendor, and it was taken knowingly on 2026-08-29 to unblock the
-funnel. What is *not* at risk any more: no payer's limits move, no unhosted-wallet or cross-chain
+funnel — and widened knowingly on 2026-09-03, when the form stopped asking for a government identifier
+by default and the account a partner pays from became optional. Neither was ever verified or screened
+by anything in this repo; what the reviewer loses is a typed number to ask about, not a control. What is *not* at risk any more: no payer's limits move, no unhosted-wallet or cross-chain
 capability is opened, and there is no tier to sweep and revoke later.
 
 Mitigations: the decision is admin-only and never self-serve; the console shows the owner's tier and

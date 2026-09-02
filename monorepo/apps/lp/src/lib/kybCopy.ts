@@ -9,3 +9,11 @@ export const KYB_COPY: Record<string, { title: string; body: string }> = {
   approved: { title: 'Approved', body: 'You’re verified. You can go online whenever you like.' },
   rejected: { title: 'Not approved', body: 'We couldn’t verify your details.' },
 };
+
+/** Timeline titles for the two events that are not status changes in their own right: an approved
+ *  partner editing their details. Keyed by the EVENT, because the status alone would read "Approved"
+ *  again (an edit that changed nothing) or "With us now" (one that did) with no hint why. */
+export const KYB_EVENT_COPY: Record<string, string> = {
+  kyb_edited: 'Details updated',
+  kyb_edited_recheck: 'Details changed, being re-checked',
+};

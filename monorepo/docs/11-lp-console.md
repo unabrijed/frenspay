@@ -18,6 +18,14 @@ amount; they pay it; they come back and report the reference. We are a notice bo
 not a payment rail. The machine behind all of it — quoting, escrow, routing, the offer/lock, release
 — is [06](06-offramp-and-settlement.md).
 
+**Three tabs, and a chain in front of them (2026-09-03).** *Home* is the online switch and the two
+queues (to pay, up for grabs), nothing else. *Activity* is what happened: payouts, disputes, stake in
+and out. *Account* is the stake, the tier and every setting, each on its own small route — capacity,
+margin, contact number, take stake back, refund address, leave; nothing is a browser prompt. Before a
+partner is approved the same screens run as a chain — `/apply` → `/details` → `/stake` → Home — with a
+step header and Continue; afterwards the same routes are reached from Account. One idea per screen, a
+heading, at most one sentence of instruction, then the control; no em dashes anywhere (`check:copy`).
+
 **It is a separate app, on its own domain.** It has to be: a payer must never perceive that a person
 settles their payment ([06](06-offramp-and-settlement.md) § Why this way), and while the console
 lived inside the wallet app that promise held only as far as the URL bar. Anyone signed in could
@@ -52,8 +60,8 @@ console still sends people to the wallet app first.
 flowchart TB
     A["apply<br/>tier-2 KYC only while the vendor is live"] --> B["submit KYB<br/>10 typed fields, their own screen"]
     B --> B2["a human decides<br/>approve · reject · ask for more · review"]
-    B2 --> C["stake<br/>≥ $2,000 USDC"]
-    C --> D["go online<br/>their own switch — needs KYB approved AND bond ≥ $2,000"]
+    B2 --> C["stake<br/>≥ $100 USDC"]
+    C --> D["go online<br/>their own switch — needs KYB approved AND bond ≥ $100"]
     D --> E["an order is offered<br/>alert + in-app inbox"]
     E --> F["take it<br/>payee revealed, 5 min held"]
     F --> G["pay it, out of band<br/>their own banking app"]
@@ -66,15 +74,18 @@ flowchart TB
 Every step is refusable and every step is reversible except the last. An LP can hand an order back
 free of penalty, go offline, or ask for their stake back.
 
-The KYB submission asks more than identity — a partner needs no business, so there are no business
-identifiers at all (2026-09-02). Alongside the PAN and the payout account go
-screening questions — experience, profession, intended stake, commitment, and whether the payout
-account is dedicated or shared — the same signal peer platforms collect before letting anyone in.
-Nothing in them is verifiable and nothing gates on them; they exist so the human deciding is reading
-a person with a stated intent, and the dedicated-account question aims straight at the frozen-account
-pattern ([08](08-compliance-and-legalities.md)). One spec drives all of it
-(`packages/shared/src/kyb.ts`): the form renders it, both sides validate it, and the admin review
-shows the answers under the same labels the applicant saw.
+The submission asks about a person, not a business (2026-09-02), and since 2026-09-03 about no
+government identifier by default: PAN and NIK are hidden, optional slots in the spec ([14](14-manual-onboarding-fallback.md)).
+The account they usually pay from is asked, optionally; alongside it go screening questions —
+experience, profession, intended stake (its hint says what staking more buys), commitment, Telegram,
+and whether the account they pay from is only for this work — the same signal peer platforms collect
+before letting anyone in. Nothing in them is verifiable and nothing gates on them; they exist so the
+human deciding is reading a person with a stated intent, and the dedicated-account question aims
+straight at the frozen-account pattern ([08](08-compliance-and-legalities.md)). One spec drives all
+of it (`packages/shared/src/kyb.ts`): the form renders it, both sides validate it, and the admin
+review shows the answers under the same labels the applicant saw. **Once approved, the same screen
+edits**: a change to the account fields sends the partner back to the queue and offline until a human
+re-approves; everything else saves in place.
 
 ## The score, and what it buys
 
@@ -240,6 +251,8 @@ accepted into a dead end.
   same rules routing scores on.
 - ✅ Its own Vercel project and domain (`provider.frenspay.xyz`, `DEPLOY.stage.md`), behind the same
   deploy access gate as the wallet app — its own key, its own cookie.
+- ✅ Home · Activity · Account on routes, the onboarding chain, editing details after approval with a
+  re-check on the account fields (2026-09-03).
 - ✅ Staking by paying the treasury from anywhere, with the admin attribution queue and the refund
   address on the request ([20](20-stake-claims.md), 2026-09-02); the admin surface for releasing a
   withdrawal ([07](07-admin-and-moderation.md), 2026-08-31).
@@ -247,6 +260,8 @@ accepted into a dead end.
 
 ## Key files
 
+- `apps/lp/src/app/(tabs)/{page,activity/page,account/page}.tsx` — the three tabs; `account/*` the settings routes; `components/{OneField,OrderRow,StepHeader}.tsx`
+- `apps/lp/src/app/{apply,details,stake}/page.tsx` — the onboarding chain, and the same screens from Account
 - `apps/backend/src/routes/merchant.ts` — every LP-facing endpoint
 - `apps/backend/src/services/{routing,merchantStats}.ts` — the score, the tier, the leverage table
 - `apps/backend/src/services/alert/{index,provider,telegram}.ts` — the notifier seam

@@ -98,7 +98,7 @@ export default function Identity() {
         </Txt>
         <Txt style={[type.lead, { marginTop: 10 }]}>
           {done
-            ? 'Nothing else needed here — you can apply now.'
+            ? 'Nothing else needed here. You can apply now.'
             : 'You’ll be handling other people’s money, so we check who you are first. Passport or ID, about two minutes.'}
         </Txt>
 

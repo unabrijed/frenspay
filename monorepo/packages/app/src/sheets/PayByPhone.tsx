@@ -16,7 +16,7 @@ const CODE_GONE = ['too_many_attempts', 'code_expired', 'no_pending'];
 function phoneError(e: unknown, fallback: string): string {
   const code = e instanceof ApiError ? e.code : '';
   if (code === 'phone_taken') return 'That number is already on another account.';
-  if (code === 'rate_limited') return 'Too many tries — wait a minute.';
+  if (code === 'rate_limited') return 'Too many tries. Wait a minute.';
   if (CODE_GONE.includes(code)) return 'That code expired. Send a new one.';
   return fallback;
 }

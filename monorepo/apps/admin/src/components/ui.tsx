@@ -194,7 +194,7 @@ export function Who({ handle, email }: { handle: string | null | undefined; emai
   return (
     <div className="leading-tight">
       <div className="font-medium">{handle ?? 'unknown'}</div>
-      <div className="max-w-[220px] truncate text-[11px] text-muted">{email ?? '—'}</div>
+      <div className="max-w-[220px] truncate text-[11px] text-muted">{email ?? '-'}</div>
     </div>
   );
 }

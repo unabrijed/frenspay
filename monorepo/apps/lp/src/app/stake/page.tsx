@@ -14,7 +14,7 @@ import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useState } from 'react';
 
-import type { MerchantStakeClaimsResponse, StakeClaim } from '@fpay/shared';
+import type { MerchantStakeClaimsResponse } from '@fpay/shared';
 
 import { BackButton } from '@fpay/ui/BackButton';
 import { Btn } from '@fpay/ui/Button';
@@ -23,33 +23,14 @@ import { List, Row, RowMeta, SearchBar, Spacer } from '@fpay/ui/primitives';
 import { Pressable, ScrollView, View } from '@fpay/ui/rn';
 import { Screen } from '@fpay/ui/Screen';
 import { Txt } from '@fpay/ui/Txt';
+import { StepHeader } from '@/components/StepHeader';
+import { claimLabel, isPendingClaim, shortSig } from '@/lib/claims';
 import { friendlyError } from '@/lib/errors';
 import { usd } from '@fpay/shared';
 import { colors, fonts, GUTTER, radii, type } from '@fpay/ui/theme';
 import { depositStake, getStakeClaims, submitStakeClaim } from '@/services/merchant';
 import { useLpStore } from '@/store/useLpStore';
 
-/** Still moving: the server has not decided, or has and the chain check has not finished. */
-const isPending = (c: StakeClaim) =>
-  c.status === 'submitted' || (c.status === 'accepted' && c.transferStatus !== 'confirmed' && c.transferStatus !== 'failed');
-
-/** One line per claim, in the partner's words. Once accepted, the transfer's status is the truth. */
-function claimLabel(c: StakeClaim): { text: string; color: string } {
-  switch (c.status) {
-    case 'submitted':
-      return { text: 'Being checked', color: colors.muted };
-    case 'accepted':
-      if (c.transferStatus === 'confirmed') return { text: 'Added to your stake', color: colors.accent };
-      if (c.transferStatus === 'failed') return { text: 'Didn’t check out — contact us', color: colors.danger };
-      return { text: 'Confirming', color: colors.muted };
-    case 'rejected':
-      return { text: c.note ? `Not accepted: ${c.note}` : 'Not accepted', color: colors.danger };
-    case 'duplicate':
-      return { text: 'Already used', color: colors.danger };
-  }
-}
-
-const shortSig = (s: string) => `${s.slice(0, 6)}…${s.slice(-6)}`;
 const POLL_MS = 10_000;
 
 export default function MerchantStake() {
@@ -84,7 +65,7 @@ export default function MerchantStake() {
 
   // While anything is still being checked, ask again — and refresh the profile too, so the bond shows
   // up here without a reload and the dashboard is already right when they go back to it.
-  const somethingPending = claims?.claims.some(isPending) ?? false;
+  const somethingPending = claims?.claims.some(isPendingClaim) ?? false;
   useEffect(() => {
     if (!somethingPending) return undefined;
     const t = setInterval(() => {
@@ -96,6 +77,10 @@ export default function MerchantStake() {
 
   if (!merchant) return null;
 
+  // Step 3 of onboarding until approved; a top-up from Account afterwards. Decides the header and the
+  // way back, and where a submitted claim lands them.
+  const onboarding = merchant.kybStatus !== 'approved';
+  const back = onboarding ? '/details' : '/account';
   const address = claims?.address ?? null;
   const copy = () => {
     if (!address) return;
@@ -114,6 +99,7 @@ export default function MerchantStake() {
       setSignature('');
       notify('Got it. We’re checking it on the network.', 'success');
       await refresh();
+      if (onboarding) router.push('/'); // end of the chain; Home says "With us now" until approved
     } catch (e) {
       setErr(friendlyError(e));
     } finally {
@@ -133,7 +119,7 @@ export default function MerchantStake() {
       const how = await depositStake(amount);
       setD('');
       // The bond credits only when the transfer confirms on-chain, so don't claim it's live yet.
-      notify(how === 'sent' ? 'Stake sent. It’ll show up once it confirms.' : 'Sent — and submitted for checking. It’ll show below.', 'success');
+      notify(how === 'sent' ? 'Stake sent. It’ll show up once it confirms.' : 'Sent and submitted for checking. It’ll show below.', 'success');
       await Promise.all([load(), refresh()]);
       if (how === 'sent') router.push('/');
     } catch (e) {
@@ -150,9 +136,10 @@ export default function MerchantStake() {
   return (
     <Screen edges={['top']} style={styles.safe}>
       <View style={styles.head}>
-        <BackButton onPress={() => router.push('/')} />
+        <BackButton onPress={() => router.push(back)} />
       </View>
       <ScrollView style={styles.scroll}>
+        {onboarding ? <StepHeader step={3} /> : null}
         <View style={styles.current}>
           <Txt style={type.kvKey}>Staked now</Txt>
           <Txt style={[type.rowAmount, { fontSize: 20, marginTop: 2 }]}>{usd(merchant.bondUsdc)}</Txt>
@@ -184,8 +171,7 @@ export default function MerchantStake() {
               <Btn label={busy ? 'Sending…' : 'Submit for checking'} variant="ink" disabled={busy || !signature.trim()} onPress={() => void submitClaim()} />
             </View>
             <Txt style={[type.inst, { marginTop: 10 }]}>
-              We check it on the network, and a person confirms it — usually within a day. If your wallet has a note or memo field,
-              put your @handle in it; it speeds up matching.
+              We check it on the network and a person confirms it, usually within a day. A note or memo with your @handle speeds it up.
             </Txt>
           </>
         ) : null}
@@ -241,7 +227,7 @@ export default function MerchantStake() {
         {/* The penalty rule and the claw window, before the first deposit — not on a page nobody
             reads. Both numbers come from the server (docs/15). */}
         <Txt style={[type.inst, { marginTop: 18, marginBottom: 12 }]}>
-          {`Held while you’re a partner. If a payment you handled is upheld against you, we take that payment’s amount from your stake — never more than your stake. It can’t leave for ${merchant.clawWindowHours} hours after a payout, while that payout can still be disputed. Ask for it back any time after that; we send it by hand to your fpay wallet, or any Solana wallet you give us when you ask, usually within a day.`}
+          {`Held while you work. If a payment you handled is upheld against you, that payment’s amount comes out of it. It can come back ${merchant.clawWindowHours} hours after your last payout, to any wallet you name.`}
         </Txt>
       </ScrollView>
     </Screen>

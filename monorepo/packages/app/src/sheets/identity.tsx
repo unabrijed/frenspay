@@ -24,7 +24,7 @@ function PulseDot() {
 // What each waiting status is told to the user, in their words rather than the vendor's enum.
 const WAIT_COPY = {
   pending: { tag: 'Checking', title: 'Checking your result…', sub: 'Usually under a minute.' },
-  in_review: { tag: 'In review', title: 'A person is looking at it', sub: 'We’ll let you know — nothing for you to do.' },
+  in_review: { tag: 'In review', title: 'A person is looking at it', sub: 'We’ll let you know. Nothing for you to do.' },
 } as const;
 
 export function Verify() {

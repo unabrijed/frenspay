@@ -34,6 +34,7 @@ import {
   getUserKycTier,
   getWalletForUser,
   appendKybEvent,
+  editMerchantKyb,
   insertMerchantApplication,
   insertStakeClaim,
   listStakeClaimsForMerchant,
@@ -56,7 +57,7 @@ import {
 } from '../db/queries';
 import { amt, positiveAmount, USDC_DECIMALS } from '../lib/amount';
 import { acceptsLps, CORRIDORS, PAYOUT_METHODS } from '../lib/corridors';
-import { KYB_SUBMITTABLE, validateKybFields } from '../lib/kyb';
+import { hiddenKeys, KYB_EDITABLE_FROM, KYB_SUBMITTABLE, recheckKeys, validateKybFields } from '../lib/kyb';
 import { formatAmount } from '../lib/units';
 import { KYC_APPROVED_TIER } from '../services/kyc';
 import * as ops from '../services/merchantOps';
@@ -242,9 +243,10 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
       //
       // ...UNLESS the vendor is off (config.personaLive false — credentials blanked in the host's
       // panel). Then nobody can reach tier 2 at all and this gate closes the funnel completely, so the
-      // identity check MOVES to the human who reads the business form: an admin KYB approval grants
-      // tier 2 itself (routes/admin.ts). One reviewer, one form, one decision — docs/14. The gate
-      // re-imposes itself the moment the credentials come back; nothing here needs redeploying.
+      // identity check MOVES to the human who reads the partner form (routes/admin.ts approves the
+      // PARTNER and grants no tier — docs/14 §The grant that isn't). One reviewer, one form, one
+      // decision. The gate re-imposes itself the moment the credentials come back; nothing here needs
+      // redeploying.
       if (config.personaLive && (await getUserKycTier(userId)) < KYC_APPROVED_TIER) {
         return reply.code(403).send({ error: 'kyc_required' });
       }
@@ -337,32 +339,53 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
    * is live (docs/14), and while it is off the human reading this form is the only identity check
    * there is — which is why every country spec carries one `identity: true` field. This is otherwise
    * the BUSINESS: who they trade as, and above all which account the fiat will
-   * actually leave from. That last field is the one that matters: the documented failure mode for
-   * this entire business shape is third-party money moving through a personal account and the
-   * account being frozen (docs/06, docs/08), and knowing which account BEFORE they start is what
-   * makes that reviewable instead of discoverable afterwards.
+   * usually pay from (optional since 2026-09-03 — partners pay from several, and no code ever compared
+   * it with a UTR; the documented failure mode, third-party money through a personal account that
+   * then gets frozen (docs/06, docs/08), is what `accountDedicated` asks about and the reviewer
+   * follows up on).
    *
    * Accepted from 'pending' and 'more_info' — the resubmission path is the same call, which is what
-   * turns a rejection into a conversation.
+   * turns a rejection into a conversation — and, as an EDIT, from 'approved' (docs/14 §Editing).
    */
   app.post<{ Body: { fields?: Record<string, unknown> } }>('/merchants/kyb', async (req, reply) => {
     const merchant = await requireMerchant(req);
-    if (!KYB_SUBMITTABLE.includes(merchant.kyb_status)) {
+    // Two doors. A first submission (or a more-info resubmission) from the statuses where the partner
+    // owes us something; an EDIT from 'approved' (docs/14 §Editing). Never while a reviewer is reading.
+    const editing = KYB_EDITABLE_FROM.includes(merchant.kyb_status);
+    if (!editing && !KYB_SUBMITTABLE.includes(merchant.kyb_status)) {
       return reply.code(409).send({ error: 'kyb_not_submittable', kybStatus: merchant.kyb_status });
     }
+    if (editing && merchant.suspend_reason === 'exited') return reply.code(409).send({ error: 'already_exited' });
     // Trust boundary. The client checks the same rules first, purely so a typo doesn't cost a round
     // trip; nothing it says is believed here.
     const checked = validateKybFields(merchant.country, req.body?.fields);
     if (!checked.ok) return reply.code(400).send({ error: 'invalid_kyb_fields', invalid: checked.invalid });
+    // Hidden keys are not on the form. A stored value for one is carried forward whatever the client
+    // sent — and it WINS over a client-sent value, because the mirror validates the full spec and would
+    // otherwise let any client overwrite a field nobody can see. A blank visible optional still clears.
+    const stored = merchant.kyb_fields ?? {};
+    const fields: Record<string, string> = { ...checked.fields };
+    for (const k of hiddenKeys(merchant.country)) if (stored[k] != null) fields[k] = stored[k];
 
-    const from = await submitMerchantKyb(merchant.id, checked.fields, KYB_SUBMITTABLE);
+    if (editing) {
+      const changed = await editMerchantKyb(merchant.id, fields, recheckKeys(merchant.country));
+      // Lost a race with a reviewer who moved it mid-request.
+      if (changed == null) return reply.code(409).send({ error: 'kyb_not_submittable' });
+      const recheck = changed.length > 0;
+      const kybStatus = recheck ? 'submitted' : merchant.kyb_status;
+      // Keys only, never values (see below). The reviewer re-checks what changed, not the whole form.
+      await appendKybEvent(merchant.id, merchant.kyb_status, kybStatus, recheck ? 'kyb_edited_recheck' : 'kyb_edited', { changed });
+      return { ok: true, kybStatus, recheck };
+    }
+
+    const from = await submitMerchantKyb(merchant.id, fields, KYB_SUBMITTABLE);
     // Lost a race with a reviewer who moved it mid-request.
     if (from == null) return reply.code(409).send({ error: 'kyb_not_submittable' });
     // The field VALUES deliberately don't go in the event log: they live in merchants.kyb_fields,
     // and copying business identifiers into an append-only table means they can never be corrected
     // or erased. The log records that a submission happened, not what was in it.
     await appendKybEvent(merchant.id, from, 'submitted', 'kyb_submitted', { country: merchant.country });
-    return { ok: true, kybStatus: 'submitted' };
+    return { ok: true, kybStatus: 'submitted', recheck: false };
   });
 
   /**
