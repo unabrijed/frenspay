@@ -36,46 +36,74 @@ export interface KybField {
   /** Fixed choices. Renders as a one-tap pick; validated on BOTH sides as exact membership. The
    *  stored value is the label itself — what the applicant tapped is what the reviewer reads. */
   options?: string[];
-  /** Marks the one field that identifies the PERSON, not the business. Load-bearing while the
-   *  identity vendor is off: the reviewer's approval grants tier 2 itself (docs/14), so if the form
-   *  carries no personal identifier the "a human checked" story is empty. check-kyb enforces exactly
-   *  one required identity field per country, so a new corridor cannot quietly ship without one. */
+  /** Marks the one field that identifies the PERSON, not the business. check-kyb enforces exactly
+   *  one identity field per country. Since 2026-09-03 it is asked only when the corridor's spec says
+   *  so (`hidden` off) — the reviewer's decision rests on the person as described, not on a
+   *  government number nothing ever verified (docs/14 §The grant that isn't, and this file's header). */
   identity?: boolean;
+  /** Not rendered on the editable form. Still a known key: validated if present, shown in the
+   *  read-only recap and in admin when a value is stored, and carried forward by the server on every
+   *  resubmission so a hidden value is never dropped. Hidden implies optional (check-kyb asserts it —
+   *  a hidden required field is unsubmittable). Bringing a field back is deleting this flag. */
+  hidden?: boolean;
+  /** An APPROVED partner changing this field re-opens the review: they go back to 'submitted' and
+   *  offline until a human looks again (routes/merchant.ts, editMerchantKyb). Everything else they
+   *  edit updates in place. The account fields carry it; a Telegram typo must not cost a working
+   *  partner their queue. */
+  recheck?: boolean;
 }
 
 /**
- * India. `payoutAccount` is the load-bearing one and the reason this exists at all: the fiat leg is
- * settled from the LP's OWN bank account, and the documented failure mode for this whole business
- * shape is exactly that — personal accounts moving third-party money and getting frozen (docs/06,
- * docs/08). Knowing which account before they start is what makes that reviewable rather than
- * discoverable afterwards.
+ * India. `payoutAccount` used to be the load-bearing one: the fiat leg is settled from the LP's OWN
+ * account, and the documented failure mode for this business shape is personal accounts moving
+ * third-party money and getting frozen (docs/06, docs/08). Since 2026-09-03 it is optional — partners
+ * pay from several accounts, and no code ever compared it with a UTR; `accountDedicated` carries the
+ * question that matters, and the reviewer asks the rest over Telegram. PAN is hidden the same day: the
+ * peer product's form never asked for it, nothing screened it, and it stays in the spec as an optional
+ * known key so it can be asked again by deleting one flag (docs/14).
  */
 const INDIA: KybField[] = [
   // Ten characters, five letters, four digits, one letter. Every Indian taxpayer has one.
   {
     key: 'pan',
     label: 'PAN',
-    hint: 'Yours — this is the name we check you against',
+    hint: 'Yours. This is the name we check you against.',
     pattern: '^[A-Za-z]{5}[0-9]{4}[A-Za-z]$',
     identity: true,
+    optional: true,
+    hidden: true,
+    recheck: true,
   },
   {
     key: 'payoutAccount',
-    label: 'Which account you’ll pay from',
-    hint: 'The UPI ID or bank account the rupees will actually leave. This has to be yours.',
+    label: 'The account you usually pay from',
+    hint: 'A UPI ID or bank account, if you mostly use one. Leave blank if you pay from several.',
     maxLen: 120,
+    optional: true,
+    recheck: true,
   },
 ];
 
 const INDONESIA: KybField[] = [
-  // NIK is the 16-digit number on the KTP — the field that names the person, required for the same
-  // reason PAN is on the India spec.
-  { key: 'nik', label: 'NIK', hint: 'The 16-digit number on your KTP', pattern: '^[0-9]{16}$', identity: true },
+  // NIK is the 16-digit number on the KTP — the field that names the person. Hidden and optional for
+  // the same reason PAN is on the India spec.
+  {
+    key: 'nik',
+    label: 'NIK',
+    hint: 'The 16-digit number on your KTP',
+    pattern: '^[0-9]{16}$',
+    identity: true,
+    optional: true,
+    hidden: true,
+    recheck: true,
+  },
   {
     key: 'payoutAccount',
-    label: 'Which account you’ll pay from',
-    hint: 'The e-wallet or bank account the rupiah will actually leave. This has to be yours.',
+    label: 'The account you usually pay from',
+    hint: 'An e-wallet or bank account, if you mostly use one. Leave blank if you pay from several.',
     maxLen: 120,
+    optional: true,
+    recheck: true,
   },
 ];
 
@@ -90,7 +118,7 @@ const SCREENING: KybField[] = [
   {
     key: 'cryptoExperience',
     label: 'Your experience with digital money',
-    hint: 'USDC, wallets, moving value on-chain — how familiar is this world to you?',
+    hint: 'How familiar are you with USDC and wallets?',
     options: ['Just starting', 'Some experience', 'Active user', 'Professional'],
   },
   {
@@ -99,12 +127,15 @@ const SCREENING: KybField[] = [
     options: ['Student', 'Freelancer', 'Full-time employee', 'Business owner', 'Homemaker'],
   },
   {
-    // The dollar figure mirrors MIN_BOND (apps/backend/src/services/merchantStats.ts) — update
-    // this copy if that number ever moves.
+    // The numbers mirror apps/backend/src/services/merchantStats.ts — MIN_BOND ($100), LEVERAGE
+    // {1: 1, 2: 3, 3: 5} and TIER_RULES (tier 2: 10 settled, 95% success, 3% disputes; tier 3: 50,
+    // 98%, 1%, fast) — update this copy if any of them moves. The hint is where a partner learns what
+    // staking more buys; the dashboard shows the same relation as "carries $X at once".
     key: 'plannedStake',
     label: 'How much you plan to stake',
-    hint: 'Your stake sits idle, bounds how much you can carry, and comes back when you leave.',
-    options: ['$100 — the minimum', '$100–300', 'Over $300', 'Not sure yet'],
+    hint:
+      'Your stake is the most you can carry in payouts at once: $300 staked means $300 in flight. It sits idle while you work and comes back when you leave. After 10 payouts, with 95% success and few disputes, you carry 3 times your stake. After 50, at 98% and fast, 5 times. Tiers move with your record, down as well as up.',
+    options: ['$100, the minimum', '$100–300', 'Over $300', 'Not sure yet'],
   },
   {
     key: 'commitment',
@@ -112,18 +143,20 @@ const SCREENING: KybField[] = [
     options: ['Under 3 months', '3–6 months', '6–12 months', 'A year or more', 'Not sure yet'],
   },
   {
-    // The load-bearing one, for the same reason payoutAccount exists: the documented failure mode
-    // is third-party money moving through a personal account (docs/08). Dedicated is what we
-    // want; an honest "shared" is a review conversation, not an auto-reject.
+    // The load-bearing one now that payoutAccount is optional: the documented failure mode is
+    // third-party money moving through a personal account (docs/08). Dedicated is what we want; an
+    // honest "shared" is a review conversation, not an auto-reject. Names the account itself, because
+    // the field above it may be blank.
     key: 'accountDedicated',
-    label: 'Is that account only for this work?',
+    label: 'Do you pay from an account that is only for this work?',
     hint: 'A dedicated account, separate from your personal spending, is far less likely to be frozen.',
     options: ['Yes, dedicated to this', 'No, I also use it personally', 'I’ll open one before starting'],
+    recheck: true,
   },
   {
     key: 'otherPlatforms',
     label: 'Where else you do this',
-    hint: 'Binance P2P, p2p.me, anywhere you settle payouts — leave blank if nowhere',
+    hint: 'Anywhere else you send payouts for people. Leave blank if nowhere.',
     optional: true,
     maxLen: 200,
   },
@@ -134,7 +167,7 @@ const SCREENING: KybField[] = [
     // vendor is off, and where a partner is reached about orders — the channel peer platforms use.
     key: 'contactTelegram',
     label: 'Your Telegram',
-    hint: 'Where we follow up during review and reach you about orders — @username or a t.me link.',
+    hint: 'Where we follow up during review and reach you about orders. An @username or a t.me link.',
     maxLen: 64,
   },
 ];

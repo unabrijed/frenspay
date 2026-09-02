@@ -48,27 +48,32 @@ for (const [country, spec] of Object.entries(KYB_FIELDS)) {
       assert.ok(!f.pattern, `${country}.${f.key}: options and pattern are mutually exclusive`);
     }
   }
-  // The one field every corridor must ask for, whatever else differs. The documented failure mode
-  // for this whole business shape is third-party money moving through a personal account; knowing
-  // WHICH account before they start is what makes that reviewable rather than discoverable after.
-  assert.ok(spec.some((f) => f.key === 'payoutAccount' && !f.optional), `${country}: no required payoutAccount`);
-  // Exactly one required field must name the PERSON. While the identity vendor is off, approving this
-  // form is what grants tier 2 (docs/14) — a spec with no personal identifier would make that
-  // approval a judgment about a business nobody has been asked to identify. Exactly one, not at least
-  // one: two would leave the reviewer guessing which name the decision is actually about.
+  // The one field every corridor must ASK for, whatever else differs — optional since 2026-09-03
+  // (partners pay from several accounts; nothing ever compared it with a UTR), but never absent: the
+  // documented failure mode for this business shape is third-party money moving through a personal
+  // account, and the question has to be on the form for the reviewer to follow up on.
+  assert.ok(spec.some((f) => f.key === 'payoutAccount'), `${country}: no payoutAccount field`);
+  // Exactly one field names the PERSON. It may be optional and hidden (PAN/NIK are, since 2026-09-03
+  // — the peer product never asked, nothing screened it), but the slot exists so bringing it back is
+  // one flag, and there is never a second one to leave the reviewer guessing which name a decision is
+  // about.
   const ids = spec.filter((f) => f.identity);
   assert.equal(ids.length, 1, `${country}: expected exactly one identity field, found ${ids.length}`);
-  assert.ok(!ids[0].optional, `${country}: the identity field (${ids[0].key}) cannot be optional`);
+  // A hidden field is never rendered, so a hidden REQUIRED field is a form nobody can submit.
+  for (const f of spec) {
+    if (f.hidden) assert.ok(f.optional, `${country}.${f.key}: hidden fields must be optional`);
+  }
 }
 
 // --- validation behaviour ------------------------------------------------------------------------
+// No `pan`: hidden fields are not on the form, so a complete submission does not carry one. It is
+// still checked when PRESENT (the format tests below send it explicitly).
 const IN_OK = {
-  pan: 'ABCDE1234F',
   payoutAccount: 'sharma@okaxis',
-  // The country-agnostic screening block (SCREENING) — required alongside the identifiers.
+  // The country-agnostic screening block (SCREENING) — required alongside the account question.
   cryptoExperience: 'Active user',
   profession: 'Freelancer',
-  plannedStake: '$100 — the minimum',
+  plannedStake: '$100, the minimum',
   commitment: 'A year or more',
   accountDedicated: 'Yes, dedicated to this',
   contactTelegram: '@sharma_pays',
@@ -83,14 +88,16 @@ assert.deepEqual(validateKyb('IN', { ...IN_OK, otherPlatforms: '' }), [], 'blank
 assert.deepEqual(validateKyb('IN', { ...IN_OK, otherPlatforms: '   ' }), [], 'whitespace-only optional is treated as blank');
 assert.deepEqual(validateKyb('IN', { ...IN_OK, otherPlatforms: 'x'.repeat(201) }), ['otherPlatforms'], 'a PRESENT optional field is still checked');
 
-// Required fields.
-for (const key of ['pan', 'payoutAccount', 'cryptoExperience', 'profession', 'plannedStake', 'commitment', 'accountDedicated', 'contactTelegram']) {
+// Required fields. Not `pan` (hidden, optional) and not `payoutAccount` (optional since 2026-09-03).
+for (const key of ['cryptoExperience', 'profession', 'plannedStake', 'commitment', 'accountDedicated', 'contactTelegram']) {
   const missing = { ...IN_OK, [key]: '' };
   assert.deepEqual(validateKyb('IN', missing), [key], `${key} is required`);
   assert.deepEqual(validateKyb('IN', { ...IN_OK, [key]: '   ' }), [key], `${key} cannot be whitespace`);
 }
 
-// Format, including the anchoring bug an unanchored regex would let through.
+// Format, including the anchoring bug an unanchored regex would let through. PAN is optional, but a
+// PRESENT one is still held to its shape — optional means "may be blank", never "may be garbage".
+assert.deepEqual(validateKyb('IN', { ...IN_OK, pan: '' }), [], 'a blank PAN is fine');
 assert.deepEqual(validateKyb('IN', { ...IN_OK, pan: 'ABCD1234F' }), ['pan'], 'PAN too short');
 assert.deepEqual(validateKyb('IN', { ...IN_OK, pan: 'XABCDE1234FX' }), ['pan'], 'PAN must match the WHOLE value');
 assert.deepEqual(validateKyb('IN', { ...IN_OK, pan: 'abcde1234f' }), [], 'PAN is case-insensitive');
@@ -104,10 +111,12 @@ assert.deepEqual(validateKyb('IN', { ...IN_OK, profession: 'student' }), ['profe
 // Several problems at once come back together — a form that reveals one error per round trip is how
 // someone gives up on the fourth attempt.
 const manyBad = validateKyb('IN', { ...IN_OK, pan: 'nope', profession: '', payoutAccount: '' });
-assert.deepEqual(manyBad.sort(), ['pan', 'payoutAccount', 'profession'], 'all invalid fields reported at once');
+assert.deepEqual(manyBad.sort(), ['pan', 'profession'], 'all invalid fields reported at once (a blank optional account is not one)');
 
-// Indonesia is a different spec, not a translation of India's.
-assert.deepEqual(validateKyb('ID', IN_OK), ['nik'], 'India fields do not satisfy Indonesia');
+// Indonesia is a different spec, not a translation of India's — but with its identity field optional,
+// India's answers satisfy it: unknown keys are ignored and nothing required is missing. The check that
+// still bites is a PRESENT bad NIK (below).
+assert.deepEqual(validateKyb('ID', IN_OK), [], 'India fields satisfy Indonesia only because nothing required differs');
 assert.deepEqual(
   validateKyb('ID', { nik: '3175031234567890', payoutAccount: '900012345678', cryptoExperience: 'Some experience', profession: 'Freelancer', plannedStake: 'Not sure yet', commitment: 'Not sure yet', accountDedicated: 'I’ll open one before starting', contactTelegram: 't.me/budi' }),
   [],
@@ -118,7 +127,7 @@ assert.deepEqual(validateKyb('ID', { nik: '123' }).includes('nik'), true, 'NIK m
 // An unknown country cannot submit at all. Failing closed matters: the alternative is accepting a
 // blank submission from a corridor whose identifiers nobody has thought about yet.
 assert.deepEqual(validateKyb('ZZ', IN_OK), ['country'], 'unknown country fails closed');
-assert.deepEqual(validateKyb('IN', {}).length, 8, 'an empty submission reports every required field');
+assert.deepEqual(validateKyb('IN', {}).length, 6, 'an empty submission reports every required field');
 // Telegram is where the review conversation happens (2026-09-02) — required, not merely present.
 assert.ok(KYB_FIELDS.IN.some((f) => f.key === 'contactTelegram' && !f.optional), 'contactTelegram is required');
 
@@ -135,14 +144,15 @@ for (const s of ['submitted', 'under_review', 'approved', 'rejected'] as const) 
   for (const [country, spec] of Object.entries(KYB_FIELDS)) {
     for (const f of spec) {
       assert.ok(backend.includes(`key: '${f.key}'`), `backend lib/kyb.ts is missing field '${f.key}' (${country})`);
-      // Both directions. Optional here but required there = unsubmittable; required here but optional
-      // there = the server silently accepts blank for a field the form insists on (contactTelegram
-      // flipped to required on 2026-09-02 — forgetting the mirror must fail loudly).
-      const backendOptional = new RegExp(`key: '${f.key}',[^\\n]*optional: true`).test(backend);
-      if (f.optional) {
-        assert.ok(backendOptional, `backend lib/kyb.ts: '${f.key}' must be optional there too, or it is unsubmittable`);
-      } else {
-        assert.ok(!backendOptional, `backend lib/kyb.ts: '${f.key}' is required on the form but optional there — the server would accept blank`);
+      // Both directions, for every flag the backend acts on. Optional here but required there =
+      // unsubmittable; required here but optional there = the server silently accepts blank for a field
+      // the form insists on (contactTelegram flipped to required on 2026-09-02 — forgetting the mirror
+      // must fail loudly). `hidden` decides which stored keys the route carries forward and `recheck`
+      // which edits re-open the review — a drift on either is a silent policy change.
+      for (const flag of ['optional', 'hidden', 'recheck'] as const) {
+        const there = new RegExp(`key: '${f.key}',[^\\n]*${flag}: true`).test(backend);
+        if (f[flag]) assert.ok(there, `backend lib/kyb.ts: '${f.key}' is ${flag} on the form but not there`);
+        else assert.ok(!there, `backend lib/kyb.ts: '${f.key}' is ${flag} there but not on the form`);
       }
       if (f.maxLen) {
         assert.ok(
