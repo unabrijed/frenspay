@@ -18,6 +18,9 @@ import { wallet, type Friend, type Payee, type Txn } from './services/wallet';
 
 // In-flight guard for the silent background re-quote (see refreshQuote).
 let refreshingQuote = false;
+// Monotonic id of the newest quote request. A response whose id is no longer current is dropped —
+// the amount moved on, or a confirm started. refreshingQuote stays: it de-dupes the 1s ticker.
+let quoteSeq = 0;
 
 // Same guard for the two data-fetching entry points. Cold boot fires load() (PrivyBridge, on token)
 // and refresh() (useLiveSync, on mount) at the same instant, StrictMode double-mounts the second,
@@ -50,7 +53,6 @@ export type SheetId =
   | 'currency'
   | 'localCurrency'
   | 'country'
-  | 'quote'
   | 'tracking'
   | 'help'
   | 'notifications';
@@ -284,19 +286,18 @@ interface PayState {
   doSendExternal: () => Promise<Txn | null>;
 
   // ---- order lifecycle: quote → confirm (sign escrow funding) → poll ----
-  /** Request a locked quote for a rupee amount and open the Quote screen. */
+  /** Live-quote the typed amount. No busy, no sheet: the Amount sheet calls it after the keys go
+   *  quiet and reads `quote` back; a response for an amount that moved on is dropped. */
   getQuote: (rupees: number) => Promise<void>;
   /** Silently re-quote the same rupee amount when the held rate nears expiry. No busy/sheet/error. */
   refreshQuote: () => Promise<void>;
-  /** Confirm the live quote: create the order, sign the escrow funding, open the timeline. */
+  /** Confirm the live quote: create the order, sign the escrow funding, open the tracker. */
   confirmOrder: () => Promise<void>;
   /** Poll the in-flight order; refreshes balance once it reaches a terminal state. */
   refreshOrder: () => Promise<void>;
   /** Payer reports the money never arrived, while the merchant's release window is still open. */
   disputeOrder: (reason?: string, orderId?: string) => Promise<void>;
   feedbackOrder: (up: boolean) => Promise<void>;
-  /** Discard the quote and go back to amount entry. */
-  editQuote: () => void;
 
   // ---- onboarding ----
   completeOnboarding: () => void;
@@ -927,7 +928,8 @@ export const usePayStore = create<PayState>()(
         // already-clamped value) so a malformed 3dp QR can't seed an amount the backend would
         // reject at quote time. IDR clamps to whole rupiah.
         const minor = 10 ** fiatDecimals(m.currency ?? 'INR');
-        set({ payee: m, scannedRupees: Math.round(rupees * minor) / minor });
+        // quote: null — a previous payee's quote for the same amount must never read as live here.
+        set({ payee: m, scannedRupees: Math.round(rupees * minor) / minor, quote: null });
         // The scanned rail's rate, fetched now rather than kept warm for every rail on every poll.
         // Not awaited: fxRates is seeded and persisted, so the keypad prices off the last known
         // rate immediately and repaints when the fresh one lands — the binding number is the
@@ -1189,7 +1191,10 @@ export const usePayStore = create<PayState>()(
 
       // ---- order lifecycle: quote → confirm (sign escrow funding) → poll ----
       getQuote: async (rupees) => {
-        set({ busy: true, error: null });
+        // A confirm is in flight: its quote must not move under it.
+        if (get().busy) return;
+        const seq = ++quoteSeq;
+        set({ error: null, pendingPay: false });
         try {
           const payee = get().payee;
           const quote = await apiCreateQuote({
@@ -1201,15 +1206,16 @@ export const usePayStore = create<PayState>()(
             payoutDestination: payee.vpa,
             payoutName: payee.name,
           });
-          set({ quote, payRupees: rupees, busy: false });
-          get().open('quote');
+          if (seq !== quoteSeq) return; // superseded
+          set({ quote, payRupees: rupees });
         } catch (e) {
+          if (seq !== quoteSeq) return;
           if (e instanceof ApiError && e.code === 'limit_exceeded' && get().identityCheckAvailable) {
-            set({ busy: false, error: 'Verify your identity to raise your limit.', pendingPay: true });
-            get().open('verify');
+            // No open('verify'): the user is mid-keypad. The Amount sheet renders the link off pendingPay.
+            set({ error: 'Verify your identity to raise your limit.', pendingPay: true });
             return;
           }
-          set({ busy: false, error: friendlyError(e) });
+          set({ error: friendlyError(e) });
         }
       },
 
@@ -1220,6 +1226,7 @@ export const usePayStore = create<PayState>()(
         if (!q || get().busy || refreshingQuote) return;
         if (q.expiresAt - Date.now() > 5_000) return;
         refreshingQuote = true;
+        const seq = quoteSeq;
         try {
           const payee = get().payee;
           const quote = await apiCreateQuote({
@@ -1229,7 +1236,9 @@ export const usePayStore = create<PayState>()(
             payoutDestination: payee.vpa,
             payoutName: payee.name,
           });
-          set({ quote });
+          // A refresh of the old amount landing after a fresh live quote would park a mismatched
+          // quote in the store with nothing left to re-fire it.
+          if (seq === quoteSeq) set({ quote });
         } catch {
           // Keep the stale quote; confirmOrder's quote_expired retry is the backstop.
         } finally {
@@ -1238,34 +1247,34 @@ export const usePayStore = create<PayState>()(
       },
 
       confirmOrder: async () => {
+        let q = get().quote;
+        if (!q) return;
+        // Orphan any live quote still in flight: from here nothing may move the quote under the order.
+        quoteSeq++;
         set({ busy: true, error: null });
         // Two passes: if the quote expired between refresh ticks, silently re-quote the same
         // rupee amount and retry once. Safe — the 409 fires before any order or tx exists.
         for (let attempt = 0; attempt < 2; attempt++) {
-          const q = get().quote;
-          if (!q) {
-            set({ busy: false });
-            return;
-          }
           try {
             const order = await apiConfirmOrder(q.id);
             // Optimistically debit the escrowed USDC so a second order can't see the same balance;
             // refreshOrder() reconciles against the chain on completion/refund.
-            set((s) => ({ order, balanceUSD: +(s.balanceUSD - Number(q.amountUsdc)).toFixed(2), busy: false }));
+            const debit = Number(q.amountUsdc);
+            set((s) => ({ order, balanceUSD: +(s.balanceUSD - debit).toFixed(2), busy: false }));
             get().open('tracking');
             return;
           } catch (e) {
             if (e instanceof ApiError && e.code === 'quote_expired' && attempt === 0) {
               try {
                 const payee = get().payee;
-                const quote = await apiCreateQuote({
+                q = await apiCreateQuote({
                   direction: 'spend',
                   amountInr: q.amountInr,
                   payoutMethod: payee.rail ?? 'UPI',
                   payoutDestination: payee.vpa,
                   payoutName: payee.name,
                 });
-                set({ quote });
+                set({ quote: q });
                 continue;
               } catch {
                 // Re-quote failed; fall through and report the original error.
@@ -1327,11 +1336,6 @@ export const usePayStore = create<PayState>()(
         } catch {
           // best-effort; the prompt simply won't reappear for this order
         }
-      },
-
-      editQuote: () => {
-        set({ quote: null });
-        get().open('amount');
       },
 
       // ---- payment requests ----
