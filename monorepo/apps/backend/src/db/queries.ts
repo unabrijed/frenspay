@@ -1067,7 +1067,15 @@ export async function isMerchantTreasuryAddress(address: string): Promise<boolea
 /**
  * Record the broadcast signature on a transfer the caller owns. Scoped to from_user_id so a
  * user can only attach a signature to their own transfer. Returns false when no row matched
- * (unknown id or not the owner) so the route can 404 instead of silently no-op'ing.
+ * (unknown id, not the owner, or a row that already carries a DIFFERENT signature) so the route
+ * can 404 instead of silently no-op'ing.
+ *
+ * A row is attached once. Re-posting the SAME signature is idempotent — the Helius webhook attaches
+ * an escrow deposit by memo before the payer's own fund-submit arrives with it, and that must still
+ * match (routes/orders.ts advances the order on the match). Posting a different signature against a
+ * signed row is refused, whatever its status. Without that, a CONFIRMED stake row's signature could
+ * be overwritten — freeing it from the unique index — and re-attached to a fresh pending row that
+ * the verifier would confirm again: same sender, same amount, same treasury (docs/19).
  */
 export async function attachTransferSignature(
   transferId: string,
@@ -1075,7 +1083,9 @@ export async function attachTransferSignature(
   ownerUserId: string,
 ): Promise<boolean> {
   const { rowCount } = await getPool().query(
-    'update transfers set signature = $2 where id = $1 and from_user_id = $3',
+    `update transfers set signature = $2
+      where id = $1 and from_user_id = $3
+        and (signature = $2 or (signature is null and status = 'pending'))`,
     [transferId, signature, ownerUserId],
   );
   return (rowCount ?? 0) > 0;

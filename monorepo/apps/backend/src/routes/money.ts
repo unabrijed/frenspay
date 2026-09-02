@@ -49,6 +49,7 @@ import {
   feePayerAddress,
   getUsdcBalance,
   isValidRecipientOwner,
+  SIGNATURE_RE,
 } from '../services/solana';
 
 // External (raw-address) send guards — both bound the fee-payer ATA-rent drain (~0.002 SOL per
@@ -359,6 +360,9 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
     const userId = requireUserId(req);
     const { transferId, signature } = req.body ?? ({} as SubmitTransferRequest);
     if (!transferId || !signature) return reply.code(400).send({ error: 'missing_fields' });
+    // Shape first: a string that is not a signature would sit 'pending' in the confirmer forever —
+    // getSignatureStatuses answers null for it every tick, and null reads as "not yet".
+    if (!SIGNATURE_RE.test(signature)) return reply.code(400).send({ error: 'invalid_signature' });
 
     // The client already signed + broadcast (Privy / dev keypair); just record the signature.
     // Scoped to the owner so a user can only attach to their own transfer.

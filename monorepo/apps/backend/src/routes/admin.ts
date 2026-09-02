@@ -74,6 +74,7 @@ import { canonicalInviteCode } from '../services/invites';
 import { ACTIVITY_SLOTS, activitySlot } from '../services/merchantStats';
 import { settleDispute } from '../services/orderMachine';
 import { providerHasCredentials } from '../services/payout/provider';
+import { SIGNATURE_RE } from '../services/solana';
 
 /** The four things a reviewer can say. 'review' is a claim, not a verdict — it tells the next
  *  reviewer someone is already on it. */
@@ -343,7 +344,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       const admin = await findUserById(adminId);
       if (!isRootAdminEmail(admin?.email)) return reply.code(403).send({ error: 'root_admin_required' });
       const signature = req.body?.signature?.trim();
-      if (!signature || !/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(signature)) return reply.code(400).send({ error: 'invalid_signature' });
+      if (!signature || !SIGNATURE_RE.test(signature)) return reply.code(400).send({ error: 'invalid_signature' });
       let released: boolean;
       try {
         released = await releaseStakeWithdrawal(req.params.id, signature, adminId, req.body?.note?.trim() || undefined);

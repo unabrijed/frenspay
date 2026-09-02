@@ -177,6 +177,11 @@ function isValidPubkey(s: string): boolean {
   }
 }
 
+/** A Solana transaction signature as base58 — 64 bytes, so 86–88 characters in practice; the bounds
+ *  are loose on purpose. Every route that accepts a signature from a human checks this first, so a
+ *  pasted URL or a truncated copy is a 400 and never a row the confirmer polls forever. */
+export const SIGNATURE_RE = /^[1-9A-HJ-NP-Za-km-z]{64,90}$/;
+
 /**
  * Can this string receive a direct USDC send? Decodes to 32 bytes AND is on the ed25519 curve —
  * off-curve accounts (token accounts users copy off explorers, PDAs, program ids) can't own an ATA;
