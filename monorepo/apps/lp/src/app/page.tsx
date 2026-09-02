@@ -32,6 +32,7 @@ import {
   setMerchantOnline,
   setMerchantSpread,
   setContactPhone,
+  setWithdrawalAddress,
 } from '@/services/merchant';
 import { useLpStore } from '@/store/useLpStore';
 
@@ -244,26 +245,49 @@ export default function MerchantHome() {
   };
 
   // The terms at the moment of commitment, not on a page nobody reads: where it goes, how, how soon,
-  // and the one thing that can refuse it. The wallet is fixed server-side; showing it is disclosure.
+  // and the one thing that can refuse it. Where it goes is THEIRS to say (docs/19): any Solana wallet
+  // they hold, prefilled with their fpay wallet — blank or unchanged means that one.
   const short = (a?: string) => (a ? `${a.slice(0, 4)}…${a.slice(-4)}` : 'your fpay wallet');
+  const askPayoutAddress = (current?: string): string | null | undefined => {
+    const raw = window.prompt(
+      'Which wallet should we send it to? A Solana address that holds USDC — your fpay wallet is filled in.',
+      current ?? merchant?.payoutWallet ?? '',
+    );
+    if (raw == null) return undefined; // cancelled
+    const a = raw.trim();
+    return a && a !== merchant?.payoutWallet ? a : null;
+  };
   const withdraw = () => {
     const raw = window.prompt(
-      `How much of your stake to take back, in dollars?\n\nWe send it by hand to your fpay wallet (${short(merchant?.payoutWallet)}), usually within a day. It can't leave while a payout you handled is less than ${merchant?.clawWindowHours ?? 72} hours old — that's how long it can still be disputed.`,
+      `How much of your stake to take back, in dollars?\n\nWe send it by hand to a wallet you choose next, usually within a day. It can't leave while a payout you handled is less than ${merchant?.clawWindowHours ?? 72} hours old — that's how long it can still be disputed.`,
     );
     if (raw == null) return;
     const n = Number(raw);
     if (!Number.isFinite(n) || n <= 0) return setErr('Enter an amount, like 50.');
-    return act(() => requestStakeWithdrawal(n));
+    const to = askPayoutAddress();
+    if (to === undefined) return;
+    return act(() => requestStakeWithdrawal(n, to));
   };
 
   // Final, and said so. The server refuses it for the same reasons as a withdrawal.
   const leave = () => {
     if (!merchant) return;
     const ok = window.confirm(
-      `Leave fpay as a partner?\n\nYour whole stake (${usd(merchant.bondUsdc)}) is sent back by hand to ${short(merchant.payoutWallet)}, usually within a day. You keep your history and can still sign in, but you won't be offered orders again and this can't be undone from here.`,
+      `Leave fpay as a partner?\n\nYour whole stake (${usd(merchant.bondUsdc)}) is sent back by hand to a wallet you choose next, usually within a day. You keep your history and can still sign in, but you won't be offered orders again and this can't be undone from here.`,
     );
     if (!ok) return;
-    return act(() => exitMerchant());
+    const to = askPayoutAddress();
+    if (to === undefined) return;
+    return act(() => exitMerchant(to));
+  };
+
+  // An exit cannot be cancelled, so the address on it must still be changeable while it is open.
+  const changeAddress = () => {
+    const w = merchant?.pendingWithdrawal;
+    if (!w) return;
+    const to = askPayoutAddress(w.payoutAddress);
+    if (to === undefined) return;
+    return act(() => setWithdrawalAddress(w.id, to));
   };
 
   // Same polling shape as the payer's order tracker — new work arrives without a manual refresh.
@@ -359,8 +383,11 @@ export default function MerchantHome() {
               {usd(merchant.pendingWithdrawal.amountUsdc)} on its way back
             </Txt>
             <Txt style={[type.rowTime, { marginTop: 2 }]}>
-              {`Already taken off your stake. We send it by hand to ${short(merchant.payoutWallet)} — usually within a day.`}
+              {`Already taken off your stake. We send it by hand to ${short(merchant.pendingWithdrawal.payoutAddress ?? merchant.payoutWallet)} — usually within a day.`}
             </Txt>
+            <Pressable onPress={() => void changeAddress()}>
+              <Txt style={[type.rowTime, { marginTop: 8, color: colors.accent }]}>Send it somewhere else</Txt>
+            </Pressable>
             {/* An exit is final; only an ordinary withdrawal can be put back. */}
             {merchant.pendingWithdrawal.exit ? null : (
               <Pressable onPress={() => void act(() => cancelStakeWithdrawal(merchant.pendingWithdrawal!.id))}>
