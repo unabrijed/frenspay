@@ -1134,7 +1134,10 @@ export interface PendingTransfer {
   status: 'pending' | 'confirmed' | 'failed';
   from_user_id: string | null;
   to_user_id: string | null;
-  from_address: string;
+  /** NULL on a stake CLAIM row (docs/19): the partner paid the treasury from a wallet we never saw
+   *  — an exchange, a friend's — so the row asserts no sender and the verifier does not check one.
+   *  Every other writer sets it. */
+  from_address: string | null;
   to_address: string;
   amount_usdc: string;
 }

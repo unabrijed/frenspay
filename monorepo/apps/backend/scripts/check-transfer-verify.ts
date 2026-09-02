@@ -7,7 +7,7 @@
 // invariant 10). Run: yarn workspace @fpay/backend check:verify
 import assert from 'node:assert/strict';
 
-import { instructionsMove, memoOf, type ParsedIx } from '../src/services/transferVerify';
+import { instructionsMove, memoOf, treasuryDepositsIn, type ParsedIx } from '../src/services/transferVerify';
 
 const MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const DEST = 'DestAta1111111111111111111111111111111111111';
@@ -81,6 +81,34 @@ check('escrow release: the fee leg in the same tx does not satisfy the partner r
   !instructionsMove([checked({ authority: POOL_OWNER, destination: 'EarningsAta11111111111111111111111111111111', tokenAmount: { amount: '1000', decimals: 6 } })], payout));
 check('escrow release: signed by the fee-payer instead of the pool → no',
   !instructionsMove([checked({ tokenAmount: { amount: '99999000', decimals: 6 } })], payout));
+
+// --- stake claims (docs/19) --------------------------------------------------------------------------
+// A partner who paid the treasury from an exchange has a row with NO sender: the verifier is pinned by
+// amount + destination + the unique signature + the admin's attribution, and simply does not ask who
+// signed. Every row WITH a sender is still held to it (the 'wrong authority' case above).
+const claim = { mint: MINT, destination: DEST, amount: '100000000' };
+check('stake claim (no expected authority): the right amount to the treasury from a stranger → matches',
+  instructionsMove([checked({ authority: 'Stranger111111111111111111111111111111111111' })], claim));
+check('stake claim: a multisig sender (no `authority` field at all) → matches',
+  instructionsMove([checked({ authority: undefined, multisigAuthority: 'Multisig1111111111111111111111111111111111', signers: ['a', 'b'] })], claim));
+check('stake claim: wrong amount still → no', !instructionsMove([checked({ tokenAmount: { amount: '99999999', decimals: 6 } })], claim));
+check('stake claim: wrong destination still → no', !instructionsMove([checked({ destination: 'SomeoneElse11111111111111111111111111111111' })], claim));
+
+// What the claim route reads off the chain at submit time: only the legs INTO the treasury count.
+const other = (dest: string, amount: string) => checked({ destination: dest, tokenAmount: { amount, decimals: 6 } });
+const batch = [other('Customer1111111111111111111111111111111111', '5000000'), checked(), other('Customer2222222222222222222222222222222222', '7000000'), memo('hello')];
+check('treasuryDepositsIn: one treasury leg among a batched exchange withdrawal → exactly that one, with its sender',
+  JSON.stringify(treasuryDepositsIn(batch, claim)) === JSON.stringify([{ amount: '100000000', sender: AUTH }]));
+check('treasuryDepositsIn: two legs into the treasury (two partners in one batch) → both, for the route to refuse',
+  treasuryDepositsIn([checked(), checked({ authority: 'Other111111111111111111111111111111111111111', tokenAmount: { amount: '200000000', decimals: 6 } })], claim).length === 2);
+check('treasuryDepositsIn: nothing into the treasury → empty',
+  treasuryDepositsIn([other('Customer1111111111111111111111111111111111', '5000000'), memo('x')], claim).length === 0);
+check('treasuryDepositsIn: a plain transfer (no mint) into the treasury ATA counts; a lookalike mint on transferChecked does not',
+  treasuryDepositsIn([plain()], claim).length === 1 && treasuryDepositsIn([checked({ mint: 'So11111111111111111111111111111111111111112' })], claim).length === 0);
+check('treasuryDepositsIn: the sender is multisigAuthority when there is no authority',
+  treasuryDepositsIn([checked({ authority: undefined, multisigAuthority: 'Multisig1111111111111111111111111111111111' })], claim)[0]?.sender === 'Multisig1111111111111111111111111111111111');
+check('treasuryDepositsIn: a numeric amount is not a deposit we can credit',
+  treasuryDepositsIn([plain({ amount: 100000000 })], claim).length === 0);
 
 console.log(failures === 0 ? 'check-transfer-verify: ok' : `check-transfer-verify: ${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);
