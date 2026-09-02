@@ -140,7 +140,7 @@ export const api = {
   // Record-only: the USDC was sent by hand from the cold stake treasury; this is its signature.
   releaseStakeWithdrawal: (id: string, signature: string) =>
     req<{ ok: true }>(`/admin/stake/withdrawals/${id}/release`, { method: 'POST', body: JSON.stringify({ signature }) }),
-  // Stake claims (docs/19): 'open' is what needs a human — submitted, duplicate, failed the chain check.
+  // Stake claims (docs/20): 'open' is what needs a human — submitted, duplicate, failed the chain check.
   stakeClaims: (scope: 'open' | 'all' = 'open') => req<AdminStakeClaimsResponse>(`/admin/stake/claims?scope=${scope}`),
   // Attribution, not a credit: the server inserts the pending transfers row; the confirmer's chain
   // check lands the bond. Refused while another live claim or a transfer holds the signature.

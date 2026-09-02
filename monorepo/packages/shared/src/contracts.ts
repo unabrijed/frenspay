@@ -189,7 +189,7 @@ export interface MerchantProfile {
    *  the way out, which cannot be cancelled (the address can still be changed while it is open). */
   pendingWithdrawal?: { id: string; amountUsdc: string; requestedAt: string; exit: boolean; payoutAddress?: string };
   /** The DEFAULT destination for a released stake — the partner's fpay wallet. They may name any
-   *  wallet they hold when they ask (docs/19); this is what the prompt is prefilled with. */
+   *  wallet they hold when they ask (docs/20); this is what the prompt is prefilled with. */
   payoutWallet?: string;
   /** Why `status` is 'suspended': 'exited' is the partner's own final decision; 'bond' is the floor;
    *  anything else a human. */
@@ -293,7 +293,7 @@ export interface StakePrepareRequest {
   amountUsd: string | number;
 }
 
-/** Lifecycle of a stake CLAIM (docs/19) — a signature a partner says is their stake, paid to the
+/** Lifecycle of a stake CLAIM (docs/20) — a signature a partner says is their stake, paid to the
  *  treasury from wherever their USDC was. Never a bond movement itself: admin's credit creates the
  *  transfers row and the confirmer credits it. 'duplicate' = the signature was already claimed or
  *  already recorded; both claims are kept so a reviewer sees them side by side. */
@@ -1008,7 +1008,7 @@ export interface AdminStakeWithdrawalsResponse {
 }
 
 /** A stake claim as the console sees it: who says it is theirs, what the chain says it moved, and
- *  whether anyone else has claimed the same signature (docs/19). */
+ *  whether anyone else has claimed the same signature (docs/20). */
 export interface AdminStakeClaim extends StakeClaim {
   merchantId: string;
   merchantName: string;

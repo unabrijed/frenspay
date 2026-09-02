@@ -4,7 +4,7 @@
 // route to this partner: an upheld dispute takes from it, and falling under the minimum takes them
 // out of routing entirely.
 //
-// How it is paid (docs/19): the partner sends USDC to fpay's stake address from wherever their USDC
+// How it is paid (docs/20): the partner sends USDC to fpay's stake address from wherever their USDC
 // is — an exchange, another wallet — and pastes the transaction ID here. The server reads what that
 // transaction moved off the chain, a person attributes it, and the bond lands only after the
 // confirmer's own chain check. Nothing is typed but the ID, so nothing can be mistyped into a burned

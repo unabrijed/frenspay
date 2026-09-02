@@ -388,7 +388,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     },
   );
 
-  /** Stake claims (docs/19): signatures partners say are their stake, with what the chain says each
+  /** Stake claims (docs/20): signatures partners say are their stake, with what the chain says each
    *  moved. 'open' is what needs a human — submitted, duplicate, accepted but failed the chain check. */
   app.get<{ Querystring: { scope?: string } }>('/admin/stake/claims', async (req): Promise<AdminStakeClaimsResponse> => {
     await requireAdmin(req);

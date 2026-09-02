@@ -1075,7 +1075,7 @@ export async function isMerchantTreasuryAddress(address: string): Promise<boolea
  * match (routes/orders.ts advances the order on the match). Posting a different signature against a
  * signed row is refused, whatever its status. Without that, a CONFIRMED stake row's signature could
  * be overwritten — freeing it from the unique index — and re-attached to a fresh pending row that
- * the verifier would confirm again: same sender, same amount, same treasury (docs/19).
+ * the verifier would confirm again: same sender, same amount, same treasury (docs/20).
  */
 export async function attachTransferSignature(
   transferId: string,
@@ -1134,7 +1134,7 @@ export interface PendingTransfer {
   status: 'pending' | 'confirmed' | 'failed';
   from_user_id: string | null;
   to_user_id: string | null;
-  /** NULL on a stake CLAIM row (docs/19): the partner paid the treasury from a wallet we never saw
+  /** NULL on a stake CLAIM row (docs/20): the partner paid the treasury from a wallet we never saw
    *  — an exchange, a friend's — so the row asserts no sender and the verifier does not check one.
    *  Every other writer sets it. */
   from_address: string | null;
@@ -2660,7 +2660,7 @@ export async function creditStakeOnConfirm(transferId: string, stakeTreasuryAddr
   return rows[0] ? Number(rows[0].amount_usdc) : 0;
 }
 
-/* ---- stake claims (docs/19) ------------------------------------------------------------------ */
+/* ---- stake claims (docs/20) ------------------------------------------------------------------ */
 
 export type StakeClaimStatus = 'submitted' | 'accepted' | 'rejected' | 'duplicate';
 
@@ -2696,7 +2696,7 @@ export type StakeClaimInsert = { kind: 'submitted'; id: string } | { kind: 'dupl
 /**
  * A partner says "this signature is my stake". Never a bond movement: admin's credit inserts the
  * transfers row and the confirmer credits it (creditStakeOnConfirm). Two indexes decide the shape
- * (0026): one claim per partner per signature, ever; one LIVE claim (submitted/accepted) per
+ * (0027): one claim per partner per signature, ever; one LIVE claim (submitted/accepted) per
  * signature. A signature already on a live claim, or already a `transfers` row (the in-wallet path,
  * an earlier accepted claim), is stored as 'duplicate' — the reviewer must SEE both, because the
  * treasury address is public and the first to paste is not necessarily the one who paid.
@@ -2990,7 +2990,7 @@ export interface StakeWithdrawalRow {
   requested_at: Date;
   settled_at: Date | null;
   note: string | null;
-  /** Where the partner asked it to go; null = their fpay wallet at release time (0026). */
+  /** Where the partner asked it to go; null = their fpay wallet at release time (0027). */
   payout_address: string | null;
   /** The whole bond, on the way out. Cannot be cancelled. */
   exit: boolean;

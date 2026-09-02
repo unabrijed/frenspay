@@ -35,7 +35,7 @@ const BY_CODE: Record<string, string> = {
   missing_phone: 'Add a number we can reach you on.',
   invalid_phone: 'That does not look like a phone number. Include the country code, like +91.',
   unsupported_channel: 'We can’t send alerts that way yet.',
-  // Staking by paying the treasury directly (docs/19) — the codes the claim route answers with.
+  // Staking by paying the treasury directly (docs/20) — the codes the claim route answers with.
   invalid_signature: 'That doesn’t look like a Solana transaction ID.',
   transaction_not_found: 'Not on the network yet — give it a minute and try again.',
   transaction_failed: 'That transaction failed on the network.',

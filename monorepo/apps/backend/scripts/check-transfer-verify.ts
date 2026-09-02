@@ -82,7 +82,7 @@ check('escrow release: the fee leg in the same tx does not satisfy the partner r
 check('escrow release: signed by the fee-payer instead of the pool → no',
   !instructionsMove([checked({ tokenAmount: { amount: '99999000', decimals: 6 } })], payout));
 
-// --- stake claims (docs/19) --------------------------------------------------------------------------
+// --- stake claims (docs/20) --------------------------------------------------------------------------
 // A partner who paid the treasury from an exchange has a row with NO sender: the verifier is pinned by
 // amount + destination + the unique signature + the admin's attribution, and simply does not ask who
 // signed. Every row WITH a sender is still held to it (the 'wrong authority' case above).

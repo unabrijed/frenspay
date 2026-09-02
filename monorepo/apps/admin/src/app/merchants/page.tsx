@@ -148,7 +148,7 @@ export default function Merchants() {
     return list;
   };
 
-  // Attribute a deposit to the partner who claimed it (docs/19). NOT a credit: the server inserts the
+  // Attribute a deposit to the partner who claimed it (docs/20). NOT a credit: the server inserts the
   // pending transfers row and the confirmer's chain check lands the bond — the chain decides the
   // money, this decides only whose. The confirm names the sender and any rival claimant, because the
   // treasury address is public and the first to paste is not necessarily the one who paid.
@@ -189,7 +189,7 @@ export default function Merchants() {
     <>
       <PageHead title="Merchants" sub="LPs settling the fiat leg: reputation signals and lifecycle actions" />
       <ErrorBanner msg={err} />
-      {/* Stake deposits waiting for a human (docs/19): a partner paid the treasury from somewhere and
+      {/* Stake deposits waiting for a human (docs/20): a partner paid the treasury from somewhere and
           pasted the signature; the server read what it moved. Crediting ATTRIBUTES it — the confirmer's
           chain check lands the bond. A signature claimed twice shows BOTH rows, each naming the other. */}
       {claims && claims.claims.length > 0 ? (

@@ -128,7 +128,7 @@ export async function setWithdrawalAddress(id: string, payoutAddress: string | n
   });
 }
 
-/** Where to pay, and every claim this partner has made (docs/19). `address` null = staking is not
+/** Where to pay, and every claim this partner has made (docs/20). `address` null = staking is not
  *  configured on this tier; the screen says so rather than offering a button that 503s. */
 export async function getStakeClaims(): Promise<MerchantStakeClaimsResponse> {
   return req<MerchantStakeClaimsResponse>('/merchants/stake/claims');
@@ -181,7 +181,7 @@ export async function depositStake(amountUsd: number): Promise<'sent' | 'claimed
   } catch (e) {
     // The prepared row was swept while the wallet sat on the approval screen (unsigned rows expire
     // after 15 minutes) — but the USDC moved. Hand the signature to the claim path instead of losing
-    // it: same deposit, a person attributes it (docs/19). Before this it landed nowhere.
+    // it: same deposit, a person attributes it (docs/20). Before this it landed nowhere.
     if (e instanceof ApiError && e.code === 'transfer_not_found') {
       await submitStakeClaim(signature);
       return 'claimed';

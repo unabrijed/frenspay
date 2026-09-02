@@ -102,7 +102,7 @@ function parsedInstructionsOf(tx: ParsedTransactionWithMeta): ParsedIx[] {
   ].filter((ix): ix is ParsedInstruction => 'parsed' in ix);
 }
 
-/** What one signature deposited into the stake treasury, read off the chain (docs/19). The stake
+/** What one signature deposited into the stake treasury, read off the chain (docs/20). The stake
  *  CLAIM route asks this at submit time so the claim stores what the chain says — the amount is never
  *  typed — and admin reads the same facts before attributing it. */
 export type StakeDepositRead =

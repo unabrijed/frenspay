@@ -245,7 +245,7 @@ export default function MerchantHome() {
   };
 
   // The terms at the moment of commitment, not on a page nobody reads: where it goes, how, how soon,
-  // and the one thing that can refuse it. Where it goes is THEIRS to say (docs/19): any Solana wallet
+  // and the one thing that can refuse it. Where it goes is THEIRS to say (docs/20): any Solana wallet
   // they hold, prefilled with their fpay wallet — blank or unchanged means that one.
   const short = (a?: string) => (a ? `${a.slice(0, 4)}…${a.slice(-4)}` : 'your fpay wallet');
   const askPayoutAddress = (current?: string): string | null | undefined => {

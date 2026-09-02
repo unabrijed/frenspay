@@ -507,7 +507,7 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
   });
 
   /**
-   * Stake by paying the treasury directly (docs/19). The partner pays `address` from wherever their
+   * Stake by paying the treasury directly (docs/20). The partner pays `address` from wherever their
    * USDC is and pastes the signature; the chain is read HERE, at submit — what it moved, from whom,
    * under what memo — and stored as the claim. Nothing moves: a human attributes it in the admin
    * console, and only then does a pending `transfers` row exist for the confirmer to verify and
@@ -569,7 +569,7 @@ export async function registerMerchantRoutes(app: FastifyInstance) {
     const merchant = await requireMerchant(req);
     const amountUsd = positiveAmount(req.body?.amountUsd);
     if (amountUsd === null) return reply.code(400).send({ error: 'invalid_amount' });
-    // Where it goes is the partner's to say (docs/19): any wallet they hold, their fpay wallet when blank.
+    // Where it goes is the partner's to say (docs/20): any wallet they hold, their fpay wallet when blank.
     const payoutAddress = parsePayoutAddress(req.body?.payoutAddress);
     if (payoutAddress === undefined) return reply.code(400).send({ error: 'invalid_payout_address' });
 

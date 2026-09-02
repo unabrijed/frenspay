@@ -1,8 +1,8 @@
--- 0026_stake_claims_and_payout_address
+-- 0027_stake_claims_and_payout_address
 -- Runs once, inside a transaction. Forward-only: to undo, write another migration.
 --
 -- WHY. A partner could only stake USDC that was already in their fpay wallet, and the console has no
--- way to put it there — so nobody could reach the $100 floor and nobody could go online (docs/19).
+-- way to put it there — so nobody could reach the $100 floor and nobody could go online (docs/20).
 -- Now a partner pays the stake treasury from wherever their USDC is and pastes the signature. This
 -- table is that CLAIM: what the chain said the signature moved (read at submit — the amount is never
 -- typed), who says it is theirs, and what a human decided. It never moves bond_usdc. Admin's credit
