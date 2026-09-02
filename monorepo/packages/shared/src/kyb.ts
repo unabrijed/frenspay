@@ -1,22 +1,25 @@
-// kyb.ts — what a business has to tell us before it can settle other people's money, per country.
+// kyb.ts — what a PERSON has to tell us before they can settle other people's money, per country.
 //
 // ONE definition, used twice: the web client renders the form from it, and the backend validates
 // against a mirror of it (apps/backend/src/lib/kyb.ts — the backend may only `import type` from this
-// package, so runtime values are copied at the trust boundary; check-rails.ts asserts they agree).
+// package, so runtime values are copied at the trust boundary; check-kyb.ts asserts they agree).
 //
-// Keyed by country because the fields are not translatable. A PAN and a GSTIN mean nothing in
-// Indonesia, and asking an Indonesian LP for one — or worse, accepting a blank — would make the
-// check theatre. A corridor with no entry here cannot submit at all, which is the correct failure:
-// we should not be onboarding businesses in a country whose identifiers we haven't thought about.
+// Keyed by country because the identifiers are not translatable. A PAN means nothing in Indonesia,
+// and asking an Indonesian LP for one — or worse, accepting a blank — would make the check theatre.
+// A corridor with no entry here cannot submit at all, which is the correct failure: we should not be
+// onboarding partners in a country whose identifiers we haven't thought about.
+//
+// A partner does not need a business (2026-09-02). The registered-business block that used to lead
+// this form — legal name, entity type, GSTIN / NIB / NPWP, registered address — is gone: the pilot's
+// partners are individuals, nothing ever cross-checked those identifiers, and a required field an
+// individual cannot fill is a shut funnel. What remains is the person, the account the fiat will
+// actually leave from, and the screening questions peer platforms ask.
 //
 // The identity of the PERSON is USUALLY established elsewhere: /merchants/apply requires the same
-// tier-2 vendor KYC that gates cash-out. Everything else here is about the BUSINESS and, most
-// importantly, the account the fiat will actually leave from.
-//
-// The exception is why `identity: true` exists. When the vendor is switched off (config.personaLive
-// false — its credentials are blank on this deployment) that gate is dropped and the human reading
-// THIS form is the identity check: approving it grants tier 2 (docs/14). So every country spec must
-// carry one required field naming the person, not just the business.
+// tier-2 vendor KYC that gates cash-out. The exception is why `identity: true` exists. When the
+// vendor is switched off (config.personaLive false — its credentials are blank on this deployment)
+// that gate is dropped and the human reading THIS form is the identity check (docs/14). So every
+// country spec must carry one required field naming the person.
 
 export interface KybField {
   key: string;
@@ -48,24 +51,14 @@ export interface KybField {
  * discoverable afterwards.
  */
 const INDIA: KybField[] = [
-  { key: 'legalName', label: 'Registered business name', hint: 'Exactly as it appears on your registration', maxLen: 120 },
-  { key: 'entityType', label: 'Business type', hint: 'Sole proprietor, partnership, LLP, private limited', maxLen: 60 },
   // Ten characters, five letters, four digits, one letter. Every Indian taxpayer has one.
   {
     key: 'pan',
     label: 'PAN',
-    hint: 'Of the business, or yours if you trade as an individual — this is the name we check you against',
+    hint: 'Yours — this is the name we check you against',
     pattern: '^[A-Za-z]{5}[0-9]{4}[A-Za-z]$',
     identity: true,
   },
-  {
-    key: 'gstin',
-    label: 'GSTIN',
-    hint: 'Only if you’re registered — leave blank if not',
-    optional: true,
-    pattern: '^[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][0-9A-Za-z]{3}$',
-  },
-  { key: 'address', label: 'Registered address', maxLen: 300 },
   {
     key: 'payoutAccount',
     label: 'Which account you’ll pay from',
@@ -75,15 +68,9 @@ const INDIA: KybField[] = [
 ];
 
 const INDONESIA: KybField[] = [
-  { key: 'legalName', label: 'Registered business name', hint: 'As it appears on your registration', maxLen: 120 },
-  { key: 'entityType', label: 'Business type', hint: 'Perorangan, CV, PT', maxLen: 60 },
-  // Nomor Induk Berusaha — 13 digits, the single business identifier since OSS replaced SIUP/TDP.
-  { key: 'nib', label: 'NIB', hint: 'Your 13-digit business identification number', pattern: '^[0-9]{13}$' },
-  { key: 'npwp', label: 'NPWP', hint: 'Tax number — leave blank if you don’t have one', optional: true, maxLen: 30 },
-  // NIB and NPWP both describe the BUSINESS. NIK is the 16-digit number on the KTP and the only
-  // thing here that names a person — required for the same reason PAN is on the India spec.
+  // NIK is the 16-digit number on the KTP — the field that names the person, required for the same
+  // reason PAN is on the India spec.
   { key: 'nik', label: 'NIK', hint: 'The 16-digit number on your KTP', pattern: '^[0-9]{16}$', identity: true },
-  { key: 'address', label: 'Registered address', maxLen: 300 },
   {
     key: 'payoutAccount',
     label: 'Which account you’ll pay from',
@@ -93,7 +80,7 @@ const INDONESIA: KybField[] = [
 ];
 
 /**
- * Country-agnostic screening, asked in the same submission as the business identifiers — modelled
+ * Country-agnostic screening, asked in the same submission as the personal identifiers — modelled
  * on what peer platforms ask before letting anyone in. Nothing here is verifiable and nothing
  * gates on it by itself; it exists so the human reviewing is judging a person with a stated
  * intent, not a PAN in a vacuum. Appended after each country's fields so `accountDedicated`
