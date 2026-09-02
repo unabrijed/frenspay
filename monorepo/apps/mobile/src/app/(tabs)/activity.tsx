@@ -1,6 +1,6 @@
-// Activity — trip summary, open requests, filters, date-grouped rows. Port of the web's
-// (tabs)/activity/page.tsx.
-import { MaskedAmount, relTime, Skeleton, TxCard, TxListSkeleton, useBalanceDisplay, usePayStore } from '@fpay/app';
+// Activity — the month's spend (paid, and your part), trips & circles, open requests, filters,
+// date-grouped rows. Port of the web's (tabs)/activity/page.tsx.
+import { isThisMonth, MaskedAmount, relTime, Skeleton, TxCard, TxListSkeleton, usePayStore } from '@fpay/app';
 import { type Txn, usd } from '@fpay/shared';
 import { Btn, colors, Empty, Fav, GUTTER, Icons, List, Pressable, radii, rnStyle, Row, RowAmount, RowMeta, Screen, shadows, TextLink, Txt, type, View } from '@fpay/ui';
 import { useRouter } from 'expo-router';
@@ -8,7 +8,7 @@ import type { CSSProperties } from 'react';
 import { useState } from 'react';
 import { ScrollView } from 'react-native';
 
-const FILTERS = ['All', 'Payments', 'Friends'] as const;
+const FILTERS = ['All', 'Personal', 'Trips'] as const;
 type Filter = (typeof FILTERS)[number];
 
 const isToday = (t: string) => /just now|^now|ago|today/i.test(t);
@@ -44,7 +44,8 @@ function Requests() {
                     <Txt style={type.rowName} numberOfLines={1}>
                       {incoming ? `${handle} asks you` : `You asked ${handle || 'someone'}`}
                     </Txt>
-                    <Txt style={[type.rowTime, { marginTop: 3 }]}>{relTime(r.createdAt)}</Txt>
+                    {/* A share carries what it was for — "Dinner" — so the ask explains itself. */}
+                    <Txt style={[type.rowTime, { marginTop: 3 }]}>{r.note ? `${r.note} · ` : ''}{relTime(r.createdAt)}</Txt>
                   </RowMeta>
                   <RowAmount>
                     <MaskedAmount value={usd(r.amountUsd)} style={type.rowAmount} />
@@ -71,6 +72,34 @@ function Requests() {
   );
 }
 
+function Trips() {
+  const groups = usePayStore((s) => s.groups);
+  const openTrip = usePayStore((s) => s.openTrip);
+  const openSheet = usePayStore((s) => s.open);
+  return (
+    <>
+      <View style={styles.reqHeader}>
+        <Txt style={[type.dayLabel, styles.dayLabel]}>Trips & circles</Txt>
+        <Pressable onPress={() => openSheet('newGroup')}>
+          <Txt style={[type.sub, { color: colors.accent }]}>+ New trip</Txt>
+        </Pressable>
+      </View>
+      {groups.length === 0 ? null : (
+        // Its own horizontal scroller inside the page's vertical one — the strip never widens the page.
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={rnStyle(styles.trips)} style={{ marginBottom: 18 }}>
+          {groups.map((g) => (
+            <Pressable key={g.id} onPress={() => void openTrip(g.id)} style={({ pressed }) => [styles.tripCard, pressed ? { backgroundColor: colors.surfaceLow } : null]}>
+              <Txt style={type.rowName} numberOfLines={1}>{g.name}</Txt>
+              <MaskedAmount value={usd(g.totalUsd)} style={[type.rowAmount, { marginTop: 6 }]} />
+              <Txt style={[type.rowTime, { marginTop: 2 }]}>{g.members.length} {g.members.length === 1 ? 'person' : 'people'}</Txt>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+    </>
+  );
+}
+
 export default function Activity() {
   const router = useRouter();
   const txns = usePayStore((s) => s.transactions);
@@ -78,12 +107,16 @@ export default function Activity() {
   const open = usePayStore((s) => s.open);
   const openDetail = usePayStore((s) => s.openDetail);
   const [f, setF] = useState<Filter>('All');
-  const { primary, secondary } = useBalanceDisplay();
-  const toggleFlip = usePayStore((s) => s.toggleFlip);
 
-  const shown = txns.filter((t) => (f === 'All' ? true : f === 'Payments' ? t.type === 'pay' : t.type !== 'pay'));
+  const shown = txns.filter((t) => (f === 'All' ? true : f === 'Personal' ? !t.groupId : !!t.groupId));
   const todayTx = shown.filter((t) => isToday(t.time));
   const earlierTx = shown.filter((t) => !isToday(t.time));
+
+  // Spent = what left your balance this month, under the current filter; your share = the same
+  // rows at your part (docs/04 §Trips: money in never counts). ponytail: sums the loaded page.
+  const monthOut = shown.filter((t) => t.usd < 0 && isThisMonth(t.createdAt));
+  const spent = monthOut.reduce((acc, t) => acc + Math.abs(t.usd), 0);
+  const yourShare = monthOut.reduce((acc, t) => acc + (t.yourPart ?? Math.abs(t.usd)), 0);
 
   const openTx = (tx: Txn) => {
     openDetail(tx);
@@ -110,29 +143,29 @@ export default function Activity() {
         </View>
 
         <View style={styles.summary}>
-          <Txt style={type.eyebrow}>Trip balance</Txt>
+          <Txt style={type.eyebrow}>Spent this month{f === 'All' ? '' : ` · ${f.toLowerCase()}`}</Txt>
           {loaded ? (
-            <Txt style={[type.heroBalance, { fontSize: 38, lineHeight: '44px', marginTop: 6 }]}>{primary}</Txt>
+            <MaskedAmount value={usd(spent)} style={[type.heroBalance, { fontSize: 38, lineHeight: '44px', marginTop: 6 }]} />
           ) : (
             <Skeleton w={180} h={40} r={12} style={{ marginTop: 8, marginBottom: 4 }} />
           )}
-          {secondary ? (
-            <Pressable onPress={toggleFlip}>
-              <View style={styles.realRate}>
-                {loaded ? <Txt style={type.sub}>≈ {secondary}</Txt> : <Skeleton w={90} h={13} />}
-                <View style={styles.ratePill}>
-                  <Icons.LockCheck size={14} color={colors.accent} />
-                  <Txt style={[type.tierTag, { color: colors.muted }]}>Live rate</Txt>
-                </View>
+          <View style={styles.realRate}>
+            {loaded ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Txt style={type.sub}>Your share</Txt>
+                <MaskedAmount value={usd(yourShare)} style={type.sub} />
               </View>
-            </Pressable>
-          ) : null}
+            ) : (
+              <Skeleton w={90} h={13} />
+            )}
+          </View>
           <Pressable onPress={() => open('add')} style={({ pressed }) => [styles.addFunds, pressed ? { opacity: 0.9 } : null]}>
             <Icons.Plus size={16} color={colors.white} />
             <Txt style={[type.tileLabel, { color: colors.white }]}>Add Funds</Txt>
           </Pressable>
         </View>
 
+        <Trips />
         <Requests />
 
         <View style={styles.filters}>
@@ -148,7 +181,7 @@ export default function Activity() {
             <TxListSkeleton rows={4} />
           </View>
         ) : shown.length === 0 ? (
-          <Empty label="No activity yet." />
+          <Empty label={f === 'Trips' ? 'Nothing in a trip yet.' : 'No activity yet.'} />
         ) : (
           <>
             {group('Today', todayTx)}
@@ -173,6 +206,7 @@ const styles = {
   reqAction: { paddingLeft: 16, paddingRight: 16, paddingBottom: 13, paddingTop: 2 },
   summary: { backgroundColor: colors.surfaceContainer, borderRadius: radii.rlc, padding: 18, marginBottom: 16, ...shadows.card },
   realRate: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
-  ratePill: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: colors.surface, borderRadius: 999, paddingLeft: 10, paddingRight: 12, paddingTop: 5, paddingBottom: 5, borderWidth: 1, borderStyle: 'solid', borderColor: colors.outlineVariant },
+  trips: { flexDirection: 'row', gap: 10, paddingBottom: 2 },
+  tripCard: { width: 150, padding: 12, backgroundColor: colors.surface, borderRadius: radii.field, borderWidth: 1, borderStyle: 'solid', borderColor: colors.outlineVariant, ...shadows.card },
   addFunds: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 6, marginTop: 14, backgroundColor: colors.accent, borderRadius: 999, paddingLeft: 14, paddingRight: 16, paddingTop: 8, paddingBottom: 8, ...shadows.primaryBtn },
 } satisfies Record<string, CSSProperties>;
