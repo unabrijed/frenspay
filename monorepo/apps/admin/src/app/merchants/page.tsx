@@ -49,14 +49,14 @@ export default function Merchants() {
       list.push(
         {
           title: `Approve KYB: ${m.name}`,
-          // This approves the BUSINESS and nothing else. It used to also grant the owner tier 2 while
+          // This approves the PARTNER and nothing else. It used to also grant the owner tier 2 while
           // the identity vendor was off; that was removed on 2026-08-29 (docs/14) because no partner
           // capability reads a tier — only payer ones do. The Identity column still shows where the
           // person stands, because admitting a partner the vendor never checked is worth seeing.
           body:
             m.ownerKycTier !== undefined && m.ownerKycTier < 2
-              ? 'The business is verified. Note this person has NOT passed an identity check — approve on the strength of the details below, and only if they hold up. Their own payment limits are unchanged.'
-              : 'The business is verified. They can go online themselves whenever they like — approval does NOT put them into routing.',
+              ? 'The details check out. Note this person has NOT passed an identity check — approve on the strength of the details below, and only if they hold up. Their own payment limits are unchanged.'
+              : 'The details check out. They can go online themselves whenever they like — approval does NOT put them into routing.',
           confirmLabel: 'Approve',
           onConfirm: async () => {
             await api.merchantKyb(m.id, 'approve');
@@ -76,7 +76,7 @@ export default function Merchants() {
         },
         {
           title: `Reject KYB: ${m.name}`,
-          body: 'Terminal. The merchant cannot resubmit — prefer "Ask for more" unless the business itself is the problem.',
+          body: 'Terminal. The merchant cannot resubmit — prefer "Ask for more" unless the person is the problem.',
           confirmLabel: 'Reject',
           danger: true,
           onConfirm: async () => {

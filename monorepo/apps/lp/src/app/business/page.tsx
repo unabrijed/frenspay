@@ -1,11 +1,10 @@
 'use client';
 
-// /business — the business check: what the LP submits, and where it got to.
+// /business — the partner check: what the LP submits, and where it got to.
 //
-// The person behind this account is already verified (tier-2 KYC, required to apply). This screen
-// is about the BUSINESS, and above all about which account the fiat will actually leave from — the
-// documented failure mode for this whole model is third-party money moving through a personal
-// account and that account being frozen.
+// A partner does not need a business. This screen is about the PERSON — who they are, and above all
+// which account the fiat will actually leave from — the documented failure mode for this whole model
+// is third-party money moving through a personal account and that account being frozen.
 //
 // Both halves live on one screen on purpose. A form with the decision history underneath it is how
 // someone understands "we asked you for something" without being told twice.
@@ -99,7 +98,7 @@ export default function MerchantVerify() {
 
         {editable ? (
           <>
-            <Txt style={[type.kvKey, styles.section]}>Your business</Txt>
+            <Txt style={[type.kvKey, styles.section]}>About you</Txt>
             {spec.map((f) => (
               <View key={f.key} style={{ marginBottom: 14 }}>
                 <Txt style={type.kvKey}>

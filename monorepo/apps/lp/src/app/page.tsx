@@ -395,7 +395,7 @@ export default function MerchantHome() {
                   : merchant.status === 'online'
                     ? 'You’ll be offered new orders'
                     : merchant.kybStatus !== 'approved'
-                      ? 'Once your business is approved'
+                      ? 'Once your details are approved'
                       : belowFloor
                         ? `Once your stake is at least ${usd(merchant.minBondUsdc)}`
                         : 'Nothing will reach you'}
@@ -450,7 +450,7 @@ export default function MerchantHome() {
               next-step card has moved past it, this row is the only way back there. */}
           <Row onPress={() => router.push('/business')}>
             <RowMeta>
-              <Txt style={type.rowName}>Business details</Txt>
+              <Txt style={type.rowName}>Your details</Txt>
               <Txt style={[type.rowTime, { marginTop: 2 }]}>{KYB_COPY[merchant.kybStatus]?.title ?? merchant.kybStatus}</Txt>
             </RowMeta>
             <Icons.Chevron size={16} color={colors.muted} />
