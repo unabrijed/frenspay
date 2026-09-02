@@ -47,10 +47,11 @@ import { createQuote } from '../services/quoteEngine';
 const MIN_ORDER_USD = 1;
 
 export async function registerOrderRoutes(app: FastifyInstance) {
-  // Quote Engine: a locked rate+fee+ETA, valid 45s. Routing picks the best simulated merchant/LP.
+  // Quote Engine: a locked rate+fee+ETA, valid 45s. Routing picks the best LP.
   app.post<{ Body: QuoteRequest }>('/orders/quote', async (req, reply) => {
-    // Payments are a capability (docs/16): without the escrow pool's key, the fee-payer and an
-    // earnings address there is nothing a deposit could ever be paid out of. Twin on POST /orders.
+    // Payments are a capability (docs/16): without the escrow pool's key and an earnings address
+    // there is nothing a deposit could ever be paid out of. The fee-payer is NOT part of the gate —
+    // absent, gas is Privy-sponsored (envConfig.ts). Twin on POST /orders.
     if (!config.escrowLive) return reply.code(503).send({ error: 'payments_unavailable' });
     const userId = requireUserId(req);
     const { direction, payoutDestination, payoutName } = req.body ?? ({} as QuoteRequest);

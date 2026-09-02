@@ -225,6 +225,14 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     only with a body — Fastify parses a DELETE body whenever a content-type is present and 400s an
     empty one before any preHandler (`check:api` in web, lp AND admin). LP's `useWallets()` is read
     WITH `ready`, and a bridge failure there is a toast, never `onSignedOut()`.
+55. **The pay sheet is amount → Pay; the wait is a scene** (2026-09-02): no quote button, no review
+    sheet. `Amount` quotes 400 ms after the keys go quiet, only while no quote for the current
+    amount + rail is live, and refreshes at expiry; `quoteSeq` in the store drops any response whose
+    amount moved on, `confirmOrder` orphans in-flight quotes first, `payPayee` clears the quote. Both
+    order paths speak `errors.ts` (`payments_unavailable`, `no_merchant`). Between Pay and Paid the
+    tracker shows `PayScene` — one of three brand scenes keyed on the order id, two phases
+    (`securing` / `sending`), rotating copy — never a step list and never anything LP-aware (21).
+    Web motion lives in `globals.css`; native renders the same file static.
 
 ## Danger zones
 
@@ -480,7 +488,7 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   (`ESCROW_SECRET_KEY`, `PLATFORM_FEE_DESTINATION`, `STAKE_TREASURY_ADDRESS`; `KYC_PROVIDER` unset), one
   approved ≥$100-bonded online UPI partner per tier (else 503 `no_merchant`), push stage → soak → PR stage→sacred
   (runs 0024 on prod at boot; "Create a merge commit"). **Open for retro:** did Vercel BUILD (not "skipped by
-  ignore command") on the first stage push; fee-payer vs sponsored on prod; raw `payments_unavailable` copy;
+  ignore command") on the first stage push; fee-payer vs sponsored on prod; raw `payments_unavailable` copy (closed 2026-09-02, invariant 55);
   `smallestTierFor` still advertising tier 2 with the vendor off.
 
 - 2026-08-31 (night) · **One Privy app on every tier; the LP console behind the deploy gate** (plan:
@@ -579,6 +587,15 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   all (Bridge's call — dropping it retires invariant 30 and the reviewer's identity decision);
   `referredBy`, platform-experience and a pick-list `heardAbout` not added; the `/business` route name
   unchanged; `docs/13:44` still says apply collects a "business name".
+
+- 2026-09-02 · **Pay like any other app** (plan: `~/.claude/plans/on-the-client-app-silly-torvalds.md`):
+  the Quote sheet retired, the quote polled live under the amount, one Pay button; the tracker's
+  seven-step list replaced by three brand scenes with rotating copy (`PayScene`);
+  `payments_unavailable` / `no_merchant` got catalog copy. The "Get quote → payment unavailable"
+  report was `escrowLive` false on the local backend (no escrow key / fee destination in
+  `apps/backend/.env`; same on stage until the two `STAGE_` vars land). Deliberate cuts: no `/me
+  paymentsAvailable` flag (the catalog line covers it), no native motion (the phone cannot pay in
+  sponsored mode), two phases not four (the claim flips to Paid). Invariant 55.
 
 ## Telemetry (2026-09-01 sessions/boot plan)
 - divergence: 0.72 (evidence 0.76, conclusion 0.67) | threshold 0.30 UNCALIBRATED

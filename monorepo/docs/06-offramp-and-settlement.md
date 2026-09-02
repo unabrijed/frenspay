@@ -14,7 +14,8 @@ The LP-facing product — what an LP actually sees, and why the score is the cen
 
 **Gated on `config.escrowLive`.** `routes/orders.ts` checks it first thing on both `POST
 /orders/quote` and `POST /orders` and returns `503 payments_unavailable` whenever the escrow pool's
-key, the fee-payer or the fee destination is not configured. The Anchor program was audited and
+key or the fee destination is not configured (the fee-payer is optional — absent, gas is sponsored,
+[16 §Who pays gas](16-escrow-pool-and-the-shelved-program.md)). The Anchor program was audited and
 **shelved** ([16](16-escrow-pool-and-the-shelved-program.md)); the pilot's escrow is a pool under a
 backend-held key. There is no devnet any more — the closed pilot in [15](15-pilot-escrow-and-bond.md)
 is the test.
@@ -230,7 +231,7 @@ the quote is refused (`no_merchant` → 503, the payer sees "not available right
 - **What the payer sees.** `GET /orders/:id` returns the primary with the aggregate
   (`lib/legs.ts` `aggregateLegs`: the least-advanced live leg's state; `completed` once every leg
   has settled and any part reached the receiver; `payoutClaimedAt` only when every part still in
-  play is claimed) and `legs[]`, each with its own reference and UTR. The Quote sheet says "Arrives
+  play is claimed) and `legs[]`, each with its own reference and UTR. The Amount sheet says "Arrives
   as 2 payments" **before** they commit — the shop sees two credits and the person at the counter
   is who adds them up; nothing about who sends them. The receipt lists one reference per credit
   and one "I didn't receive part N" per claimed leg; disputes are per leg (`uq_disputes_order`
