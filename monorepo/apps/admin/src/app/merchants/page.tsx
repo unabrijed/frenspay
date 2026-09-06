@@ -216,7 +216,7 @@ export default function Merchants() {
 
   return (
     <>
-      <PageHead title="Merchants" sub="LPs settling the fiat leg: reputation signals and lifecycle actions" />
+      <PageHead title="Partners" sub="The people settling the fiat leg: reputation signals and lifecycle actions" />
       <ErrorBanner msg={err} />
       {/* Stake deposits waiting for a human (docs/20): a partner paid the treasury from somewhere and
           pasted the signature; the server read what it moved. Crediting ATTRIBUTES it — the confirmer's
