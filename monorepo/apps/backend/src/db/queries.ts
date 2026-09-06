@@ -1567,12 +1567,20 @@ interface OrderJoinRow {
   created_at: Date;
   updated_at: Date;
   quote_id: string;
+  // The order's clocks and its place in a split: read by the admin mapper only, skipped by toOrder.
+  group_id: string | null;
+  expires_at: Date | null;
+  locked_at: Date | null;
+  lock_expires_at: Date | null;
   // joined quote columns (aliased)
   q_direction: OrderDirection;
   q_currency: string;
   q_amount_inr: string;
   q_amount_usdc: string;
   q_rate: string;
+  // The quote's basis. Admin only: the payer's Quote carries the all-in rate and nothing behind it.
+  q_spread_bps: number;
+  q_platform_fee_usdc: string;
   q_eta_min_secs: number;
   q_eta_max_secs: number;
   q_payout_method: PayoutMethod;
@@ -1587,9 +1595,10 @@ interface OrderJoinRow {
 const ORDER_SELECT = `
   select o.id, o.user_id, o.state, o.resolution, o.amount_usdc, o.reference_code,
          o.payout_claimed_at, o.payout_utr, o.feedback_up, o.created_at, o.updated_at, o.quote_id,
+         o.group_id, o.expires_at, o.locked_at, o.lock_expires_at,
          coalesce(o.amount_fiat, q.amount_inr) as amount_fiat,
          q.direction as q_direction, q.currency as q_currency, q.amount_inr as q_amount_inr, q.amount_usdc as q_amount_usdc,
-         q.rate as q_rate,
+         q.rate as q_rate, q.spread_bps as q_spread_bps, q.platform_fee_usdc as q_platform_fee_usdc,
          q.eta_min_secs as q_eta_min_secs, q.eta_max_secs as q_eta_max_secs,
          q.payout_method as q_payout_method, q.route_quality as q_route_quality,
          q.payout_destination as q_payout_destination, q.payout_name as q_payout_name,
@@ -4564,8 +4573,17 @@ type AdminOrderJoinRow = OrderJoinRow & { user_handle: string; user_email: strin
 
 const toAdminOrder = (r: AdminOrderJoinRow, events?: OrderEvent[]): AdminOrder => ({
   ...toOrder(r, events),
+  // toOrder masks the partner as 'Best route' for the payer (invariant 21); the operator reads the
+  // real name. Until 2026-09-05 this spread left the mask in place and every admin row said so.
+  merchantName: r.merchant_name ?? '-',
   userHandle: r.user_handle,
   userEmail: r.user_email,
+  spreadBps: r.q_spread_bps,
+  platformFeeUsdc: r.q_platform_fee_usdc,
+  groupId: r.group_id,
+  expiresAt: r.expires_at?.toISOString() ?? null,
+  lockedAt: r.locked_at?.toISOString() ?? null,
+  lockExpiresAt: r.lock_expires_at?.toISOString() ?? null,
 });
 
 /** All orders across all users, newest first — the operator's flow list. */
@@ -4593,6 +4611,19 @@ export async function getOrderAdmin(orderId: string): Promise<AdminOrder | null>
   return toAdminOrder(rows[0], await listOrderEvents(orderId));
 }
 
+/** The whole payment `orderId` belongs to, primary first, whichever leg was asked for (the
+ *  getGroupSettlement CTE resolves a child leg to its primary). One row for an ordinary order.
+ *  Unscoped: the operator reads across users. */
+export async function listLegsAdmin(orderId: string): Promise<AdminOrder[]> {
+  const { rows } = await getPool().query<AdminOrderJoinRow>(
+    `with g as (select coalesce(group_id, id) as gid from orders where id = $1)
+     ${ADMIN_ORDER_SELECT} join g on x.id = g.gid or x.group_id = g.gid
+     order by x.group_id nulls first, x.created_at, x.id`,
+    [orderId],
+  );
+  return rows.map((r) => toAdminOrder(r));
+}
+
 export async function listRoutingAttemptsAdmin(
   orderId: string,
 ): Promise<AdminOrderDetailResponse['routingAttempts']> {
@@ -4617,6 +4648,10 @@ export async function listRoutingAttemptsAdmin(
   }));
 }
 
+/** The dispute with its judgment attached: who resolved it and why come from the admin_actions row
+ *  the resolve route writes (`target_id` is text there), the bond drawn from the penalty row
+ *  drawDownBond leaves (penalty only: a later `adjust` must not net the draw away; no row at all
+ *  when the bond was already empty, so null renders "-"). */
 export async function getDisputeForOrder(orderId: string): Promise<AdminOrderDetailResponse['dispute']> {
   const { rows } = await getPool().query<{
     id: string;
@@ -4625,7 +4660,21 @@ export async function getDisputeForOrder(orderId: string): Promise<AdminOrderDet
     resolution: 'upheld' | 'rejected' | null;
     created_at: Date;
     resolved_at: Date | null;
-  }>(`select id, reason, status, resolution, created_at, resolved_at from disputes where order_id = $1`, [orderId]);
+    resolved_by: string | null;
+    note: string | null;
+    bond_drawn: string | null;
+  }>(
+    `select d.id, d.reason, d.status, d.resolution, d.created_at, d.resolved_at,
+            a.handle as resolved_by, a.note,
+            (select sum(-b.amount_usdc) from merchant_bond_events b
+              where b.dispute_id = d.id and b.kind = 'penalty') as bond_drawn
+       from disputes d
+       left join lateral (select u.handle, a.note from admin_actions a join users u on u.id = a.admin_user_id
+                           where a.target_kind = 'dispute' and a.target_id = d.id::text
+                           order by a.created_at desc limit 1) a on true
+      where d.order_id = $1`,
+    [orderId],
+  );
   const d = rows[0];
   if (!d) return null;
   return {
@@ -4635,23 +4684,63 @@ export async function getDisputeForOrder(orderId: string): Promise<AdminOrderDet
     resolution: d.resolution,
     createdAt: d.created_at.toISOString(),
     resolvedAt: d.resolved_at?.toISOString() ?? null,
+    resolvedBy: d.resolved_by,
+    // The route stores "<resolution>: <note>", or the bare resolution when none was typed.
+    note: d.note ? d.note.replace(/^(upheld|rejected)(: |$)/, '') || null : null,
+    bondDrawnUsdc: d.bond_drawn,
   };
 }
 
-/** The order's escrow legs (fund + release), if created. */
+/** Every transfer that ever touched the payment: the escrow pointers of the order and its legs, plus
+ *  the rows a retry left behind, which only a `settle_dropped` event names (settleEscrow). One fund
+ *  row funds every leg and a retried order names one id twice, so the id set is distinct; the fund
+ *  row is labelled with the primary's reference. Oldest first. */
 export async function listOrderTransfersAdmin(orderId: string): Promise<AdminOrderDetailResponse['transfers']> {
   const { rows } = await getPool().query<{
     id: string;
     kind: string;
     status: 'pending' | 'confirmed' | 'failed';
     signature: string | null;
+    amount_usdc: string;
+    note: string | null;
+    from_address: string | null;
+    to_address: string | null;
+    order_reference: string;
+    created_at: Date;
+    confirmed_at: Date | null;
   }>(
-    `select t.id, t.kind, t.status, t.signature
-       from orders o join transfers t on t.id in (o.escrow_fund_transfer_id, o.escrow_release_transfer_id)
-      where o.id = $1 order by t.created_at asc`,
+    `with g as (select coalesce(group_id, id) as gid from orders where id = $1),
+          legs as (select o.id, o.reference_code, o.group_id is null as is_primary,
+                          o.escrow_fund_transfer_id, o.escrow_release_transfer_id
+                     from orders o join g on o.id = g.gid or o.group_id = g.gid),
+          ids as (select escrow_fund_transfer_id as tid, reference_code, is_primary from legs
+                  union all
+                  select escrow_release_transfer_id, reference_code, is_primary from legs
+                  union all
+                  select (e.detail->>'transferId')::uuid, l.reference_code, l.is_primary
+                    from order_events e join legs l on l.id = e.order_id
+                   where e.event = 'settle_dropped'),
+          one as (select distinct on (t.id)
+                         t.id, t.kind, t.status, t.signature, t.amount_usdc, t.note, t.from_address, t.to_address,
+                         i.reference_code as order_reference, t.created_at, t.confirmed_at
+                    from ids i join transfers t on t.id = i.tid
+                   order by t.id, i.is_primary desc)
+     select * from one order by created_at asc, id`,
     [orderId],
   );
-  return rows;
+  return rows.map((t) => ({
+    id: t.id,
+    kind: t.kind,
+    status: t.status,
+    signature: t.signature,
+    amountUsdc: t.amount_usdc,
+    note: t.note,
+    fromAddress: t.from_address,
+    toAddress: t.to_address,
+    orderReference: t.order_reference,
+    createdAt: t.created_at.toISOString(),
+    confirmedAt: t.confirmed_at?.toISOString() ?? null,
+  }));
 }
 
 /** One health read: order counts by state + everything currently needing a human. */

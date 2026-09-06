@@ -452,6 +452,9 @@ type SettleOutcome = 'confirmed' | 'failed' | 'pending' | 'in_flight' | 'already
  *   (60–90 s) is no longer processed and no durable nonce exists here (docs/16). This is what the
  *   escrow PDA being closed used to answer for free.
  * - a CONFIRMED settlement row → 'already_settled': a second payout never leaves the pool
+ * - a FAILED settlement row (an on-chain error at the tail of this function, or the confirmer's
+ *   verifier refusing it) is left behind by the retry the same way a dropped one is: named in a
+ *   `settle_dropped` event carrying its id, so the order can always reach every leg it ever sent
  * - otherwise broadcast, record the row FIRST (the signature must survive whatever happens next),
  *   then wait: 'confirmed' / 'failed' (on-chain error) / 'pending' (unknown after the wait)
  */
@@ -464,10 +467,16 @@ async function settleEscrow(input: {
 }): Promise<SettleOutcome> {
   const prior = await getEscrowReleaseTransfer(input.orderId);
   if (prior?.status === 'confirmed') return 'already_settled';
-  if (prior?.status === 'pending') {
-    if (Date.now() - prior.created_at.getTime() < SETTLE_DROPPED_MS) return 'in_flight';
-    if (prior.signature && (await getTransferStatus(prior.signature)) === 'confirmed') return 'in_flight';
-    await setTransferStatus(prior.id, 'failed');
+  if (prior) {
+    if (prior.status === 'pending') {
+      if (Date.now() - prior.created_at.getTime() < SETTLE_DROPPED_MS) return 'in_flight';
+      if (prior.signature && (await getTransferStatus(prior.signature)) === 'confirmed') return 'in_flight';
+      await setTransferStatus(prior.id, 'failed');
+    }
+    // Name the row the pointer is about to leave, whatever failed it. Before 2026-09-05 only the
+    // age path above wrote this event; a row failed on-chain (below) or by the verifier matched
+    // neither branch, the retry overwrote escrow_release_transfer_id, and nothing referenced it
+    // again. The admin's order page reaches every settlement leg through these events (docs/07).
     await appendOrderEvent(input.orderId, input.fromState, input.fromState, 'settle_dropped', { transferId: prior.id, signature: prior.signature });
   }
   const signature = await input.send();

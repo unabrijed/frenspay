@@ -52,6 +52,7 @@ import {
   listAllPayoutProviders,
   listDenylist,
   listInviteCodesAdmin,
+  listLegsAdmin,
   listMerchantsAdmin,
   listOrdersAdmin,
   listOrderTransfersAdmin,
@@ -128,12 +129,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       await requireAdmin(req);
       const order = await getOrderAdmin(req.params.id);
       if (!order) return reply.code(404).send({ error: 'order_not_found' });
-      const [routingAttempts, dispute, transfers] = await Promise.all([
+      const [routingAttempts, dispute, transfers, legs] = await Promise.all([
         listRoutingAttemptsAdmin(order.id),
         getDisputeForOrder(order.id),
         listOrderTransfersAdmin(order.id),
+        listLegsAdmin(order.id),
       ]);
-      return { order, routingAttempts, dispute, transfers };
+      return { order, routingAttempts, dispute, transfers, legs };
     },
   );
 

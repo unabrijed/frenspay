@@ -28,6 +28,7 @@ import {
   getOrderAdmin,
   getWalletForUser,
   insertMerchantApplication,
+  listLegsAdmin,
   listOrdersAdmin,
   resolveHandleToFriend,
   sanitizeDisplayName,
@@ -139,6 +140,14 @@ async function main() {
   const detail = await getOrderAdmin(cancelled);
   check('getOrderAdmin is unscoped and carries events',
     detail?.userHandle === '@zza_payer' && (detail.events ?? []).some((e) => e.event === 'canceled_by_user'));
+  // 2026-09-05 (docs/22): the operator reads the quote's basis and the real partner name (toOrder
+  // masks it as 'Best route' for the payer, and the admin mapper used to inherit the mask); the
+  // payment's legs come back whole, one row for an ordinary order.
+  check('getOrderAdmin carries spread, fee and the real partner name',
+    detail != null && typeof detail.spreadBps === 'number' && typeof detail.platformFeeUsdc === 'string' && detail.merchantName !== 'Best route',
+    `partner=${detail?.merchantName}`);
+  const legs = await listLegsAdmin(cancelled);
+  check('listLegsAdmin returns the whole payment, one row for an ordinary order', legs.length === 1 && legs[0]?.id === cancelled);
 
   const ov = await adminOverview();
   check('overview counts the fixture failed orders', (ov.orderCounts.failed ?? 0) >= 2, `failed=${ov.orderCounts.failed}`);

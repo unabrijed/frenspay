@@ -850,6 +850,18 @@ export interface OrdersResponse {
 export interface AdminOrder extends Order {
   userHandle: string;
   userEmail: string | null;
+  /** The quote's basis, evidence for a rate dispute: the LP spread it was struck at and the
+   *  platform's flat cut. Backend-internal on the payer's Quote (the fee is inside the rate there);
+   *  `platformFeeUsdc` is the numeric string pg hands back. */
+  spreadBps: number;
+  platformFeeUsdc: string;
+  /** Null for the primary and for a single-LP order; a leg names its primary. */
+  groupId: string | null;
+  /** The clocks the partner's screen counts down: the release / dispute deadline (null while a
+   *  dispute holds the escrow, which with `under_review` reads "frozen", not "lapsed") and the lock. */
+  expiresAt: string | null;
+  lockedAt: string | null;
+  lockExpiresAt: string | null;
 }
 
 export interface AdminOrdersResponse {
@@ -874,13 +886,29 @@ export interface AdminOrderDetailResponse {
     resolution: 'upheld' | 'rejected' | null;
     createdAt: string; // ISO 8601
     resolvedAt: string | null;
+    /** Who decided and why, from the admin_actions row the resolve route writes; the bond drawn,
+     *  from the ledger row a penalty leaves (null when the bond was already empty). */
+    resolvedBy: string | null;
+    note: string | null;
+    bondDrawnUsdc: string | null;
   } | null;
+  /** Every transfer that ever touched this payment: the escrow pointers of the order and its legs,
+   *  plus the rows a retry left behind (named in `settle_dropped` events). Oldest first. */
   transfers: Array<{
     id: string;
     kind: string;
     status: 'pending' | 'confirmed' | 'failed';
     signature: string | null;
+    amountUsdc: string;
+    note: string | null;
+    fromAddress: string | null;
+    toAddress: string | null;
+    orderReference: string;
+    createdAt: string; // ISO 8601
+    confirmedAt: string | null;
   }>;
+  /** The whole payment, primary first: one element for an ordinary order, every leg of a split. */
+  legs: AdminOrder[];
 }
 
 /** One health read: what's flowing, what's stuck, what needs a human. */
