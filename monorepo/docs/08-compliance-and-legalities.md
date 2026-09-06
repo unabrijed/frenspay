@@ -216,6 +216,12 @@ leave while a completed order is inside its 72-hour claw window, and a completed
 disputed after it — one constant, both sides, disclosed to both. Still no real KYB vendor, no
 contracts, no arbitration; the first real fiat is the closed pilot in [15](15-pilot-escrow-and-bond.md).
 
+One recorded exception (2026-09-05): a root admin may waive the floor for one partner for 30 days
+([07](07-admin-and-moderation.md) §The stake waiver, [21](21-stake-waiver.md)). That partner works with
+no collateral behind them, capped flat at the floor's $100 in flight, and the first upheld dispute
+ends it. Each one is audited per partner and exists for onboarding and testing, so "every routable
+partner is bonded" is true except where `admin_actions` says otherwise.
+
 ### 11. LP payment metadata leaves the system — ⬜ *unaddressed*
 Out-of-band alerting sends an LP the amount and timing of work available, through **Telegram**. That
 is a third-party processor seeing payment metadata about our LPs, and it is not covered by anything

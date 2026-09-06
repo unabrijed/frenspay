@@ -125,6 +125,22 @@ partner's own switch writes `online`**, and it is the one that enforces KYB + bo
 this one included; the route answers `409 merchant_exited` and the console shows "exited" with no
 Reinstate. It still takes no reason — that asymmetry with the other writes stands.
 
+### The stake waiver (0028)
+
+Since 2026-09-05 a **root** admin (`isRootAdminEmail`, never the console-grantable `admin` role) may
+let one partner work before staking: `POST /admin/merchants/:id/stake-waiver` with a typed reason,
+`DELETE` to end it. It sets `merchants.bond_waived_until` 30 days out (`WAIVER_DAYS`) and nothing else.
+While live the partner counts as holding exactly the floor in every bond gate (the routing SELECT, the
+online switch, the reinstate mirror, `lockOrder`, and `bondCap` in the float math): they may go online
+and carry `MIN_BOND` in flight, flat, at any tier. The first upheld dispute clears it in the statement
+that draws the bond; granting it and the bond auto-reinstate both require the owner to be an active
+user, so a blocked account cannot come back through it. `admin_actions` records `stake_waive` (with
+`until=` and the reason) and `stake_waiver_end`. The partner is never told: `GET /me` reports the
+floor as 0 and the console walks them to "You're ready". On the Partners page it is the Waive stake /
+End waiver button on an approved row and a `waived to <date>` badge in the Bond cell. The two tabs
+are labelled Partners and Payout providers: the first is the people who settle payouts, the second the
+per-corridor disbursement ladder ([06](06-offramp-and-settlement.md)). Decision record: [21](21-stake-waiver.md).
+
 ### Stake withdrawals
 
 A partner's withdrawal (or exit) debits their bond immediately and waits for a human. The console

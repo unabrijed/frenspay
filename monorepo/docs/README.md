@@ -66,6 +66,7 @@ Flow docs follow the **same six-part shape**, so you always know where to look:
 | 18 | [Sessions and boot](18-sessions-and-boot.md) | why people were asked for an OTP again (the LP wallet gate, `no_account` destroying the session, the 5 s fallback), sign-in on the token with the wallet on its own clock, the token on every call, `check:fetch` as the rule, and what a cold load waits for now |
 | 19 | [Trips, circles and bill splitting](19-trips-and-splitting.md) | the decision record: shares are payment requests, the payer's part is derived, the trip view is a sheet |
 | 20 | [Stake claims](20-stake-claims.md) | how a partner stakes without USDC in their fpay wallet — pay the treasury from anywhere, paste the signature, the chain is read, a human attributes, the confirmer credits; duplicates as rows; the refund address is the partner's; Telegram required |
+| 21 | [The stake waiver](21-stake-waiver.md) | root-admin waiver so a partner works before staking: flat floor, 30 days, ends on the first upheld dispute; Partners / Payout providers tabs; home-screen install |
 
 **Deployment is not a numbered doc** — the runbooks live at the repo root, next to the code they
 deploy: [`DEPLOY.stage.md`](../DEPLOY.stage.md) and [`DEPLOY.md`](../DEPLOY.md). One architecture

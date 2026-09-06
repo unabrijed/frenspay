@@ -137,6 +137,10 @@ An LP stakes USDC before they can be routed anything. It is **skin in the game, 
   are listed on the screen in their own words (*Being checked · Confirming · Added to your stake ·
   Didn't check out · Not accepted: why · Already used*). Staking straight from the fpay wallet remains
   as a second door, shown only when that wallet holds anything.
+- **It can be waived by a root admin** ([07](07-admin-and-moderation.md) §The stake waiver, [21](21-stake-waiver.md)):
+  30 days, worth exactly the floor, never leveraged, ended by the first upheld dispute. The partner is
+  not told. The console reads the floor as 0, walks them to "You're ready", and the stake and capacity
+  screens drop their "minimum" and "by your stake" lines. For the first partners and for testing.
 ### The numbers, in one place
 
 Every constant this doc names by symbol. Enforced values, read from source — if you change one, change
