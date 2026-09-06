@@ -11,6 +11,7 @@ import type {
   AdminOrderDetailResponse,
   AdminOverviewResponse,
   AdminRiskEvent,
+  AdminTransfer,
   AdminUser,
   AdminWaitlistEntry,
   ApiGroup,
@@ -4583,15 +4584,39 @@ const toAdminOrder = (r: AdminOrderJoinRow, events?: OrderEvent[]): AdminOrder =
   lockExpiresAt: r.lock_expires_at?.toISOString() ?? null,
 });
 
-/** All orders across all users, newest first — the operator's flow list. */
-export async function listOrdersAdmin(limit = 50, cursor?: string): Promise<Page<AdminOrder>> {
+/** How an operator's search string is matched, decided by its shape and bound as a parameter in every
+ *  branch: `@handle` (canonical; null on garbage, which matches nothing rather than 400ing), an email
+ *  (trimmed + lowercased, the users.email CHECK), a uuid (an order or transfer id), a signature, else
+ *  an order reference. Exact only: every branch hits a unique index, and a payee's VPA is never a key
+ *  (that would be a VPA-to-person oracle). The routes audit the SHAPE, never the value (docs/22). */
+export type SearchShape = 'handle' | 'email' | 'id' | 'signature' | 'reference';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function searchShape(raw: string): { shape: SearchShape; value: string | null } {
+  const q = raw.trim();
+  if (q.startsWith('@')) return { shape: 'handle', value: canonicalHandle(q) };
+  if (q.includes('@')) return { shape: 'email', value: q.toLowerCase() };
+  if (UUID_RE.test(q)) return { shape: 'id', value: q.toLowerCase() };
+  // A Solana signature is 87 or 88 base58 characters; a reference code is short.
+  return { shape: q.length >= 64 ? 'signature' : 'reference', value: q };
+}
+
+/** All orders across all users, newest first — the operator's flow list. `q` narrows it to one
+ *  payer (handle, email), one order (id) or one reference; never the payee. */
+export async function listOrdersAdmin(limit = 50, cursor?: string, q?: string): Promise<Page<AdminOrder>> {
   const n = clampLimit(limit, 50, 100);
   const c = parseCursor(cursor);
+  const s = q ? searchShape(q) : null;
+  if (s && s.value === null) return { items: [] };
   const { rows } = await getPool().query<AdminOrderJoinRow>(
     `${ADMIN_ORDER_SELECT}
       where ($2::timestamptz is null or (x.created_at, x.id) < ($2::timestamptz, $3::uuid))
+        and ($4::text is null
+             or ($5::text = 'handle' and u.handle = $4)
+             or ($5::text = 'email' and u.email = $4)
+             or ($5::text = 'id' and x.id = $6::uuid)
+             or ($5::text in ('signature', 'reference') and x.reference_code = $4))
       order by x.created_at desc, x.id desc limit $1`,
-    [n + 1, c?.at ?? null, c?.id ?? null],
+    [n + 1, c?.at ?? null, c?.id ?? null, s?.value ?? null, s?.shape ?? null, s?.shape === 'id' ? s.value : null],
   );
   const pageRows = rows.slice(0, n);
   const last = pageRows[pageRows.length - 1];
@@ -4915,6 +4940,84 @@ export async function listRiskEventsAdmin(limit = 50, cursor?: string): Promise<
       reason: r.reason,
       counterparty: r.counterparty,
       createdAt: r.created_at.toISOString(),
+    })),
+    nextCursor: rows.length > n && last ? `${last.created_at.toISOString()}|${last.id}` : undefined,
+  };
+}
+
+/** The money ledger across every user, newest first: sends, top-ups, escrow legs, stake credits,
+ *  bridge legs (docs/22). An escrow leg names its order (the fund row through the PRIMARY only, one
+ *  fund row funds every leg; the release row through its own order); a bridge leg carries the far
+ *  side's state. `q` is one of searchShape's five exact matches on either side of the row.
+ *  ponytail: keyset on (created_at, id) with no index on created_at alone, a sort per page at pilot
+ *  scale; add `idx_transfers_created (created_at desc, id desc)` when the page gets slow. */
+export async function listTransfersAdmin(limit = 50, cursor?: string, q?: string): Promise<Page<AdminTransfer>> {
+  const n = clampLimit(limit, 50, 100);
+  const c = parseCursor(cursor);
+  const s = q ? searchShape(q) : null;
+  if (s && s.value === null) return { items: [] };
+  const { rows } = await getPool().query<{
+    id: string;
+    kind: string;
+    status: 'pending' | 'confirmed' | 'failed';
+    amount_usdc: string;
+    from_handle: string | null;
+    from_address: string | null;
+    to_handle: string | null;
+    to_address: string | null;
+    note: string | null;
+    signature: string | null;
+    chain: string;
+    order_id: string | null;
+    order_reference: string | null;
+    bridge_state: string | null;
+    bridge_chain: string | null;
+    created_at: Date;
+    confirmed_at: Date | null;
+  }>(
+    `select t.id, t.kind, t.status, t.amount_usdc, t.note, t.signature, t.chain, t.created_at, t.confirmed_at,
+            t.from_address, t.to_address, fu.handle as from_handle, tu.handle as to_handle,
+            coalesce(fo.id, ro.id) as order_id,
+            coalesce(fo.reference_code, ro.reference_code) as order_reference,
+            b.state as bridge_state,
+            case when b.direction = 'in' then b.source_chain else b.destination_chain end as bridge_chain
+       from transfers t
+       left join users fu on fu.id = t.from_user_id
+       left join users tu on tu.id = t.to_user_id
+       left join orders fo on fo.escrow_fund_transfer_id = t.id and fo.group_id is null
+       left join orders ro on ro.escrow_release_transfer_id = t.id
+       left join bridge_transfers b on b.transfer_id = t.id
+      where ($2::timestamptz is null or (t.created_at, t.id) < ($2::timestamptz, $3::uuid))
+        and ($4::text is null
+             or ($5::text = 'handle' and (fu.handle = $4 or tu.handle = $4))
+             or ($5::text = 'email' and (fu.email = $4 or tu.email = $4))
+             or ($5::text = 'id' and (t.id = $6::uuid or fo.id = $6::uuid or ro.id = $6::uuid))
+             or ($5::text = 'signature' and t.signature = $4)
+             or ($5::text = 'reference' and coalesce(fo.reference_code, ro.reference_code) = $4))
+      order by t.created_at desc, t.id desc limit $1`,
+    [n + 1, c?.at ?? null, c?.id ?? null, s?.value ?? null, s?.shape ?? null, s?.shape === 'id' ? s.value : null],
+  );
+  const pageRows = rows.slice(0, n);
+  const last = pageRows[pageRows.length - 1];
+  return {
+    items: pageRows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      status: r.status,
+      amountUsdc: r.amount_usdc,
+      fromHandle: r.from_handle,
+      fromAddress: r.from_address,
+      toHandle: r.to_handle,
+      toAddress: r.to_address,
+      note: r.note,
+      signature: r.signature,
+      chain: r.chain,
+      orderId: r.order_id,
+      orderReference: r.order_reference,
+      bridgeState: r.bridge_state,
+      bridgeChain: r.bridge_chain,
+      createdAt: r.created_at.toISOString(),
+      confirmedAt: r.confirmed_at?.toISOString() ?? null,
     })),
     nextCursor: rows.length > n && last ? `${last.created_at.toISOString()}|${last.id}` : undefined,
   };

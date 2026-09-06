@@ -30,6 +30,7 @@ import {
   insertMerchantApplication,
   listLegsAdmin,
   listOrdersAdmin,
+  listTransfersAdmin,
   resolveHandleToFriend,
   sanitizeDisplayName,
   setUserEmail,
@@ -148,6 +149,17 @@ async function main() {
     `partner=${detail?.merchantName}`);
   const legs = await listLegsAdmin(cancelled);
   check('listLegsAdmin returns the whole payment, one row for an ordinary order', legs.length === 1 && legs[0]?.id === cancelled);
+  // The search is exact and by shape: a handle finds the fixture's orders, a reference finds one,
+  // garbage after an @ matches nothing (and never 400s), and the ledger list answers the same way.
+  const byHandle = await listOrdersAdmin(100, undefined, '@zza_payer');
+  check('listOrdersAdmin q=@handle finds the payer\'s orders only',
+    byHandle.items.length >= 3 && byHandle.items.every((o) => o.userHandle === '@zza_payer'), `n=${byHandle.items.length}`);
+  const byRef = await listOrdersAdmin(100, undefined, detail!.referenceCode);
+  check('listOrdersAdmin q=reference finds exactly that order', byRef.items.length === 1 && byRef.items[0]?.id === cancelled);
+  check('listOrdersAdmin q=@!!! matches nothing', (await listOrdersAdmin(100, undefined, '@!!!')).items.length === 0);
+  const ledger = await listTransfersAdmin(50, undefined, '@zza_payer');
+  check('listTransfersAdmin q=@handle names the payer on one side of every row',
+    ledger.items.every((t) => t.fromHandle === '@zza_payer' || t.toHandle === '@zza_payer'), `n=${ledger.items.length}`);
 
   const ov = await adminOverview();
   check('overview counts the fixture failed orders', (ov.orderCounts.failed ?? 0) >= 2, `failed=${ov.orderCounts.failed}`);

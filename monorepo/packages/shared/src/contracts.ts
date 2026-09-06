@@ -1081,6 +1081,34 @@ export interface AdminRiskEventsResponse {
   nextCursor?: string;
 }
 
+/** One row of the money ledger as the operator sees it, across every user: a send, a top-up, an
+ *  escrow leg, a stake credit, a bridge leg. Each side is a handle when it is an fpay account and
+ *  an address always; an escrow leg names its order; a bridge leg carries the far side's state. */
+export interface AdminTransfer {
+  id: string;
+  kind: string;
+  status: 'pending' | 'confirmed' | 'failed';
+  amountUsdc: string;
+  fromHandle: string | null;
+  fromAddress: string | null;
+  toHandle: string | null;
+  toAddress: string | null;
+  note: string | null;
+  signature: string | null;
+  chain: string;
+  orderId: string | null;
+  orderReference: string | null;
+  bridgeState: string | null;
+  bridgeChain: string | null;
+  createdAt: string; // ISO 8601
+  confirmedAt: string | null;
+}
+
+export interface AdminTransfersResponse {
+  transfers: AdminTransfer[];
+  nextCursor?: string;
+}
+
 /** One payout-provider registry row (docs/23) — routing metadata only; credentials live in server
  *  env and never cross this wire. */
 export interface AdminPayoutProvider {

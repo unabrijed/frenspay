@@ -22,6 +22,7 @@ import type {
   AdminPayoutProviderUpdateRequest,
   AdminPayoutProvidersResponse,
   AdminRiskEventsResponse,
+  AdminTransfersResponse,
   AdminUserPatchRequest,
   AdminUserRoleRequest,
   AdminUserStatusRequest,
@@ -58,12 +59,14 @@ import {
   listOrderTransfersAdmin,
   listRiskEventsAdmin,
   listRoutingAttemptsAdmin,
+  listTransfersAdmin,
   listUsersAdmin,
   listWaitlist,
   mintInviteCodes,
   removeDenylistEntry,
   revokeInviteCode,
   sanitizeDisplayName,
+  searchShape,
   appendKybEvent,
   decideMerchantKyb,
   setBondWaiver,
@@ -114,12 +117,32 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     return adminOverview();
   });
 
-  app.get<{ Querystring: { limit?: string; cursor?: string } }>(
+  // A search is the one admin READ that is audited: `ledger_search` with the query's SHAPE (handle,
+  // email, id, signature, reference), never its value, on the first page only. A flat admin
+  // resolving a signature or a handle to a person across every user is the dispute workflow, and it
+  // is also the one read worth a line in /audit (docs/22).
+  const auditSearch = (adminUserId: string, q: string) =>
+    insertAdminAction({ adminUserId, action: 'ledger_search', targetKind: 'shape', targetId: searchShape(q).shape });
+
+  app.get<{ Querystring: { limit?: string; cursor?: string; q?: string } }>(
     '/admin/orders',
     async (req): Promise<AdminOrdersResponse> => {
-      await requireAdmin(req);
-      const page = await listOrdersAdmin(Number(req.query.limit ?? 50), req.query.cursor);
+      const adminId = await requireAdmin(req);
+      const q = req.query.q?.trim() || undefined;
+      const page = await listOrdersAdmin(Number(req.query.limit ?? 50), req.query.cursor, q);
+      if (q && !req.query.cursor) await auditSearch(adminId, q);
       return { orders: page.items, nextCursor: page.nextCursor };
+    },
+  );
+
+  app.get<{ Querystring: { limit?: string; cursor?: string; q?: string } }>(
+    '/admin/transfers',
+    async (req): Promise<AdminTransfersResponse> => {
+      const adminId = await requireAdmin(req);
+      const q = req.query.q?.trim() || undefined;
+      const page = await listTransfersAdmin(Number(req.query.limit ?? 50), req.query.cursor, q);
+      if (q && !req.query.cursor) await auditSearch(adminId, q);
+      return { transfers: page.items, nextCursor: page.nextCursor };
     },
   );
 
