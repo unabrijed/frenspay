@@ -146,7 +146,9 @@ export default function MerchantStake() {
           <Txt style={[type.inst, shortfall > 0 ? { color: colors.danger } : null]}>
             {shortfall > 0
               ? `Add ${usd(shortfall)} to reach the ${usd(merchant.minBondUsdc)} minimum.`
-              : `Minimum ${usd(merchant.minBondUsdc)}, you’re covered.`}
+              : Number(merchant.minBondUsdc) > 0
+                ? `Minimum ${usd(merchant.minBondUsdc)}, you’re covered.`
+                : 'Your stake backs the payouts you take.'}
           </Txt>
         </View>
 
@@ -159,7 +161,7 @@ export default function MerchantStake() {
             <Pressable onPress={copy} style={({ pressed }) => [styles.addressCard, pressed ? { backgroundColor: colors.surfaceLow } : null]}>
               <Txt style={type.kvKey}>{copied ? 'Copied' : 'fpay’s stake address · tap to copy'}</Txt>
               <Txt style={[{ ...fonts.mono400, fontSize: 15, color: colors.ink }, styles.address]}>{address}</Txt>
-              <Txt style={type.inst}>{`Send USDC on Solana here, from any wallet or exchange. The minimum is ${usd(merchant.minBondUsdc)}.`}</Txt>
+              <Txt style={type.inst}>{`Send USDC on Solana here, from any wallet or exchange.${Number(merchant.minBondUsdc) > 0 ? ` The minimum is ${usd(merchant.minBondUsdc)}.` : ''}`}</Txt>
             </Pressable>
 
             {/* 2. Tell us which transaction. The server reads the amount off the chain — nothing to type. */}

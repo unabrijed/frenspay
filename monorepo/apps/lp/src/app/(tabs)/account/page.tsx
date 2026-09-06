@@ -169,7 +169,7 @@ export default function Account() {
             <RowMeta>
               <Txt style={type.rowName}>Capacity</Txt>
               <Txt style={[type.rowTime, { marginTop: 2 }]}>
-                {Number(merchant.floatUsdc) > Number(merchant.maxFloatUsdc) ? `Capped at ${usd(merchant.maxFloatUsdc)} by your stake` : 'Most you carry at once'}
+                {Number(merchant.floatUsdc) > Number(merchant.maxFloatUsdc) ? `Capped at ${usd(merchant.maxFloatUsdc)}${Number(merchant.minBondUsdc) > 0 ? ' by your stake' : ''}` : 'Most you carry at once'}
               </Txt>
             </RowMeta>
             <Txt style={type.rowAmount}>{usd(Math.min(Number(merchant.floatUsdc), Number(merchant.maxFloatUsdc)))}</Txt>
