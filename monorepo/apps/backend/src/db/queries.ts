@@ -1603,7 +1603,12 @@ interface OrderJoinRow {
   merchant_name: string | null;
 }
 
-const ORDER_SELECT = `
+/** The order + quote + partner join every order read is built on. `payee = false` emits the payee's
+ *  destination and printed name as `null::text` under the same aliases: the bulk admin list has no
+ *  business carrying every payee on the wire (invariant 19's rule, applied to the operator's side),
+ *  while the single-order read and every payer read keep them. Redacted in SQL, never in a mapper,
+ *  and never by a duplicate output column (pg keeps whichever comes last; a fragment cannot drift). */
+const orderSelect = (payee = true): string => `
   select o.id, o.user_id, o.state, o.resolution, o.amount_usdc, o.reference_code,
          o.payout_claimed_at, o.payout_utr, o.feedback_up, o.created_at, o.updated_at, o.quote_id,
          o.group_id, o.expires_at, o.locked_at, o.lock_expires_at,
@@ -1613,12 +1618,14 @@ const ORDER_SELECT = `
          q.mid_rate as q_mid_rate, q.mid_rate_as_of as q_mid_rate_as_of,
          q.eta_min_secs as q_eta_min_secs, q.eta_max_secs as q_eta_max_secs,
          q.payout_method as q_payout_method, q.route_quality as q_route_quality,
-         q.payout_destination as q_payout_destination, q.payout_name as q_payout_name,
+         ${payee ? 'q.payout_destination' : 'null::text'} as q_payout_destination,
+         ${payee ? 'q.payout_name' : 'null::text'} as q_payout_name,
          q.created_at as q_created_at, q.expires_at as q_expires_at,
          m.name as merchant_name
     from orders o
     join quotes q on q.id = o.quote_id
     left join merchants m on m.id = o.merchant_id`;
+const ORDER_SELECT = orderSelect();
 
 function toOrder(r: OrderJoinRow, events?: OrderEvent[]): Order {
   const quote: Quote = {
@@ -4562,8 +4569,12 @@ export async function upsertWalletForChain(userId: string, chain: string, addres
 
 /* ---- admin (read-only flow visibility) ---- */
 
-// Wraps ORDER_SELECT as a subquery to bolt on the payer's handle without select-list surgery.
-const ADMIN_ORDER_SELECT = `select x.*, u.handle as user_handle, u.email as user_email from (${ORDER_SELECT}) x join users u on u.id = x.user_id`;
+// Wraps ORDER_SELECT as a subquery to bolt on the payer's handle without select-list surgery. The
+// LIST variant carries no payee (orderSelect(false)); the single-order reads keep it.
+const adminOrderSelect = (payee: boolean) =>
+  `select x.*, u.handle as user_handle, u.email as user_email from (${orderSelect(payee)}) x join users u on u.id = x.user_id`;
+const ADMIN_ORDER_SELECT = adminOrderSelect(true);
+const ADMIN_ORDER_LIST_SELECT = adminOrderSelect(false);
 
 type AdminOrderJoinRow = OrderJoinRow & { user_handle: string; user_email: string | null };
 
@@ -4608,7 +4619,7 @@ export async function listOrdersAdmin(limit = 50, cursor?: string, q?: string): 
   const s = q ? searchShape(q) : null;
   if (s && s.value === null) return { items: [] };
   const { rows } = await getPool().query<AdminOrderJoinRow>(
-    `${ADMIN_ORDER_SELECT}
+    `${ADMIN_ORDER_LIST_SELECT}
       where ($2::timestamptz is null or (x.created_at, x.id) < ($2::timestamptz, $3::uuid))
         and ($4::text is null
              or ($5::text = 'handle' and u.handle = $4)
@@ -5030,23 +5041,28 @@ export async function listTransfersAdmin(limit = 50, cursor?: string, q?: string
  *  beside each row: approving KYB while the vendor is off grants that tier, and a reviewer cannot be
  *  asked to make that call blind. Left join — platform `psp` rows have no user. */
 export async function listMerchantsAdmin(): Promise<AdminMerchant[]> {
-  const { rows } = await getPool().query<
-    MerchantRow & {
-      owner_kyc_tier: number | null;
-      owner_kyc_provider: string | null;
-      owner_handle: string | null;
-      owner_email: string | null;
-      kyb_recheck: string[] | null;
-    }
-  >(
-    `select m.*, u.kyc_tier as owner_kyc_tier, u.kyc_provider as owner_kyc_provider,
-            u.handle as owner_handle, u.email as owner_email,
-            (select e.detail->'changed' from merchant_kyb_events e
-              where e.merchant_id = m.id and e.event = 'kyb_edited_recheck'
-              order by e.created_at desc limit 1) as kyb_recheck
-       from merchants m left join users u on u.id = m.user_id`,
-  );
+  const [{ rows }, disputes] = await Promise.all([
+    getPool().query<
+      MerchantRow & {
+        owner_kyc_tier: number | null;
+        owner_kyc_provider: string | null;
+        owner_handle: string | null;
+        owner_email: string | null;
+        kyb_recheck: string[] | null;
+      }
+    >(
+      `select m.*, u.kyc_tier as owner_kyc_tier, u.kyc_provider as owner_kyc_provider,
+              u.handle as owner_handle, u.email as owner_email,
+              (select e.detail->'changed' from merchant_kyb_events e
+                where e.merchant_id = m.id and e.event = 'kyb_edited_recheck'
+                order by e.created_at desc limit 1) as kyb_recheck
+         from merchants m left join users u on u.id = m.user_id`,
+    ),
+    // "How many did this partner lose": the same 90-day count that already drives dispute_rate.
+    merchantDisputeStats(),
+  ]);
   return rows.map((m) => ({
+    disputesUpheld90d: disputes[m.id]?.upheld ?? 0,
     // What an approved partner changed to land back in the queue — the reviewer re-checks THAT, not
     // the whole form. Only meaningful while the row is waiting; the latest edit wins.
     kybRecheck: m.kyb_status === 'submitted' && Array.isArray(m.kyb_recheck) && m.kyb_recheck.length ? m.kyb_recheck : undefined,

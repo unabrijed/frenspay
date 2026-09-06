@@ -1006,6 +1006,8 @@ export interface AdminMerchant {
   floatUsdc: string;
   successRate: number;
   disputeRate: number;
+  /** Disputes upheld against this partner in the last 90 days: the count behind `disputeRate`. */
+  disputesUpheld90d: number;
   positiveRate: number;
   /** The number support calls when a payout goes wrong. Unverified unless Telegram vouched. */
   contactPhone?: string;

@@ -373,7 +373,12 @@ export default function Merchants() {
               </Td>
               <Td className="whitespace-nowrap">{usd(m.floatUsdc)}</Td>
               <Td>{pct(m.successRate)}</Td>
-              <Td>{pct(m.disputeRate)}</Td>
+              <Td>
+                {pct(m.disputeRate)}
+                {m.disputesUpheld90d > 0 ? (
+                  <div className="whitespace-nowrap text-[11px] text-danger">{m.disputesUpheld90d} upheld (90d)</div>
+                ) : null}
+              </Td>
               <Td>{pct(m.positiveRate)}</Td>
               <Td>
                 <div className="flex flex-wrap gap-1">

@@ -149,6 +149,10 @@ async function main() {
     `partner=${detail?.merchantName}`);
   const legs = await listLegsAdmin(cancelled);
   check('listLegsAdmin returns the whole payment, one row for an ordinary order', legs.length === 1 && legs[0]?.id === cancelled);
+  // The bulk list never carries a payee (orderSelect(false), redacted in SQL); the single read does.
+  // Mandatory: this assertion is the only thing holding the redaction.
+  check('listOrdersAdmin rows carry no payee',
+    mine.every((o) => o.quote.payoutDestination === undefined && o.quote.payoutName === undefined));
   // The search is exact and by shape: a handle finds the fixture's orders, a reference finds one,
   // garbage after an @ matches nothing (and never 400s), and the ledger list answers the same way.
   const byHandle = await listOrdersAdmin(100, undefined, '@zza_payer');
