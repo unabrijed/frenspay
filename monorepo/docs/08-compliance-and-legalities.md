@@ -178,6 +178,13 @@ on file for any target jurisdiction. A real launch still needs a written privacy
 retention limits, encryption at rest, and regional handling (India **DPDP**, **GDPR**, and whatever
 Indonesia's **PDP** law requires — see the Indonesia note under #5).
 
+**Retention, stated as intent (2026-09-05, [22](22-admin-ledger.md)), not as a compliance claim:**
+financial records (`quotes`, `orders`, `order_events`, `transfers`, `disputes`, `risk_events`,
+`merchant_bond_events`, `admin_actions`) are kept for five years from the order's completion; contact
+PII (`users.email`, `users.phone`) is purged twelve months after a soft-delete. Nothing enforces either
+number yet. The point of writing it down is that "we keep everything because the foreign keys make us"
+is not a purpose, and a DPDP notice needs one. Counsel sets the real numbers.
+
 ### 9. Account deletion — ✅ *posture resolved; 🟡 not yet built*
 **Decided 2026-08-13:** a user may soft-delete their account at any time, even with a balance. This
 is **consistent with the non-custodial thesis, not an exception to it**: the funds were never the
@@ -215,6 +222,12 @@ draws `min(bond, the order's amount)` rather than a flat fine the bond could not
 leave while a completed order is inside its 72-hour claw window, and a completed order cannot be
 disputed after it — one constant, both sides, disclosed to both. Still no real KYB vendor, no
 contracts, no arbitration; the first real fiat is the closed pilot in [15](15-pilot-escrow-and-bond.md).
+
+One recorded exception (2026-09-05): a root admin may waive the floor for one partner for 30 days
+([07](07-admin-and-moderation.md) §The stake waiver, [21](21-stake-waiver.md)). That partner works with
+no collateral behind them, capped flat at the floor's $100 in flight, and the first upheld dispute
+ends it. Each one is audited per partner and exists for onboarding and testing, so "every routable
+partner is bonded" is true except where `admin_actions` says otherwise.
 
 ### 11. LP payment metadata leaves the system — ⬜ *unaddressed*
 Out-of-band alerting sends an LP the amount and timing of work available, through **Telegram**. That

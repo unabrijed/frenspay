@@ -66,11 +66,16 @@ function OrderRows({ orders }: { orders: AdminOrder[] }) {
 }
 
 export default function Overview() {
+  // The one search (docs/22): @handle, email, reference or order id, exact, on Enter. It narrows the
+  // orders list only; the attention tables above it stay the pulse. While a search is set the page
+  // does not poll: the server audits every search, and an 8s poll would write a row a tick.
+  const [draft, setDraft] = useState('');
+  const [q, setQ] = useState('');
   const fetchBoth = useCallback(async () => {
-    const [overview, orders] = await Promise.all([api.overview(), api.orders()]);
+    const [overview, orders] = await Promise.all([api.overview(), api.orders(undefined, q || undefined)]);
     return { overview, orders };
-  }, []);
-  const { data, err, denied } = usePoll(fetchBoth);
+  }, [q]);
+  const { data, err, denied } = usePoll(fetchBoth, q ? 0 : 8000);
   const [f, setF] = useState<Filter>('All');
   // Pages past the first are appended on demand and not re-polled — ops mostly lives on page 1.
   const [extra, setExtra] = useState<AdminOrder[]>([]);
@@ -218,9 +223,22 @@ export default function Overview() {
             {x}
           </button>
         ))}
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return;
+            setExtra([]);
+            setExtraNext(undefined);
+            setQ(draft.trim());
+          }}
+          placeholder="@handle, email, reference or id, then Enter"
+          aria-label="Search orders"
+          className="ml-auto w-72 max-w-full rounded-full border border-hair bg-surface px-3 py-1 text-[12px] outline-none focus:border-accent"
+        />
       </div>
       {shown.length === 0 ? (
-        <EmptyState text="No orders here." />
+        <EmptyState text={q ? 'No orders match.' : 'No orders here.'} />
       ) : (
         <Table head={['Order', 'Amount', 'State', 'Created']}>
           <OrderRows orders={shown} />
@@ -233,7 +251,7 @@ export default function Overview() {
           if (!cursor) return;
           setMoreBusy(true);
           void api
-            .orders(cursor)
+            .orders(cursor, q || undefined)
             .then((page) => {
               setExtra((prev) => [...prev, ...page.orders]);
               setExtraNext(page.nextCursor);

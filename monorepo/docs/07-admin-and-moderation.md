@@ -53,10 +53,10 @@ carries no special trust, it just happens to be the only caller who can pass `re
 denied state (`<Denied/>`) on a 403 rather than gating on anything client-held.
 
 - **Read-only**: `/` (overview — order counts + everything needing a human: open disputes, stuck
-  orders, risk flags, merchant alerts; 8s poll), `/orders/[id]` (full per-order record: events,
-  routing attempts, dispute, escrow legs), `/merchants`, `/risk`, `/providers`, `/audit`
-  (`admin_actions` trail), `/waitlist` (f-list signups, CSV export, no writes — the landing site is
-  the only writer).
+  orders, risk flags, merchant alerts; 8s poll; the orders list with the search below), `/orders/[id]`
+  (the full record of one payment, §The record below), `/transactions` (the money ledger across
+  every user, §The ledger below), `/merchants`, `/risk`, `/providers`, `/audit` (`admin_actions`
+  trail), `/waitlist` (f-list signups, CSV export, no writes — the landing site is the only writer).
 - **Users page** (`/users`, `apps/admin/src/app/users/page.tsx`) is where the write actions live:
   Edit (rename / display name / reason), Suspend / Reinstate (reason mandatory), Grant / Revoke
   admin. The page does not predict any server refusal — it fires the request and surfaces whatever
@@ -125,6 +125,22 @@ partner's own switch writes `online`**, and it is the one that enforces KYB + bo
 this one included; the route answers `409 merchant_exited` and the console shows "exited" with no
 Reinstate. It still takes no reason — that asymmetry with the other writes stands.
 
+### The stake waiver (0028)
+
+Since 2026-09-05 a **root** admin (`isRootAdminEmail`, never the console-grantable `admin` role) may
+let one partner work before staking: `POST /admin/merchants/:id/stake-waiver` with a typed reason,
+`DELETE` to end it. It sets `merchants.bond_waived_until` 30 days out (`WAIVER_DAYS`) and nothing else.
+While live the partner counts as holding exactly the floor in every bond gate (the routing SELECT, the
+online switch, the reinstate mirror, `lockOrder`, and `bondCap` in the float math): they may go online
+and carry `MIN_BOND` in flight, flat, at any tier. The first upheld dispute clears it in the statement
+that draws the bond; granting it and the bond auto-reinstate both require the owner to be an active
+user, so a blocked account cannot come back through it. `admin_actions` records `stake_waive` (with
+`until=` and the reason) and `stake_waiver_end`. The partner is never told: `GET /me` reports the
+floor as 0 and the console walks them to "You're ready". On the Partners page it is the Waive stake /
+End waiver button on an approved row and a `waived to <date>` badge in the Bond cell. The two tabs
+are labelled Partners and Payout providers: the first is the people who settle payouts, the second the
+per-corridor disbursement ladder ([06](06-offramp-and-settlement.md)). Decision record: [21](21-stake-waiver.md).
+
 ### Stake withdrawals
 
 A partner's withdrawal (or exit) debits their bond immediately and waits for a human. The console
@@ -145,6 +161,76 @@ Two verbs, any console admin: **Credit** attributes the deposit — the server i
 `transfers` row and the confirmer's chain check lands the bond, so nobody types a number into a bond;
 **Reject** takes the reason the partner reads and frees the signature for whoever actually paid. Both
 write `admin_actions`.
+## The record, the ledger and the search (2026-09-05, [22](22-admin-ledger.md))
+
+Bridge: "our admin section should also keep track of all transactions, amounts, conversions and
+everything as there can be disputes as well later." The finding was that the database already
+kept all of it and the app never rewrites it; the console threw it away. So the console shows it.
+
+### The record
+
+`/orders/[id]` reads, in the order a dispute call needs it: the fiat amount and currency, the
+USDC, the payee's printed name, where it was paid (destination, rail, the VPA's operator), the UTR
+and when it was claimed, when the window ends (null on an order under review reads "frozen by
+dispute": the escrow is held, the clock has not lapsed), the lock, the partner's real name (the
+payer's DTO masks it as "Best route"; the admin mapper used to inherit the mask), the reference,
+created / updated, and then what the price was struck on: the all-in rate, the mid at strike
+(`quotes.mid_rate`, 0029; a set mid with no fetch time priced off the fallback rate; none at all
+predates 0029), the spread and the platform fee. The last three are admin-only fields on
+`AdminOrder`; the payer's `Quote` still carries the all-in rate and nothing behind it.
+
+A payment made in parts lists its parts. The transfers table shows every transfer that ever
+touched the payment: the escrow pointers of the order and its legs, plus the rows a retry left
+behind, which only a `settle_dropped` event names (`settleEscrow` writes one for ANY non-confirmed
+prior at the moment it moves the pointer). Amount, from / to, order reference, timestamps, a
+Solscan link. The dispute card names who resolved it, the note, and the bond drawn (penalty rows
+only; "-" when the bond was already empty).
+
+**A resolution needs a reason.** `POST /admin/disputes/:id/resolve` answers 400 `note_required`
+without one, before the settle (which moves money). The console asks for it the way a KYB decision
+asks (`window.prompt` inside the confirm; cancel decides nothing). The note lives in
+`admin_actions` and is read by the console only: never the partner, never the payer.
+
+### The ledger
+
+`/transactions` (`GET /admin/transfers`, keyset-paged) is `transfers` across every user: sends,
+top-ups, escrow legs, stake credits, bridge legs. Each side is a handle when it is an fpay account
+and an address always; an escrow leg names its order (the fund row through the primary only, since
+one fund row funds every leg); a bridge leg carries the far side's state. Orders were never all
+transactions: a plain send appeared in no admin surface before this page.
+
+### The search
+
+One input, on `/transactions` and inline in the orders list on `/`: `@handle`, email, an id, a
+signature or a reference, decided by shape and bound as a parameter in every branch
+(`searchShape`, `queries.ts`). Exact only, so every branch hits a unique index, and a payee's VPA
+is never a key (a VPA-to-person oracle). Garbage after an `@` matches nothing rather than 400ing.
+A search by handle is a person's statement. **It is the one admin read that is audited:**
+`ledger_search` with the query's shape (handle / email / id / signature / reference), never its
+value, first page only; the overview stops polling while a search is set so a tick cannot write a
+row.
+
+### What the bulk list never carries
+
+`GET /admin/orders` used to return every payee's destination and printed name on every row, at up
+to 100 a page, and nothing rendered them. `orderSelect(false)` emits both as `null::text` under the
+same aliases for the list; the single-order read and every payer read keep them. In SQL, never in
+a mapper, never by a duplicate output column. `check-admin` asserts it.
+
+### The seed script
+
+`db:seed` is a wipe, and local dev points at the stage database. It now asserts the database tier
+and refuses any database that holds a `transfers` row, no bypass: `db:reset` (which refuses
+production) then `db:init` then `db:seed` is the fresh-database path.
+
+### Deliberately not built
+
+CSV export (a written external request un-defers it: root-only, audited, page-capped) · evidence
+upload (the first dispute a screenshot decides) · a per-user statement page (the ledger search by
+handle is that) · a nav-global search · admin read rate limits and tiered roles (more than a
+handful of admins) · a per-partner bond ledger page (the merchants list shows the 90-day upheld
+count beside the rate) · a note field on the confirm dialog (the prompt is the console's pattern).
+
 ## Invite administration
 
 **Schema** (migration `0007_invite_codes.sql`): `invite_codes` is real rows, not a counter. `code`

@@ -11,6 +11,7 @@ import type {
   AdminOrderDetailResponse,
   AdminOverviewResponse,
   AdminRiskEvent,
+  AdminTransfer,
   AdminUser,
   AdminWaitlistEntry,
   ApiGroup,
@@ -1267,6 +1268,10 @@ export interface MerchantRow {
   /** 168 slots (day-of-week × hour, UTC) of historical activity (0017). NULL = never computed,
    *  which scores neutral so a new LP is not punished for having no history. */
   active_hours: number[] | null;
+  /** A root admin let this partner work before staking (0028). While in the future the row counts as
+   *  holding exactly MIN_BOND: may go online, routable, MIN_BOND in flight, never leveraged. Read by
+   *  every bond gate here and by merchantStats.bondCap; the first upheld dispute clears it. */
+  bond_waived_until: Date | null;
 }
 
 /**
@@ -1285,6 +1290,9 @@ export interface MerchantRow {
  * settleDispute exempts them from bond draws (invariant 14): the platform posting a bond to itself
  * is fiction, and there is no user_id-gated top-up path that could ever raise it. Gating the
  * corridor on a fictional number just means a seed edit silently switches Indonesia off.
+ *
+ * `bond_waived_until > now()` (0028): a root admin let this partner work before staking. Worth exactly
+ * the floor in lockOrder and in the float math (merchantStats.bondCap), so the exposure cap holds.
  */
 export async function listRoutableMerchants(filter: {
   payoutRail: PayoutMethod;
@@ -1295,7 +1303,7 @@ export async function listRoutableMerchants(filter: {
     `select * from merchants
       where status = 'online' and kyb_status = 'approved'
         and payout_rail = $1 and country = $2
-        and (sim_behavior = 'psp' or bond_usdc >= $3)
+        and (sim_behavior = 'psp' or bond_usdc >= $3 or bond_waived_until > now())
         -- No simulated LP is ever routable: there is no testnet tier (2026-08-30), and a sim row's
         -- treasury is a keypair anyone can derive. A hard filter in the SELECT, never a job.
         and (sim_behavior is null or sim_behavior = 'psp')`,
@@ -1444,8 +1452,13 @@ export async function insertQuote(input: {
   platformFeeUsdc: string;
   /** The LP spread this quote was actually struck at. Stored because the offer pool is filtered to
    *  LPs at or below it, and `rate` is display-only and post-fee — the spread cannot be recovered
-   *  from it without the mid rate at that instant, which is gone. */
+   *  from it without the mid rate at that instant. */
   spreadBps: number;
+  /** The mid-market rate the quote was struck against (0029): evidence for a rate dispute, read by
+   *  the admin console only. `midRateAsOf` is the fetch time of the live rate, null when the quote
+   *  priced off the configured fallback. Never on the payer's Quote. */
+  midRate: string;
+  midRateAsOf: string | null;
   etaMinSecs: number;
   etaMaxSecs: number;
   payoutMethod: PayoutMethod;
@@ -1461,8 +1474,8 @@ export async function insertQuote(input: {
        insert into quotes (user_id, merchant_id, direction, currency, amount_inr, amount_usdc, rate,
                            platform_fee_usdc, spread_bps, eta_min_secs, eta_max_secs,
                            payout_method, route_quality, payout_destination, payout_name, expires_at,
-                           legs)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb)
+                           legs, mid_rate, mid_rate_as_of)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19)
        returning *
      )
      select ins.*, m.name as merchant_name
@@ -1486,6 +1499,8 @@ export async function insertQuote(input: {
       input.expiresAt,
       // Stringified: pg would otherwise encode a JS array as a Postgres array literal, not JSON.
       input.legs ? JSON.stringify(input.legs) : null,
+      input.midRate,
+      input.midRateAsOf,
     ],
   );
   return toQuote(rows[0]);
@@ -1560,12 +1575,23 @@ interface OrderJoinRow {
   created_at: Date;
   updated_at: Date;
   quote_id: string;
+  // The order's clocks and its place in a split: read by the admin mapper only, skipped by toOrder.
+  group_id: string | null;
+  expires_at: Date | null;
+  locked_at: Date | null;
+  lock_expires_at: Date | null;
   // joined quote columns (aliased)
   q_direction: OrderDirection;
   q_currency: string;
   q_amount_inr: string;
   q_amount_usdc: string;
   q_rate: string;
+  // The quote's basis. Admin only: the payer's Quote carries the all-in rate and nothing behind it.
+  // The mid is null on rows struck before 0029; its as-of is null when the fallback rate priced it.
+  q_spread_bps: number;
+  q_platform_fee_usdc: string;
+  q_mid_rate: string | null;
+  q_mid_rate_as_of: Date | null;
   q_eta_min_secs: number;
   q_eta_max_secs: number;
   q_payout_method: PayoutMethod;
@@ -1577,20 +1603,29 @@ interface OrderJoinRow {
   merchant_name: string | null;
 }
 
-const ORDER_SELECT = `
+/** The order + quote + partner join every order read is built on. `payee = false` emits the payee's
+ *  destination and printed name as `null::text` under the same aliases: the bulk admin list has no
+ *  business carrying every payee on the wire (invariant 19's rule, applied to the operator's side),
+ *  while the single-order read and every payer read keep them. Redacted in SQL, never in a mapper,
+ *  and never by a duplicate output column (pg keeps whichever comes last; a fragment cannot drift). */
+const orderSelect = (payee = true): string => `
   select o.id, o.user_id, o.state, o.resolution, o.amount_usdc, o.reference_code,
          o.payout_claimed_at, o.payout_utr, o.feedback_up, o.created_at, o.updated_at, o.quote_id,
+         o.group_id, o.expires_at, o.locked_at, o.lock_expires_at,
          coalesce(o.amount_fiat, q.amount_inr) as amount_fiat,
          q.direction as q_direction, q.currency as q_currency, q.amount_inr as q_amount_inr, q.amount_usdc as q_amount_usdc,
-         q.rate as q_rate,
+         q.rate as q_rate, q.spread_bps as q_spread_bps, q.platform_fee_usdc as q_platform_fee_usdc,
+         q.mid_rate as q_mid_rate, q.mid_rate_as_of as q_mid_rate_as_of,
          q.eta_min_secs as q_eta_min_secs, q.eta_max_secs as q_eta_max_secs,
          q.payout_method as q_payout_method, q.route_quality as q_route_quality,
-         q.payout_destination as q_payout_destination, q.payout_name as q_payout_name,
+         ${payee ? 'q.payout_destination' : 'null::text'} as q_payout_destination,
+         ${payee ? 'q.payout_name' : 'null::text'} as q_payout_name,
          q.created_at as q_created_at, q.expires_at as q_expires_at,
          m.name as merchant_name
     from orders o
     join quotes q on q.id = o.quote_id
     left join merchants m on m.id = o.merchant_id`;
+const ORDER_SELECT = orderSelect();
 
 function toOrder(r: OrderJoinRow, events?: OrderEvent[]): Order {
   const quote: Quote = {
@@ -2452,6 +2487,25 @@ export async function setMerchantStatus(
 }
 
 /**
+ * Let a partner work before staking (0028), or take that back (`days` null). The route holds this to
+ * a root admin; this holds it to a HUMAN partner with an active account who has not left: the same
+ * owner predicate the reinstate mirror uses, so a waiver can never put a banned user back on the
+ * money path. Returns the new value, or undefined when the row was refused.
+ */
+export async function setBondWaiver(merchantId: string, days: number | null): Promise<Date | null | undefined> {
+  const { rows } = await getPool().query<{ bond_waived_until: Date | null }>(
+    `update merchants m
+        set bond_waived_until = case when $2::int is null then null else now() + make_interval(days => $2::int) end
+       from users u
+      where m.id = $1 and u.id = m.user_id and u.status = 'active'
+        and m.suspend_reason is distinct from 'exited'
+      returning m.bond_waived_until`,
+    [merchantId, days],
+  );
+  return rows.length ? rows[0].bond_waived_until : undefined;
+}
+
+/**
  * The mirror of the bond auto-suspend: an LP who topped back up comes out of it. Guarded so it can
  * only ever reverse the machine's own decision — `suspend_reason = 'bond'` is the whole safety
  * predicate, and without it this would silently un-ban a moderated merchant.
@@ -2463,7 +2517,10 @@ export async function reinstateBondSuspendedMerchant(id: string, minBondUsdc: nu
   const { rowCount } = await getPool().query(
     `update merchants set status = 'offline', suspend_reason = null
       where id = $1 and status = 'suspended' and suspend_reason = 'bond'
-        and kyb_status = 'approved' and bond_usdc >= $2`,
+        and kyb_status = 'approved' and (bond_usdc >= $2 or bond_waived_until > now())
+        -- Never back for a blocked owner. The user-block cascade skips a row that is already
+        -- suspended, so 'bond' can still be the reason on a partner whose account was banned later.
+        and (user_id is null or exists (select 1 from users u where u.id = merchants.user_id and u.status = 'active'))`,
     [id, minBondUsdc],
   );
   return (rowCount ?? 0) > 0;
@@ -2612,7 +2669,7 @@ export async function setMerchantOnlineSelf(
   const { rowCount } = await getPool().query(
     `update merchants set status = $2
       where id = $1 and status <> 'suspended'
-        and ($2 = 'offline' or (kyb_status = 'approved' and bond_usdc >= $3))`,
+        and ($2 = 'offline' or (kyb_status = 'approved' and (bond_usdc >= $3 or bond_waived_until > now())))`,
     [merchantId, status, minBondUsdc],
   );
   return (rowCount ?? 0) > 0;
@@ -3082,6 +3139,8 @@ export async function lockOrder(input: {
   leverage: number;
   /** How long after paying a receiver this LP is barred from paying them again (routing.PAYEE_COOLDOWN_DAYS). */
   payeeCooldownDays: number;
+  /** The stake floor (merchantStats.MIN_BOND): a waived partner's flat in-flight cap (0028). */
+  minBondUsdc: number;
 }): Promise<{ payoutDestination: string | null; payoutName: string | null; afterWiden: boolean } | null> {
   const { rows } = await getPool().query<{
     payout_destination: string | null;
@@ -3131,7 +3190,9 @@ export async function lockOrder(input: {
                         and o2.id <> o.id
                         and o2.state in ${LIVE_ORDER_STATES}
                    ), 0)
-                   <= least(m.float_usdc, m.bond_usdc * $5)
+                   -- A waived partner below the floor (0028) is capped flat at the floor, whatever
+                   -- their tier: the same shape as merchantStats.bondCap, which sizes the pool view.
+                   <= least(m.float_usdc, case when m.bond_usdc < $7 and m.bond_waived_until > now() then $7 else m.bond_usdc * $5 end)
                -- The pair rule. A personal account paying the same receiver again and again is the
                -- documented account-freeze pattern, so it is a filter, not a score: this LP must not
                -- have paid q.payout_destination inside the cooldown, and must not be holding another
@@ -3150,6 +3211,7 @@ export async function lockOrder(input: {
       input.country,
       input.leverage,
       input.payeeCooldownDays,
+      input.minBondUsdc,
     ],
   );
   if (!rows[0]) return null;
@@ -3727,7 +3789,9 @@ export async function drawDownBond(merchantId: string, amount: number, disputeId
   const { rows } = await getPool().query<{ drawn: string }>(
     `with before as (select bond_usdc from merchants where id = $1),
          after as (
-           update merchants set bond_usdc = greatest(bond_usdc - $2, 0) where id = $1
+           -- An upheld dispute also ends a stake waiver (0028). With no bond to draw, this IS the
+           -- penalty: the next stats pass suspends them under the floor, which is now true.
+           update merchants set bond_usdc = greatest(bond_usdc - $2, 0), bond_waived_until = null where id = $1
            returning bond_usdc
          ),
          ev as (
@@ -4489,22 +4553,6 @@ export async function getTransferStatusById(transferId: string): Promise<string 
   return rows[0]?.status ?? null;
 }
 
-/** Reconcile a bridge row's (and its companion transfer's) amount from the attested message. */
-export async function reconcileBridgeAmount(bridgeId: string, transferId: string, amountUsd: number): Promise<void> {
-  const client = await getPool().connect();
-  try {
-    await client.query('begin');
-    await client.query('update bridge_transfers set amount_usdc = $2, updated_at = now() where id = $1', [bridgeId, amountUsd]);
-    await client.query('update transfers set amount_usdc = $2 where id = $1', [transferId, amountUsd]);
-    await client.query('commit');
-  } catch (e) {
-    await client.query('rollback');
-    throw e;
-  } finally {
-    client.release();
-  }
-}
-
 /** Fail an unsigned companion transfer (inbound burn reverted — nothing will ever mint). */
 export async function failUnsignedTransfer(transferId: string): Promise<void> {
   await getPool().query(`update transfers set status = 'failed' where id = $1 and signature is null`, [transferId]);
@@ -4521,26 +4569,65 @@ export async function upsertWalletForChain(userId: string, chain: string, addres
 
 /* ---- admin (read-only flow visibility) ---- */
 
-// Wraps ORDER_SELECT as a subquery to bolt on the payer's handle without select-list surgery.
-const ADMIN_ORDER_SELECT = `select x.*, u.handle as user_handle, u.email as user_email from (${ORDER_SELECT}) x join users u on u.id = x.user_id`;
+// Wraps ORDER_SELECT as a subquery to bolt on the payer's handle without select-list surgery. The
+// LIST variant carries no payee (orderSelect(false)); the single-order reads keep it.
+const adminOrderSelect = (payee: boolean) =>
+  `select x.*, u.handle as user_handle, u.email as user_email from (${orderSelect(payee)}) x join users u on u.id = x.user_id`;
+const ADMIN_ORDER_SELECT = adminOrderSelect(true);
+const ADMIN_ORDER_LIST_SELECT = adminOrderSelect(false);
 
 type AdminOrderJoinRow = OrderJoinRow & { user_handle: string; user_email: string | null };
 
 const toAdminOrder = (r: AdminOrderJoinRow, events?: OrderEvent[]): AdminOrder => ({
   ...toOrder(r, events),
+  // toOrder masks the partner as 'Best route' for the payer (invariant 21); the operator reads the
+  // real name. Until 2026-09-05 this spread left the mask in place and every admin row said so.
+  merchantName: r.merchant_name ?? '-',
   userHandle: r.user_handle,
   userEmail: r.user_email,
+  spreadBps: r.q_spread_bps,
+  platformFeeUsdc: r.q_platform_fee_usdc,
+  midRate: r.q_mid_rate,
+  midRateAsOf: r.q_mid_rate_as_of?.toISOString() ?? null,
+  groupId: r.group_id,
+  expiresAt: r.expires_at?.toISOString() ?? null,
+  lockedAt: r.locked_at?.toISOString() ?? null,
+  lockExpiresAt: r.lock_expires_at?.toISOString() ?? null,
 });
 
-/** All orders across all users, newest first — the operator's flow list. */
-export async function listOrdersAdmin(limit = 50, cursor?: string): Promise<Page<AdminOrder>> {
+/** How an operator's search string is matched, decided by its shape and bound as a parameter in every
+ *  branch: `@handle` (canonical; null on garbage, which matches nothing rather than 400ing), an email
+ *  (trimmed + lowercased, the users.email CHECK), a uuid (an order or transfer id), a signature, else
+ *  an order reference. Exact only: every branch hits a unique index, and a payee's VPA is never a key
+ *  (that would be a VPA-to-person oracle). The routes audit the SHAPE, never the value (docs/22). */
+export type SearchShape = 'handle' | 'email' | 'id' | 'signature' | 'reference';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function searchShape(raw: string): { shape: SearchShape; value: string | null } {
+  const q = raw.trim();
+  if (q.startsWith('@')) return { shape: 'handle', value: canonicalHandle(q) };
+  if (q.includes('@')) return { shape: 'email', value: q.toLowerCase() };
+  if (UUID_RE.test(q)) return { shape: 'id', value: q.toLowerCase() };
+  // A Solana signature is 87 or 88 base58 characters; a reference code is short.
+  return { shape: q.length >= 64 ? 'signature' : 'reference', value: q };
+}
+
+/** All orders across all users, newest first — the operator's flow list. `q` narrows it to one
+ *  payer (handle, email), one order (id) or one reference; never the payee. */
+export async function listOrdersAdmin(limit = 50, cursor?: string, q?: string): Promise<Page<AdminOrder>> {
   const n = clampLimit(limit, 50, 100);
   const c = parseCursor(cursor);
+  const s = q ? searchShape(q) : null;
+  if (s && s.value === null) return { items: [] };
   const { rows } = await getPool().query<AdminOrderJoinRow>(
-    `${ADMIN_ORDER_SELECT}
+    `${ADMIN_ORDER_LIST_SELECT}
       where ($2::timestamptz is null or (x.created_at, x.id) < ($2::timestamptz, $3::uuid))
+        and ($4::text is null
+             or ($5::text = 'handle' and u.handle = $4)
+             or ($5::text = 'email' and u.email = $4)
+             or ($5::text = 'id' and x.id = $6::uuid)
+             or ($5::text in ('signature', 'reference') and x.reference_code = $4))
       order by x.created_at desc, x.id desc limit $1`,
-    [n + 1, c?.at ?? null, c?.id ?? null],
+    [n + 1, c?.at ?? null, c?.id ?? null, s?.value ?? null, s?.shape ?? null, s?.shape === 'id' ? s.value : null],
   );
   const pageRows = rows.slice(0, n);
   const last = pageRows[pageRows.length - 1];
@@ -4555,6 +4642,19 @@ export async function getOrderAdmin(orderId: string): Promise<AdminOrder | null>
   const { rows } = await getPool().query<AdminOrderJoinRow>(`${ADMIN_ORDER_SELECT} where x.id = $1`, [orderId]);
   if (!rows[0]) return null;
   return toAdminOrder(rows[0], await listOrderEvents(orderId));
+}
+
+/** The whole payment `orderId` belongs to, primary first, whichever leg was asked for (the
+ *  getGroupSettlement CTE resolves a child leg to its primary). One row for an ordinary order.
+ *  Unscoped: the operator reads across users. */
+export async function listLegsAdmin(orderId: string): Promise<AdminOrder[]> {
+  const { rows } = await getPool().query<AdminOrderJoinRow>(
+    `with g as (select coalesce(group_id, id) as gid from orders where id = $1)
+     ${ADMIN_ORDER_SELECT} join g on x.id = g.gid or x.group_id = g.gid
+     order by x.group_id nulls first, x.created_at, x.id`,
+    [orderId],
+  );
+  return rows.map((r) => toAdminOrder(r));
 }
 
 export async function listRoutingAttemptsAdmin(
@@ -4581,6 +4681,10 @@ export async function listRoutingAttemptsAdmin(
   }));
 }
 
+/** The dispute with its judgment attached: who resolved it and why come from the admin_actions row
+ *  the resolve route writes (`target_id` is text there), the bond drawn from the penalty row
+ *  drawDownBond leaves (penalty only: a later `adjust` must not net the draw away; no row at all
+ *  when the bond was already empty, so null renders "-"). */
 export async function getDisputeForOrder(orderId: string): Promise<AdminOrderDetailResponse['dispute']> {
   const { rows } = await getPool().query<{
     id: string;
@@ -4589,7 +4693,21 @@ export async function getDisputeForOrder(orderId: string): Promise<AdminOrderDet
     resolution: 'upheld' | 'rejected' | null;
     created_at: Date;
     resolved_at: Date | null;
-  }>(`select id, reason, status, resolution, created_at, resolved_at from disputes where order_id = $1`, [orderId]);
+    resolved_by: string | null;
+    note: string | null;
+    bond_drawn: string | null;
+  }>(
+    `select d.id, d.reason, d.status, d.resolution, d.created_at, d.resolved_at,
+            a.handle as resolved_by, a.note,
+            (select sum(-b.amount_usdc) from merchant_bond_events b
+              where b.dispute_id = d.id and b.kind = 'penalty') as bond_drawn
+       from disputes d
+       left join lateral (select u.handle, a.note from admin_actions a join users u on u.id = a.admin_user_id
+                           where a.target_kind = 'dispute' and a.target_id = d.id::text
+                           order by a.created_at desc limit 1) a on true
+      where d.order_id = $1`,
+    [orderId],
+  );
   const d = rows[0];
   if (!d) return null;
   return {
@@ -4599,23 +4717,63 @@ export async function getDisputeForOrder(orderId: string): Promise<AdminOrderDet
     resolution: d.resolution,
     createdAt: d.created_at.toISOString(),
     resolvedAt: d.resolved_at?.toISOString() ?? null,
+    resolvedBy: d.resolved_by,
+    // The route stores "<resolution>: <note>", or the bare resolution when none was typed.
+    note: d.note ? d.note.replace(/^(upheld|rejected)(: |$)/, '') || null : null,
+    bondDrawnUsdc: d.bond_drawn,
   };
 }
 
-/** The order's escrow legs (fund + release), if created. */
+/** Every transfer that ever touched the payment: the escrow pointers of the order and its legs, plus
+ *  the rows a retry left behind, which only a `settle_dropped` event names (settleEscrow). One fund
+ *  row funds every leg and a retried order names one id twice, so the id set is distinct; the fund
+ *  row is labelled with the primary's reference. Oldest first. */
 export async function listOrderTransfersAdmin(orderId: string): Promise<AdminOrderDetailResponse['transfers']> {
   const { rows } = await getPool().query<{
     id: string;
     kind: string;
     status: 'pending' | 'confirmed' | 'failed';
     signature: string | null;
+    amount_usdc: string;
+    note: string | null;
+    from_address: string | null;
+    to_address: string | null;
+    order_reference: string;
+    created_at: Date;
+    confirmed_at: Date | null;
   }>(
-    `select t.id, t.kind, t.status, t.signature
-       from orders o join transfers t on t.id in (o.escrow_fund_transfer_id, o.escrow_release_transfer_id)
-      where o.id = $1 order by t.created_at asc`,
+    `with g as (select coalesce(group_id, id) as gid from orders where id = $1),
+          legs as (select o.id, o.reference_code, o.group_id is null as is_primary,
+                          o.escrow_fund_transfer_id, o.escrow_release_transfer_id
+                     from orders o join g on o.id = g.gid or o.group_id = g.gid),
+          ids as (select escrow_fund_transfer_id as tid, reference_code, is_primary from legs
+                  union all
+                  select escrow_release_transfer_id, reference_code, is_primary from legs
+                  union all
+                  select (e.detail->>'transferId')::uuid, l.reference_code, l.is_primary
+                    from order_events e join legs l on l.id = e.order_id
+                   where e.event = 'settle_dropped'),
+          one as (select distinct on (t.id)
+                         t.id, t.kind, t.status, t.signature, t.amount_usdc, t.note, t.from_address, t.to_address,
+                         i.reference_code as order_reference, t.created_at, t.confirmed_at
+                    from ids i join transfers t on t.id = i.tid
+                   order by t.id, i.is_primary desc)
+     select * from one order by created_at asc, id`,
     [orderId],
   );
-  return rows;
+  return rows.map((t) => ({
+    id: t.id,
+    kind: t.kind,
+    status: t.status,
+    signature: t.signature,
+    amountUsdc: t.amount_usdc,
+    note: t.note,
+    fromAddress: t.from_address,
+    toAddress: t.to_address,
+    orderReference: t.order_reference,
+    createdAt: t.created_at.toISOString(),
+    confirmedAt: t.confirmed_at?.toISOString() ?? null,
+  }));
 }
 
 /** One health read: order counts by state + everything currently needing a human. */
@@ -4798,6 +4956,84 @@ export async function listRiskEventsAdmin(limit = 50, cursor?: string): Promise<
   };
 }
 
+/** The money ledger across every user, newest first: sends, top-ups, escrow legs, stake credits,
+ *  bridge legs (docs/22). An escrow leg names its order (the fund row through the PRIMARY only, one
+ *  fund row funds every leg; the release row through its own order); a bridge leg carries the far
+ *  side's state. `q` is one of searchShape's five exact matches on either side of the row.
+ *  ponytail: keyset on (created_at, id) with no index on created_at alone, a sort per page at pilot
+ *  scale; add `idx_transfers_created (created_at desc, id desc)` when the page gets slow. */
+export async function listTransfersAdmin(limit = 50, cursor?: string, q?: string): Promise<Page<AdminTransfer>> {
+  const n = clampLimit(limit, 50, 100);
+  const c = parseCursor(cursor);
+  const s = q ? searchShape(q) : null;
+  if (s && s.value === null) return { items: [] };
+  const { rows } = await getPool().query<{
+    id: string;
+    kind: string;
+    status: 'pending' | 'confirmed' | 'failed';
+    amount_usdc: string;
+    from_handle: string | null;
+    from_address: string | null;
+    to_handle: string | null;
+    to_address: string | null;
+    note: string | null;
+    signature: string | null;
+    chain: string;
+    order_id: string | null;
+    order_reference: string | null;
+    bridge_state: string | null;
+    bridge_chain: string | null;
+    created_at: Date;
+    confirmed_at: Date | null;
+  }>(
+    `select t.id, t.kind, t.status, t.amount_usdc, t.note, t.signature, t.chain, t.created_at, t.confirmed_at,
+            t.from_address, t.to_address, fu.handle as from_handle, tu.handle as to_handle,
+            coalesce(fo.id, ro.id) as order_id,
+            coalesce(fo.reference_code, ro.reference_code) as order_reference,
+            b.state as bridge_state,
+            case when b.direction = 'in' then b.source_chain else b.destination_chain end as bridge_chain
+       from transfers t
+       left join users fu on fu.id = t.from_user_id
+       left join users tu on tu.id = t.to_user_id
+       left join orders fo on fo.escrow_fund_transfer_id = t.id and fo.group_id is null
+       left join orders ro on ro.escrow_release_transfer_id = t.id
+       left join bridge_transfers b on b.transfer_id = t.id
+      where ($2::timestamptz is null or (t.created_at, t.id) < ($2::timestamptz, $3::uuid))
+        and ($4::text is null
+             or ($5::text = 'handle' and (fu.handle = $4 or tu.handle = $4))
+             or ($5::text = 'email' and (fu.email = $4 or tu.email = $4))
+             or ($5::text = 'id' and (t.id = $6::uuid or fo.id = $6::uuid or ro.id = $6::uuid))
+             or ($5::text = 'signature' and t.signature = $4)
+             or ($5::text = 'reference' and coalesce(fo.reference_code, ro.reference_code) = $4))
+      order by t.created_at desc, t.id desc limit $1`,
+    [n + 1, c?.at ?? null, c?.id ?? null, s?.value ?? null, s?.shape ?? null, s?.shape === 'id' ? s.value : null],
+  );
+  const pageRows = rows.slice(0, n);
+  const last = pageRows[pageRows.length - 1];
+  return {
+    items: pageRows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      status: r.status,
+      amountUsdc: r.amount_usdc,
+      fromHandle: r.from_handle,
+      fromAddress: r.from_address,
+      toHandle: r.to_handle,
+      toAddress: r.to_address,
+      note: r.note,
+      signature: r.signature,
+      chain: r.chain,
+      orderId: r.order_id,
+      orderReference: r.order_reference,
+      bridgeState: r.bridge_state,
+      bridgeChain: r.bridge_chain,
+      createdAt: r.created_at.toISOString(),
+      confirmedAt: r.confirmed_at?.toISOString() ?? null,
+    })),
+    nextCursor: rows.length > n && last ? `${last.created_at.toISOString()}|${last.id}` : undefined,
+  };
+}
+
 /** Money columns pass THROUGH as the decimal strings pg hands back — numeric(20,6) already carries
  *  the scale, so no conversion is needed or wanted.
  *
@@ -4805,23 +5041,28 @@ export async function listRiskEventsAdmin(limit = 50, cursor?: string): Promise<
  *  beside each row: approving KYB while the vendor is off grants that tier, and a reviewer cannot be
  *  asked to make that call blind. Left join — platform `psp` rows have no user. */
 export async function listMerchantsAdmin(): Promise<AdminMerchant[]> {
-  const { rows } = await getPool().query<
-    MerchantRow & {
-      owner_kyc_tier: number | null;
-      owner_kyc_provider: string | null;
-      owner_handle: string | null;
-      owner_email: string | null;
-      kyb_recheck: string[] | null;
-    }
-  >(
-    `select m.*, u.kyc_tier as owner_kyc_tier, u.kyc_provider as owner_kyc_provider,
-            u.handle as owner_handle, u.email as owner_email,
-            (select e.detail->'changed' from merchant_kyb_events e
-              where e.merchant_id = m.id and e.event = 'kyb_edited_recheck'
-              order by e.created_at desc limit 1) as kyb_recheck
-       from merchants m left join users u on u.id = m.user_id`,
-  );
+  const [{ rows }, disputes] = await Promise.all([
+    getPool().query<
+      MerchantRow & {
+        owner_kyc_tier: number | null;
+        owner_kyc_provider: string | null;
+        owner_handle: string | null;
+        owner_email: string | null;
+        kyb_recheck: string[] | null;
+      }
+    >(
+      `select m.*, u.kyc_tier as owner_kyc_tier, u.kyc_provider as owner_kyc_provider,
+              u.handle as owner_handle, u.email as owner_email,
+              (select e.detail->'changed' from merchant_kyb_events e
+                where e.merchant_id = m.id and e.event = 'kyb_edited_recheck'
+                order by e.created_at desc limit 1) as kyb_recheck
+         from merchants m left join users u on u.id = m.user_id`,
+    ),
+    // "How many did this partner lose": the same 90-day count that already drives dispute_rate.
+    merchantDisputeStats(),
+  ]);
   return rows.map((m) => ({
+    disputesUpheld90d: disputes[m.id]?.upheld ?? 0,
     // What an approved partner changed to land back in the queue — the reviewer re-checks THAT, not
     // the whole form. Only meaningful while the row is waiting; the latest edit wins.
     kybRecheck: m.kyb_status === 'submitted' && Array.isArray(m.kyb_recheck) && m.kyb_recheck.length ? m.kyb_recheck : undefined,
@@ -4844,6 +5085,8 @@ export async function listMerchantsAdmin(): Promise<AdminMerchant[]> {
     ownerKycProvider: m.owner_kyc_provider ?? undefined,
     ownerHandle: m.owner_handle ?? undefined,
     ownerEmail: m.owner_email ?? undefined,
+    // Only while live: a lapsed waiver is nothing, not history (admin_actions has that).
+    bondWaivedUntil: m.bond_waived_until && m.bond_waived_until.getTime() > Date.now() ? m.bond_waived_until.toISOString() : undefined,
     real: m.user_id != null,
   }));
 }

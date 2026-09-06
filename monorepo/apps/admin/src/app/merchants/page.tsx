@@ -121,6 +121,35 @@ export default function Merchants() {
         });
       }
     }
+    // Let them work before staking (0028). Root admin only, 30 days, worth exactly the floor and never
+    // leveraged; the first upheld dispute ends it. Sits where Approve was, so the row an admin has
+    // just approved shows its next step without a hunt.
+    if (m.real && m.kybStatus === 'approved' && m.suspendReason !== 'exited') {
+      list.push(
+        m.bondWaivedUntil
+          ? {
+              title: `End stake waiver: ${m.name}`,
+              body: 'They go back under the floor. Routing stops at once; the next stats pass takes them offline unless they have staked by then.',
+              confirmLabel: 'End waiver',
+              danger: true,
+              onConfirm: async () => {
+                await api.merchantStakeWaiverEnd(m.id);
+                await reload();
+              },
+            }
+          : {
+              title: `Waive stake: ${m.name}`,
+              body: 'No collateral behind this partner. They can go online and carry $100 in flight as if staked. Ends in 30 days, or on the first upheld dispute. Root admin only; they are never told.',
+              confirmLabel: 'Waive stake',
+              onConfirm: async () => {
+                const note = window.prompt('Why does this partner work before staking? Audit only, never shown to them:')?.trim();
+                if (!note) return;
+                await api.merchantStakeWaiver(m.id, note);
+                await reload();
+              },
+            },
+      );
+    }
     if (m.status !== 'suspended') {
       list.push({
         title: `Suspend: ${m.name}`,
@@ -187,7 +216,7 @@ export default function Merchants() {
 
   return (
     <>
-      <PageHead title="Merchants" sub="LPs settling the fiat leg: reputation signals and lifecycle actions" />
+      <PageHead title="Partners" sub="The people settling the fiat leg: reputation signals and lifecycle actions" />
       <ErrorBanner msg={err} />
       {/* Stake deposits waiting for a human (docs/20): a partner paid the treasury from somewhere and
           pasted the signature; the server read what it moved. Crediting ATTRIBUTES it — the confirmer's
@@ -335,10 +364,21 @@ export default function Merchants() {
                   ) : null}
                 </div>
               </Td>
-              <Td className="whitespace-nowrap">{usd(m.bondUsdc)}</Td>
+              <Td className="whitespace-nowrap">
+                <div className="flex flex-wrap items-center gap-1">
+                  {usd(m.bondUsdc)}
+                  {/* Exposure, not health: a warn tone on purpose. */}
+                  {m.bondWaivedUntil ? <Badge tone="warn">{`waived to ${new Date(m.bondWaivedUntil).toLocaleDateString()}`}</Badge> : null}
+                </div>
+              </Td>
               <Td className="whitespace-nowrap">{usd(m.floatUsdc)}</Td>
               <Td>{pct(m.successRate)}</Td>
-              <Td>{pct(m.disputeRate)}</Td>
+              <Td>
+                {pct(m.disputeRate)}
+                {m.disputesUpheld90d > 0 ? (
+                  <div className="whitespace-nowrap text-[11px] text-danger">{m.disputesUpheld90d} upheld (90d)</div>
+                ) : null}
+              </Td>
               <Td>{pct(m.positiveRate)}</Td>
               <Td>
                 <div className="flex flex-wrap gap-1">

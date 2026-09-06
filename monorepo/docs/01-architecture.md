@@ -55,7 +55,7 @@ a fee-payer key it is read-only for money.
 | Tier | Branch | Notes |
 |---|---|---|
 | local | — | `NODE_ENV` local/development; shared stage Postgres (no local DB); no fee-payer ⇒ money is read-only |
-| stage | `stage` | Railway stage env + Vercel stage projects; real USDC |
+| stage | `stage` | Railway stage env + the Vercel `frenspay-stage` project (web only; admin, lp and landing deploy from `sacred`); real USDC |
 | production | `sacred` | same shapes, bare env var names, separate access keys (one per gated project); the Railway service needs its **own** database — the tier stamp makes sharing stage's fatal at boot |
 
 > The Branch column means two different mechanisms: for Vercel it is the project's Production

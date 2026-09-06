@@ -450,6 +450,13 @@ assert.ok(activitySlot(new Date('2026-08-13T23:00:00Z')) < ACTIVITY_SLOTS, 'slot
   for (const gate of ["status = 'online'", "kyb_status = 'approved'", 'payout_rail = $1', 'country = $2', 'bond_usdc >= $3']) {
     assert.ok(body.includes(gate), `listRoutableMerchants lost its hard filter: ${gate}`);
   }
+  // The stake waiver (0028) must be read by EVERY bond gate, or one drifts alone: routable but unable
+  // to go online, or online but never able to lock what the pool showed.
+  for (const fn of ['listRoutableMerchants', 'setMerchantOnlineSelf', 'reinstateBondSuspendedMerchant', 'lockOrder']) {
+    const src = queries.slice(queries.indexOf(`export async function ${fn}`));
+    const fnBody = src.slice(0, src.indexOf('\nexport ', 1));
+    assert.ok(fnBody.includes('bond_waived_until > now()'), `${fn} must honour the stake waiver like every other bond gate`);
+  }
   // The bond floor must reach the query as MIN_BOND, not a literal that can drift from the constant
   // merchantStats suspends on — a mismatch would suspend LPs the router still hands orders to.
   const routing = readFileSync(join(ROOT, 'src/services/routing.ts'), 'utf8');
@@ -523,7 +530,10 @@ assert.ok(activitySlot(new Date('2026-08-13T23:00:00Z')) < ACTIVITY_SLOTS, 'slot
   assert.ok(lockBody.includes('m.payout_rail = q.payout_method'), 'lockOrder must re-check the rail');
   assert.ok(lockBody.includes('m.country = $4'), 'lockOrder must re-check the country');
   assert.ok(lockBody.includes('m.spread_bps <= q.spread_bps'), 'lockOrder must re-check the price');
-  assert.ok(lockBody.includes('least(m.float_usdc, m.bond_usdc * $5)'), 'lockOrder must re-check capacity atomically');
+  assert.ok(
+    lockBody.includes('least(m.float_usdc, case when m.bond_usdc < $7 and m.bond_waived_until > now() then $7 else m.bond_usdc * $5 end)'),
+    'lockOrder must re-check capacity atomically, with a waived partner capped flat at the floor',
+  );
   assert.ok(lockBody.includes('expires_at = greatest'), 'a lock must hold the escalation ladder off while the LP pays');
 
 

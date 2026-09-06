@@ -14,6 +14,7 @@ import type {
   AdminPayoutProviderUpdateRequest,
   AdminPayoutProvidersResponse,
   AdminRiskEventsResponse,
+  AdminTransfersResponse,
   AdminUserPatchRequest,
   AdminUserRoleRequest,
   AdminUserStatusRequest,
@@ -102,16 +103,25 @@ export class ApiError extends Error {
   }
 }
 
-const cursored = (path: string, cursor?: string) =>
-  cursor ? `${path}?cursor=${encodeURIComponent(cursor)}` : path;
+/** Keyset paging plus, on the two ledger lists, the operator's exact-match search `q`. */
+const cursored = (path: string, cursor?: string, q?: string) => {
+  const p = new URLSearchParams();
+  if (cursor) p.set('cursor', cursor);
+  if (q) p.set('q', q);
+  const s = p.toString();
+  return s ? `${path}?${s}` : path;
+};
 
 export const api = {
   me: () => req<MeResponse>('/me'),
 
   // reads
   overview: () => req<AdminOverviewResponse>('/admin/overview'),
-  orders: (cursor?: string) => req<AdminOrdersResponse>(cursored('/admin/orders', cursor)),
+  orders: (cursor?: string, q?: string) => req<AdminOrdersResponse>(cursored('/admin/orders', cursor, q)),
   order: (id: string) => req<AdminOrderDetailResponse>(`/admin/orders/${id}`),
+  // The money ledger across every user (docs/22). `q`: @handle, email, an id, a signature or a
+  // reference, exact; the server audits the shape of every search.
+  transfers: (cursor?: string, q?: string) => req<AdminTransfersResponse>(cursored('/admin/transfers', cursor, q)),
   waitlist: () => req<AdminWaitlistResponse>('/admin/waitlist'),
   users: (cursor?: string) => req<AdminUsersResponse>(cursored('/admin/users', cursor)),
   merchants: () => req<AdminMerchantsResponse>('/admin/merchants'),
@@ -137,6 +147,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ status }),
     }),
+  // Root admin only (0028): lets the partner work before staking, as if holding the floor, for a
+  // fixed 30 days. The note is audit-only. DELETE ends it early.
+  merchantStakeWaiver: (id: string, note: string) =>
+    req<{ ok: true; bondWaivedUntil: string }>(`/admin/merchants/${id}/stake-waiver`, { method: 'POST', body: JSON.stringify({ note }) }),
+  merchantStakeWaiverEnd: (id: string) => req<{ ok: true }>(`/admin/merchants/${id}/stake-waiver`, { method: 'DELETE' }),
   // Record-only: the USDC was sent by hand from the cold stake treasury; this is its signature.
   releaseStakeWithdrawal: (id: string, signature: string) =>
     req<{ ok: true }>(`/admin/stake/withdrawals/${id}/release`, { method: 'POST', body: JSON.stringify({ signature }) }),

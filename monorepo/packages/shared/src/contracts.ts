@@ -850,6 +850,22 @@ export interface OrdersResponse {
 export interface AdminOrder extends Order {
   userHandle: string;
   userEmail: string | null;
+  /** The quote's basis, evidence for a rate dispute: the LP spread it was struck at and the
+   *  platform's flat cut. Backend-internal on the payer's Quote (the fee is inside the rate there);
+   *  `platformFeeUsdc` is the numeric string pg hands back. */
+  spreadBps: number;
+  platformFeeUsdc: string;
+  /** The mid-market rate the quote was struck against (4dp; null on rows from before it was kept)
+   *  and when that rate was fetched. A set mid with a null as-of priced off the fallback rate. */
+  midRate: string | null;
+  midRateAsOf: string | null;
+  /** Null for the primary and for a single-LP order; a leg names its primary. */
+  groupId: string | null;
+  /** The clocks the partner's screen counts down: the release / dispute deadline (null while a
+   *  dispute holds the escrow, which with `under_review` reads "frozen", not "lapsed") and the lock. */
+  expiresAt: string | null;
+  lockedAt: string | null;
+  lockExpiresAt: string | null;
 }
 
 export interface AdminOrdersResponse {
@@ -874,13 +890,29 @@ export interface AdminOrderDetailResponse {
     resolution: 'upheld' | 'rejected' | null;
     createdAt: string; // ISO 8601
     resolvedAt: string | null;
+    /** Who decided and why, from the admin_actions row the resolve route writes; the bond drawn,
+     *  from the ledger row a penalty leaves (null when the bond was already empty). */
+    resolvedBy: string | null;
+    note: string | null;
+    bondDrawnUsdc: string | null;
   } | null;
+  /** Every transfer that ever touched this payment: the escrow pointers of the order and its legs,
+   *  plus the rows a retry left behind (named in `settle_dropped` events). Oldest first. */
   transfers: Array<{
     id: string;
     kind: string;
     status: 'pending' | 'confirmed' | 'failed';
     signature: string | null;
+    amountUsdc: string;
+    note: string | null;
+    fromAddress: string | null;
+    toAddress: string | null;
+    orderReference: string;
+    createdAt: string; // ISO 8601
+    confirmedAt: string | null;
   }>;
+  /** The whole payment, primary first: one element for an ordinary order, every leg of a split. */
+  legs: AdminOrder[];
 }
 
 /** One health read: what's flowing, what's stuck, what needs a human. */
@@ -968,9 +1000,14 @@ export interface AdminMerchant {
   kybRecheck?: string[];
   payoutRail: string;
   bondUsdc: string;
+  /** Set while a root admin's stake waiver is live (0028): the partner may work as if holding the
+   *  floor, flat, never leveraged. Absent once it lapses; the audit trail keeps the history. */
+  bondWaivedUntil?: string;
   floatUsdc: string;
   successRate: number;
   disputeRate: number;
+  /** Disputes upheld against this partner in the last 90 days: the count behind `disputeRate`. */
+  disputesUpheld90d: number;
   positiveRate: number;
   /** The number support calls when a payout goes wrong. Unverified unless Telegram vouched. */
   contactPhone?: string;
@@ -1043,6 +1080,34 @@ export interface AdminRiskEvent {
 
 export interface AdminRiskEventsResponse {
   events: AdminRiskEvent[];
+  nextCursor?: string;
+}
+
+/** One row of the money ledger as the operator sees it, across every user: a send, a top-up, an
+ *  escrow leg, a stake credit, a bridge leg. Each side is a handle when it is an fpay account and
+ *  an address always; an escrow leg names its order; a bridge leg carries the far side's state. */
+export interface AdminTransfer {
+  id: string;
+  kind: string;
+  status: 'pending' | 'confirmed' | 'failed';
+  amountUsdc: string;
+  fromHandle: string | null;
+  fromAddress: string | null;
+  toHandle: string | null;
+  toAddress: string | null;
+  note: string | null;
+  signature: string | null;
+  chain: string;
+  orderId: string | null;
+  orderReference: string | null;
+  bridgeState: string | null;
+  bridgeChain: string | null;
+  createdAt: string; // ISO 8601
+  confirmedAt: string | null;
+}
+
+export interface AdminTransfersResponse {
+  transfers: AdminTransfer[];
   nextCursor?: string;
 }
 
@@ -1126,6 +1191,12 @@ export interface AdminKybRequest {
 
 export interface AdminMerchantStatusRequest {
   status: 'online' | 'offline' | 'suspended';
+}
+
+/** Let a partner work before staking (0028). Root admin only. The note is the audit's WHY and is
+ *  never shown to the partner. */
+export interface AdminStakeWaiverRequest {
+  note: string;
 }
 
 export interface AdminDisputeResolveRequest {

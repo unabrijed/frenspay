@@ -10,7 +10,7 @@ import { amt, USDC_DECIMALS } from '../lib/amount';
 import { CORRIDORS } from '../lib/corridors';
 import { type Amount, BN, divUp, RATE_DECIMALS } from '../lib/units';
 
-import { ACTIVITY_SLOTS, activitySlot, leverageFor, MIN_BOND } from './merchantStats';
+import { ACTIVITY_SLOTS, activitySlot, bondCap, MIN_BOND } from './merchantStats';
 import { metrics } from './metrics';
 
 export interface RankedMerchant {
@@ -262,7 +262,7 @@ export function rankPool(
   const availableOf = (m: MerchantRow) => {
     const declared = Number(m.float_usdc);
     const backed =
-      m.sim_behavior === 'psp' ? declared : Math.min(declared, Number(m.bond_usdc) * leverageFor(m.tier));
+      m.sim_behavior === 'psp' ? declared : Math.min(declared, bondCap(m));
     return Math.max(backed - (committed[m.id] ?? 0), 0);
   };
 

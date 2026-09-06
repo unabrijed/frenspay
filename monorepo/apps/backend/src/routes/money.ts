@@ -179,7 +179,10 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
   // gated). Exactly one must be set. All compliance controls run for BOTH modes (docs/16 §6).
   app.post<{ Body: PrepareTransferRequest }>('/transfer/prepare', async (req, reply) => {
     const userId = requireUserId(req);
-    const { toHandle, toAddress, note, idempotencyKey } = req.body ?? ({} as PrepareTransferRequest);
+    const { toHandle, toAddress, idempotencyKey } = req.body ?? ({} as PrepareTransferRequest);
+    // Free text into an unbounded column, rendered on the payer's feed, in notifications and on the
+    // admin ledger: typed, trimmed and capped, the rule the split note above has always had.
+    const note = typeof req.body?.note === 'string' && req.body.note.trim() ? req.body.note.trim().slice(0, 80) : undefined;
     const amountUsd = positiveAmount(req.body?.amountUsd);
     if (amountUsd === null) return reply.code(400).send({ error: 'invalid_amount' });
     if ((toHandle && toAddress) || (!toHandle && !toAddress)) {

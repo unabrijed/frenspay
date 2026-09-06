@@ -70,7 +70,10 @@ function main(app) {
   // The backend is exempt because it has no Vercel project to set that variable: it runs from a
   // GitHub Actions workflow, where the branch pin is the workflow's own `on: push: branches:`.
   // Without the exemption every CI run would read an unset VERCEL_ENV and silently skip forever.
-  if (app !== 'backend' && process.env.VERCEL_ENV !== 'production') return SKIP;
+  if (app !== 'backend' && process.env.VERCEL_ENV !== 'production') {
+    console.log(`vercel-ignore: skip ${app}: VERCEL_ENV=${process.env.VERCEL_ENV} on ${process.env.VERCEL_GIT_COMMIT_REF}; a project builds only its own Production Branch`);
+    return SKIP;
+  }
 
   // DIFF_BASE is the commit the branch was on BEFORE this push (GitHub Actions passes
   // github.event.before). Judging a push by its tip commit alone is wrong whenever a push carries
@@ -93,7 +96,9 @@ function main(app) {
     return BUILD;
   }
 
-  return shouldBuild(app, changed) ? BUILD : SKIP;
+  const build = shouldBuild(app, changed);
+  console.log(`vercel-ignore: ${build ? 'build' : 'skip'} ${app}: ${changed.length} files changed since ${from}`);
+  return build ? BUILD : SKIP;
 }
 
 // Only act when run as a command. Without this guard, `import`ing the module for a dry run falls

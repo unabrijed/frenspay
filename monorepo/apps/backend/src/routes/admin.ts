@@ -14,6 +14,7 @@ import type {
   AdminInvitesResponse,
   AdminKybRequest,
   AdminMerchantStatusRequest,
+  AdminStakeWaiverRequest,
   AdminMerchantsResponse,
   AdminOrderDetailResponse,
   AdminOrdersResponse,
@@ -21,6 +22,7 @@ import type {
   AdminPayoutProviderUpdateRequest,
   AdminPayoutProvidersResponse,
   AdminRiskEventsResponse,
+  AdminTransfersResponse,
   AdminUserPatchRequest,
   AdminUserRoleRequest,
   AdminUserStatusRequest,
@@ -51,19 +53,23 @@ import {
   listAllPayoutProviders,
   listDenylist,
   listInviteCodesAdmin,
+  listLegsAdmin,
   listMerchantsAdmin,
   listOrdersAdmin,
   listOrderTransfersAdmin,
   listRiskEventsAdmin,
   listRoutingAttemptsAdmin,
+  listTransfersAdmin,
   listUsersAdmin,
   listWaitlist,
   mintInviteCodes,
   removeDenylistEntry,
   revokeInviteCode,
   sanitizeDisplayName,
+  searchShape,
   appendKybEvent,
   decideMerchantKyb,
+  setBondWaiver,
   setMerchantStatus,
   setUserRole,
   deleteUser,
@@ -78,7 +84,7 @@ import {
 } from '../db/queries';
 import { screenHandle } from '../services/compliance';
 import { canonicalInviteCode } from '../services/invites';
-import { ACTIVITY_SLOTS, activitySlot } from '../services/merchantStats';
+import { ACTIVITY_SLOTS, activitySlot, WAIVER_DAYS } from '../services/merchantStats';
 import { settleDispute } from '../services/orderMachine';
 import { providerHasCredentials } from '../services/payout/provider';
 import { SIGNATURE_RE } from '../services/solana';
@@ -111,12 +117,32 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     return adminOverview();
   });
 
-  app.get<{ Querystring: { limit?: string; cursor?: string } }>(
+  // A search is the one admin READ that is audited: `ledger_search` with the query's SHAPE (handle,
+  // email, id, signature, reference), never its value, on the first page only. A flat admin
+  // resolving a signature or a handle to a person across every user is the dispute workflow, and it
+  // is also the one read worth a line in /audit (docs/22).
+  const auditSearch = (adminUserId: string, q: string) =>
+    insertAdminAction({ adminUserId, action: 'ledger_search', targetKind: 'shape', targetId: searchShape(q).shape });
+
+  app.get<{ Querystring: { limit?: string; cursor?: string; q?: string } }>(
     '/admin/orders',
     async (req): Promise<AdminOrdersResponse> => {
-      await requireAdmin(req);
-      const page = await listOrdersAdmin(Number(req.query.limit ?? 50), req.query.cursor);
+      const adminId = await requireAdmin(req);
+      const q = req.query.q?.trim() || undefined;
+      const page = await listOrdersAdmin(Number(req.query.limit ?? 50), req.query.cursor, q);
+      if (q && !req.query.cursor) await auditSearch(adminId, q);
       return { orders: page.items, nextCursor: page.nextCursor };
+    },
+  );
+
+  app.get<{ Querystring: { limit?: string; cursor?: string; q?: string } }>(
+    '/admin/transfers',
+    async (req): Promise<AdminTransfersResponse> => {
+      const adminId = await requireAdmin(req);
+      const q = req.query.q?.trim() || undefined;
+      const page = await listTransfersAdmin(Number(req.query.limit ?? 50), req.query.cursor, q);
+      if (q && !req.query.cursor) await auditSearch(adminId, q);
+      return { transfers: page.items, nextCursor: page.nextCursor };
     },
   );
 
@@ -126,12 +152,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       await requireAdmin(req);
       const order = await getOrderAdmin(req.params.id);
       if (!order) return reply.code(404).send({ error: 'order_not_found' });
-      const [routingAttempts, dispute, transfers] = await Promise.all([
+      const [routingAttempts, dispute, transfers, legs] = await Promise.all([
         listRoutingAttemptsAdmin(order.id),
         getDisputeForOrder(order.id),
         listOrderTransfersAdmin(order.id),
+        listLegsAdmin(order.id),
       ]);
-      return { order, routingAttempts, dispute, transfers };
+      return { order, routingAttempts, dispute, transfers, legs };
     },
   );
 
@@ -333,6 +360,37 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     },
   );
 
+  // Let a partner work before staking (0028). ROOT admin only: it removes the collateral behind real
+  // money, the same blast radius as releasing a withdrawal, and `admin` is a console-grantable role.
+  // The typed reason is the only record of WHY. Fixed at WAIVER_DAYS; re-grant to extend. The query
+  // refuses platform rows, exited rows and blocked owners (setBondWaiver). Nothing here reaches the
+  // partner: no kyb event, no note on their side. GET /me just reports the floor as 0.
+  app.post<{ Params: { id: string }; Body: AdminStakeWaiverRequest }>('/admin/merchants/:id/stake-waiver', async (req, reply) => {
+    const adminId = await requireAdmin(req);
+    const admin = await findUserById(adminId);
+    if (!isRootAdminEmail(admin?.email)) return reply.code(403).send({ error: 'root_admin_required' });
+    const note = req.body?.note?.trim();
+    if (!note) return reply.code(400).send({ error: 'note_required' });
+    const until = await setBondWaiver(req.params.id, WAIVER_DAYS);
+    if (until === undefined) return reply.code(409).send({ error: 'waiver_refused' });
+    await insertAdminAction({
+      adminUserId: adminId,
+      action: 'stake_waive',
+      targetKind: 'merchant',
+      targetId: req.params.id,
+      note: `until=${until?.toISOString() ?? 'null'}: ${note}`,
+    });
+    return { ok: true, bondWaivedUntil: until?.toISOString() };
+  });
+  app.delete<{ Params: { id: string } }>('/admin/merchants/:id/stake-waiver', async (req, reply) => {
+    const adminId = await requireAdmin(req);
+    const admin = await findUserById(adminId);
+    if (!isRootAdminEmail(admin?.email)) return reply.code(403).send({ error: 'root_admin_required' });
+    if ((await setBondWaiver(req.params.id, null)) === undefined) return reply.code(409).send({ error: 'waiver_refused' });
+    await insertAdminAction({ adminUserId: adminId, action: 'stake_waiver_end', targetKind: 'merchant', targetId: req.params.id });
+    return { ok: true };
+  });
+
   /** What is waiting to be paid out by hand, and where each one goes. */
   app.get<{ Querystring: { status?: string } }>('/admin/stake/withdrawals', async (req): Promise<AdminStakeWithdrawalsResponse> => {
     await requireAdmin(req);
@@ -438,6 +496,11 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       if (resolution !== 'upheld' && resolution !== 'rejected') {
         return reply.code(400).send({ error: 'invalid_resolution' });
       }
+      // The reason is the record (docs/22): a resolution with nothing behind it is "upheld, by
+      // nobody, for no reason" sixty days later. Same rule as a KYB decision. Checked BEFORE the
+      // settle, which moves money and cannot be undone. Console-only; the partner never reads it.
+      const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
+      if (!note) return reply.code(400).send({ error: 'note_required' });
       const result = await settleDispute(req.params.id, resolution);
       if (result === null) return reply.code(404).send({ error: 'dispute_not_found' });
       if (result === 'already_resolved') return reply.code(409).send({ error: 'dispute_resolved' });
@@ -446,7 +509,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         action: 'dispute_resolve',
         targetKind: 'dispute',
         targetId: req.params.id,
-        note: req.body?.note ? `${result}: ${req.body.note}` : result,
+        note: `${result}: ${note}`,
       });
       return { ok: true, resolution: result };
     },

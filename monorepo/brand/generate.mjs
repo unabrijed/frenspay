@@ -121,6 +121,12 @@ for (const app of ['landing', 'web', 'admin', 'lp']) {
   await emit(`apps/${app}/src/app/apple-icon.png`, await png(square(180, { bg: CREAM })));
 }
 
+// ---- lp: home-screen install icons (manifest.ts). Full-bleed like apple-icon, the two sizes Chrome
+// requires before it offers to install.
+for (const size of [192, 512]) {
+  await emit(`apps/lp/public/icon-${size}.png`, await png(square(size, { bg: CREAM })));
+}
+
 // ---- landing: the mark itself, in both shapes and both colourways ----------------------------
 await emit('apps/landing/public/logo-icon.svg', bare(icon));
 await emit('apps/landing/public/logo-icon-cream.svg', bare(icon, CREAM));

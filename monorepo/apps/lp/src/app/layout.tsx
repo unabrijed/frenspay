@@ -27,6 +27,9 @@ export const metadata: Metadata = {
   // Not a public page. The wallet app is the product; this is a work console for the people who
   // settle its payouts, and it has no reason to be indexed.
   robots: { index: false, follow: false },
+  // Home-screen install on iOS: opens standalone under this name, icon from apple-icon.png. Android
+  // reads manifest.ts for the same.
+  appleWebApp: { capable: true, title: 'FrensPay', statusBarStyle: 'default' },
 };
 
 export const viewport: Viewport = {

@@ -13,7 +13,7 @@ export default function Capacity() {
   return (
     <OneField
       title="Capacity"
-      hint={`Most you carry in payouts at once, in dollars. Your stake caps it at ${usd(m?.maxFloatUsdc ?? '0')}.`}
+      hint={`Most you carry in payouts at once, in dollars. ${Number(m?.minBondUsdc ?? 0) > 0 ? 'Your stake caps it' : 'Capped'} at ${usd(m?.maxFloatUsdc ?? '0')}.`}
       placeholder="5000"
       initial={String(Number(m?.floatUsdc ?? 0))}
       validate={(v) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? null : 'Enter a number, like 5000.')}

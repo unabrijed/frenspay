@@ -3,16 +3,21 @@
 Stage (mainnet-lite) is `DEPLOY.stage.md` — read that first; prod is the same shapes with
 different variables. There is no devnet deployment anywhere; devnet exists only in local dev. Going to real money is a deliberate, separate step. Ship = merge `stage` → `sacred`.
 
-**Vercel prod projects** — twins of the stage projects; run the same "Project setup — every step,
-per project" list in `DEPLOY.stage.md` with these substitutions:
+**Vercel projects on `sacred`** (the full map is the table in `DEPLOY.stage.md` §Frontends). These
+are what a `sacred` push builds, set up with the same "Project setup — every step, per project"
+list and these values:
 
-| project | Production Branch | Root Directory | domain |
-| ------- | ----------------- | -------------- | ------ |
-| web (prod) | `sacred` | **`monorepo`** | app.frenspay.xyz (TBD) |
-| lp (prod) | `sacred` | `monorepo/apps/lp` | the partner console's prod domain (TBD) — gated by its own `ACCESS_KEY` |
-| landing (prod) | `sacred` | `monorepo/apps/landing` | frenspay.xyz |
+| project (Vercel name) | app | Production Branch | Root Directory | domain |
+| --- | --- | --- | --- | --- |
+| `frenspay-prod` | web | `sacred` | **`monorepo`** | app.frenspay.xyz (TBD) |
+| `merchants` | lp, the only lp project | `sacred` | `monorepo/apps/lp` | provider.frenspay.xyz, gated by its own `ACCESS_KEY` |
+| `frenspay` | landing, the only landing project | `sacred` | `monorepo/apps/landing` | frenspay.xyz |
+| `frenspay-admin` | admin, the only admin project | `sacred` | `monorepo/apps/admin` | admin.frenspay.xyz |
 
-**Admin has no prod twin — on purpose.** There is one admin project (`DEPLOY.stage.md` §Frontends)
+Only web has a stage twin (`frenspay-stage`). lp, landing and admin deploy from `sacred` alone: they
+change when `stage` is merged, never on a stage push.
+
+**Admin has no twin — on purpose.** There is one admin project (`DEPLOY.stage.md` §Frontends)
 and the operator switches it between backends in the sidebar. What prod needs from you is not a
 second project but two variables elsewhere: `NEXT_PUBLIC_API_URL=https://api.frenspay.xyz` on the
 one admin project (that alone is what makes prod selectable), and the admin origin added to this

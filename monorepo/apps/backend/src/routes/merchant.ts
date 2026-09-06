@@ -61,7 +61,7 @@ import { hiddenKeys, KYB_EDITABLE_FROM, KYB_SUBMITTABLE, recheckKeys, validateKy
 import { formatAmount } from '../lib/units';
 import { KYC_APPROVED_TIER } from '../services/kyc';
 import * as ops from '../services/merchantOps';
-import { DISPUTE_CLAW_WINDOW_H, leverageFor, MIN_BOND, spreadCapFor, tierProgress } from '../services/merchantStats';
+import { bondCap, bondWaived, DISPUTE_CLAW_WINDOW_H, MIN_BOND, spreadCapFor, tierProgress } from '../services/merchantStats';
 import { buildUsdcTransfer, isOperationalAddress, isValidRecipientOwner, SIGNATURE_RE } from '../services/solana';
 import { readStakeDeposit } from '../services/transferVerify';
 
@@ -132,11 +132,13 @@ export function toMerchantProfile(
     treasuryAddress: m.treasury_address,
     country: m.country,
     bondUsdc: m.bond_usdc,
-    minBondUsdc: formatAmount(amt(MIN_BOND), USDC_DECIMALS),
+    // Zero while a root admin's waiver is live (0028): the console reads bond >= min and walks them
+    // straight to "You're ready". The waiver itself is never named to the partner.
+    minBondUsdc: formatAmount(amt(bondWaived(m) ? 0 : MIN_BOND), USDC_DECIMALS),
     floatUsdc: m.float_usdc,
     // What routing will actually let them carry. Shown so a capped LP can see the reason is their
     // stake, not a silent haircut — `floatUsdc` alone made the cap look like a bug.
-    maxFloatUsdc: formatAmount(amt(Number(m.bond_usdc)).times(leverageFor(m.tier)), USDC_DECIMALS),
+    maxFloatUsdc: formatAmount(amt(bondCap(m)), USDC_DECIMALS),
     tier: m.tier,
     // Only computable with the settled count, which is one extra read — so callers that don't need
     // the dashboard hero (and don't pass it) simply omit it rather than paying for it.

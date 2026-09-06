@@ -131,6 +131,9 @@ of PAN/NIK after exit (counsel); paying the payer from the bond on an upheld pos
 (today it only fines). And counsel's questions, unchanged: whether India permits any live INR
 settlement through a personal account at any size, whether the founder controlling both accounts
 changes the characterisation or only the harm, whether Indonesia is the safer first corridor.
+And, since 2026-09-05, the stake waiver ([07](07-admin-and-moderation.md), [21](21-stake-waiver.md)): a
+root admin may route a partner with no bond for 30 days, capped at the floor. Each one is on the
+record, and the list of live ones should be empty before any third party is on a leg.
 
 ## Verification record
 
