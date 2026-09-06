@@ -5,7 +5,7 @@
 // browser prompt.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import type { MerchantProfile } from '@fpay/shared';
 import { usd } from '@fpay/shared';
@@ -83,6 +83,9 @@ export default function Account() {
   const merchant = useLpStore((s) => s.merchant);
   const load = useLpStore((s) => s.load);
   const [busy, setBusy] = useState(false);
+  // Already on the home screen: the install row would only point at itself.
+  const [standalone, setStandalone] = useState(false);
+  useEffect(() => setStandalone(window.matchMedia('(display-mode: standalone)').matches), []);
   const [err, setErr] = useState<string | null>(null);
 
   const act = useCallback(
@@ -201,6 +204,15 @@ export default function Account() {
             </RowMeta>
             <Icons.Chevron size={16} color={colors.muted} />
           </Row>
+          {!standalone ? (
+            <Row onPress={go('/account/install')}>
+              <RowMeta>
+                <Txt style={type.rowName}>Add to home screen</Txt>
+                <Txt style={[type.rowTime, { marginTop: 2 }]}>Open it like an app</Txt>
+              </RowMeta>
+              <Icons.Chevron size={16} color={colors.muted} />
+            </Row>
+          ) : null}
           {!exited ? (
             <Row onPress={go('/account/leave')}>
               <RowMeta>
