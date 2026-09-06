@@ -27,7 +27,8 @@ step, and **Railway has no GitHub connection**, so no push reaches it except thr
 ```
 git push origin stage
 ├─ GitHub Actions  .github/workflows/backend-image.yml  ("backend deploy")   → the backend
-└─ Vercel          one build per frontend project                            → web, admin, lp, landing
+└─ Vercel          one project builds from `stage`: frenspay-stage             → web
+                   (admin, lp, landing are on `sacred`: they build from the stage → sacred merge, §Frontends)
 ```
 
 **One gate decides both.** `scripts/vercel-ignore.mjs` — Vercel calls it per project via
@@ -51,7 +52,9 @@ schema. The `/health` healthcheck decides Active vs failed deploy.
 
 **How the frontends deploy.** Vercel builds each project from its own `vercel.json`. The branch pin
 is implicit: the gate skips unless `VERCEL_ENV=production`, which a project only sees on its own
-Production Branch — `stage` here, `sacred` for the prod twins. Details in §Frontends.
+Production Branch. Only web has a stage project (`frenspay-stage`, Production Branch `stage`);
+admin, lp and landing are one project each on `sacred`, so a stage push builds web alone and the
+other three ship when `stage` is merged to `sacred`. Details in §Frontends.
 
 **Deploying on demand.** Actions → **backend deploy** → **Run workflow** → branch `stage`. That is
 `workflow_dispatch`, and it skips the path gate deliberately: asking for it by hand IS the decision.
@@ -279,27 +282,44 @@ Verify. Until the domain verifies, every send 403s and the failure is logged, no
 
 Free tier is 3,000/month, 100/day.
 
-## Frontends → Vercel (stage projects)
+## Frontends → Vercel
 
-Model copied from OMS (it's the proven one): **one Vercel project per app per environment**. A
-stage project's *Production Branch* is `stage`; the prod twin's is `sacred` (see `DEPLOY.md`).
-Stage env vars live as that project's plain Production-env variables — no Preview-scoped juggling.
+The intended model was OMS's, **one Vercel project per app per environment**, and web has it:
+`frenspay-stage` (Production Branch `stage`) and `frenspay-prod` (`sacred`). Admin, lp and landing
+are **one project each, on `sacred`**. Measured from the GitHub commit statuses on 2026-09-06: every
+stage push since 2026-08-15 cancelled those three at the gate, and every `stage` → `sacred` merge
+built them. Vercel defaults a new project's Production Branch to the repo's default branch, which
+is `sacred`, and nobody changed it. That is fine as long as `sacred` is only ever `stage` merged,
+which it is: a stage push deploys web, the merge deploys the other three. Their `vercel.json` files
+carry `git.deploymentEnabled: { stage: false }`, so Vercel no longer creates the doomed stage
+deployment (it used to sit as "Building" in the Hobby queue behind web for up to 14 minutes before
+the gate cancelled it, and read exactly like a prod deploy from a stage push).
+Env vars live as each project's plain Production-env variables — no Preview-scoped juggling.
 Ship to prod by merging `stage` → `sacred` (PR).
 
-| project | Production Branch | Root Directory | config file |
-| ------- | ----------------- | -------------- | ----------- |
-| web (stage) | `stage` | **`monorepo`** | root `vercel.json` (builds `@fpay/web`, output `apps/web/.next`) |
-| admin (**one project, both envs**) | `stage` | `monorepo/apps/admin` | `apps/admin/vercel.json` |
-| lp (stage) | `stage` | `monorepo/apps/lp` | `apps/lp/vercel.json` |
-| landing (stage, optional) | `stage` | `monorepo/apps/landing` | `apps/landing/vercel.json` |
+| project (Vercel name) | app | Production Branch | Root Directory | config file | domain |
+| --- | --- | --- | --- | --- | --- |
+| `frenspay-stage` | web, stage | `stage` | **`monorepo`** | root `vercel.json` (builds `@fpay/web`, output `apps/web/.next`) | the stage web domain |
+| `frenspay-prod` | web, prod | `sacred` | **`monorepo`** | the same root file (`DEPLOY.md`) | app.frenspay.xyz (TBD) |
+| `frenspay-admin` | admin, one project, both backends | `sacred` | `monorepo/apps/admin` | `apps/admin/vercel.json` | admin.frenspay.xyz |
+| `merchants` | lp, one project | `sacred` | `monorepo/apps/lp` | `apps/lp/vercel.json` | provider.frenspay.xyz |
+| `frenspay` | landing, one project | `sacred` | `monorepo/apps/landing` | `apps/landing/vercel.json` | frenspay.xyz |
+
+To give admin or lp a real stage project later: create the twin with Production Branch `stage` and
+delete the `git.deploymentEnabled` line from that app's `vercel.json` first. The file is shared by
+both twins and it disables `stage` for both.
 
 ### Project setup — every step, per project
 
 1. **Create**: Add New… → Project → import `unabrijed/frenspay`. Framework preset resolves to
    Next.js from the app's `vercel.json`; install/build commands come from that file too — never
    override them in the dashboard.
-2. **Settings → Build & Deployment**:
-   - **Root Directory** per the table. Web only: also turn **OFF "Include source files outside of
+2. **Settings**:
+   - **Git → Production Branch** per the table. Vercel defaults it to the repo's default branch
+     (`sacred`); that default is how admin, lp and landing became sacred-only without anyone
+     deciding it. A project builds only this branch (step 4), so a wrong value here is a project
+     that never deploys from the branch you push.
+   - **Build & Deployment → Root Directory** per the table. Web only: also turn **OFF "Include source files outside of
      the Root Directory"** (same screen) — the crash note below is why.
    - **Node.js Version: 24** (`@solana-program/token` engine floor; `.yarnrc` ignore-engines masks
      it at install, set it anyway for runtime parity).
@@ -319,13 +339,17 @@ Ship to prod by merging `stage` → `sacred` (PR).
    > reasoning was about the *branch* pin, which genuinely cannot live in a file both environment
    > projects share. A *path* gate is branch-independent, so it can.
 4. **Branch pin.** The gate skips unless `VERCEL_ENV=production`, and a project only ever sees that
-   on its **own** Production Branch — so one shared `vercel.json` pins the stage project to `stage`
-   and the prod one to `sacred` without naming either. Nothing to set in the dashboard.
+   on its **own** Production Branch — so one shared `vercel.json` pins `frenspay-stage` to `stage`
+   and `frenspay-prod` to `sacred` without naming either. Nothing to set in the dashboard beyond
+   the Production Branch itself (step 2). The gate prints its decision, so a cancelled deployment's
+   log starts with why: `vercel-ignore: skip admin: VERCEL_ENV=preview on stage; ...`.
 
    If a project still has a hand-written **Ignored Build Step** from before this
    (`[ "$VERCEL_GIT_COMMIT_REF" = "stage" ] && exit 1 || exit 0`), **clear it** — `vercel.json`'s
    `ignoreCommand` overrides that field, so it is now dead config that reads as if it were live.
-   Disabling **Preview Deployments** (Settings → Git) remains a fine belt-and-braces.
+   The per-app `vercel.json` files also set `git.deploymentEnabled: { stage: false }`, so admin, lp
+   and landing get no deployment at all on a stage push. The root file cannot (both web projects
+   share it), so `frenspay-prod` still shows one that the gate cancels within seconds.
 5. **Settings → Environment Variables** (plain Production env). Any change here is inert until the
    next deploy — `NEXT_PUBLIC_*` is inlined at build, and even runtime vars are baked into a
    deployment — so set variables, THEN deploy.
@@ -357,7 +381,7 @@ Ship to prod by merging `stage` → `sacred` (PR).
    app per target; the switch swapped the id under its reload, the incoming app inherited the
    outgoing app's stored token (Privy's keys are not app-scoped), and the console hung on
    "Signing in…". Full reasoning: `apps/admin/README.md` §Deploy.
-   landing (stage):
+   landing (only if a stage landing twin exists; the one `frenspay` project is prod, see `DEPLOY.md`):
    ```
    NEXT_PUBLIC_APP_ENV=stage
    NEXT_PUBLIC_STAGE_API_URL=<same as web>                    # POST /waitlist — code + email — posts here
@@ -413,10 +437,10 @@ year-long `fpay_gate` cookie (the key's SHA-256, httpOnly) and that device never
 again — and lands on the path it asked for, provided it resolves to the same origin (`/\evil.com`
 goes home; `yarn check:gate` asserts the cases). Unset key = gate off — the local-dev default; a
 deployed tier with no key fails CLOSED (503), never open. Each project has its OWN key — four in all
-(web·stage, web·prod, lp·stage, lp·prod), all different; the cookie is per-origin, so passing one
+(web·stage, web·prod, lp), all different; the cookie is per-origin, so passing one
 gate opens no other. Rotate a project's key to evict every device on that project. The middleware
 matcher deliberately skips `_next/*`, `icon.svg`, `apple-icon.png`, `favicon*`, `manifest*`, so a
-gated tab still gets its icon — that asymmetry is expected, not a leak. The prod twins set bare
+gated tab still gets its icon — that asymmetry is expected, not a leak. The projects on `sacred` set bare
 `ACCESS_KEY` (`DEPLOY.md`). Because of the gate, web and lp ship middleware — they are server apps on
 Vercel and can never become a static export like landing.
 

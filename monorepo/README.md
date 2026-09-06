@@ -305,8 +305,9 @@ Mobile app:
 
 ## Deploy
 
-Backend on **Railway** (Supabase Postgres), frontends on **Vercel** — one project per app per
-environment (`stage` branch → stage projects, `sacred` → prod). The deployed web app and LP console each sit
+Backend on **Railway** (Supabase Postgres), frontends on **Vercel**. Web has a project per
+environment (`stage` branch → `frenspay-stage`, `sacred` → `frenspay-prod`); admin, the LP console and
+landing are one project each, built from `sacred`. The deployed web app and LP console each sit
 behind their own **access-key gate** until launch. The runbooks — every dashboard setting, variable, domain
 step, and test — are [`DEPLOY.stage.md`](./DEPLOY.stage.md) (start here) and
 [`DEPLOY.md`](./DEPLOY.md) (prod/mainnet).
