@@ -13,6 +13,7 @@ import {
   setMerchantStatus,
   updateMerchantActivity,
   updateMerchantStats,
+  type MerchantRow,
 } from '../db/queries';
 
 const PRIOR_WEIGHT = 10; // k: pseudo-count of the seed prior (Bayesian smoothing)
@@ -27,6 +28,24 @@ const POSITIVE_PRIOR = 0.9; // payer-👍 prior — a code constant, unlike the 
  * because it was large.
  */
 export const MIN_BOND = 100;
+
+/** How long a root admin's stake waiver lasts (0028). Re-grant to extend. */
+export const WAIVER_DAYS = 30;
+
+/** A root admin let this partner work before staking, and it has not lapsed (0028). */
+export const bondWaived = (m: Pick<MerchantRow, 'bond_waived_until'>): boolean =>
+  m.bond_waived_until != null && m.bond_waived_until.getTime() > Date.now();
+
+/**
+ * What routing lets a partner carry in flight: bond × the tier's leverage, except that below the
+ * floor a live waiver is worth exactly MIN_BOND. Flat, never leveraged, so a waived partner at any
+ * tier carries at most what a floor-bonded tier-1 partner would; at or above the floor the waiver is
+ * moot. lockOrder mirrors this in SQL, and the two must agree or the pool shows work the lock refuses.
+ */
+export const bondCap = (m: Pick<MerchantRow, 'bond_usdc' | 'tier' | 'bond_waived_until'>): number => {
+  const bond = Number(m.bond_usdc);
+  return bond < MIN_BOND && bondWaived(m) ? MIN_BOND : bond * leverageFor(m.tier);
+};
 
 /**
  * An upheld dispute draws `min(bond, the order's USDC amount)` from the LP's bond — order-sized,
@@ -218,15 +237,18 @@ export async function recomputeMerchantStats(log?: (m: string) => void): Promise
     // below can tell its own decision apart from a human's — an admin suspension and the
     // user-suspend cascade write the same status through the same setter, and un-suspending those
     // on a bond top-up would silently undo moderation.
-    if (Number(m.bond_usdc) < MIN_BOND && m.status === 'online') {
+    // A live waiver (0028) stands in for the floor both ways: it holds the suspend off, and it lets
+    // the reinstate below try. The SQL re-checks it, so one that lapses in between simply does nothing.
+    const waived = bondWaived(m);
+    if (Number(m.bond_usdc) < MIN_BOND && !waived && m.status === 'online') {
       await setMerchantStatus(m.id, 'suspended', 'bond');
       log?.(`merchant ${m.name} suspended (bond ${m.bond_usdc} < ${MIN_BOND})`);
-    } else if (m.status === 'suspended' && Number(m.bond_usdc) >= MIN_BOND) {
+    } else if (m.status === 'suspended' && m.suspend_reason === 'bond' && (Number(m.bond_usdc) >= MIN_BOND || waived)) {
       // Lands on 'offline' — solvent again is eligible-to-work, not back-at-the-desk. Before this,
       // an LP who topped up stayed suspended until an admin noticed, and the dev route only worked
       // on kyb_status='pending' rows, so there was effectively no way back at all.
       if (await reinstateBondSuspendedMerchant(m.id, MIN_BOND)) {
-        log?.(`merchant ${m.name} reinstated to offline (bond ${m.bond_usdc} >= ${MIN_BOND})`);
+        log?.(`merchant ${m.name} reinstated to offline (bond ${m.bond_usdc}${waived ? ', waived' : ''})`);
       }
     }
   }

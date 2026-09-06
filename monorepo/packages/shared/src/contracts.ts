@@ -968,6 +968,9 @@ export interface AdminMerchant {
   kybRecheck?: string[];
   payoutRail: string;
   bondUsdc: string;
+  /** Set while a root admin's stake waiver is live (0028): the partner may work as if holding the
+   *  floor, flat, never leveraged. Absent once it lapses; the audit trail keeps the history. */
+  bondWaivedUntil?: string;
   floatUsdc: string;
   successRate: number;
   disputeRate: number;
@@ -1126,6 +1129,12 @@ export interface AdminKybRequest {
 
 export interface AdminMerchantStatusRequest {
   status: 'online' | 'offline' | 'suspended';
+}
+
+/** Let a partner work before staking (0028). Root admin only. The note is the audit's WHY and is
+ *  never shown to the partner. */
+export interface AdminStakeWaiverRequest {
+  note: string;
 }
 
 export interface AdminDisputeResolveRequest {

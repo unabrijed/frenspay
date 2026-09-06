@@ -83,7 +83,7 @@ async function mkOrder(
 }
 
 const lock = (orderId: string, merchantId: string) =>
-  lockOrder({ orderId, merchantId, ttlMs: 300_000, country: 'IN', leverage: 3, payeeCooldownDays: PAYEE_COOLDOWN_DAYS });
+  lockOrder({ orderId, merchantId, ttlMs: 300_000, country: 'IN', leverage: 3, payeeCooldownDays: PAYEE_COOLDOWN_DAYS, minBondUsdc: 100 });
 
 const offers = (merchantId: string, spreadBps = 50) =>
   listOpenOffers({

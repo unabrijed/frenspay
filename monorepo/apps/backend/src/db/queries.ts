@@ -1267,6 +1267,10 @@ export interface MerchantRow {
   /** 168 slots (day-of-week × hour, UTC) of historical activity (0017). NULL = never computed,
    *  which scores neutral so a new LP is not punished for having no history. */
   active_hours: number[] | null;
+  /** A root admin let this partner work before staking (0028). While in the future the row counts as
+   *  holding exactly MIN_BOND: may go online, routable, MIN_BOND in flight, never leveraged. Read by
+   *  every bond gate here and by merchantStats.bondCap; the first upheld dispute clears it. */
+  bond_waived_until: Date | null;
 }
 
 /**
@@ -1285,6 +1289,9 @@ export interface MerchantRow {
  * settleDispute exempts them from bond draws (invariant 14): the platform posting a bond to itself
  * is fiction, and there is no user_id-gated top-up path that could ever raise it. Gating the
  * corridor on a fictional number just means a seed edit silently switches Indonesia off.
+ *
+ * `bond_waived_until > now()` (0028): a root admin let this partner work before staking. Worth exactly
+ * the floor in lockOrder and in the float math (merchantStats.bondCap), so the exposure cap holds.
  */
 export async function listRoutableMerchants(filter: {
   payoutRail: PayoutMethod;
@@ -1295,7 +1302,7 @@ export async function listRoutableMerchants(filter: {
     `select * from merchants
       where status = 'online' and kyb_status = 'approved'
         and payout_rail = $1 and country = $2
-        and (sim_behavior = 'psp' or bond_usdc >= $3)
+        and (sim_behavior = 'psp' or bond_usdc >= $3 or bond_waived_until > now())
         -- No simulated LP is ever routable: there is no testnet tier (2026-08-30), and a sim row's
         -- treasury is a keypair anyone can derive. A hard filter in the SELECT, never a job.
         and (sim_behavior is null or sim_behavior = 'psp')`,
@@ -2452,6 +2459,25 @@ export async function setMerchantStatus(
 }
 
 /**
+ * Let a partner work before staking (0028), or take that back (`days` null). The route holds this to
+ * a root admin; this holds it to a HUMAN partner with an active account who has not left: the same
+ * owner predicate the reinstate mirror uses, so a waiver can never put a banned user back on the
+ * money path. Returns the new value, or undefined when the row was refused.
+ */
+export async function setBondWaiver(merchantId: string, days: number | null): Promise<Date | null | undefined> {
+  const { rows } = await getPool().query<{ bond_waived_until: Date | null }>(
+    `update merchants m
+        set bond_waived_until = case when $2::int is null then null else now() + make_interval(days => $2::int) end
+       from users u
+      where m.id = $1 and u.id = m.user_id and u.status = 'active'
+        and m.suspend_reason is distinct from 'exited'
+      returning m.bond_waived_until`,
+    [merchantId, days],
+  );
+  return rows.length ? rows[0].bond_waived_until : undefined;
+}
+
+/**
  * The mirror of the bond auto-suspend: an LP who topped back up comes out of it. Guarded so it can
  * only ever reverse the machine's own decision — `suspend_reason = 'bond'` is the whole safety
  * predicate, and without it this would silently un-ban a moderated merchant.
@@ -2463,7 +2489,10 @@ export async function reinstateBondSuspendedMerchant(id: string, minBondUsdc: nu
   const { rowCount } = await getPool().query(
     `update merchants set status = 'offline', suspend_reason = null
       where id = $1 and status = 'suspended' and suspend_reason = 'bond'
-        and kyb_status = 'approved' and bond_usdc >= $2`,
+        and kyb_status = 'approved' and (bond_usdc >= $2 or bond_waived_until > now())
+        -- Never back for a blocked owner. The user-block cascade skips a row that is already
+        -- suspended, so 'bond' can still be the reason on a partner whose account was banned later.
+        and (user_id is null or exists (select 1 from users u where u.id = merchants.user_id and u.status = 'active'))`,
     [id, minBondUsdc],
   );
   return (rowCount ?? 0) > 0;
@@ -2612,7 +2641,7 @@ export async function setMerchantOnlineSelf(
   const { rowCount } = await getPool().query(
     `update merchants set status = $2
       where id = $1 and status <> 'suspended'
-        and ($2 = 'offline' or (kyb_status = 'approved' and bond_usdc >= $3))`,
+        and ($2 = 'offline' or (kyb_status = 'approved' and (bond_usdc >= $3 or bond_waived_until > now())))`,
     [merchantId, status, minBondUsdc],
   );
   return (rowCount ?? 0) > 0;
@@ -3082,6 +3111,8 @@ export async function lockOrder(input: {
   leverage: number;
   /** How long after paying a receiver this LP is barred from paying them again (routing.PAYEE_COOLDOWN_DAYS). */
   payeeCooldownDays: number;
+  /** The stake floor (merchantStats.MIN_BOND): a waived partner's flat in-flight cap (0028). */
+  minBondUsdc: number;
 }): Promise<{ payoutDestination: string | null; payoutName: string | null; afterWiden: boolean } | null> {
   const { rows } = await getPool().query<{
     payout_destination: string | null;
@@ -3131,7 +3162,9 @@ export async function lockOrder(input: {
                         and o2.id <> o.id
                         and o2.state in ${LIVE_ORDER_STATES}
                    ), 0)
-                   <= least(m.float_usdc, m.bond_usdc * $5)
+                   -- A waived partner below the floor (0028) is capped flat at the floor, whatever
+                   -- their tier: the same shape as merchantStats.bondCap, which sizes the pool view.
+                   <= least(m.float_usdc, case when m.bond_usdc < $7 and m.bond_waived_until > now() then $7 else m.bond_usdc * $5 end)
                -- The pair rule. A personal account paying the same receiver again and again is the
                -- documented account-freeze pattern, so it is a filter, not a score: this LP must not
                -- have paid q.payout_destination inside the cooldown, and must not be holding another
@@ -3150,6 +3183,7 @@ export async function lockOrder(input: {
       input.country,
       input.leverage,
       input.payeeCooldownDays,
+      input.minBondUsdc,
     ],
   );
   if (!rows[0]) return null;
@@ -3727,7 +3761,9 @@ export async function drawDownBond(merchantId: string, amount: number, disputeId
   const { rows } = await getPool().query<{ drawn: string }>(
     `with before as (select bond_usdc from merchants where id = $1),
          after as (
-           update merchants set bond_usdc = greatest(bond_usdc - $2, 0) where id = $1
+           -- An upheld dispute also ends a stake waiver (0028). With no bond to draw, this IS the
+           -- penalty: the next stats pass suspends them under the floor, which is now true.
+           update merchants set bond_usdc = greatest(bond_usdc - $2, 0), bond_waived_until = null where id = $1
            returning bond_usdc
          ),
          ev as (
@@ -4844,6 +4880,8 @@ export async function listMerchantsAdmin(): Promise<AdminMerchant[]> {
     ownerKycProvider: m.owner_kyc_provider ?? undefined,
     ownerHandle: m.owner_handle ?? undefined,
     ownerEmail: m.owner_email ?? undefined,
+    // Only while live: a lapsed waiver is nothing, not history (admin_actions has that).
+    bondWaivedUntil: m.bond_waived_until && m.bond_waived_until.getTime() > Date.now() ? m.bond_waived_until.toISOString() : undefined,
     real: m.user_id != null,
   }));
 }

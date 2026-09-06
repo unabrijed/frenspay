@@ -22,7 +22,7 @@ import {
 } from '../db/queries';
 import { nonNegativeAmount } from '../lib/amount';
 
-import { leverageFor, MIN_BOND, spreadCapFor } from './merchantStats';
+import { bondCap, leverageFor, MIN_BOND, spreadCapFor } from './merchantStats';
 import { metrics } from './metrics';
 import { DISPUTE_WINDOW_MS, LOCK_TTL_MS } from './orderMachine';
 import { PAYEE_COOLDOWN_DAYS } from './routing';
@@ -66,7 +66,7 @@ export async function listWork(merchant: MerchantRow): Promise<MerchantOrderRow[
       .filter((o) => LIVE_FOR_CAPACITY.has(o.state))
       .reduce((sum, o) => sum + Number(o.amount_usdc), 0);
     const headroom =
-      Math.min(Number(merchant.float_usdc), Number(merchant.bond_usdc) * leverageFor(merchant.tier)) - committed;
+      Math.min(Number(merchant.float_usdc), bondCap(merchant)) - committed;
     if (headroom > 0) {
       open = await listOpenOffers({
         merchantId: merchant.id,
@@ -105,6 +105,7 @@ export async function takeOrder(merchant: MerchantRow, orderId: string): Promise
     country: merchant.country,
     leverage: leverageFor(merchant.tier),
     payeeCooldownDays: PAYEE_COOLDOWN_DAYS,
+    minBondUsdc: MIN_BOND,
   });
   // "already taken", not "not found": the order exists — someone else got there first, or it moved
   // on. Callers that can re-ask (the bot's double-tap) may distinguish "taken by ME" with a read.
