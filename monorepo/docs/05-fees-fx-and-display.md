@@ -38,6 +38,8 @@ amountUsdc      = lpUsdc + platformFeeUsdc                     (what the user pa
 rate (shown)    = amountFiat / amountUsdc                      (round DOWN, 4 dp — display only)
 ```
 
+The mid the price was struck against is stored beside it (`quotes.mid_rate`, `mid_rate_as_of`; 0029,
+[22](22-admin-ledger.md)) and never displayed: it is what lets an adjudicator recompute the quote.
 The displayed rate is *derived* and cosmetic; the split is exact. `quotes.platform_fee_usdc`
 (migration 0006) carries the cut unchanged. Rounding keeps today's discipline: rates round down,
 USDC owed rounds up, sub-cent dust always lands on the user-pays side so the LP is never short.

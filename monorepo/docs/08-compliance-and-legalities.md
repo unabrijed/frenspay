@@ -178,6 +178,13 @@ on file for any target jurisdiction. A real launch still needs a written privacy
 retention limits, encryption at rest, and regional handling (India **DPDP**, **GDPR**, and whatever
 Indonesia's **PDP** law requires — see the Indonesia note under #5).
 
+**Retention, stated as intent (2026-09-05, [22](22-admin-ledger.md)), not as a compliance claim:**
+financial records (`quotes`, `orders`, `order_events`, `transfers`, `disputes`, `risk_events`,
+`merchant_bond_events`, `admin_actions`) are kept for five years from the order's completion; contact
+PII (`users.email`, `users.phone`) is purged twelve months after a soft-delete. Nothing enforces either
+number yet. The point of writing it down is that "we keep everything because the foreign keys make us"
+is not a purpose, and a DPDP notice needs one. Counsel sets the real numbers.
+
 ### 9. Account deletion — ✅ *posture resolved; 🟡 not yet built*
 **Decided 2026-08-13:** a user may soft-delete their account at any time, even with a balance. This
 is **consistent with the non-custodial thesis, not an exception to it**: the funds were never the

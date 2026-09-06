@@ -273,7 +273,13 @@ window (`DISPUTE_CLAW_WINDOW_H`, the same constant that keeps the LP's bond from
 Upheld: the LP's bond is drawn `min(bond, the order's amount)` — ledgered as what was actually
 drawn — and the payer is refunded from the escrow; a `psp` (platform) row is **exempt** from
 its own bond draw — fining yourself is fiction, and the only top-up path is user-gated — so the
-platform just eats the loss and a `risk_events` row records it for the admin dashboard.
+platform just eats the loss and a `risk_events` row records it for the admin dashboard. A resolution
+carries a reason (400 `note_required` without one, checked before the settle); it lives in
+`admin_actions` and is read by the console only. Every settlement transfer that ever touched the
+payment stays reachable from the order: `settleEscrow` writes a `settle_dropped` event naming ANY
+non-confirmed prior row at the moment it moves `escrow_release_transfer_id` to a new one (a row that
+failed on-chain or under the verifier used to be orphaned on the retry), and the admin's transfer
+list unions the pointers with those events ([22](22-admin-ledger.md)).
 
 ## Why this way
 

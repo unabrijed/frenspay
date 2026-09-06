@@ -286,6 +286,18 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
     only (`isRootAdminEmail`), audited `stake_waive` / `stake_waiver_end`, fixed `WAIVER_DAYS` = 30.
     This deliberately re-opens, per partner and on the record, the "zero-stake LP routable" fix of
     invariant 16. `/me` reports `minBondUsdc` 0 while live; the console never names the waiver.
+63. **The record is complete at write and the app never rewrites it; the console must SHOW it**
+    (2026-09-05, docs/22). A struck quote stores its mid (`quotes.mid_rate`, 4dp, `mid_rate_as_of`;
+    null as-of on a set mid = the fallback rate; 0029) and the payer sees the all-in rate only.
+    `getMidRate` returns 4dp on both paths so the stored mid IS what priced the order. Every
+    settlement transfer that ever touched an order or its legs is reachable from the order: the two
+    pointers plus `order_events.detail->>'transferId'` on `settle_dropped`, which `settleEscrow`
+    writes for ANY non-confirmed prior at the moment the pointer moves (before this, a row failed
+    on-chain or by the verifier was orphaned on the retry). The bulk admin orders list never carries
+    a payee (`orderSelect(false)`); the single-order read does. `db/seed.ts` asserts the database
+    tier and refuses a database that holds any `transfers` row (no bypass; `db:reset` is the fresh
+    path). A search on an admin list writes `ledger_search` with the query's SHAPE, never its value.
+    The send note is typed, trimmed and capped at 80 like the split note.
 
 ## Danger zones
 
@@ -455,7 +467,7 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
   partner look new (pre-existing); the DID-rotation web dead end is fixed by the same probe — confirm on
   stage that a rotated payer lands on Home without typing.
 
-- Open (2026-09-05, admin ledger plan, docs/21): Q1 "all transactions" taken literally (plain sends
+- Open (2026-09-05, admin ledger plan, docs/22): Q1 "all transactions" taken literally (plain sends
   and adds on the Transactions page) vs the per-payment record only; Q2 whether admin needs a
   per-partner bond ledger beyond the draw on the order page and the 90-day upheld count; Q3 the
   docs/08 retention placeholder ("financial records 5 years from completion, contact PII 12 months
@@ -812,6 +824,47 @@ zones/Lessons into every fan-out agent; never violate a recorded invariant witho
 - models: draft=fable · skeptics=2x-opus+1x-sonnet (cross-tier; version axis unavailable)
 - claims: lock-fifth-gate grounded (≤$100 half corrected) · reader-set-complete corrected (listWork) · reinstate-safe corrected (owner-active) · no-partner-tell corrected (2 strings) · drawDownBond-single-caller cross-tier-survived · claim-has-no-bond-gate cross-tier-survived
 - fleet: 6 lenses + 1 grounding verifier + 3 skeptics; loop stopped after 1 verify round (cost guard)
+
+- 2026-09-05 · **Admin keeps a track of everything: show the record, capture the two lost values,
+  guard the one delete path** (plan: `~/.claude/plans/wondrous-chasing-catmull.md` → docs/22;
+  invariant 62). Bridge: "our admin section should also keep track of all transactions, amounts,
+  conversions and everything as there can be disputes as well later." Grounded first: the ledger is
+  already complete and write-once in the app (`quotes` has no UPDATE; `updateOrder` whitelists seven
+  non-money fields; UTR / merchant_id / signature / status all gated one-way; the one ungated amount
+  rewrite `reconcileBridgeAmount` has zero callers), and the console throws it away (`AdminOrder`
+  already carries rate, fiat, payee, UTR, claimed-at; the order page renders none; transfers listed
+  as kind/signature/status only; no cross-user transfers view, no search, no resolved disputes). Two
+  capture-now-or-lost values: the mid at strike (dropped at `quoteEngine.ts:48`, not recoverable for
+  low-decimal currencies) and the dispute reason (the console never sends the note the route stores).
+  **Decided:** four commits, no new system: (1) render the record + every settlement leg + resolver
+  / note / bond draw + split legs; (2) `quotes.mid_rate` (0029) + a required note + the seed guard;
+  (3) a Transactions page over `transfers` with one exact-match search, audited by shape; (4) SQL
+  redaction of the payee on the bulk list, upheld count per partner, docs. **Rejected with evidence:**
+  skipping the mid column (the inversion is five-way ambiguous for 500,000 IDR); spread/fee on the
+  payer `Quote` (locked invisible fee); evidence upload / CSV / statements page / resolver columns
+  (each has a trigger); a text input on `Confirm` (the prompt is the console's pattern). **Verify:**
+  grounding 21/25 verified, 4 corrected; skeptics 2 Opus + 1 Sonnet: 4 claims, 2 sub-clauses struck
+  (seed.ts is a delete path; a failed-on-chain settlement row is orphaned). **Critique round (4
+  lenses, 34 items, 24 folded):** the recommendation never moved; `settle_failed` → `settle_dropped`
+  at the orphan site; `q2/o2` joins → columns on `ORDER_SELECT`; 0028 → 0029 (another session holds
+  0028); `formatAmount` throws on a 6dp fallback → round at the source; `SEED_WIPE_OK` → no bypass
+  + `assertDatabaseTier`; duplicate-column redaction → `orderSelect(payee)`; the send note
+  unbounded → capped. One critic claim refuted by grounding (check:copy DOES gate em dashes in
+  admin). **Shipped** (four commits on `stage`, unpushed, after the stake-waiver session committed
+  its 17 files): `b70e8fc` the record on the order page + every settlement leg reachable + the
+  'Best route' mask bug in `toAdminOrder`; `0b92821` 0029 + the `mid_rate` writer + 4dp fallback +
+  `note_required` + the seed guard + `reconcileBridgeAmount` deleted; `f823b4a` `/transactions` +
+  `searchShape` + `ledger_search` + the send-note cap; the fourth: `orderSelect(payee)` redaction +
+  `disputesUpheld90d` + docs 05/06/07/08/09/22. Bridge runs 0029 on stage, then `check:admin` and
+  `check:fees` by hand (neither is in `check:all`), then the three open questions.
+
+## Telemetry (2026-09-05 admin ledger plan)
+- divergence: 0.74 (evidence 0.78, conclusion 0.68) | threshold 0.30 UNCALIBRATED
+- models: draft=fable · skeptics=2x-opus+1x-sonnet (cross-tier; version axis unavailable)
+- claims: C1 mid-rate-lost grounded · C2a app-write-once grounded · C2b no-delete-path struck (seed.ts)
+  · C3a admin-has-the-fields grounded · C3b dropped-legs-linkable struck (failed-on-chain orphan) ·
+  C4 list-redaction-safe grounded
+- fleet: 8 lenses + 1 grounding verifier + 3 skeptics + 4 critique = 16 agents
 
 ## Telemetry (2026-09-03 partner console plan, Part B)
 - divergence: evidence ≈ 0.9 (three disjoint file sets: machine · console · payer/data), conclusion 0.33 | threshold 0.30 UNCALIBRATED

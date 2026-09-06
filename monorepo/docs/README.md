@@ -67,6 +67,7 @@ Flow docs follow the **same six-part shape**, so you always know where to look:
 | 19 | [Trips, circles and bill splitting](19-trips-and-splitting.md) | the decision record: shares are payment requests, the payer's part is derived, the trip view is a sheet |
 | 20 | [Stake claims](20-stake-claims.md) | how a partner stakes without USDC in their fpay wallet — pay the treasury from anywhere, paste the signature, the chain is read, a human attributes, the confirmer credits; duplicates as rows; the refund address is the partner's; Telegram required |
 | 21 | [The stake waiver](21-stake-waiver.md) | root-admin waiver so a partner works before staking: flat floor, 30 days, ends on the first upheld dispute; Partners / Payout providers tabs; home-screen install |
+| 22 | [Admin keeps a track of everything](22-admin-ledger.md) | the prism plan for dispute-grade records: the ledger was already complete and write-once, the console hid it; the mid at strike and the resolution reason captured; a Transactions page with one search; the seed guard; what was deliberately not built |
 
 **Deployment is not a numbered doc** — the runbooks live at the repo root, next to the code they
 deploy: [`DEPLOY.stage.md`](../DEPLOY.stage.md) and [`DEPLOY.md`](../DEPLOY.md). One architecture
