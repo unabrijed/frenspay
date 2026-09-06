@@ -14,6 +14,7 @@ import type {
   AdminInvitesResponse,
   AdminKybRequest,
   AdminMerchantStatusRequest,
+  AdminStakeWaiverRequest,
   AdminMerchantsResponse,
   AdminOrderDetailResponse,
   AdminOrdersResponse,
@@ -64,6 +65,7 @@ import {
   sanitizeDisplayName,
   appendKybEvent,
   decideMerchantKyb,
+  setBondWaiver,
   setMerchantStatus,
   setUserRole,
   deleteUser,
@@ -78,7 +80,7 @@ import {
 } from '../db/queries';
 import { screenHandle } from '../services/compliance';
 import { canonicalInviteCode } from '../services/invites';
-import { ACTIVITY_SLOTS, activitySlot } from '../services/merchantStats';
+import { ACTIVITY_SLOTS, activitySlot, WAIVER_DAYS } from '../services/merchantStats';
 import { settleDispute } from '../services/orderMachine';
 import { providerHasCredentials } from '../services/payout/provider';
 import { SIGNATURE_RE } from '../services/solana';
@@ -332,6 +334,37 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return { ok: true, status };
     },
   );
+
+  // Let a partner work before staking (0028). ROOT admin only: it removes the collateral behind real
+  // money, the same blast radius as releasing a withdrawal, and `admin` is a console-grantable role.
+  // The typed reason is the only record of WHY. Fixed at WAIVER_DAYS; re-grant to extend. The query
+  // refuses platform rows, exited rows and blocked owners (setBondWaiver). Nothing here reaches the
+  // partner: no kyb event, no note on their side. GET /me just reports the floor as 0.
+  app.post<{ Params: { id: string }; Body: AdminStakeWaiverRequest }>('/admin/merchants/:id/stake-waiver', async (req, reply) => {
+    const adminId = await requireAdmin(req);
+    const admin = await findUserById(adminId);
+    if (!isRootAdminEmail(admin?.email)) return reply.code(403).send({ error: 'root_admin_required' });
+    const note = req.body?.note?.trim();
+    if (!note) return reply.code(400).send({ error: 'note_required' });
+    const until = await setBondWaiver(req.params.id, WAIVER_DAYS);
+    if (until === undefined) return reply.code(409).send({ error: 'waiver_refused' });
+    await insertAdminAction({
+      adminUserId: adminId,
+      action: 'stake_waive',
+      targetKind: 'merchant',
+      targetId: req.params.id,
+      note: `until=${until?.toISOString() ?? 'null'}: ${note}`,
+    });
+    return { ok: true, bondWaivedUntil: until?.toISOString() };
+  });
+  app.delete<{ Params: { id: string } }>('/admin/merchants/:id/stake-waiver', async (req, reply) => {
+    const adminId = await requireAdmin(req);
+    const admin = await findUserById(adminId);
+    if (!isRootAdminEmail(admin?.email)) return reply.code(403).send({ error: 'root_admin_required' });
+    if ((await setBondWaiver(req.params.id, null)) === undefined) return reply.code(409).send({ error: 'waiver_refused' });
+    await insertAdminAction({ adminUserId: adminId, action: 'stake_waiver_end', targetKind: 'merchant', targetId: req.params.id });
+    return { ok: true };
+  });
 
   /** What is waiting to be paid out by hand, and where each one goes. */
   app.get<{ Querystring: { status?: string } }>('/admin/stake/withdrawals', async (req): Promise<AdminStakeWithdrawalsResponse> => {

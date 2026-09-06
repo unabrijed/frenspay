@@ -137,6 +137,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ status }),
     }),
+  // Root admin only (0028): lets the partner work before staking, as if holding the floor, for a
+  // fixed 30 days. The note is audit-only. DELETE ends it early.
+  merchantStakeWaiver: (id: string, note: string) =>
+    req<{ ok: true; bondWaivedUntil: string }>(`/admin/merchants/${id}/stake-waiver`, { method: 'POST', body: JSON.stringify({ note }) }),
+  merchantStakeWaiverEnd: (id: string) => req<{ ok: true }>(`/admin/merchants/${id}/stake-waiver`, { method: 'DELETE' }),
   // Record-only: the USDC was sent by hand from the cold stake treasury; this is its signature.
   releaseStakeWithdrawal: (id: string, signature: string) =>
     req<{ ok: true }>(`/admin/stake/withdrawals/${id}/release`, { method: 'POST', body: JSON.stringify({ signature }) }),
