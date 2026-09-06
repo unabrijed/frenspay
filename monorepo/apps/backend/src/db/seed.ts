@@ -11,6 +11,7 @@ import { Keypair } from '@solana/web3.js';
 
 import { config } from '../envConfig';
 import { getPool } from './pool';
+import { assertDatabaseTier } from './tier';
 
 /** Deterministic devnet treasury pubkey for a merchant (stable across seeds; receive-only). */
 const treasuryFor = (label: string): string =>
@@ -18,6 +19,17 @@ const treasuryFor = (label: string): string =>
 
 async function main() {
   const pool = getPool();
+
+  // A seed is a wipe (the deletes below), so it only ever runs against a FRESH database: the tier
+  // stamp must belong to this process, and there must be no money in it. Local dev points at the
+  // shared stage database (envConfig warns at boot), so before 2026-09-05 one `db:seed` from a
+  // laptop erased the stage ledger up to the first foreign key that objected
+  // (merchant_bond_events.transfer_id) and left it half gone. No bypass flag: on a repo where every
+  // tier is mainnet there is no legitimate seed of a database that holds transfers. A fresh one is
+  // `db:reset` (which refuses production) then `db:init` then `db:seed`.
+  await assertDatabaseTier();
+  const { rowCount } = await pool.query('select 1 from transfers limit 1');
+  if (rowCount) throw new Error('db:seed refuses to run: this database holds transfers. Use db:reset for a fresh one.');
 
   const upsertUser = async (privyDid: string, handle: string, displayName: string) => {
     const { rows } = await pool.query<{ id: string }>(

@@ -1451,8 +1451,13 @@ export async function insertQuote(input: {
   platformFeeUsdc: string;
   /** The LP spread this quote was actually struck at. Stored because the offer pool is filtered to
    *  LPs at or below it, and `rate` is display-only and post-fee — the spread cannot be recovered
-   *  from it without the mid rate at that instant, which is gone. */
+   *  from it without the mid rate at that instant. */
   spreadBps: number;
+  /** The mid-market rate the quote was struck against (0029): evidence for a rate dispute, read by
+   *  the admin console only. `midRateAsOf` is the fetch time of the live rate, null when the quote
+   *  priced off the configured fallback. Never on the payer's Quote. */
+  midRate: string;
+  midRateAsOf: string | null;
   etaMinSecs: number;
   etaMaxSecs: number;
   payoutMethod: PayoutMethod;
@@ -1468,8 +1473,8 @@ export async function insertQuote(input: {
        insert into quotes (user_id, merchant_id, direction, currency, amount_inr, amount_usdc, rate,
                            platform_fee_usdc, spread_bps, eta_min_secs, eta_max_secs,
                            payout_method, route_quality, payout_destination, payout_name, expires_at,
-                           legs)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb)
+                           legs, mid_rate, mid_rate_as_of)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19)
        returning *
      )
      select ins.*, m.name as merchant_name
@@ -1493,6 +1498,8 @@ export async function insertQuote(input: {
       input.expiresAt,
       // Stringified: pg would otherwise encode a JS array as a Postgres array literal, not JSON.
       input.legs ? JSON.stringify(input.legs) : null,
+      input.midRate,
+      input.midRateAsOf,
     ],
   );
   return toQuote(rows[0]);
@@ -1579,8 +1586,11 @@ interface OrderJoinRow {
   q_amount_usdc: string;
   q_rate: string;
   // The quote's basis. Admin only: the payer's Quote carries the all-in rate and nothing behind it.
+  // The mid is null on rows struck before 0029; its as-of is null when the fallback rate priced it.
   q_spread_bps: number;
   q_platform_fee_usdc: string;
+  q_mid_rate: string | null;
+  q_mid_rate_as_of: Date | null;
   q_eta_min_secs: number;
   q_eta_max_secs: number;
   q_payout_method: PayoutMethod;
@@ -1599,6 +1609,7 @@ const ORDER_SELECT = `
          coalesce(o.amount_fiat, q.amount_inr) as amount_fiat,
          q.direction as q_direction, q.currency as q_currency, q.amount_inr as q_amount_inr, q.amount_usdc as q_amount_usdc,
          q.rate as q_rate, q.spread_bps as q_spread_bps, q.platform_fee_usdc as q_platform_fee_usdc,
+         q.mid_rate as q_mid_rate, q.mid_rate_as_of as q_mid_rate_as_of,
          q.eta_min_secs as q_eta_min_secs, q.eta_max_secs as q_eta_max_secs,
          q.payout_method as q_payout_method, q.route_quality as q_route_quality,
          q.payout_destination as q_payout_destination, q.payout_name as q_payout_name,
@@ -4534,22 +4545,6 @@ export async function getTransferStatusById(transferId: string): Promise<string 
   return rows[0]?.status ?? null;
 }
 
-/** Reconcile a bridge row's (and its companion transfer's) amount from the attested message. */
-export async function reconcileBridgeAmount(bridgeId: string, transferId: string, amountUsd: number): Promise<void> {
-  const client = await getPool().connect();
-  try {
-    await client.query('begin');
-    await client.query('update bridge_transfers set amount_usdc = $2, updated_at = now() where id = $1', [bridgeId, amountUsd]);
-    await client.query('update transfers set amount_usdc = $2 where id = $1', [transferId, amountUsd]);
-    await client.query('commit');
-  } catch (e) {
-    await client.query('rollback');
-    throw e;
-  } finally {
-    client.release();
-  }
-}
-
 /** Fail an unsigned companion transfer (inbound burn reverted — nothing will ever mint). */
 export async function failUnsignedTransfer(transferId: string): Promise<void> {
   await getPool().query(`update transfers set status = 'failed' where id = $1 and signature is null`, [transferId]);
@@ -4580,6 +4575,8 @@ const toAdminOrder = (r: AdminOrderJoinRow, events?: OrderEvent[]): AdminOrder =
   userEmail: r.user_email,
   spreadBps: r.q_spread_bps,
   platformFeeUsdc: r.q_platform_fee_usdc,
+  midRate: r.q_mid_rate,
+  midRateAsOf: r.q_mid_rate_as_of?.toISOString() ?? null,
   groupId: r.group_id,
   expiresAt: r.expires_at?.toISOString() ?? null,
   lockedAt: r.locked_at?.toISOString() ?? null,

@@ -79,10 +79,16 @@ export default function OrderDetail() {
     ['Created', at(o.createdAt)],
     ['Updated', at(o.updatedAt)],
     ['All-in rate', `${q.rate} ${q.currency} per USDC`],
+    // A set mid with no fetch time priced off the configured fallback; none at all predates 0029.
+    ['Mid at strike', o.midRate ? `${o.midRate} · ${o.midRateAsOf ? at(o.midRateAsOf) : 'fallback rate'}` : '-'],
     ['Spread', `${o.spreadBps} bps`],
     ['Platform fee', usd(o.platformFeeUsdc)],
   ];
 
+  // The reason is typed at the moment of deciding, the way a KYB decision's is (merchants/page.tsx):
+  // the server refuses a resolution without one, because sixty days on "upheld" with nothing behind
+  // it is not a record. Cancelling the prompt, or leaving it blank, decides nothing.
+  const ask = () => window.prompt('Why? This is the record of the decision. Never shown to the partner or the payer:')?.trim();
   const resolveConfirm = (resolution: 'upheld' | 'rejected'): Confirm =>
     resolution === 'upheld'
       ? {
@@ -91,7 +97,9 @@ export default function OrderDetail() {
           confirmLabel: 'Uphold · refund payer',
           danger: true,
           onConfirm: async () => {
-            await api.resolveDispute(d!.id, 'upheld');
+            const note = ask();
+            if (!note) return;
+            await api.resolveDispute(d!.id, 'upheld', note);
             await reload();
           },
         }
@@ -100,7 +108,9 @@ export default function OrderDetail() {
           body: `The merchant is cleared; the ${usd(o.amountUsdc)} escrow releases to them on the next tick. This cannot be undone.`,
           confirmLabel: 'Reject · release funds',
           onConfirm: async () => {
-            await api.resolveDispute(d!.id, 'rejected');
+            const note = ask();
+            if (!note) return;
+            await api.resolveDispute(d!.id, 'rejected', note);
             await reload();
           },
         };

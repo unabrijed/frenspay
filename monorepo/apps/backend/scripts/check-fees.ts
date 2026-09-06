@@ -15,7 +15,7 @@
 import { getPool } from '../src/db/pool';
 import { amt, USDC_DECIMALS } from '../src/lib/amount';
 import { BN, divUp, RATE_DECIMALS } from '../src/lib/units';
-import { getMidRate } from '../src/services/fxRate';
+import { getMidRate, getMidRateAsOf } from '../src/services/fxRate';
 import { createQuote } from '../src/services/quoteEngine';
 
 const PLATFORM_FEE_USDC = 0.001; // mirrors the quoteEngine constant — the value under test
@@ -54,11 +54,24 @@ async function main() {
       continue;
     }
     // Recompute expectations from whichever merchant routing actually picked.
-    const { rows } = await pool.query<{ spread_bps: number; platform_fee_usdc: string }>(
-      `select m.spread_bps, q.platform_fee_usdc from quotes q join merchants m on m.id = q.merchant_id where q.id = $1`,
+    const { rows } = await pool.query<{ spread_bps: number; platform_fee_usdc: string; mid_rate: string | null; mid_rate_as_of: Date | null }>(
+      `select m.spread_bps, q.platform_fee_usdc, q.mid_rate, q.mid_rate_as_of
+         from quotes q join merchants m on m.id = q.merchant_id where q.id = $1`,
       [quote.id],
     );
     const spread = rows[0].spread_bps;
+    // 5. the mid the quote was struck on is stored, exactly the 4dp value this process priced with
+    //    (0029, docs/22); its as-of is the live fetch time, or null while on the fallback rate.
+    check(
+      `₹${AMOUNT_INR}: mid_rate stored at strike == the mid that priced it (4dp)`,
+      rows[0].mid_rate != null && new BN(rows[0].mid_rate).eq(amt(mid)) && (new BN(rows[0].mid_rate).dp() ?? 0) <= RATE_DECIMALS,
+      `mid_rate=${rows[0].mid_rate} mid=${mid}`,
+    );
+    check(
+      `₹${AMOUNT_INR}: mid_rate_as_of is the fetch time, or null on the fallback`,
+      (rows[0].mid_rate_as_of == null) === (getMidRateAsOf('INR') == null),
+      `as_of=${rows[0].mid_rate_as_of?.toISOString() ?? 'null'} live=${getMidRateAsOf('INR') ?? 'null'}`,
+    );
     const lpRate = amt(mid).times(10_000 - spread).div(10_000).dp(RATE_DECIMALS, BN.ROUND_DOWN);
     const lpUsdc = divUp(amt(AMOUNT_INR), lpRate, USDC_DECIMALS);
     const amountUsdc = lpUsdc.plus(amt(PLATFORM_FEE_USDC));

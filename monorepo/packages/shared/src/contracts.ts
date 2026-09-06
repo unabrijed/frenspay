@@ -855,6 +855,10 @@ export interface AdminOrder extends Order {
    *  `platformFeeUsdc` is the numeric string pg hands back. */
   spreadBps: number;
   platformFeeUsdc: string;
+  /** The mid-market rate the quote was struck against (4dp; null on rows from before it was kept)
+   *  and when that rate was fetched. A set mid with a null as-of priced off the fallback rate. */
+  midRate: string | null;
+  midRateAsOf: string | null;
   /** Null for the primary and for a single-LP order; a leg names its primary. */
   groupId: string | null;
   /** The clocks the partner's screen counts down: the release / dispute deadline (null while a

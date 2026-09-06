@@ -473,6 +473,11 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       if (resolution !== 'upheld' && resolution !== 'rejected') {
         return reply.code(400).send({ error: 'invalid_resolution' });
       }
+      // The reason is the record (docs/22): a resolution with nothing behind it is "upheld, by
+      // nobody, for no reason" sixty days later. Same rule as a KYB decision. Checked BEFORE the
+      // settle, which moves money and cannot be undone. Console-only; the partner never reads it.
+      const note = typeof req.body?.note === 'string' ? req.body.note.trim() : '';
+      if (!note) return reply.code(400).send({ error: 'note_required' });
       const result = await settleDispute(req.params.id, resolution);
       if (result === null) return reply.code(404).send({ error: 'dispute_not_found' });
       if (result === 'already_resolved') return reply.code(409).send({ error: 'dispute_resolved' });
@@ -481,7 +486,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         action: 'dispute_resolve',
         targetKind: 'dispute',
         targetId: req.params.id,
-        note: req.body?.note ? `${result}: ${req.body.note}` : result,
+        note: `${result}: ${note}`,
       });
       return { ok: true, resolution: result };
     },

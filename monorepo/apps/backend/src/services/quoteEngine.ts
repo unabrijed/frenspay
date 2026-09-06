@@ -10,7 +10,7 @@ import { insertQuote } from '../db/queries';
 import { amt, fiatDecimals, USDC_DECIMALS } from '../lib/amount';
 import { BN, formatAmount, RATE_DECIMALS } from '../lib/units';
 
-import { getMidRate } from './fxRate';
+import { getMidRate, getMidRateAsOf } from './fxRate';
 import { metrics } from './metrics';
 import { MERCHANT_CLAIM_MS } from './orderMachine';
 import { isWarm, MIN_LEG_USDC, planLegs, rankMerchants } from './routing';
@@ -96,6 +96,11 @@ export async function createQuote(
     // the spread this quote was struck at are eligible, which is what makes broadcasting safe
     // without ever repricing what the payer was promised. For a split it is the dearest leg's.
     spreadBps: plan.spreadBps,
+    // The mid this price was struck on, kept as evidence (0029, docs/22): with it an adjudicator
+    // recomputes the whole quote; without it they take our word. 4dp on both of getMidRate's
+    // paths, so formatAmount never has to round. Its as-of is null while on the fallback rate.
+    midRate: formatAmount(amt(mid), RATE_DECIMALS),
+    midRateAsOf: getMidRateAsOf(input.currency),
     // ETA is a PROMISE, not a ranking signal, so it is told the truth about who is actually
     // available. `avg_completion_secs` is a historical average over orders this LP finished; an LP
     // who averages 90 seconds while at their desk averages nothing at all while asleep. If nobody

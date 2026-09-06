@@ -36,7 +36,11 @@ export function parseRate(body: unknown, ccy: string): number | null {
 export function getMidRate(ccy: string = 'INR'): number {
   const v = cache[ccy]?.rate ?? config.fxFallbackRates[ccy];
   if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`no FX rate for ${ccy}`);
-  return v;
+  // 4dp either way. A live rate is rounded on ingest (parseRate); the fallback is operator text at
+  // whatever precision was typed. The quote stores this exact number as evidence (quotes.mid_rate,
+  // 0029) with formatAmount, which refuses extra precision rather than round it, so what priced the
+  // order and what the record says have to be the same value.
+  return Number(v.toFixed(4));
 }
 
 /** ISO timestamp of the last good rate for `ccy`, or null while still on the fallback. */
