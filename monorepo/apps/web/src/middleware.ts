@@ -9,9 +9,16 @@ import { type NextRequest, NextResponse } from 'next/server';
 
 import { expectedCookie, GATE_COOKIE } from '@/lib/gate';
 import { gateHtml } from '@/lib/gateHtml';
-import { ACCESS_KEY, IS_LOCAL_ENV } from '@/services/envConfig';
+import { ACCESS_KEY, IS_LOCAL_ENV, PRELAUNCH_ENABLED } from '@/services/envConfig';
 
 export async function middleware(req: NextRequest) {
+  if (PRELAUNCH_ENABLED) {
+    // Public campaign entry only. Legacy money screens retain their existing deployment gate.
+    if (req.nextUrl.pathname === '/' || req.nextUrl.pathname === '/prelaunch') return NextResponse.next();
+    if (req.nextUrl.pathname === '/home' || req.nextUrl.pathname.startsWith('/onboarding/')) {
+      return NextResponse.redirect(new URL('/',req.url));
+    }
+  }
   if (!ACCESS_KEY) {
     // Local dev (`next dev` → tier 'local') runs ungated. A deployed tier with no key is a
     // misconfiguration — fail closed instead of silently serving the app to strangers.
