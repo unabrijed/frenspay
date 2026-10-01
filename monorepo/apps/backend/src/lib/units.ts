@@ -33,7 +33,7 @@ export const RATE_DECIMALS = 4; // quoteEngine emits 4dp; quotes.rate is numeric
  * keeps numeric(20,2) scale for every corridor ("17900" stores as 17900.00); this governs
  * validation at the trust boundary, fee rounding, and display.
  */
-export const FIAT_DECIMALS: Record<string, number> = { INR: 2, IDR: 0 };
+export const FIAT_DECIMALS: Record<string, number> = { INR: 2, IDR: 0, SGD: 2 };
 
 /** fiatDecimals('INR') → 2. Throws on a currency we don't price — a typo must not become a quote. */
 export function fiatDecimals(currency: string): number {

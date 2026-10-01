@@ -702,7 +702,7 @@ export type RouteQuality = 'high' | 'medium' | 'low';
 /** Payout rail the merchant/LP settles fiat on. A runtime const (not just a union) so validators
  *  and the backend mirror (apps/backend/src/lib/rails.ts — `import type` rule) can be drift-checked
  *  by check-rails.ts instead of silently disagreeing. */
-export const PAYOUT_METHODS = ['UPI', 'QRIS', 'Pix', 'bank'] as const;
+export const PAYOUT_METHODS = ['UPI', 'QRIS', 'Pix', 'bank', 'PayNow'] as const;
 export type PayoutMethod = (typeof PAYOUT_METHODS)[number];
 
 /**
@@ -1123,6 +1123,8 @@ export interface AdminPayoutProvider {
   /** Whether the server resolves a usable credential for this row — presence only, never values.
    *  enabled && !hasCredentials = an inert row the console should flag. */
   hasCredentials: boolean;
+  /** Sandbox integration only: cannot be enabled or used by the real-order worker. */
+  sandboxOnly?: boolean;
 }
 
 export interface AdminPayoutProvidersResponse {

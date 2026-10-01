@@ -123,7 +123,7 @@ export async function registerOrderRoutes(app: FastifyInstance) {
         });
       }
       const code =
-        result.error === 'quote_expired' ? 409 : result.error === 'solana_unavailable' ? 503 : 404;
+        result.error === 'unsupported_payout_method' ? 400 : result.error === 'quote_expired' ? 409 : result.error === 'solana_unavailable' ? 503 : 404;
       return reply.code(code).send({ error: result.error });
     }
     metrics.inc('orders_created');

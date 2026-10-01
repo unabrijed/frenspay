@@ -5,7 +5,7 @@
 // Going live for a new rail is the multi-currency milestone (per-currency quotes/FX/LP rails),
 // not a flag flip here.
 
-export type RailId = 'upi' | 'qris' | 'promptpay' | 'pix' | 'duitnow';
+export type RailId = 'upi' | 'qris' | 'promptpay' | 'pix' | 'duitnow' | 'paynow';
 
 export interface Rail {
   id: RailId;
@@ -21,6 +21,7 @@ export const RAILS: Rail[] = [
   { id: 'promptpay', name: 'PromptPay', country: 'TH', currency: 'THB', live: false },
   { id: 'pix', name: 'Pix', country: 'BR', currency: 'BRL', live: false },
   { id: 'duitnow', name: 'DuitNow', country: 'MY', currency: 'MYR', live: false },
+  { id: 'paynow', name: 'PayNow', country: 'SG', currency: 'SGD', live: false }, // recognition + isolated StraitsX sandbox only
 ];
 
 export const railById = (id: RailId): Rail => RAILS.find((r) => r.id === id)!;

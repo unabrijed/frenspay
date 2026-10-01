@@ -309,7 +309,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
   // is fine (same posture as /me/country). Inlined list, NOT imported from @fpay/shared: the
   // backend imports only types from shared. Keep in sync with DISPLAY_CURRENCIES in
   // packages/shared/src/money.ts.
-  const DISPLAYABLE = ['USD', 'INR', 'IDR'];
+  const DISPLAYABLE = ['USD', 'INR', 'IDR', 'SGD'];
 
   app.post<{ Body: { currency?: string } }>('/me/preferred-currency', async (req, reply) => {
     const userId = requireUserId(req);

@@ -73,7 +73,7 @@ export default function Providers() {
       {!data ? (
         <Spinner />
       ) : data.providers.length === 0 ? (
-        <EmptyState text="No provider rows. Seed the registry (yarn db:seed)." />
+        <EmptyState text="No provider rows. Apply the registry migrations; do not reset a funded database." />
       ) : (
         <Table head={['Provider', 'Adapter', 'Rail', 'Priority', 'Creds', 'Status', '']}>
           {data.providers.map((p, i) => (
@@ -96,12 +96,12 @@ export default function Providers() {
                 <Badge tone={p.hasCredentials ? 'ok' : 'warn'}>{p.hasCredentials ? 'resolved' : 'missing'}</Badge>
               </Td>
               <Td>
-                <Badge tone={p.enabled ? (p.hasCredentials ? 'ok' : 'warn') : 'muted'}>
-                  {p.enabled ? (p.hasCredentials ? 'enabled' : 'enabled · inert') : 'disabled'}
+                <Badge tone={p.sandboxOnly ? 'muted' : p.enabled ? (p.hasCredentials ? 'ok' : 'warn') : 'muted'}>
+                  {p.sandboxOnly ? 'sandbox only · unavailable' : p.enabled ? (p.hasCredentials ? 'enabled' : 'enabled · inert') : 'disabled'}
                 </Badge>
               </Td>
               <Td>
-                <Btn variant={p.enabled ? 'danger' : undefined} onClick={() => toggle(p)}>
+                <Btn disabled={p.sandboxOnly && !p.enabled} variant={p.enabled ? 'danger' : undefined} onClick={() => toggle(p)}>
                   {p.enabled ? 'Disable' : 'Enable'}
                 </Btn>
               </Td>

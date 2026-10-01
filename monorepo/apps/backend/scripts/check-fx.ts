@@ -35,6 +35,10 @@ async function main() {
 
   // Range validation per currency — a sane value passes ITS band and fails every other band.
   check('INR: sane value accepted', parseRate({ rates: { INR: 95.25 } }, 'INR') === 95.25);
+  check('SGD: sane value accepted', parseRate({ rates: { SGD: 1.35 } }, 'SGD') === 1.35);
+  check('SGD: INR-magnitude value rejected', parseRate({ rates: { SGD: 95.25 } }, 'SGD') === null);
+  check('SGD: IDR-magnitude value rejected', parseRate({ rates: { SGD: 17_862 } }, 'SGD') === null);
+  check('SGD: outside its own band rejected', parseRate({ rates: { SGD: 0.1 } }, 'SGD') === null);
   check('IDR: sane value accepted', parseRate({ rates: { IDR: 17862.19 } }, 'IDR') === 17862.19);
   check('IDR: dust value rejected', parseRate({ rates: { IDR: 1.5 } }, 'IDR') === null);
   check('IDR: INR-magnitude value rejected', parseRate({ rates: { IDR: 95.25 } }, 'IDR') === null);

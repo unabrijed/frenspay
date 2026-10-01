@@ -16,6 +16,7 @@ import { config } from '../envConfig';
  */
 export const FX_BANDS: Record<string, { min: number; max: number }> = {
   INR: { min: 50, max: 150 },
+  SGD: { min: 0.5, max: 2.5 }, // Singapore display/sandbox pricing; NOT a live payment corridor
   IDR: { min: 12_000, max: 25_000 }, // live ≈ 17,900 (2026-08) with headroom; still rejects an INR-magnitude value
 };
 

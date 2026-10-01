@@ -20,6 +20,7 @@ import { getPayoutProviderRow, listPayoutProviderRows, type PayoutProviderRow } 
 
 import { makeSimPayout } from './providers/sim';
 import { makeXendit } from './providers/xendit';
+import { isSandboxPayoutProvider, usableStraitsxSecret } from './providers/straitsxSandbox';
 
 export type PayoutStatus = 'pending' | 'paid' | 'failed' | 'reversed';
 
@@ -67,6 +68,8 @@ const ADAPTERS: Record<string, (row: PayoutProviderRow) => PayoutProvider | null
 };
 
 function instantiate(row: PayoutProviderRow, log?: (m: string) => void): PayoutProvider | null {
+  // This registry is ONLY for real-money orders, including by-id recovery of disabled rows.
+  if (isSandboxPayoutProvider(row)) return null;
   const factory = ADAPTERS[row.adapter];
   if (!factory) {
     log?.(`payout provider ${row.id}: adapter '${row.adapter}' not in the code allowlist — skipped`);
@@ -90,6 +93,8 @@ export async function payoutProviderFor(
   excludeIds: readonly string[] = [],
   log?: (m: string) => void,
 ): Promise<PayoutProvider | null> {
+  // No wildcard simulator or unrelated provider may stand in for Singapore.
+  if (payoutMethod === 'PayNow') return null;
   const rows = await listPayoutProviderRows(payoutMethod, excludeIds);
   for (const row of rows) {
     const provider = instantiate(row, log);
@@ -111,6 +116,8 @@ export async function payoutProviderById(id: string, log?: (m: string) => void):
 /** Admin display only: would this row enter the registry if enabled? A presence boolean — the
  *  console flags enabled-but-inert rows; credential VALUES never leave the server. */
 export function providerHasCredentials(row: PayoutProviderRow): boolean {
+  if (isSandboxPayoutProvider(row)) return row.id === 'straitsx_sg_sandbox' &&
+    row.adapter === 'straitsx_sandbox' && usableStraitsxSecret(config.straitsxSandboxApiKey);
   return ADAPTERS[row.adapter]?.(row) != null;
 }
 

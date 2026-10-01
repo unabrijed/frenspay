@@ -280,6 +280,7 @@ export const config = {
   fxFallbackRates: {
     INR: num('FX_FALLBACK_RATE', 87.55, { min: 50, max: 150 }),
     IDR: num('FX_FALLBACK_RATE_IDR', 16_500, { min: 12_000, max: 25_000 }),
+    SGD: num('FX_FALLBACK_RATE_SGD', 1.35, { min: 0.5, max: 2.5 }), // fallback, not a current market quote
   } as Record<string, number>,
   fxRefreshMs: num('FX_REFRESH_MS', 21_600_000, { min: 1000 }), // 6h default
 
@@ -291,6 +292,9 @@ export const config = {
   // XENDIT_SECRET_KEY/XENDIT_CALLBACK_TOKEN stay as fallbacks for xendit_id (the fxFallbackRates
   // precedent: tolerate the deployed name rather than renaming a live var).
   xenditApiUrl: env('XENDIT_API_URL', 'https://api.xendit.co'),
+  // Isolated sandbox tools only; these credentials NEVER activate customer payments.
+  straitsxSandboxApiKey: env('STRAITSX_SANDBOX_API_KEY'),
+  straitsxSandboxSigningSecret: env('STRAITSX_SANDBOX_SIGNING_SECRET'),
   payoutSecretKeys: {
     xendit_id: env('XENDIT_ID_SECRET_KEY') || env('XENDIT_SECRET_KEY'),
   } as Record<string, string>,

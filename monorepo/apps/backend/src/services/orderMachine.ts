@@ -12,6 +12,7 @@ import { PublicKey, type ParsedInstruction } from '@solana/web3.js';
 import type { Order, OrderResolution, OrderState, PayoutMethod } from '@fpay/shared';
 
 import { config } from '../envConfig';
+import { CORRIDORS } from '../lib/corridors';
 import { amt, USDC_DECIMALS } from '../lib/amount';
 import { BN, formatAmount } from '../lib/units';
 import {
@@ -127,12 +128,14 @@ const LOCK_BAN_MINUTES = 60;
 type ConfirmResult =
   | { ok: true; order: Order; unsignedTx: string; feePayer: string; sponsored: boolean; transferId: string; referenceCode: string }
   | { error: 'limit_exceeded'; limit: Extract<LimitCheck, { ok: false }> }
-  | { error: 'quote_not_found' | 'quote_expired' | 'wallet_not_found' | 'solana_unavailable' };
+  | { error: 'quote_not_found' | 'quote_expired' | 'wallet_not_found' | 'solana_unavailable' | 'unsupported_payout_method' };
 
 /** quote_locked → pay_instructions: create the order + the unsigned escrow-funding tx for the user. */
 export async function confirmOrderFromQuote(userId: string, quoteId: string): Promise<ConfirmResult> {
   const quote = await getQuoteRowForUser(quoteId, userId);
   if (!quote) return { error: 'quote_not_found' };
+  // Recheck at confirm, before any wallet/escrow work: old or manually inserted quotes are not authority.
+  if (!CORRIDORS[quote.payoutMethod]) return { error: 'unsupported_payout_method' };
   if (quote.expiresAt.getTime() < Date.now()) return { error: 'quote_expired' };
 
   const wallet = await getWalletForUser(userId);

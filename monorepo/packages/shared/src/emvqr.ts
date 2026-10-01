@@ -2,9 +2,9 @@
 // like upi://pay; they are EMVCo TLV payloads whose merchant-account template names the network
 // (an AID or a reverse-domain GUI). Parsing that template is what "identifies where the payment
 // is being processed". Pure string logic, no IO — shared so web and mobile parse identically.
-// ponytail: no CRC-16 verification — the camera layer already error-corrects, and a corrupt
-// payload fails TLV parsing or downstream validation anyway; add CRC if junk ever gets through.
+// Legacy schemes retain their existing validation. PayNow uses strict TLV + CRC checks.
 import { type RailTarget, vpaOperator } from './rails';
+import { parsePayNowQr } from './paynow';
 
 interface Tlv {
   tag: string;
@@ -30,7 +30,7 @@ const get = (fields: Tlv[], tag: string) => fields.find((f) => f.tag === tag)?.v
 // EMV tag 53 is a numeric ISO 4217 code; we only name the scan-and-pay currencies. A rail's code
 // missing here is not cosmetic: the classifier treats an unmapped currency as undeclared, and an
 // undeclared currency defaults to the RAIL's own — '360' absent once meant Rp seeded a ₹ keypad.
-const NUMERIC_CURRENCY: Record<string, string> = { '356': 'INR', '360': 'IDR', '764': 'THB', '986': 'BRL', '458': 'MYR' };
+const NUMERIC_CURRENCY: Record<string, string> = { '356': 'INR', '360': 'IDR', '764': 'THB', '986': 'BRL', '458': 'MYR', '702': 'SGD' };
 
 /** PromptPay proxy "0066812345678" → "+66812345678"; national IDs / e-wallet IDs pass through. */
 const promptPayPhone = (v: string) => '+' + v.replace(/^00/, '');
@@ -100,6 +100,11 @@ export function parseEmvQr(text: string): RailTarget | null {
   const raw = (text ?? '').trim();
   // Tag 00 (payload format indicator) = "01" is the EMVCo signature; anything else isn't an EMV QR.
   if (!raw.startsWith('000201')) return null;
+  const paynow = parsePayNowQr(raw);
+  if (paynow) return paynow.kind === 'paynow'
+    ? { rail: 'paynow', kind: paynow.proxyType === 'uen' ? 'merchant' : 'phone', address: paynow.proxyValue,
+        name: paynow.name, amount: paynow.amountSgd, currency: 'SGD' }
+    : null;
   const root = tlv(raw);
   if (!root) return null;
 

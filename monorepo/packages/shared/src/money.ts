@@ -9,13 +9,14 @@ import { FIAT_DECIMALS } from './units';
 /** Offline fallback only. The live mid rates come from the backend (`/fx/rate`, cached +
  *  range-validated per currency); these seed the client before the first fetch lands. */
 export const RATE = 87.55;
-export const FALLBACK_RATES: Record<string, number> = { INR: RATE, IDR: 16_500 };
+export const FALLBACK_RATES: Record<string, number> = { INR: RATE, IDR: 16_500, SGD: 1.35 };
 
 /** Symbol + grouping locale per display currency. An unknown currency falls back to its ISO code
  *  as the "symbol" — ugly beats wrong. */
 const FIAT_STYLE: Record<string, { symbol: string; locale: string }> = {
   INR: { symbol: '₹', locale: 'en-IN' },
   IDR: { symbol: 'Rp', locale: 'id-ID' },
+  SGD: { symbol: 'S$', locale: 'en-SG' },
 };
 
 /** '₹' / 'Rp'. Exported so a layout that styles the symbol separately (the home hero) can strip
@@ -68,7 +69,7 @@ export const usd = (n: MoneyLike): string => '$' + num(n).toFixed(2);
  * currency with no rate can only be shown converted at a stale or invented one, which is worse
  * than showing dollars. Adding one here means adding it to the client's `fxRates` too.
  */
-export const DISPLAY_CURRENCIES = ['USD', 'INR', 'IDR'] as const;
+export const DISPLAY_CURRENCIES = ['USD', 'INR', 'IDR', 'SGD'] as const;
 export type DisplayCurrency = (typeof DISPLAY_CURRENCIES)[number];
 
 /** Narrow a currency code (e.g. one derived from a country) to something we can actually display.

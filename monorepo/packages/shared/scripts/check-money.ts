@@ -25,7 +25,7 @@ import {
   USDC_DECIMALS,
 } from '../src/units';
 import { currencyForCountry } from '../src/currencyCodes';
-import { fiatRaw, fiatSymbol, inrRaw, isDisplayCurrency, rateLabel, secondaryCurrency } from '../src/money';
+import { DISPLAY_CURRENCIES, FALLBACK_RATES, fiatRaw, fiatSymbol, inrRaw, isDisplayCurrency, rateLabel, secondaryCurrency } from '../src/money';
 import { splitEqual } from '../src/split';
 // The backend's wire-number seam. Imported across the workspace boundary on purpose: the rounding
 // law is one law, and it must hold on both sides of it.
@@ -64,6 +64,8 @@ assert.equal(fiatRaw(249.5, 'INR'), inrRaw(249.5));
 assert.equal(fiatRaw('17900.00', 'IDR'), 'Rp17.900', 'DB 2dp scale in, id-ID whole-rupiah out');
 assert.equal(fiatRaw(1500000, 'IDR'), 'Rp1.500.000', 'id-ID dot-thousands, no lakh grouping');
 assert.equal(fiatSymbol('IDR'), 'Rp');
+assert.equal(fiatRaw('1234.50', 'SGD'), 'S$1,234.50');
+assert.equal(fiatSymbol('SGD'), 'S$');
 assert.equal(rateLabel(95.2535), '1 USD = 95.25 INR', 'INR label unchanged');
 assert.equal(rateLabel(17862.19, 'IDR'), '1 USD = 17.862 IDR', 'whole-unit currencies group, no fake decimals');
 ok('fiatRaw/rateLabel: ₹ en-IN with paise; Rp id-ID whole-rupiah');
@@ -267,7 +269,7 @@ ok('nobody has taught pg to parse numeric as a float');
 // The bug this replaced: display currency defaulted to INR, so an Indian user's home screen showed
 // the identical rupee figure twice — once as the balance, once as a "local" conversion of it.
 {
-  const rates = { INR: 87.55, IDR: 16_500 };
+  const rates = { ...FALLBACK_RATES };
   assert.equal(secondaryCurrency('USD', 'INR', rates), 'INR', 'dollars + rupees: two lines');
   assert.equal(secondaryCurrency('INR', 'INR', rates), null, 'already reading in rupees: one line');
 
@@ -295,12 +297,13 @@ ok('nobody has taught pg to parse numeric as a float');
   // now, but nothing prices JPY, so it still falls back to the dollars already on screen.
   assert.equal(secondaryCurrency('USD', currencyForCountry('JP'), rates), null, 'JPY unpriceable → USD → same as primary');
   assert.equal(secondaryCurrency('USD', currencyForCountry('IN'), rates), 'INR', 'India unchanged');
+  assert.equal(secondaryCurrency('USD', currencyForCountry('SG'), rates), 'SGD', 'Singapore display does not activate PayNow');
   assert.equal(secondaryCurrency('USD', currencyForCountry('US'), rates), null, 'dollars beneath dollars');
   ok('resolving more countries changes nothing until their currency is priceable');
 
   // Anything offerable as a display currency must be priceable, or picking it strands the user on
   // a screen full of NaN. This is the assert that fires if someone widens the union alone.
-  for (const c of ['INR', 'IDR']) {
+  for (const c of DISPLAY_CURRENCIES.filter((currency) => currency !== 'USD')) {
     assert.ok(isDisplayCurrency(c), `${c} must be a display currency`);
     assert.ok(rates[c as keyof typeof rates] != null, `display currency ${c} has no client fallback rate`);
   }
