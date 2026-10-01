@@ -136,6 +136,11 @@ const personaApiKeyValue = env('PERSONA_API_KEY');
 const personaTemplateIdValue = env('PERSONA_TEMPLATE_ID');
 
 export const config = {
+  prelaunchEnabled: env('PRELAUNCH_ENABLED', isLocal ? 'true' : 'false') === 'true',
+  monadRpcUrl: env('MONAD_RPC_URL'),
+  monadTestnetRpcUrl: env('MONAD_TESTNET_RPC_URL'),
+  prelaunchReceiptWalletId: env('PRELAUNCH_RECEIPT_WALLET_ID'),
+  prelaunchReceiptAddress: env('PRELAUNCH_RECEIPT_ADDRESS'),
   nodeEnv: node_env,
   isDevelopment,
   // True only for local/development — NOT stage. Stage shares dev config values but serves real

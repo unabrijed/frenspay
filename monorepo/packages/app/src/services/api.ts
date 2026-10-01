@@ -2,6 +2,40 @@
 import { type AddMemberRequest, type ApiGroupDetail, type ApiPaymentRequest, type AuthSyncRequest, type BalanceResponse, type CreateGroupRequest, type CreateOrderRequest, type CreateOrderResponse, type CreateRequestRequest, type CrosschainQuoteResponse, type DepositBalancesResponse, type DepositInfoResponse, type DepositPrepareRequest, type DepositPrepareResponse, type FundSubmitRequest, type GroupsResponse, type KycVerifyResponse, type MeResponse, type MoveTransferRequest, type NotificationsResponse, type OrderResponse, type OrdersResponse, type PrepareCrosschainRequest, type PrepareCrosschainResponse, type PrepareTransferRequest, type PrepareTransferResponse, type PushTokenRequest, type QuoteRequest, type QuoteResponse, type ReportDepositRequest, type ReportDepositResponse, type RequestsResponse, type ResolveHandleResponse, type SplitRequest, type SubmitCrosschainRequest, type SubmitTransferRequest, type SubmitTransferResponse, type TransactionsResponse } from '@fpay/shared';
 
 import { platform } from '../platform';
+import type { PrelaunchAccount, PrelaunchQuote, PrelaunchSpend, PrelaunchTransaction } from '@fpay/shared';
+
+// Bounded waits for the campaign UI. A timeout is ambiguous for writes: spend callers retain
+// their idempotency key and recover the original result rather than creating another payment.
+function campaignReq<T>(path: string, init?: RequestInit): Promise<T> {
+  return req<T>(path, {
+    ...init,
+    signal: typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(30_000) : undefined,
+  });
+}
+export const prelaunchApi = {
+  session: () => campaignReq<PrelaunchAccount>('/prelaunch/session', { method: 'POST' }),
+  account: () => campaignReq<PrelaunchAccount>('/prelaunch/account'),
+  profile: (name: string, country: string) => campaignReq<PrelaunchAccount>('/prelaunch/profile', {
+    method: 'POST', body: JSON.stringify({ name, country }),
+  }),
+  syncBalance: () => campaignReq<PrelaunchAccount>('/prelaunch/balance/sync', { method: 'POST' }),
+  phoneStart: (phone: string) => campaignReq<{ ok: true }>('/prelaunch/phone/start', {
+    method: 'POST', body: JSON.stringify({ phone }),
+  }),
+  phoneConfirm: (code: string) => campaignReq<PrelaunchAccount>('/prelaunch/phone/confirm', {
+    method: 'POST', body: JSON.stringify({ code }),
+  }),
+  quote: (qr: string, amountSgd: string) => campaignReq<PrelaunchQuote>('/prelaunch/quotes', {
+    method: 'POST', body: JSON.stringify({ qr, amountSgd }),
+  }),
+  spend: (quoteId: string, idempotencyKey: string) => campaignReq<PrelaunchSpend>('/prelaunch/spends', {
+    method: 'POST', body: JSON.stringify({ quoteId, idempotencyKey }),
+  }),
+  history: () => campaignReq<{ spends: PrelaunchSpend[] }>('/prelaunch/history'),
+  withdrawal: (to: string, amount: string) => campaignReq<PrelaunchTransaction>('/prelaunch/withdraw/prepare', {
+    method: 'POST', body: JSON.stringify({ to, amount }),
+  }),
+};
 
 let authToken: string | null = null;
 /** Set by Privy after login (M3). Until then requests fall back to the dev header. */

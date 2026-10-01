@@ -14,6 +14,9 @@ function client(): PrivyClient {
   return _client;
 }
 
+/** Campaign identity and platform-owned receipt wallet use the same verified Privy application. */
+export const getPrivyClient = client;
+
 export const privyConfigured = (): boolean => Boolean(config.privyAppId && config.privyAppSecret);
 
 /** Verify a Privy access token; returns the user's Privy DID. Throws if invalid/expired. */

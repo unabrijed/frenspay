@@ -13,3 +13,4 @@ export * from './payTarget';
 export * from './paynow';
 export * from './email';
 export * from './split';
+export type { PrelaunchAccount, PrelaunchQuote, PrelaunchSpend, PrelaunchTransaction } from './prelaunch';
