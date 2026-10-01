@@ -1,5 +1,7 @@
 # 10 · Ops, infra & roadmap
 
+> **Monad prelaunch update (2026-10-01):** The Monad campaign has separate backend and web feature flags, Monad RPC endpoints and a platform-owned sponsored receipt wallet. Deployment needs the additive migration and Privy/SMS configuration; do not use seed/reset. Live integration validation remains a rollout prerequisite. See [24 — Monad prelaunch](24-monad-prelaunch.md).
+
 ## Deploy model
 
 - **Backend — Railway**, one service per environment, driven by `NODE_ENV`: stage

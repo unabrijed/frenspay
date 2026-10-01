@@ -1,5 +1,7 @@
 # 02 · Identity & onboarding
 
+> **Monad prelaunch update (2026-10-01):** Campaign enrollment is public Privy email OTP with an embedded EVM wallet, using separate prelaunch accounts. It does not require an invite or create a legacy money account. Profile, phone and X steps award campaign multipliers, not KYC privileges. See [24 — Monad prelaunch](24-monad-prelaunch.md).
+
 ## What it is
 
 How a person becomes a user, and the rule the whole identity model hangs on

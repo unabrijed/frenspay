@@ -1,5 +1,7 @@
 # fpay — monorepo
 
+The optional [Monad prelaunch campaign](docs/24-monad-prelaunch.md) is the public Singapore test experience: free practice credits, optional USDC-funded credits, profile tiers and simulated PayNow history. Recipients receive no money. It is enabled locally by default; stage/production require matching frontend/backend flags and the additive migration. Existing Solana funds and native flows stay separate.
+
 Yarn-workspaces monorepo for **fpay**, a travel payments app (hold USD, spend INR at a
 locked rate via UPI QR, plus send/request with friends). Three Next.js frontends — the
 **web app**, an operator **console**, and the **landing** page — share one backend, design

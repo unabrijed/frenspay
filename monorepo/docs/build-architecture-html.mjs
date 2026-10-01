@@ -3,28 +3,14 @@
 // Run:  node docs/build-architecture-html.mjs
 // Then: open docs/architecture.html and Print → Save as PDF  (diagrams render in the browser),
 //   or: render headlessly with an already-installed Chrome (see docs/README / the build command).
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
 // Order matters — README is the cover/index, then the numbered docs.
-const FILES = [
-  'README.md',
-  '01-architecture.md',
-  '02-identity-and-onboarding.md',
-  '03-custody-money-in-and-confirmation.md',
-  '04-p2p-and-contacts.md',
-  '05-fees-fx-and-display.md',
-  '06-offramp-and-settlement.md',
-  '07-admin-and-moderation.md',
-  '08-compliance-and-legalities.md',
-  '09-data-model.md',
-  '10-ops-and-roadmap.md',
-  '11-lp-console.md',
-  '12-mobile-app.md',
-];
+const FILES = ['README.md', ...readdirSync(here).filter(f => /^\d{2}-.+\.md$/.test(f)).sort()];
 
 const docs = FILES.map((f) => readFileSync(join(here, f), 'utf8'));
 // Safe to embed in an inline <script>: JSON-encode, then neutralize any literal </script>.

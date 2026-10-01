@@ -1,5 +1,7 @@
 # 01 · Architecture
 
+> **Monad prelaunch update (2026-10-01):** The feature-flagged public web entry now supports a separate Monad prelaunch campaign. Real wallet USDC is on Monad mainnet; simulated credits and points live in PostgreSQL; receipts use Monad testnet. The Solana architecture below remains the legacy money product. See [24 — Monad prelaunch](24-monad-prelaunch.md).
+
 ## What it is
 
 A **yarn-workspaces monorepo**: six apps (`admin`, `backend`, `landing`, `lp`, `web`, `mobile`)

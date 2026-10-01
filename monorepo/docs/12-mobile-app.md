@@ -1,5 +1,7 @@
 # 12 · The mobile app
 
+> **Monad prelaunch update (2026-10-01):** The new Monad prelaunch UI is web-only. The native app continues using the legacy shared screens and Solana signing flow; no native campaign migration is claimed. See [24 — Monad prelaunch](24-monad-prelaunch.md).
+
 ## What it is
 
 The same product as the web app, on a phone: `apps/mobile` is an **Expo / React Native** app that

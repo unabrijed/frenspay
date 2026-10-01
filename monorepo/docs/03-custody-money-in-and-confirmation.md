@@ -1,5 +1,7 @@
 # 03 · Custody, Money In & Confirmation
 
+> **Monad prelaunch update (2026-10-01):** Campaign deposits are native USDC on Monad mainnet, verified at finalized blocks in the user’s embedded EVM wallet. Credits use a verified balance high-water mark; user-signed withdrawals preserve credits. No automatic Solana migration or cross-chain deposit bridge is included. See [24 — Monad prelaunch](24-monad-prelaunch.md).
+
 > This is the **single most important page for understanding the product's legal posture.** The
 > custody model is what keeps us out of the heaviest regulation while we build.
 
