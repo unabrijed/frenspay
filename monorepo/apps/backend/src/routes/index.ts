@@ -19,6 +19,8 @@ import { registerOrderRoutes } from './orders';
 import { registerSystemRoutes } from './system';
 import { registerWaitlistRoutes } from './waitlist';
 import { registerWebhookRoutes } from './webhooks';
+import { registerStraitsxSandboxWebhook } from './straitsxSandboxWebhook';
+import { registerPrelaunchRoutes } from './prelaunch';
 
 export async function registerRoutes(app: FastifyInstance) {
   // M6: rate-limit the sensitive routes (money movement + faucet + auth + directory) first.
@@ -29,6 +31,7 @@ export async function registerRoutes(app: FastifyInstance) {
 
   await registerSystemRoutes(app);
   await registerAuthRoutes(app);
+  await registerPrelaunchRoutes(app);
   await registerMoneyRoutes(app);
   await registerGroupRoutes(app);
   // Every tier is mainnet on both sides (no Sepolia table any more), so cross-chain registers
@@ -39,6 +42,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await registerKycRoutes(app);
   await registerNotificationRoutes(app);
   await registerWebhookRoutes(app);
+  await registerStraitsxSandboxWebhook(app, config.straitsxSandboxSigningSecret);
   await registerWaitlistRoutes(app);
   await registerAdminRoutes(app);
 }

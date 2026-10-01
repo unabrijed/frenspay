@@ -8,8 +8,14 @@ import { Splash } from '@/components/ui/Splash';
 import { bootTrace } from '@/lib/boot';
 import { bootRoute } from '@/lib/bootRoute';
 import { usePayStore, useStoreHydrated } from '@/store/usePayStore';
+import { PRELAUNCH_ENABLED } from '@/services/envConfig';
+import Prelaunch from '@/components/prelaunch/Prelaunch';
 
 export default function Page() {
+  return PRELAUNCH_ENABLED ? <Prelaunch /> : <LegacyEntry />;
+}
+
+function LegacyEntry() {
   const router = useRouter();
   const hydrated = useStoreHydrated();
   const onboarded = usePayStore((s) => s.onboarded);

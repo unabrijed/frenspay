@@ -37,6 +37,11 @@ function pick(local?: string, stage?: string, prod?: string): string | undefined
 }
 
 const E = {
+  prelaunch: pick(
+    process.env.NEXT_PUBLIC_LOCAL_PRELAUNCH_ENABLED,
+    process.env.NEXT_PUBLIC_STAGE_PRELAUNCH_ENABLED,
+    process.env.NEXT_PUBLIC_PRELAUNCH_ENABLED,
+  ),
   apiUrl: pick(
     process.env.NEXT_PUBLIC_LOCAL_API_URL,
     process.env.NEXT_PUBLIC_STAGE_API_URL,
@@ -58,6 +63,7 @@ const E = {
 // environment via *_API_URL (e.g. http://localhost:3001 when running the backend locally).
 const DEFAULT_API_URL = 'http://localhost:3001';
 export const API_URL = E.apiUrl || DEFAULT_API_URL;
+export const PRELAUNCH_ENABLED = E.prelaunch === 'true' || (APP_ENV === 'local' && E.prelaunch !== 'false');
 // Every tier is mainnet — there is no testnet (2026-08-30). The var only picks the RPC provider.
 export const SOLANA_RPC_URL = E.solanaRpcUrl || 'https://api.mainnet-beta.solana.com';
 

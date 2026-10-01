@@ -1,5 +1,7 @@
 # 05 · Fees, FX & how money is displayed
 
+> **Monad prelaunch update (2026-10-01):** Campaign PayNow previews convert SGD to numeric test credits at the displayed SGD/USD rate, with cost rounded up to six decimals. They apply no real payout fee. Practice credits, reward credits, points and real USDC are displayed separately. See [24 — Monad prelaunch](24-monad-prelaunch.md).
+
 **What it is.** The one place the platform earns (a flat cut folded into the conversion rate), where
 exchange rates come from, and the rules for how a dollar balance is written on screen — two
 currencies, a flip, and an eye that hides the numbers.

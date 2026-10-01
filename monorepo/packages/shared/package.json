@@ -11,6 +11,7 @@
   "scripts": {
     "check:rails": "tsx scripts/check-rails.ts",
     "check:paytarget": "tsx scripts/check-paytarget.ts",
+    "check:paynow": "tsx scripts/check-paynow.ts",
     "check:money": "tsx scripts/check-money.ts",
     "check:kyb": "tsx scripts/check-kyb.ts"
   },

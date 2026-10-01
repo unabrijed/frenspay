@@ -13,8 +13,10 @@ import { classifyAddress } from './chains';
 import { parseEmvQr } from './emvqr';
 import { looksLikePhone } from './phones';
 import { railById } from './rails';
+import { parsePayNowQr, type PayNowTarget } from './paynow';
 
 export type PayTarget =
+  | PayNowTarget // Singapore recognition only; customer payments remain unavailable
   | { kind: 'handle'; handle: string } // another fpay user → in-app USDC send
   | { kind: 'upi'; payee: string; name?: string; amountInr?: number; note?: string } // Indian shop → merchant rail
   | { kind: 'qris'; payee: string; name?: string; amountIdr?: number } // Indonesian shop (NMID) → merchant rail
@@ -111,6 +113,10 @@ export function classifyPayTarget(text: string): PayTarget {
   // The merchant-account template names the processing network, so we can say exactly what was
   // scanned even when we can't pay it yet.
   if (raw.startsWith('000201')) {
+    // PayNow validation must run BEFORE generic scheme selection: a bad Singapore payload must
+    // never fall through to another, potentially live, template in a multi-scheme SGQR.
+    const paynow = parsePayNowQr(raw);
+    if (paynow) return paynow;
     const t = parseEmvQr(raw);
     if (!t) return { kind: 'unknown', raw };
     // The RAIL is the currency authority: an undeclared tag 53 means the rail's own currency; a

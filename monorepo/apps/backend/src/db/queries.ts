@@ -1512,6 +1512,7 @@ export async function getQuoteRowForUser(
   userId: string,
 ): Promise<{
   id: string;
+  payoutMethod: PayoutMethod;
   merchantId: string | null;
   amountUsdc: number;
   /** Raw numeric string, NOT a number — the deposit split subtracts it exactly (a float difference
@@ -1523,19 +1524,21 @@ export async function getQuoteRowForUser(
 } | null> {
   const { rows } = await getPool().query<{
     id: string;
+    payout_method: PayoutMethod;
     merchant_id: string | null;
     amount_usdc: string;
     platform_fee_usdc: string;
     legs: QuoteLeg[] | null;
     expires_at: Date;
   }>(
-    'select id, merchant_id, amount_usdc, platform_fee_usdc, legs, expires_at from quotes where id = $1 and user_id = $2',
+    'select id, payout_method, merchant_id, amount_usdc, platform_fee_usdc, legs, expires_at from quotes where id = $1 and user_id = $2',
     [quoteId, userId],
   );
   const r = rows[0];
   return r
     ? {
         id: r.id,
+        payoutMethod: r.payout_method,
         merchantId: r.merchant_id,
         amountUsdc: Number(r.amount_usdc),
         platformFeeUsdc: r.platform_fee_usdc,

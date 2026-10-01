@@ -10,7 +10,7 @@ import type { PayoutMethod } from '@fpay/shared';
 
 /** Every rail an LP can register / a quote can name. Keep in step with the DB CHECKs (0004, 0005).
  *  Typed wide (`string[]`) because it validates raw request bodies. */
-export const PAYOUT_METHODS: readonly string[] = ['UPI', 'QRIS', 'Pix', 'bank'];
+export const PAYOUT_METHODS: readonly string[] = ['UPI', 'QRIS', 'Pix', 'bank', 'PayNow'];
 
 /**
  * A UPI VPA: local@psp, e.g. 'shop@okhdfcbank'. MIRRORS `VPA_RE` in packages/shared/src/payTarget.ts
@@ -71,7 +71,8 @@ export interface Corridor {
  *           wrong-send question: a typed account has no independent name check the way a VPA does.
  *           See docs/11-lp-console.md.
  */
-export const NOT_QUOTABLE: readonly PayoutMethod[] = ['Pix', 'bank'];
+// PayNow is recognition + isolated StraitsX sandbox only. No live corridor or Singapore LPs.
+export const NOT_QUOTABLE: readonly PayoutMethod[] = ['Pix', 'bank', 'PayNow'];
 
 export const CORRIDORS: Partial<Record<PayoutMethod, Corridor>> = {
   UPI: { currency: 'INR', settle: ['provider', 'lp'], country: 'IN', destinationRe: VPA_RE },

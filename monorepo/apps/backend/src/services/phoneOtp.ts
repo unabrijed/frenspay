@@ -98,8 +98,9 @@ export async function confirmPhoneEnrollment(userId: string, code: string): Prom
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex');
 
-async function sendOtp(phone: string): Promise<string> {
+export async function sendOtp(phone: string): Promise<string> {
   if (config.phoneOtpProvider === 'console') {
+    if (!config.isLocal) throw new PhoneOtpProviderError('console OTP is local only');
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
     lastConsoleCode = code;
     console.log(`[phone-otp] ${phone} code ${code}`);
@@ -115,8 +116,9 @@ async function sendOtp(phone: string): Promise<string> {
   return String(id);
 }
 
-async function verifyOtp(ref: string, code: string): Promise<boolean> {
+export async function verifyOtp(ref: string, code: string): Promise<boolean> {
   if (config.phoneOtpProvider === 'console') {
+    if (!config.isLocal) throw new PhoneOtpProviderError('console OTP is local only');
     const a = Buffer.from(sha256(code));
     const b = Buffer.from(ref);
     return a.length === b.length && timingSafeEqual(a, b);
@@ -136,7 +138,7 @@ let mcToken: { value: string; until: number } | null = null;
 async function mcAuthToken(): Promise<string> {
   if (mcToken && mcToken.until > Date.now()) return mcToken.value;
   const q = `customerId=${encodeURIComponent(config.messageCentralCustomerId)}&key=${encodeURIComponent(config.messageCentralKey)}&scope=NEW`;
-  const res = await fetch(`${MC_BASE}/auth/v1/authentication/token?${q}`, { headers: { accept: '*/*' } }).catch((e) => {
+  const res = await fetch(`${MC_BASE}/auth/v1/authentication/token?${q}`, { headers: { accept: '*/*' }, signal: AbortSignal.timeout(10_000) }).catch((e) => {
     throw new PhoneOtpProviderError(`messagecentral token: ${e instanceof Error ? e.message : e}`);
   });
   const body = (await res.json().catch(() => ({}))) as { token?: string };
@@ -146,7 +148,7 @@ async function mcAuthToken(): Promise<string> {
 }
 
 async function mcFetch(method: 'GET' | 'POST', path: string): Promise<McBody> {
-  const res = await fetch(`${MC_BASE}${path}`, { method, headers: { authToken: await mcAuthToken() } }).catch((e) => {
+  const res = await fetch(`${MC_BASE}${path}`, { method, headers: { authToken: await mcAuthToken() }, signal: AbortSignal.timeout(10_000) }).catch((e) => {
     throw new PhoneOtpProviderError(`messagecentral: ${e instanceof Error ? e.message : e}`);
   });
   if (res.status === 401) {

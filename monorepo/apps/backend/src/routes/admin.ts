@@ -44,6 +44,7 @@ import {
   findUserByHandle,
   findUserById,
   getMerchantForUser,
+  getPayoutProviderRow,
   getDisputeForOrder,
   listAllMerchants,
   getOrderAdmin,
@@ -87,6 +88,7 @@ import { canonicalInviteCode } from '../services/invites';
 import { ACTIVITY_SLOTS, activitySlot, WAIVER_DAYS } from '../services/merchantStats';
 import { settleDispute } from '../services/orderMachine';
 import { providerHasCredentials } from '../services/payout/provider';
+import { isSandboxPayoutProvider } from '../services/payout/providers/straitsxSandbox';
 import { SIGNATURE_RE } from '../services/solana';
 
 import { toStakeClaim } from './merchant';
@@ -250,6 +252,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
         priority: r.priority,
         enabled: r.enabled,
         hasCredentials: providerHasCredentials(r),
+        sandboxOnly: isSandboxPayoutProvider(r),
       })),
     };
   });
@@ -267,6 +270,11 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       if (enabled !== undefined && typeof enabled !== 'boolean') return reply.code(400).send({ error: 'invalid_enabled' });
       if (priority !== undefined && (!Number.isInteger(priority) || priority < 1 || priority > 10_000)) {
         return reply.code(400).send({ error: 'invalid_priority' });
+      }
+      const existing = await getPayoutProviderRow(req.params.id);
+      if (!existing) return reply.code(404).send({ error: 'provider_not_found' });
+      if (enabled === true && isSandboxPayoutProvider(existing)) {
+        return reply.code(409).send({ error: 'provider_sandbox_only' });
       }
       const row = await updatePayoutProvider(req.params.id, { enabled, priority });
       if (!row) return reply.code(404).send({ error: 'provider_not_found' });

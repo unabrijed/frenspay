@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 
 import { Splash } from '@/components/ui/Splash';
 import { bootTrace } from '@/lib/boot';
-import { PRIVY_APP_ID, PRIVY_CLIENT_ID } from '@/services/envConfig';
+import { PRELAUNCH_ENABLED, PRIVY_APP_ID, PRIVY_CLIENT_ID } from '@/services/envConfig';
 
 import { PrivyBridge } from './PrivyBridge';
 
@@ -49,6 +49,13 @@ export default function PrivyRoot({ children }: { children: ReactNode }) {
       appId={PRIVY_APP_ID}
       clientId={PRIVY_CLIENT_ID || undefined}
       config={{
+        ...(PRELAUNCH_ENABLED ? {
+          defaultChain: { id:143,name:'Monad',nativeCurrency:{name:'MON',symbol:'MON',decimals:18},rpcUrls:{default:{http:['https://rpc.monad.xyz']}} },
+          supportedChains: [
+            { id:143,name:'Monad',nativeCurrency:{name:'MON',symbol:'MON',decimals:18},rpcUrls:{default:{http:['https://rpc.monad.xyz']}} },
+            { id:10143,name:'Monad Testnet',nativeCurrency:{name:'MON',symbol:'MON',decimals:18},rpcUrls:{default:{http:['https://testnet-rpc.monad.xyz']}} },
+          ],
+        } : {}),
         // Email, and nothing else. The app's own UI already can't do anything else — PrivyBridge
         // calls useLoginWithEmail and there is no login() modal, connectWallet or linkWallet
         // anywhere in the app — but that left "can someone bring their own wallet?" answered by a
@@ -68,14 +75,14 @@ export default function PrivyRoot({ children }: { children: ReactNode }) {
         // and behaviour is exactly as before.
         embeddedWallets: {
           ethereum: { createOnLogin: 'users-without-wallets' },
-          solana: { createOnLogin: 'users-without-wallets' },
+          ...(!PRELAUNCH_ENABLED ? { solana: { createOnLogin: 'users-without-wallets' as const } } : {}),
         },
       }}
     >
-      <SmartWalletsProvider>
+      {PRELAUNCH_ENABLED ? <PrivyGate>{children}</PrivyGate> : <SmartWalletsProvider>
         <PrivyBridge />
         <PrivyGate>{children}</PrivyGate>
-      </SmartWalletsProvider>
+      </SmartWalletsProvider>}
     </PrivyProvider>
   );
 }

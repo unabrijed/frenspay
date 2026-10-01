@@ -1,5 +1,7 @@
 # 07 · Admin and moderation
 
+> **Monad prelaunch update (2026-10-01):** GET /admin/prelaunch provides authenticated aggregate campaign and receipt-backlog metrics. Campaign accounts and suspension are separate from legacy users; legacy admin user controls do not manage these accounts yet. See [24 — Monad prelaunch](24-monad-prelaunch.md).
+
 **Decision (Bridge, 2026-08-13):** handles are **admin-mutable only** (support-request model — users
 still cannot self-change; onboarding's "can't be changed later" stays true for them); admin can set
 display names; admin can suspend/reinstate accounts; a freed handle **releases instantly** — anyone

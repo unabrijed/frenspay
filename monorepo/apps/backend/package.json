@@ -18,6 +18,8 @@
     "db:init": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "check:admin": "tsx scripts/check-admin.ts",
+    "check:straitsx": "tsx scripts/check-straitsx-sandbox.ts && tsx scripts/check-singapore-safety.ts",
+    "smoke:straitsx": "tsx scripts/smoke-straitsx-sandbox.ts",
     "check:waitlist": "tsx scripts/check-waitlist.ts",
     "check:invites": "tsx scripts/check-invites.ts",
     "check:flist": "tsx scripts/check-flist-gate.ts",
@@ -32,7 +34,8 @@
     "check:bond": "tsx scripts/check-bond.ts",
     "check:escrow": "tsx scripts/check-escrow-switch.ts",
     "check:pool": "tsx scripts/check-escrow-pool.ts",
-    "check:gas": "tsx scripts/check-gas-modes.ts"
+    "check:gas": "tsx scripts/check-gas-modes.ts",
+    "check:prelaunch": "tsx scripts/check-prelaunch.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

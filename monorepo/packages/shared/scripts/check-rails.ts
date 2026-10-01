@@ -2,7 +2,7 @@
 // Run: yarn workspace @fpay/shared check:rails
 // Same pattern as the backend's check-waitlist.ts: plain asserts over the pure logic, no framework.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -55,11 +55,20 @@ for (const r of RAILS.filter((x) => x.live)) {
 // 0005 payout_providers) must allow it.
 {
   const corridors = readFileSync(join(ROOT, 'apps/backend/src/lib/corridors.ts'), 'utf8');
-  const migration4 = readFileSync(join(ROOT, 'apps/backend/src/db/migrations/0004_corridor_currency.sql'), 'utf8');
-  const migration5 = readFileSync(join(ROOT, 'apps/backend/src/db/migrations/0005_payout_providers.sql'), 'utf8');
+  // Constraints evolve through ADDITIVE migrations. Assert their latest definitions, never require
+  // rewriting historical migrations just to introduce another vocabulary value.
+  const directory = join(ROOT, 'apps/backend/src/db/migrations');
+  const constraints = new Map<string, string>();
+  for (const file of readdirSync(directory).filter((f) => /^\d+.*\.sql$/.test(f)).sort()) {
+    const sql = readFileSync(join(directory, file), 'utf8').replace(/--[^\n]*/g, '');
+    for (const match of sql.matchAll(/(?:add\s+)?constraint\s+(\w+)\s+check\s*\(([^;]+?)\)(?=\s*[,;\n])/gi)) {
+      constraints.set(match[1], match[2]);
+    }
+  }
   for (const m of PAYOUT_METHODS) {
-    assert.ok(migration4.includes(`'${m}'`), `migration 0004 CHECK is missing payout method '${m}'`);
-    assert.ok(migration5.includes(`'${m}'`), `migration 0005 payout_providers CHECK is missing payout method '${m}'`);
+    for (const name of ['merchants_rail_chk', 'quotes_payout_chk', 'payout_providers_method_chk']) {
+      assert.ok(constraints.get(name)?.includes(`'${m}'`), `${name}: latest CHECK is missing payout method '${m}'`);
+    }
   }
 
   // Every LIVE rail must be priceable on the backend too: its currency literal must appear in the

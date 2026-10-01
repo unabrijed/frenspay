@@ -100,6 +100,12 @@ export async function runOrderWorkerOnce(log?: (m: string) => void): Promise<voi
         ? releaseToMerchant({ orderId: o.id, reference: o.reference_code, amountUsdc, treasuryAddress: o.treasury_address, merchantUserId: o.merchant_user_id })
         : Promise.resolve();
     try {
+      // Defensive backstop for manually inserted/stale Singapore orders. All tiers use REAL USDC;
+      // even a claimed payout or a sandbox callback can never authorize its release here.
+      if (o.payout_method === 'PayNow' || o.payout_provider_id === 'straitsx_sg_sandbox') {
+        await freezeOrder(o, 'payout_frozen', 'singapore_sandbox_only', {});
+        continue;
+      }
       // Recovery: releaseToMerchant writes funds_released only once the release tx has LANDED. A
       // lingering merchant_confirms therefore means one of two things, and neither is "advance it":
       // no tx was recorded (the broadcast threw) → reset to retry after STUCK_RELEASE_MS; a tx IS

@@ -1,5 +1,7 @@
 # 09 · Data Model
 
+> **Monad prelaunch update (2026-10-01):** Migration 0031 adds prelaunch_accounts, prelaunch_grants, prelaunch_identity_claims, prelaunch_quotes and prelaunch_spends. Unique quote/idempotency keys and locked account updates protect credit debits. Legacy money tables are unchanged. See [24 — Monad prelaunch](24-monad-prelaunch.md).
+
 ## What it is
 
 The Postgres schema — the system's source of truth for everything *except* token balances (those

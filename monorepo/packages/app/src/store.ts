@@ -6,6 +6,7 @@
 // signing. The app is always real; balance/activity load from the backend once signed in.
 import { type ApiGroup, type ApiGroupDetail, type ApiPaymentRequest, classifyPayTarget, countryFromTimeZone, currencyForCountry, type DisplayCurrency, fiatDecimals, isDisplayCurrency, isoFromE164, type KycStatus, type NetworkId, type Notification, type Order, phoneCandidates, type Quote, type SplitShareInput, truncateAddress } from '@fpay/shared';
 import { useEffect, useState } from 'react';
+import { FALLBACK_RATES } from '@fpay/shared';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
@@ -341,7 +342,7 @@ export const usePayStore = create<PayState>()(
       recoveryPrompted: false,
       balanceUSD: 0,
       fxRate: 87.55,
-      fxRates: { INR: 87.55, IDR: 16_500 },
+      fxRates: { ...FALLBACK_RATES },
       transactions: [],
       notifications: [],
       unread: 0,
@@ -797,6 +798,9 @@ export const usePayStore = create<PayState>()(
           // quote currency. The rail rides on the payee so every quote call names it.
           set({ error: null });
           get().payPayee({ name: res.name ?? 'Recipient', vpa: res.payee, rail: 'QRIS', currency: 'IDR' }, res.amountIdr ?? 0);
+        } else if (res.kind === 'paynow') {
+          // Recognition is not activation. No quote, wallet signature or sandbox payout from UI.
+          set({ error: "Singapore payments aren’t available yet" });
         } else if (res.kind === 'address') {
           set({ error: null });
           get().startExternalSend(res.address, res.network);
@@ -1551,6 +1555,11 @@ export const usePayStore = create<PayState>()(
         removeItem: (k) => platform().storage.removeItem(k),
       })),
       skipHydration: true,
+      // Keep newly supported currency fallbacks when hydrating an older saved rate map.
+      merge: (persisted, current) => {
+        const stored = persisted as Partial<PayState> | undefined;
+        return { ...current, ...stored, fxRates: { ...current.fxRates, ...stored?.fxRates } };
+      },
       partialize: (s) => ({
         onboarded: s.onboarded,
         kycTier: s.kycTier,

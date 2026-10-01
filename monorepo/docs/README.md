@@ -4,6 +4,8 @@
 > legal/compliance question it touches, and how finished it is.** Read top-to-bottom for the full
 > picture, or jump to the doc you care about.
 
+**Current web campaign:** [24 — Monad prelaunch](24-monad-prelaunch.md) defines the optional public Singapore test experience: Monad USDC, numeric test credits, points and testnet receipts. It is a simulation; PayNow recipients receive no money. The architecture below describes the preserved legacy money product.
+
 The product is a **consumer money app** — you hold a dollar balance, send money to friends by
 name or number, and (later) pay out to local rails — built on **stablecoins (USDC) on Solana**,
 with the crypto deliberately hidden. **Both deployed environments (stage and prod) run mainnet**;
@@ -46,6 +48,7 @@ Flow docs follow the **same six-part shape**, so you always know where to look:
 
 | # | Doc | Covers |
 |---|---|---|
+| 24 | [Monad prelaunch](24-monad-prelaunch.md) | public Singapore web campaign, credits and tiers, mainnet USDC, simulated PayNow, testnet attestations and rollout |
 | 01 | [Architecture](01-architecture.md) | the whole system, monorepo layout, request + on-chain lifecycle, mainnet posture |
 | 02 | [Identity & onboarding](02-identity-and-onboarding.md) | email-only entrance, one-email/one-handle rule, invite codes (FREN remint), phone/country aliases, KYC tiers |
 | 03 | [Custody, money-in & confirmation](03-custody-money-in-and-confirmation.md) | self-custody (the key legal lever), fee-payer gas, USDC-only deposits, how the chain tells the app |
@@ -68,6 +71,7 @@ Flow docs follow the **same six-part shape**, so you always know where to look:
 | 20 | [Stake claims](20-stake-claims.md) | how a partner stakes without USDC in their fpay wallet — pay the treasury from anywhere, paste the signature, the chain is read, a human attributes, the confirmer credits; duplicates as rows; the refund address is the partner's; Telegram required |
 | 21 | [The stake waiver](21-stake-waiver.md) | root-admin waiver so a partner works before staking: flat floor, 30 days, ends on the first upheld dispute; Partners / Payout providers tabs; home-screen install |
 | 22 | [Admin keeps a track of everything](22-admin-ledger.md) | the prism plan for dispute-grade records: the ledger was already complete and write-once, the console hid it; the mid at strike and the resolution reason captured; a Transactions page with one search; the seed guard; what was deliberately not built |
+| 23 | [Singapore PayNow sandbox](23-singapore-sandbox.md) | QR recognition, isolated StraitsX API tests, callback verification, activation guards and setup |
 
 **Deployment is not a numbered doc** — the runbooks live at the repo root, next to the code they
 deploy: [`DEPLOY.stage.md`](../DEPLOY.stage.md) and [`DEPLOY.md`](../DEPLOY.md). One architecture

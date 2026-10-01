@@ -1,5 +1,7 @@
 # 06 · Off-ramp & Settlement
 
+> **Monad prelaunch update (2026-10-01):** Campaign PayNow scans only record simulated spends. They never enter this escrow/routing/payout state machine and never pay a recipient. StraitsX sandbox support remains isolated; personal API permissions and real Singapore settlement are unconfirmed. See [24 — Monad prelaunch](24-monad-prelaunch.md).
+
 ## What it is
 
 Cash-out / merchant-pay, told as **one machine**: a locked quote → an on-chain escrow deposit → a

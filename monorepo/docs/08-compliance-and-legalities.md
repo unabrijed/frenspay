@@ -1,5 +1,7 @@
 # 08 · Compliance & Legalities (the honest risk map)
 
+> **Monad prelaunch update (2026-10-01):** The Monad campaign is a disclosed simulation: no recipient payment, no redeemable test credits and no guaranteed token allocation. Real USDC remains user-controlled. Profile multipliers do not represent KYC; per-account funding peaks do not prevent cross-account capital reuse. See [24 — Monad prelaunch](24-monad-prelaunch.md).
+
 > **Not legal advice.** This is an engineering-level map of *which regulatory questions each part of
 > the product touches, how the current design handles or defers them, and where the gray zones are.*
 > Every item marked for a real launch must be confirmed with qualified counsel in each target
