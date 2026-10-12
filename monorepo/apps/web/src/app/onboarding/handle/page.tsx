@@ -24,12 +24,8 @@ import { Screen } from '@/components/ui/Screen';
 import { ERROR_COPY, friendlyError } from '@/lib/errors';
 import { colors, type } from '@/lib/theme';
 import { ApiError } from '@/services/api';
-import { LANDING_URL } from '@/services/envConfig';
 import { wallet } from '@/services/wallet';
 import { usePayStore, useStoreHydrated } from '@/store/usePayStore';
-
-// Server codes meaning "the invite gate stopped you", as opposed to a handle problem they can fix here.
-const GATE_CODES = new Set(['invite_required', 'invalid_invite']);
 
 export default function Handle() {
   const router = useRouter();
@@ -78,13 +74,9 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
   const router = useRouter();
   const authSync = usePayStore((s) => s.authSync);
   const [h, setH] = useState('');
-  const [code, setCode] = useState('');
   const [avail, setAvail] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  // True once the invite gate (not a handle problem) is what blocked them — the only case where
-  // there is nothing they can do on this screen, so we offer the f list instead of a dead end.
-  const [gated, setGated] = useState(false);
   // True until the adopt-first sync has answered; the form is only for someone with nothing to adopt.
   const [probing, setProbing] = useState(true);
   // Mirror the server's canonical form (lowercase, [a-z0-9_.], ≤30) so what you see is what registers.
@@ -110,19 +102,6 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Prefill the code stashed by the entry router (/?invite=FP-XXXX-XXXX, set by the landing gate).
-  // Effect, not initializer — localStorage isn't there during SSR and an initializer would mismatch
-  // hydration. The field stays editable: someone can reach the app directly, without the landing
-  // page ever having seen their code.
-  useEffect(() => {
-    try {
-      const stashed = localStorage.getItem('fpay:invite');
-      if (stashed) setCode(stashed);
-    } catch {
-      /* storage blocked */
-    }
-  }, []);
-
   // Debounced availability check via the resolve endpoint (null result = available).
   useEffect(() => {
     if (clean.length < 3) {
@@ -146,33 +125,13 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
 
   const onContinue = async () => {
     setErr(null);
-    setGated(false);
     setBusy(true);
     try {
-      // Code stays optional CLIENT-side — the server decides. A grandfathered user replaying
-      // onboarding re-syncs with no code and must not be blocked by client validation.
-      await authSync('@' + clean, code.trim() || undefined);
-      try {
-        localStorage.removeItem('fpay:invite');
-      } catch {
-        /* storage blocked */
-      }
+      // CustomerAccess has already admitted the verified email to the f-list.
+      await authSync('@' + clean);
       onDone();
     } catch (e) {
-      const apiCode = e instanceof ApiError ? e.code : '';
-      setGated(GATE_CODES.has(apiCode));
-      setErr(
-        apiCode === 'invite_required'
-          ? 'fpay is invite-only. Ask a friend for one of their codes'
-          : // Unknown, already used and revoked all arrive as one code — the server won't say which,
-            // so neither can this. "isn't valid" covers all three honestly.
-            apiCode === 'invalid_invite'
-            ? "That invite code isn't valid"
-            : // Everything else through the shared catalog. It used to fall through to e.message,
-              // which for an ApiError is the raw server code — signup's last screen showed people
-              // the string "handle_taken".
-              friendlyError(e),
-      );
+      setErr(friendlyError(e));
     } finally {
       setBusy(false);
     }
@@ -216,28 +175,7 @@ function HandlePrivy({ onDone }: { onDone: () => void }) {
               <Txt style={[type.tierTag, { color: colors.danger }]}>Taken</Txt>
             ) : null}
           </View>
-          <View style={[styles.field, styles.codeField]}>
-            <input
-              style={sxCodeInput}
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-              placeholder="Invite code"
-              autoCapitalize="characters"
-              autoCorrect="off"
-              spellCheck={false}
-            />
-          </View>
           {err ? <Txt style={[type.note, { color: colors.danger, marginTop: 8 }]}>{err}</Txt> : null}
-          {/* This used to read "No invite? Join the f list →" and it was an escape hatch. It isn't
-              one any more: the f list is itself invite-only, so that link sent someone with no code
-              to a form demanding the code they'd just said they didn't have. There is no way in
-              without one, and saying so is kinder than a door that opens onto the same wall. */}
-          {gated ? (
-            <Txt style={[type.note, { marginTop: 10 }]}>
-              fpay is invite-only. You need a code from a fren. They can find theirs on{' '}
-              {LANDING_URL.replace(/^https?:\/\//, '')}.
-            </Txt>
-          ) : null}
         </View>
       </View>
 
@@ -282,22 +220,8 @@ const styles = {
     paddingTop: 5,
     paddingBottom: 5,
   },
-  codeField: { marginTop: 12, paddingTop: 12, paddingBottom: 12 },
   cta: { gap: 13, alignItems: 'center' },
 } satisfies Record<string, CSSProperties>;
-
-const sxCodeInput: CSSProperties = {
-  fontFamily: 'var(--font-sans)',
-  fontWeight: 500,
-  fontSize: 16,
-  color: colors.ink,
-  flex: 1,
-  padding: 0,
-  border: 'none',
-  outline: 'none',
-  background: 'transparent',
-  minWidth: 0,
-};
 
 const sxHandleInput: CSSProperties = {
   fontFamily: 'var(--font-sans)',

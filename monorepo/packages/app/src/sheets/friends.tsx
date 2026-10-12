@@ -6,9 +6,33 @@ import { useEffect, useState } from 'react';
 
 import { canonicalHandle, classifyAddress, inr, looksLikePhone, phoneCandidates, truncateAddress } from '@fpay/shared';
 
-import { Btn, colors, Fav, fonts, Grab, Icons, Keypad, List, Mark, Pressable, Row, RowMeta, SearchBar, SheetBody, SheetHeader, Spacer, TextLink, Txt, type, View } from '@fpay/ui';
+import {
+  Btn,
+  colors,
+  Fav,
+  fonts,
+  Grab,
+  Icons,
+  Keypad,
+  List,
+  Mark,
+  Pressable,
+  Row,
+  RowMeta,
+  SearchBar,
+  SheetBody,
+  SheetHeader,
+  Spacer,
+  TextLink,
+  Txt,
+  type,
+  View,
+} from '@fpay/ui';
 import { ResultBlock } from '../components/ResultBlock';
 import { platform } from '../platform';
+import { friendsApi } from '../services/api';
+import { friendlyError } from '../lib/errors';
+import type { SavedFriend, SuggestedPerson } from '@fpay/shared';
 import { wallet, type Friend } from '../services/wallet';
 import { usePayStore } from '../store';
 
@@ -246,8 +270,8 @@ function ContactsPrompt({ onAllow }: { onAllow: () => void }) {
         <Icons.Device size={18} color={colors.accent} />
       </View>
       <View style={{ flex: 1 }}>
-        <Txt style={type.rowName}>Pay your contacts</Txt>
-        <Txt style={[type.rowTime, { marginTop: 2 }]}>Allow access to find friends on fpay</Txt>
+        <Txt style={type.rowName}>Choose a contact</Txt>
+        <Txt style={[type.rowTime, { marginTop: 2 }]}>Pick someone to find their Frenspay account</Txt>
       </View>
       <Txt style={{ ...fonts.body500, fontSize: 14, color: colors.accent }}>Allow</Txt>
     </Pressable>
@@ -257,129 +281,213 @@ function ContactsPrompt({ onAllow }: { onAllow: () => void }) {
 export function PeopleSearch({
   onPick,
   onPickAddress,
+  groupId,
+  manage = true,
+  onPickGroup,
 }: {
   onPick: (f: Friend) => void;
-  /** When provided, a typed/pasted wallet address becomes a tappable "send to this wallet" row. */
   onPickAddress?: (address: string, network: 'solana' | 'evm') => void;
+  groupId?: string;
+  manage?: boolean;
+  onPickGroup?: (id: string) => void;
 }) {
   const [query, setQuery] = useState('');
-  const [resolved, setResolved] = useState<Friend | null>(null);
+  const [resolved, setResolved] = useState<{ key: string; friend: Friend | null } | null>(null);
   const [checking, setChecking] = useState(false);
+  const [lookupFailed, setLookupFailed] = useState(false);
+  const [saved, setSaved] = useState<SavedFriend[]>([]);
+  const [suggested, setSuggested] = useState<SuggestedPerson[]>([]);
+  const [suggestedGroups, setSuggestedGroups] = useState<{ id: string; name: string }[]>([]);
+  const [notice, setNotice] = useState('');
+  const [inviteText, setInviteText] = useState('');
+  const [reload, setReload] = useState(0);
   const ownPhone = usePayStore((s) => s.phone);
   const country = usePayStore((s) => s.country);
-
-  // No client-side name index — the directory resolves only by @handle/phone. So the list is just
-  // the live-resolved hit (if any); nothing shows until the user types.
-  //
-  // `canonicalHandle` is the SHARED rule, the same one the scanner and the backend use. This box
-  // used to run its own version that STRIPPED illegal characters instead of rejecting them, so
-  // "@ne-ha" silently became "@neha" — a different real person — with no confirmation step able to
-  // catch it, because the name shown was genuinely that other user's.
-  const handle = query.trim().startsWith('@') ? canonicalHandle(query) : null;
+  const me = usePayStore((s) => s.handle);
+  const open = usePayStore((s) => s.open);
   const address = onPickAddress ? classifyAddress(query) : ({ kind: 'invalid' } as const);
-  // Pay-by-phone: '+' input → 1 candidate; local format defaults to the sender's country code
-  // (UPI model), falling back to own-phone-prefix guesses. Wrong candidate = lookup miss only.
-  const phoneQuery = !handle && looksLikePhone(query);
+  const phoneQuery = looksLikePhone(query);
   const candidates = phoneQuery
     ? phoneCandidates(query, { country: country || undefined, ownPhone: ownPhone || undefined })
     : [];
   const candKey = candidates.join(',');
-
-  // Debounced directory resolve: @handle first, else phone candidates (first hit wins).
+  const handle = !phoneQuery && address.kind === 'invalid' && query.trim() ? canonicalHandle(query) : null;
+  const lookupKey = `${handle ?? ''}|${candKey}`;
   useEffect(() => {
-    const wantsPhone = candKey.length > 0;
-    if (!handle && !wantsPhone) {
-      setResolved(null);
+    let alive = true;
+    void Promise.allSettled([friendsApi.list(), friendsApi.suggestions(groupId)]).then(([a, b]) => {
+      if (!alive) return;
+      if (a.status === 'fulfilled') setSaved(a.value.friends);
+      if (b.status === 'fulfilled') {
+        setSuggested(b.value.people);
+        setSuggestedGroups(b.value.groups);
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [groupId, reload]);
+  useEffect(
+    () =>
+      platform().onForeground((active) => {
+        if (active) setReload((n) => n + 1);
+      }),
+    [],
+  );
+  useEffect(() => {
+    let cancelled = false;
+    setResolved(null);
+    setLookupFailed(false);
+    setNotice('');
+    setInviteText('');
+    if (!handle && !candKey) {
       setChecking(false);
       return;
     }
-    let cancelled = false;
     setChecking(true);
-    const t = setTimeout(async () => {
+    const timer = setTimeout(async () => {
       try {
-        let f: Friend | null = null;
-        if (handle) {
-          f = await wallet.resolveHandle(handle);
-        } else {
-          for (const c of candKey.split(',')) {
-            f = (await wallet.resolvePhone?.(c)) ?? null;
-            if (f) break;
+        let friend: Friend | null = null;
+        if (handle) friend = await wallet.resolveHandle(handle);
+        else
+          for (const phone of candKey.split(',')) {
+            friend = (await wallet.resolvePhone?.(phone)) ?? null;
+            if (friend) break;
           }
-        }
-        if (!cancelled) setResolved(f);
+        if (!cancelled) setResolved({ key: lookupKey, friend });
       } catch {
-        if (!cancelled) setResolved(null);
+        if (!cancelled) setLookupFailed(true);
       } finally {
         if (!cancelled) setChecking(false);
       }
     }, 350);
     return () => {
       cancelled = true;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
-  }, [handle, candKey]);
-
-  const rows: Friend[] = resolved ? [resolved] : [];
-
+  }, [handle, candKey, lookupKey, reload]);
   const allowContacts = async () => {
     const c = await platform().pickContact?.();
-    // Prefer the number (it resolves through the directory, UPI-style); fall back to name prefill.
     if (c?.tel) setQuery(c.tel);
     else if (c?.name) setQuery(c.name);
   };
-
+  const lookupDone = resolved?.key === lookupKey;
+  const match = lookupDone ? resolved.friend : null;
+  const term = query.trim().toLowerCase();
+  const local = term
+    ? saved.filter((p) => p.name.toLowerCase().includes(term) || p.handle.toLowerCase().includes(term))
+    : suggested;
+  const rows: Friend[] = (match ? [match, ...local.filter((p) => p.handle !== match.handle)] : local)
+    .filter((p) => p.handle !== me)
+    .map((p) => ({ ...p, ini: ('ini' in p ? p.ini : undefined) ?? p.name[0]?.toUpperCase() ?? '?' }));
+  const invite = async () => {
+    try {
+      const phone = candidates.length === 1 ? candidates[0] : null;
+      if (!phone) {
+        setNotice('Enter the full number with its country code to invite by SMS.');
+        return;
+      }
+      const { code } = await friendsApi.invite();
+      if (!code) {
+        setNotice('You have no unused invitations right now.');
+        return;
+      }
+      const url = new URL(platform().env.landingUrl || platform().origin());
+      url.searchParams.set('invite', code);
+      const text = `Join me on Frenspay to send money and split bills. My username is ${me}. ${url}`;
+      setInviteText(text);
+      if (platform().openSms) await platform().openSms!(phone, text);
+      else setNotice('Copy the invitation below and send it from your messaging app.');
+    } catch (e) {
+      setNotice(friendlyError(e, 'Couldn’t open SMS. You can copy the invitation instead.'));
+    }
+  };
   return (
     <>
-      {/* Contacts lead when the device has them (docs/04: "Send to Contacts" is THE send entry);
-          elsewhere the search box stays the sole — and therefore still leading — element. */}
       {platform().capabilities.contacts ? <ContactsPrompt onAllow={allowContacts} /> : null}
       <SearchBar
-        placeholder={onPickAddress ? '@handle, phone, or wallet address' : '@handle or phone'}
+        placeholder={onPickAddress ? 'Username, phone, or wallet address' : 'Username or phone number'}
         value={query}
         onChangeText={setQuery}
       />
+      {manage ? <TextLink label="Manage friends" onPress={() => open('friends')} /> : null}
+      {!term && onPickGroup && suggestedGroups.length > 0 ? (
+        <View style={{ gap: 6, marginTop: 10 }}>
+          <Txt style={type.eyebrow}>Your groups</Txt>
+          {suggestedGroups.map((g) => (
+            <TextLink key={g.id} label={g.name} onPress={() => onPickGroup(g.id)} />
+          ))}
+        </View>
+      ) : null}
       {address.kind !== 'invalid' ? (
         <List>
           <Row onPress={() => onPickAddress?.(address.address, address.kind)}>
-            <View style={styles.contactsIcon}>
-              <Icons.Wallet size={18} color={colors.accent} />
-            </View>
             <RowMeta>
-              <Txt style={type.rowName}>Send to this wallet address</Txt>
-              <Txt style={[type.rowTime, { marginTop: 3 }]}>
-                {truncateAddress(address.address)}
-                {address.kind === 'solana' ? ' · Solana' : ''}
-              </Txt>
+              <Txt style={type.rowName}>Send to this wallet</Txt>
+              <Txt style={type.rowTime}>{truncateAddress(address.address)}</Txt>
             </RowMeta>
             <Icons.Chevron size={18} color={colors.muted} />
           </Row>
         </List>
-      ) : rows.length > 0 ? (
+      ) : null}
+      {rows.length > 0 ? (
         <List>
           {rows.map((fr) => (
             <Row key={fr.handle} onPress={() => onPick(fr)}>
               <Fav label={fr.ini} />
               <RowMeta>
                 <Txt style={type.rowName}>{fr.name}</Txt>
-                <Txt style={[type.rowTime, { marginTop: 3 }]}>{fr.handle}</Txt>
+                <Txt style={type.rowTime}>{fr.handle}</Txt>
+                {!term ? (
+                  <Txt style={type.rowTime}>
+                    {suggested.find((p) => p.handle === fr.handle)?.reason === 'routine'
+                      ? 'Often split together around this time'
+                      : suggested.find((p) => p.handle === fr.handle)?.reason === 'trip'
+                        ? 'In this trip'
+                        : saved.some((p) => p.handle === fr.handle && p.favorite)
+                          ? 'Favorite'
+                          : ''}
+                  </Txt>
+                ) : null}
               </RowMeta>
               <Icons.Chevron size={18} color={colors.muted} />
             </Row>
           ))}
         </List>
-      ) : (
-        <Txt style={[type.rowTime, { textAlign: 'center', marginTop: 18 }]}>
-          {checking
-            ? 'Checking…'
-            : handle
-              ? `${handle} isn’t on fpay yet. Invite them from Receive`
-              : phoneQuery
-                ? candidates.length
-                  ? 'That number isn’t on fpay yet'
-                  : 'Use international format, like +91 98765 43210'
-                : 'Search by @handle or phone'}
-        </Txt>
-      )}
+      ) : null}
+      {checking ? <Txt style={type.sub}>Checking…</Txt> : null}
+      {lookupFailed ? (
+        <>
+          <Txt style={type.sub}>Couldn’t look that up. Please try again.</Txt>
+          <TextLink label="Retry lookup" onPress={() => setReload((n) => n + 1)} />
+        </>
+      ) : null}
+      {phoneQuery && !checking && lookupDone && !match && !lookupFailed ? (
+        <View style={{ gap: 10, marginTop: 12 }}>
+          <Txt style={type.sub}>
+            No Frenspay account found for this number. Invite them to join, then look them up again.
+          </Txt>
+          <Btn label="Invite by SMS" variant="secondary" onPress={() => void invite()} />
+          <TextLink label="Check again" onPress={() => setReload((n) => n + 1)} />
+        </View>
+      ) : null}
+      {phoneQuery && !candKey ? <Txt style={type.sub}>Include the country code, for example +65.</Txt> : null}
+      {handle && lookupDone && !match && !checking && !lookupFailed ? (
+        <Txt style={type.sub}>No account found. Check the username, or enter a phone number to invite them.</Txt>
+      ) : null}
+      {!query && !rows.length ? <Txt style={type.sub}>Find a friend by username or phone number.</Txt> : null}
+      {notice ? <Txt style={[type.sub, { color: colors.muted }]}>{notice}</Txt> : null}
+      {inviteText ? (
+        <TextLink
+          label="Copy invitation"
+          onPress={() =>
+            void platform()
+              .copy(inviteText)
+              .then(() => setNotice('Invitation copied.'))
+              .catch(() => setNotice('Couldn’t copy the invitation.'))
+          }
+        />
+      ) : null}
     </>
   );
 }
@@ -405,9 +513,34 @@ const styles = {
   },
   cta: { gap: 13, alignItems: 'center' },
   settle: { alignItems: 'center', paddingTop: 6, paddingBottom: 4 },
-  ringWrap: { position: 'relative', width: 168, height: 168, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
-  ring: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: 999, borderWidth: 2, borderStyle: 'solid', borderColor: colors.accentSoft },
-  coreCircle: { width: 104, height: 104, borderRadius: 999, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 30px rgba(140,113,108,0.15)' },
+  ringWrap: {
+    position: 'relative',
+    width: 168,
+    height: 168,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  ring: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 999,
+    borderWidth: 2,
+    borderStyle: 'solid',
+    borderColor: colors.accentSoft,
+  },
+  coreCircle: {
+    width: 104,
+    height: 104,
+    borderRadius: 999,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 8px 30px rgba(140,113,108,0.15)',
+  },
   detailCard: {
     backgroundColor: colors.surface,
     borderRadius: 16,
@@ -418,9 +551,25 @@ const styles = {
     padding: 16,
     marginTop: 16,
   },
-  kvRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 4, paddingBottom: 4 },
+  kvRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 4,
+    paddingBottom: 4,
+  },
   hr: { height: 1, backgroundColor: colors.hair, marginTop: 6, marginBottom: 6 },
-  lockPill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.surfaceLow, borderRadius: 999, paddingLeft: 10, paddingRight: 12, paddingTop: 5, paddingBottom: 5 },
+  lockPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.surfaceLow,
+    borderRadius: 999,
+    paddingLeft: 10,
+    paddingRight: 12,
+    paddingTop: 5,
+    paddingBottom: 5,
+  },
   contacts: {
     flexDirection: 'row',
     alignItems: 'center',

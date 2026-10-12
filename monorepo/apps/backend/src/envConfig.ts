@@ -136,7 +136,14 @@ const personaApiKeyValue = env('PERSONA_API_KEY');
 const personaTemplateIdValue = env('PERSONA_TEMPLATE_ID');
 
 export const config = {
-  prelaunchEnabled: env('PRELAUNCH_ENABLED', isLocal ? 'true' : 'false') === 'true',
+  prelaunchEnabled: env('PRELAUNCH_ENABLED', 'false') === 'true',
+  merchantPayEnabled: env('MERCHANT_PAY_ENABLED', 'false') === 'true',
+  cardFundingEnabled: env('CARD_FUNDING_ENABLED', 'false') === 'true',
+  wcpProjectId: env('WCP_PROJECT_ID'),
+  paymentChain: env('PAYMENT_CHAIN', 'solana'),
+  paymentPolicyVersion: env('PAYMENT_POLICY_VERSION', 'solana-usdc-v1'),
+  paymentPilotUsers: env('PAYMENT_PILOT_USERS'),
+  paymentCollectHosts: env('PAYMENT_COLLECT_HOSTS'),
   monadRpcUrl: env('MONAD_RPC_URL'),
   monadTestnetRpcUrl: env('MONAD_TESTNET_RPC_URL'),
   prelaunchReceiptWalletId: env('PRELAUNCH_RECEIPT_WALLET_ID'),

@@ -1,10 +1,12 @@
 // registry.tsx — the one list of sheets: id → element, and which ones take the full height. Both
 // SheetHost renderers (web divs, native Animated) read this, so adding a sheet is one case here.
+import { MerchantPaymentSheet } from './MerchantPayment';
 import { AddMoney } from './AddMoney';
 import { Country } from './Country';
 import { Currency } from './Currency';
 import { Request, RequestPick, RequestSent, Send, SendAmount, SendFailed, Sent } from './friends';
 import { AddMember, MoveToGroup, NewGroup, Split, Trip } from './groups';
+import { Bills, FriendsManager } from './expenses';
 import { Help } from './Help';
 import { Recovery, Verify } from './identity';
 import { LocalCurrency } from './LocalCurrency';
@@ -34,11 +36,14 @@ export const TALL = new Set<SheetId>([
   'notifications',
   'addMember',
   'split',
+  'friends',
+  'bills',
   'trip',
 ]);
 
 export function renderSheet(id: SheetId) {
   switch (id) {
+    case 'merchantPayment': return <MerchantPaymentSheet />;
     case 'scan':
       return <Scan />;
     case 'amount':
@@ -91,6 +96,8 @@ export function renderSheet(id: SheetId) {
       return <AddMember />;
     case 'moveToGroup':
       return <MoveToGroup />;
+    case 'friends': return <FriendsManager />;
+    case 'bills': return <Bills />;
     case 'split':
       return <Split />;
     case 'trip':

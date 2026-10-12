@@ -32,14 +32,14 @@
     "db:init": "yarn workspace @fpay/backend db:init",
     "db:seed": "yarn workspace @fpay/backend db:seed",
     "_comment_checks": "The self-checks: every one is plain node with no DB and no network, so check:all runs anywhere in about a second. It is `check:all` and not `check` because `yarn check` is a Yarn 1 BUILTIN (lockfile verifier) and builtins resolve ahead of scripts \u2014 a script named `check` would be silently shadowed.",
-    "check:all": "yarn check:deploy && yarn check:env && yarn check:copy && yarn check:money && yarn check:paytarget && yarn check:paynow && yarn check:prelaunch && yarn check:straitsx && yarn check:rails && yarn check:kyb && yarn check:kyc && yarn check:verify && yarn check:split && yarn check:escrow && yarn check:gas && yarn check:routing && yarn check:fx && yarn check:waitlist && yarn check:invites && yarn check:scenes && yarn check:email && yarn check:api && yarn check:api:lp && yarn check:api:admin && yarn check:next:lp && yarn check:gate && yarn check:boot && yarn check:fetch",
+    "check:all": "yarn check:deploy && yarn check:env && yarn check:copy && yarn check:money && yarn check:paytarget && yarn check:paynow && yarn check:prelaunch && yarn check:straitsx && yarn check:rails && yarn check:kyb && yarn check:kyc && yarn check:verify && yarn check:split && yarn check:expenses && yarn check:escrow && yarn check:gas && yarn check:routing && yarn check:fx && yarn check:waitlist && yarn check:invites && yarn check:scenes && yarn check:email && yarn check:api && yarn check:api:lp && yarn check:api:admin && yarn check:next:lp && yarn check:gate && yarn check:boot && yarn check:fetch",
     "check:paynow": "yarn workspace @fpay/shared check:paynow",
     "check:straitsx": "yarn workspace @fpay/backend check:straitsx",
     "check:api": "yarn workspace @fpay/web check:api",
     "check:api:admin": "yarn workspace @fpay/admin check:api",
     "check:boot": "yarn workspace @fpay/web check:boot",
     "check:fetch": "node scripts/check-fetch.mjs",
-    "check:gate": "yarn workspace @fpay/web check:gate",
+    "check:gate": "yarn workspace @fpay/lp check:gate",
     "check:fx": "yarn workspace @fpay/backend check:fx",
     "check:verify": "yarn workspace @fpay/backend check:verify",
     "check:split": "yarn workspace @fpay/backend check:split",
@@ -61,6 +61,12 @@
     "dev:lp": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/lp dev & wait",
     "check:api:lp": "yarn workspace @fpay/lp check:api",
     "check:next:lp": "yarn workspace @fpay/lp check:next",
-    "check:prelaunch": "yarn workspace @fpay/backend check:prelaunch"
+    "check:prelaunch": "yarn workspace @fpay/backend check:prelaunch",
+    "check:expenses": "yarn workspace @fpay/backend check:expenses",
+    "check:expenses:db": "yarn workspace @fpay/backend check:expenses:db",
+    "check:expenses:postgres": "yarn workspace @fpay/backend check:expenses:postgres",
+    "check:expenses:browser": "yarn workspace @fpay/web check:expenses:browser",
+    "check:payments": "yarn workspace @fpay/backend check:payments",
+    "check:payments:browser": "yarn workspace @fpay/web check:payments:browser"
   }
 }

@@ -1,147 +1,60 @@
 'use client';
 
-// The one look. Three codes, shown once, then gone from the app forever — /me stops returning the
-// strings the moment this screen is acknowledged, so there is no "show them again" to build. Losing
-// one loses a fren, which is the whole point: an invite is scarce or it isn't an invite.
-//
-// Reached from the tabs layout guard rather than from a step in the onboarding chain, because the
-// codes can appear on several paths — a new signup finishing funding, the mainnet fund-skip, or an
-// account that predates invite codes getting minted three on its next /me. One entrance, one guard.
-// Hence /invites and not /onboarding/invites: the route used to sit in the onboarding namespace,
-// which made a screen that is explicitly NOT a step look like one.
-import { useRouter } from 'next/navigation';
-import type { CSSProperties } from 'react';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
-
-import { Btn } from '@/components/ui/Button';
-import { Mark } from '@/components/ui/primitives';
-import { Screen } from '@/components/ui/Screen';
-import { Splash } from '@/components/ui/Splash';
-import { Txt } from '@/components/ui/Txt';
-import { ScrollView, View } from '@/components/ui/rn';
-import { colors, fonts, type } from '@/lib/theme';
+import type { FlistInvite } from '@fpay/shared';
+import { useFlist } from '@/components/CustomerAccess';
 import { LANDING_URL } from '@/services/envConfig';
-import { usePayStore, useStoreHydrated } from '@/store/usePayStore';
+import s from '@/components/customer-access.module.css';
 
 export default function Invites() {
-  const router = useRouter();
-  const hydrated = useStoreHydrated();
-  const invites = usePayStore((s) => s.invites);
-  const acknowledgeInvites = usePayStore((s) => s.acknowledgeInvites);
-  const [busy, setBusy] = useState(false);
-
-  // Nothing to reveal → this screen has already done its job (or was reached by typing the URL).
-  // Not an error state: there is genuinely nothing to show, ever again.
+  const access = useFlist();
+  const [error, setError] = useState('');
+  const refresh = access?.refresh;
   useEffect(() => {
-    if (hydrated && invites.length === 0 && !busy) router.replace('/home');
-  }, [hydrated, invites.length, busy, router]);
-
-  const done = async () => {
-    setBusy(true);
-    try {
-      await acknowledgeInvites();
-    } catch {
-      // A failed ack means the server still thinks they're unrevealed, so they'd be shown again on
-      // the next load. Annoying, not harmful — and far better than swallowing the codes on a
-      // network blip. Go to Home either way.
-    }
-    router.replace('/home');
-  };
-
-  if (!hydrated || invites.length === 0) return <Splash />;
-
-  return (
-    <Screen edges={['top', 'bottom']} style={styles.safe}>
-      <ScrollView style={styles.scroll}>
-        <Txt style={[type.onbH1, { textAlign: 'center' }]}>
-          {invites.length === 1 ? 'One fren.' : `${invites.length} frens.`} That&apos;s it.
-        </Txt>
-        <Txt style={styles.sub}>
-          Give these to the people you actually want here. You won&apos;t see this screen again, so save
-          them somewhere.
-        </Txt>
-
-        <View style={styles.cards}>
-          {invites.map((code) => (
-            <InviteCard key={code} code={code} />
-          ))}
-        </View>
-      </ScrollView>
-
-      <View style={styles.cta}>
-        <Btn label={busy ? 'Saving…' : "I've saved them"} disabled={busy} pending={busy} onPress={done} />
-      </View>
-    </Screen>
-  );
+    if (refresh) void refresh().catch(() => setError('Couldn’t refresh your invites. Try again.'));
+  }, [refresh]);
+  return <main className={s.shell}>
+    <Link href="/" className={s.link}>← Back to the app</Link>
+    <section className={s.card} style={{ marginTop: 32 }}>
+      <h1>Invite a fren</h1>
+      <p>A place for your people. Your invite links will always be here.</p>
+      {access?.data.invites.map((invite) => <InviteCard key={invite.code} invite={invite} />)}
+      {access && access.data.invites.length === 0 && <p>No invites available right now.</p>}
+      {!access && <p>Sign in with your email to see your invites.</p>}
+      {error && <><p role="alert" className={s.error}>{error}</p>
+        <button className={s.link} onClick={() => void refresh?.().then(() => setError('')).catch(() => setError('Couldn’t refresh your invites. Try again.'))}>Try again</button></>}
+    </section>
+  </main>;
 }
 
-function InviteCard({ code }: { code: string }) {
-  const [copied, setCopied] = useState(false);
-  // The link goes to the MARKETING site, not this app: a fren who isn't sold yet lands somewhere
-  // that explains what fpay is, and that page is where the code gets checked anyway.
-  const text = `You're invited to fpay.\nYour code: ${code}`;
-  const url = LANDING_URL;
-
-  const flash = () => {
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-
-  const onCopy = async () => {
+function InviteCard({ invite }: { invite: FlistInvite }) {
+  const [notice, setNotice] = useState('');
+  const [showLink, setShowLink] = useState(false);
+  const url = new URL(LANDING_URL);
+  url.searchParams.set('invite', invite.code);
+  const link = url.toString();
+  const copy = async () => {
     try {
-      await navigator.clipboard?.writeText(`${text}\n${url}`);
-      flash();
-    } catch {
-      /* clipboard blocked — the code is on screen to read */
-    }
+      await navigator.clipboard.writeText(link);
+      setNotice('Link copied'); setShowLink(false);
+    } catch { setNotice('Copy the link below.'); setShowLink(true); }
   };
-
-  const onShare = async () => {
-    // No share sheet (desktop, mostly) → copying IS the share. Silently doing nothing would read as
-    // a broken button.
-    if (!navigator.share) return onCopy();
-    try {
-      await navigator.share({ title: 'Join fpay', text, url });
-    } catch {
-      /* dismissed the sheet */
-    }
+  const share = async () => {
+    if (!navigator.share) return copy();
+    try { await navigator.share({ title: 'Invite a fren', text: 'You’re invited to frenspay.', url: link }); }
+    catch (e) { if (!(e instanceof Error && e.name === 'AbortError')) setNotice('Couldn’t share. Copy the link instead.'); }
   };
-
-  return (
-    <View style={styles.card}>
-      <View style={styles.cardHead}>
-        <Mark size={20} color={colors.accent} bead={colors.surface} />
-        <Txt style={styles.brand}>fpay</Txt>
-      </View>
-      <Txt style={styles.code}>{code}</Txt>
-      <View style={styles.actions}>
-        <Btn label="Share" variant="secondary" onPress={onShare} style={{ flex: 1 }} />
-        <Btn label={copied ? 'Copied' : 'Copy'} variant="secondary" onPress={onCopy} style={{ flex: 1 }} />
-      </View>
-    </View>
-  );
+  return <article className={s.invite}>
+    <code>{invite.code}</code>
+    <span>{invite.used ? 'Used' : 'Ready to share'}</span>
+    {!invite.used && <>
+      <div className={s.actions}>
+        <button className={s.link} onClick={() => void copy()}>Copy link</button>
+        <button className={s.link} onClick={() => void share()}>Share</button>
+      </div>
+      {showLink && <input aria-label={`Invite link for ${invite.code}`} readOnly value={link} onFocus={(e) => e.target.select()} />}
+    </>}
+    {notice && <p role="status">{notice}</p>}
+  </article>;
 }
-
-const styles = {
-  safe: { flex: 1, backgroundColor: colors.canvas, paddingLeft: 24, paddingRight: 24, paddingTop: 8, paddingBottom: 26 },
-  scroll: { paddingTop: 28, paddingBottom: 16 },
-  sub: { ...type.leadInk, textAlign: 'center', maxWidth: 320, alignSelf: 'center', marginTop: 10 },
-  cards: { alignSelf: 'stretch', marginTop: 26, gap: 12 },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderStyle: 'solid',
-    borderColor: colors.outlineVariant,
-    boxShadow: '0 4px 20px rgba(74,70,67,0.05)',
-    padding: 16,
-  },
-  cardHead: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  brand: { fontFamily: 'var(--font-sans)', fontWeight: 700, fontSize: 13, color: colors.accent, letterSpacing: 0.2 },
-  // mono600 is the tabular-figures cut of Hanken Grotesk — the same role money and handles use, so
-  // digits sit on a fixed advance and the two groups line up. Wide tracking on top of it is what
-  // makes this read as something to transcribe rather than a word.
-  code: { ...fonts.mono600, fontSize: 25, letterSpacing: 1.4, color: colors.ink, marginTop: 12 },
-  actions: { flexDirection: 'row', gap: 10, marginTop: 16 },
-  cta: { gap: 13, alignItems: 'center' },
-} satisfies Record<string, CSSProperties>;

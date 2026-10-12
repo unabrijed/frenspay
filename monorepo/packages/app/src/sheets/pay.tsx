@@ -62,7 +62,7 @@ export function Scan() {
           <Txt style={[type.lead, styles.scanError]}>{error}</Txt>
         ) : (
           <Txt style={[type.lead, styles.scanLead]}>
-            {camErr ? CAM_MESSAGES[camErr] : 'Point at any UPI or QRIS QR, or a friend’s fpay code.'}
+            {camErr ? CAM_MESSAGES[camErr] : 'Scan a supported merchant QR or a friend’s Frenspay code.'}
           </Txt>
         )}
         {camErr ? (
@@ -74,7 +74,7 @@ export function Scan() {
             badly, or simply not in front of you. Same parser as the camera path. */}
         <View style={styles.manual}>
           <View style={{ flex: 1, minWidth: 0 }}>
-            <SearchBar placeholder="Or enter a UPI ID" value={typed} onChangeText={setTyped} />
+            <SearchBar placeholder="Or paste a payment link or username" value={typed} onChangeText={setTyped} />
           </View>
           <Btn label="Pay" disabled={!typed.trim()} onPress={() => void handleScan(typed.trim())} />
         </View>
@@ -82,6 +82,7 @@ export function Scan() {
           <Icons.Qr size={16} color={colors.accent} />
           <Txt style={{ ...fonts.body500, fontSize: 14.5, color: colors.accent }}>Show my QR</Txt>
         </Pressable>
+        <TextLink label="Pending merchant payments" onPress={() => { usePayStore.setState({ merchantLink: null }); open('merchantPayment'); }} />
       </SheetBody>
     </>
   );

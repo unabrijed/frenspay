@@ -18,6 +18,7 @@ export interface Txn {
   status?: 'pending' | 'confirmed' | 'failed'; // real-mode only; optional so mobile (never sets it) is unaffected
   /** Trips & splitting (docs/04). The trip this expense sits in; absent = personal. */
   groupId?: string;
+  expenseId?: string;
   /** Your part of what YOU paid, after the shares you handed out (absent on incoming rows). */
   yourPart?: number;
   /** Set when this row paid a share of someone's bill (or someone paid theirs to you): the bill's label. */
@@ -74,6 +75,7 @@ export interface WalletProvider {
     amountUsd: number;
     note?: string;
     idempotencyKey?: string;
+    requestId?: string;
   }): Promise<Txn>;
   depositAddress(): string;
   // ---- payment requests ----
@@ -422,8 +424,7 @@ export interface WaitlistJoinResponse {
   position: number;
   /** How many people joined using this member's code. */
   frens: number;
-  /** Their own three invite codes, to pass on. Stable across re-submits — joining twice returns the
-   *  same three and spends no second code. Empty only if minting hit the ~1e-8 collision. */
+  /** Compatibility field, always empty. Owned codes require authenticated GET /flist/me. */
   invites: string[];
 }
 
@@ -459,6 +460,7 @@ export interface ApiTxn {
   /* ---- trips & splitting (0026, docs/04) — all optional so every pre-existing reader is unaffected ---- */
   /** The trip this expense belongs to; absent = personal. */
   groupId?: string;
+  expenseId?: string;
   /** OUT rows only: amount − Σ shares you handed out (open or paid); '0' when the order was refunded.
    *  This — never the face amount — is what "your share" sums. Incoming rows never carry it. */
   yourPartUsd?: string;
@@ -563,12 +565,13 @@ export interface ApiPaymentRequest {
   counterpartyHandle?: string;
   amountUsd: string;
   note?: string;
-  status: 'open' | 'paid' | 'cancelled';
+  status: 'open' | 'pending' | 'paid' | 'cancelled';
   createdAt: string; // ISO 8601
-  /** A share: the expense (transfers.id) this request divides. Absent on a plain request. */
+  /** Legacy split source. New bill reimbursements identify their bill with expenseId. */
   splitOf?: string;
-  /** The transfer that paid it. A paid share WITHOUT one was ticked off by hand ("already paid"). */
+  /** Reserved or settled transfer. Historical paid requests may have no transfer. */
   transferId?: string;
+  expenseId?: string;
 }
 
 export interface RequestsResponse {
@@ -595,6 +598,8 @@ export interface ApiGroup {
   ownerHandle: string;
   members: ApiGroupMember[];
   totalUsd: string;
+  /** Cost allocated to trip members, excluding outside participants. */
+  memberCostUsd?: string;
 }
 
 /** One friend's part of one expense. `paid` covers both a settled request and "already paid" by hand. */
@@ -605,6 +610,7 @@ export interface ApiShare {
 }
 
 export interface ApiGroupExpense {
+  expenseId?: string;
   transferId: string;
   kind: TxnType | 'escrow_fund' | 'escrow_release';
   paidByHandle: string;
@@ -615,6 +621,9 @@ export interface ApiGroupExpense {
   /** Your part: payer → amount − Σ shares; member → your share (or '0'). */
   yourPartUsd: string;
   shares: ApiShare[];
+  memberCostUsd?: string;
+  state?: 'draft' | 'published';
+  needsReview?: boolean;
 }
 
 export interface ApiGroupDetail extends ApiGroup {
@@ -655,6 +664,8 @@ export interface SplitRequest {
 }
 
 export interface PrepareTransferRequest {
+  /** An expense reimbursement, reserved atomically before signing. */
+  requestId?: string;
   /** In-app recipient by @handle. Exactly one of toHandle / toAddress must be set. */
   toHandle?: string;
   /** External recipient by raw wallet address (v1: Solana only; server re-validates + gates on KYC tier). */

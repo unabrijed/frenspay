@@ -5,7 +5,8 @@ import type { Platform } from '@fpay/app';
 import * as Clipboard from 'expo-clipboard';
 import { Contact } from 'expo-contacts';
 import * as WebBrowser from 'expo-web-browser';
-import { AppState, Linking, Share } from 'react-native';
+import { AppState, Linking, Share, Platform as NativePlatform } from 'react-native';
+import { smsInviteUrl } from '@fpay/shared';
 
 import {
   API_URL,
@@ -52,6 +53,9 @@ export const nativePlatform: Platform = {
   // polls /me from there; the redirect is the fast path, not the only one.
   openKyc: async (url) => {
     await WebBrowser.openAuthSessionAsync(url, 'fpay://home');
+  },
+  openSms: async (to, body) => {
+    await Linking.openURL(smsInviteUrl(to, body, NativePlatform.OS === 'ios'));
   },
   openMail: (to, subject) => {
     void Linking.openURL(`mailto:${to}?subject=${encodeURIComponent(subject)}`);

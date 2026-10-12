@@ -1,8 +1,13 @@
-# Monad prelaunch: Singapore test payments
+# Historical: Monad prelaunch (retired)
+
+The customer practice-payment experience is retired. Its signup, quote and spend endpoints return 410.
+The active app uses the Solana USDC merchant-payment pilot described in `DEPLOY.md`.
+`/prelaunch` redirects to `/legacy-wallet`, which retains existing funds, withdrawals and receipt history.
+No practice credits are converted into money. The description below records the previous implementation.
 
 ## What it is
 
-An optional public web campaign for the Singapore/TOKEN2049 audience. People sign in with email,
+An optional invite-only web campaign for the Singapore/TOKEN2049 audience. People verify their email and invited f-list membership,
 get 25 practice credits, and scan Singapore PayNow QRs to record simulated payments. **The
 recipient receives no money.** This is not a functioning PayNow payment method or a promise
 that someone can buy goods at TOKEN2049. Pay separately for real purchases.
@@ -23,7 +28,7 @@ system. This is an additive web entry mode, not a migration of existing funds or
 
 ```mermaid
 flowchart TD
-  A[Public email OTP] --> B[Privy embedded EVM wallet]
+  A[Email OTP + invited f-list membership] --> B[Privy embedded EVM wallet]
   B --> C[25 practice credits, zero reward points]
   B --> D[Optional native USDC deposit on Monad mainnet]
   D --> E[Backend verifies finalized USDC balance]
@@ -157,8 +162,8 @@ run. Do not describe configured capabilities as live-verified integrations.
    five verification attempts per challenge. Restrict sponsorship policies/budgets in Privy.
 5. Set web `NEXT_PUBLIC_STAGE_PRELAUNCH_ENABLED=true` for stage or
    `NEXT_PUBLIC_PRELAUNCH_ENABLED=true` for production and rebuild. Local defaults on unless
-   `NEXT_PUBLIC_LOCAL_PRELAUNCH_ENABLED=false`. The campaign root is public; other legacy routes
-   keep the deployment gate. Backend and frontend flags must agree.
+   `NEXT_PUBLIC_LOCAL_PRELAUNCH_ENABLED=false`. Both customer modes use the shared email/f-list
+   gate; the feature flag selects the existing UI only. Backend and frontend flags must agree.
 6. Verify email login, refresh/reload, wrong-network deposits, finalized deposit crediting, tier
    upgrades, withdrawal and redeposit, duplicate/concurrent confirmations, failed SMS codes,
    QR fixed amounts, receipt recovery and rejected/ambiguous withdrawals before public promotion.

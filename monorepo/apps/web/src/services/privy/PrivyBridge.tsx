@@ -5,7 +5,7 @@
 // Web SDK: @privy-io/react-auth (+ /solana for the embedded Solana wallet).
 import { useLinkWithPasskey, useLoginWithEmail, usePrivy } from '@privy-io/react-auth';
 import { useSmartWallets } from '@privy-io/react-auth/smart-wallets';
-import { useCreateWallet, useSignAndSendTransaction, useWallets } from '@privy-io/react-auth/solana';
+import { useCreateWallet, useSignTransaction, useSignAndSendTransaction, useWallets } from '@privy-io/react-auth/solana';
 import { useEffect, useRef } from 'react';
 
 import { base58encode } from '@/lib/base58';
@@ -35,6 +35,7 @@ export function PrivyBridge(): null {
   const { wallets, ready: walletsReady } = useWallets();
   const { createWallet } = useCreateWallet();
   const { signAndSendTransaction } = useSignAndSendTransaction();
+  const { signTransaction } = useSignTransaction();
   const { linkWithPasskey } = useLinkWithPasskey();
   const { client: smartClient, getClientForChain } = useSmartWallets();
 
@@ -197,7 +198,7 @@ export function PrivyBridge(): null {
             ...(sponsored ? { options: { sponsor: true } } : {}),
           });
           return base58encode(signature);
-        }),
+        }, async bytes => (await signTransaction({ transaction: bytes, wallet, chain: SOLANA_CHAIN, options: { uiOptions: { showWalletUIs: false } } })).signedTransaction),
       );
       usePayStore.setState((s) => ({
         walletAddress: wallet.address,
@@ -205,7 +206,7 @@ export function PrivyBridge(): null {
       }));
     })().catch((e) => usePayStore.setState({ authError: e instanceof Error ? e.message : String(e) }));
     return undefined;
-  }, [ready, user, walletsReady, wallet, createWallet, signAndSendTransaction]);
+  }, [ready, user, walletsReady, wallet, createWallet, signAndSendTransaction, signTransaction]);
 
   // Bounded: a wallet that has not appeared WALLET_TIMEOUT_MS after the session resolved — iframe
   // blocked, creation wedged — used to fall through to the welcome screen via the 5 s fallback. Now

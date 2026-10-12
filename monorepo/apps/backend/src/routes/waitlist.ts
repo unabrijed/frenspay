@@ -31,7 +31,6 @@ import {
   verifyWaitlistEmail,
   waitlistPosition,
 } from '../db/queries';
-import { sendEmail, waitlistConfirmEmail } from '../services/email';
 import { canonicalInviteCode } from '../services/invites';
 
 // The four helpers below are exported only so scripts/check-waitlist.ts can assert against the real
@@ -85,16 +84,14 @@ export async function registerWaitlistRoutes(app: FastifyInstance) {
     const code = config.waitlistSecret ? refCode(email) : null;
     const ref = sanitizeRef(req.body?.ref, code);
 
-    let verifiedAt: Date | null;
-    let invites: string[];
     try {
-      ({ verifiedAt, invites } = await joinWaitlistWithCode({
+      await joinWaitlistWithCode({
         email,
         code: invite,
         city: city || undefined,
         refCode: code,
         referredBy: ref,
-      }));
+      });
     } catch (e) {
       if ((e as { code?: string }).code !== 'invalid_invite') throw e;
       // The join collapses unknown / burned / revoked into one error so it can't be used as an
@@ -109,25 +106,14 @@ export async function registerWaitlistRoutes(app: FastifyInstance) {
 
     const [position, frens] = await Promise.all([waitlistPosition(email), code ? countWaitlistFrens(code) : 0]);
 
-    // Re-sending to an unverified address is intentional (people lose the first mail); an already
-    // confirmed one gets nothing, so re-submitting can't be used to mailbomb someone. The mail now
-    // also carries their three codes — the success screen is one page view and people close tabs,
-    // so the inbox is the durable copy. Nothing needs a "resend my codes" endpoint.
-    if (code && !verifiedAt) {
-      const base = config.publicBaseUrl || `http://localhost:${config.port}`;
-      const { subject, html } = waitlistConfirmEmail(
-        `${base}/waitlist/verify?t=${encodeURIComponent(confirmToken(email))}`,
-        `${config.landingUrl}/?ref=${code}`,
-        invites,
-      );
-      void sendEmail(email, subject, html);
-    }
+    // The app sends the login OTP after the landing handoff. No second confirmation email.
+    // Keep /waitlist/verify below for previously issued links.
 
     // Still 201 for a duplicate EMAIL, so the form can't be used to ask "is this address on the
     // list?". A bad or spent CODE does get its own status — that leaks nothing the caller wasn't
     // already holding, and silently swallowing it would leave them staring at a success screen for
     // a join that never happened.
-    const body: WaitlistJoinResponse = { ok: true, code, position, frens, invites };
+    const body: WaitlistJoinResponse = { ok: true, code, position, frens, invites: [] };
     return reply.code(201).send(body);
   });
 

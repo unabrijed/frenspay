@@ -1,0 +1,16 @@
+.shell, .shell * { box-sizing: border-box; }
+.shell { padding: 28px 24px; min-height: 100dvh; background: #fce8cb; color: #493c33; overflow-y: auto; }
+.brand { font-size: 23px; font-weight: 600; margin-bottom: 64px; }
+.card { max-width: 420px; margin: 0 auto; }
+.card h1 { font-size: 34px; line-height: 1.1; font-weight: 500; margin: 0 0 16px; }
+.card p { line-height: 1.6; overflow-wrap: anywhere; }
+.card form { display: grid; gap: 12px; margin-top: 28px; }
+.card label { font-size: 14px; }
+.card input { width: 100%; min-height: 52px; border: 1px solid #bba18d; border-radius: 12px; background: #fff9ef; padding: 12px; font: inherit; color: inherit; }
+.primary { min-height: 48px; width: 100%; border: 0; border-radius: 12px; background: #994d32; color: white; font: inherit; padding: 12px 16px; cursor: pointer; }
+.link { background: none; border: 0; padding: 14px 0; color: #773f2f; font: inherit; text-decoration: underline; cursor: pointer; }
+.actions { display: flex; flex-wrap: wrap; gap: 20px; }
+.error { color: #a02d20; }
+.shell button:disabled { opacity: .55; cursor: wait; }
+.invite { border: 1px solid #cdb5a0; border-radius: 14px; padding: 18px; margin: 14px 0; background: #fff9ef; }
+.invite code { display: block; font-size: 21px; margin-bottom: 8px; }

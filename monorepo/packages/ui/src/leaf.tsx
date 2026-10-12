@@ -20,9 +20,10 @@ const INPUT_MODE: Record<KeyboardType, 'text' | 'numeric' | 'decimal' | 'email' 
   tel: 'tel',
 };
 
-export function Input({ value, onChangeText, placeholder, autoFocus, keyboardType = 'default', maxLength, autoComplete, onSubmit, style }: InputProps) {
+export function Input({ value, onChangeText, placeholder, autoFocus, keyboardType = 'default', maxLength, autoComplete, onSubmit, style, accessibilityLabel }: InputProps) {
   return (
     <input
+      aria-label={accessibilityLabel ?? placeholder}
       value={value}
       onChange={(e) => onChangeText(e.target.value)}
       onKeyDown={onSubmit ? (e) => e.key === 'Enter' && onSubmit() : undefined}

@@ -1,7 +1,9 @@
 // confirmer.ts — M2 transfer confirmation.
 // Dev: poll on-chain status for pending transfers and flip the DB row. Prod also has the
 // Helius webhook (POST /webhooks/helius) for push confirmation; this poller is the fallback.
+import { recoverExpenseTransfers } from './expenseRecovery';
 import { config } from '../envConfig';
+import { reconcileExpenseSettlements } from '../db/expenses';
 import { hasDatabase } from '../db/pool';
 import { expireStaleUnsignedTransfers, listPendingSolanaTransfers, setTransferStatus } from '../db/queries';
 
@@ -16,6 +18,7 @@ let running = false; // re-entrancy guard: a slow pass must not overlap the next
 
 /** One pass: resolve every pending+broadcast transfer and persist a terminal status. */
 export async function confirmPendingOnce(log?: (m: string) => void): Promise<void> {
+  await recoverExpenseTransfers(log);
   const pending = await listPendingSolanaTransfers();
   for (const t of pending) {
     // One row at a time, and one row's failure stays its own: a 429 from the RPC or a downstream
@@ -43,6 +46,7 @@ export async function confirmPendingOnce(log?: (m: string) => void): Promise<voi
 
   // Retire transfers prepared but never signed (user abandoned before broadcast).
   const expired = await expireStaleUnsignedTransfers();
+  await reconcileExpenseSettlements();
   if (expired > 0) log?.(`expired ${expired} stale unsigned transfer(s)`);
 
   // Drive the simulated merchant/LP + order escalation timers.

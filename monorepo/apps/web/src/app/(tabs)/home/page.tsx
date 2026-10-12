@@ -116,6 +116,10 @@ export default function Home() {
           </View>
         ) : null}
 
+        <Pressable onPress={() => router.push('/invites')} style={{ padding: 16 }}>
+          <Txt style={type.seeAll}>Invite a fren ↗</Txt>
+        </Pressable>
+
         {/* recent activity */}
         <View style={styles.recent}>
           <View style={styles.rh}>

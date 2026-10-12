@@ -7,7 +7,7 @@
 import type { CSSProperties } from 'react';
 import { useState } from 'react';
 
-import { type ApiGroupExpense, BN, type SplitShareInput, splitEqual, usd } from '@fpay/shared';
+import { type ApiGroupExpense, usd } from '@fpay/shared';
 
 import { Btn, Chip, colors, Fav, Field, Grab, Icons, Input, List, Pressable, Row, RowAmount, RowMeta, SheetBody, SheetHeader, Spacer, sx, TextLink, Txt, type, View } from '@fpay/ui';
 import { MaskedAmount } from '../components/MaskedAmount';
@@ -81,7 +81,7 @@ export function Trip() {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const act = (e: ApiGroupExpense, sheet: 'split' | 'moveToGroup') => {
-    setExpense({ id: e.transferId, amountUsd: Number(e.amountUsd), label: expenseTitle(e), groupId: trip?.id });
+    setExpense({ id: e.transferId, expenseId: e.expenseId, amountUsd: Number(e.amountUsd), label: expenseTitle(e), groupId: trip?.id });
     open(sheet);
   };
 
@@ -128,8 +128,8 @@ export function Trip() {
 
         <View style={styles.totals}>
           <View>
-            <Txt style={type.eyebrow}>Total</Txt>
-            <MaskedAmount value={usd(trip.totalUsd)} style={[type.rowAmount, { fontSize: 20 }]} />
+            <Txt style={type.eyebrow}>Trip cost</Txt>
+            <MaskedAmount value={usd(trip.memberCostUsd ?? trip.totalUsd)} style={[type.rowAmount, { fontSize: 20 }]} />
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <Txt style={type.eyebrow}>Your part</Txt>
@@ -152,7 +152,7 @@ export function Trip() {
                     <RowMeta>
                       <Txt style={type.rowName}>{expenseTitle(e)}</Txt>
                       <Txt style={[type.rowTime, { marginTop: 3 }]}>
-                        paid by {mine ? 'you' : e.paidByHandle} · {relTime(e.createdAt)}
+                        {e.state === 'draft' ? 'Draft' : e.needsReview ? 'Needs review' : `Started by ${mine ? 'you' : e.paidByHandle}`} · {relTime(e.createdAt)}
                       </Txt>
                       {e.shares.length > 0 ? (
                         <Txt style={[type.rowTime, { marginTop: 3, color: colors.muted }]}>
@@ -165,12 +165,7 @@ export function Trip() {
                       <Txt style={[type.rowTime, { marginTop: 2 }]}>your part {usd(e.yourPartUsd)}</Txt>
                     </RowAmount>
                   </Row>
-                  {mine ? (
-                    <View style={styles.rowActions}>
-                      <TextLink label={e.shares.length ? 'Edit split' : 'Split'} onPress={() => act(e, 'split')} />
-                      <TextLink label="Move" onPress={() => act(e, 'moveToGroup')} />
-                    </View>
-                  ) : null}
+                  <View style={styles.rowActions}><TextLink label="View bill & split" onPress={() => act(e, 'split')} /></View>
                 </View>
               );
             })}
@@ -241,151 +236,7 @@ export function MoveToGroup() {
   );
 }
 
-/* ---- split: who was this for, and how much each ---- */
-
-interface Line {
-  handle: string;
-  on: boolean;
-  amount: string;
-  /** "Already paid" — recorded as paid, no request goes out. */
-  settled: boolean;
-  /** A transfer settled it: the server keeps it whatever we send, so it is shown, not edited. */
-  locked: boolean;
-}
-
-/** Equal parts over the selected, unlocked lines, from what the locked ones leave. Overwrites
- *  hand-edited amounts — selection is the coarse control, the fields are the fine one after. */
-function equalize(lines: Line[], totalUsd: number): Line[] {
-  const locked = lines.filter((l) => l.locked).reduce((acc, l) => acc.plus(l.amount), new BN(0));
-  const open = lines.filter((l) => l.on && !l.locked);
-  if (open.length === 0) return lines;
-  const parts = splitEqual(new BN(totalUsd).minus(locked).toFixed(2), open.length + 1).slice(1);
-  let i = 0;
-  return lines.map((l) => (l.on && !l.locked ? { ...l, amount: parts[i++] } : l));
-}
-
-export function Split() {
-  const close = usePayStore((s) => s.close);
-  const expense = usePayStore((s) => s.expense);
-  const groups = usePayStore((s) => s.groups);
-  const requests = usePayStore((s) => s.requests);
-  const me = usePayStore((s) => s.handle);
-  const busy = usePayStore((s) => s.busy);
-  const splitExpense = usePayStore((s) => s.splitExpense);
-  const total = expense?.amountUsd ?? 0;
-
-  const [note, setNote] = useState(expense?.label ?? '');
-  const [adding, setAdding] = useState(false);
-  const [lines, setLines] = useState<Line[]>(() => {
-    if (!expense) return [];
-    // What already exists on this expense (the store holds every request I sent), then the trip's
-    // roster. A first split preselects the roster; a re-split shows exactly what stands.
-    const existing: Line[] = requests
-      .filter((r) => r.direction === 'outgoing' && r.splitOf === expense.id && r.status !== 'cancelled' && r.counterpartyHandle)
-      .map((r) => ({
-        handle: r.counterpartyHandle as string,
-        on: true,
-        amount: new BN(r.amountUsd).toFixed(2),
-        settled: r.status === 'paid',
-        locked: r.status === 'paid' && !!r.transferId,
-      }));
-    const roster = (groups.find((g) => g.id === expense.groupId)?.members ?? [])
-      .filter((m) => m.handle !== me && !existing.some((l) => l.handle === m.handle))
-      .map((m): Line => ({ handle: m.handle, on: existing.length === 0, amount: '', settled: false, locked: false }));
-    const all = [...existing, ...roster];
-    return existing.length === 0 ? equalize(all, total) : all;
-  });
-
-  if (!expense) return null;
-
-  const update = (next: Line[], reequalize: boolean) => setLines(reequalize ? equalize(next, total) : next);
-  const toggle = (h: string) => update(lines.map((l) => (l.handle === h ? { ...l, on: !l.on } : l)), true);
-  const setAmount = (h: string, amount: string) => update(lines.map((l) => (l.handle === h ? { ...l, amount } : l)), false);
-  const setSettled = (h: string) => update(lines.map((l) => (l.handle === h ? { ...l, settled: !l.settled } : l)), false);
-  const add = (handle: string) => {
-    setAdding(false);
-    if (handle === me || lines.some((l) => l.handle === handle)) return;
-    update([...lines, { handle, on: true, amount: '', settled: false, locked: false }], true);
-  };
-
-  const selected = lines.filter((l) => l.on);
-  const valid = selected.every((l) => /^\d+(\.\d{1,2})?$/.test(l.amount) && new BN(l.amount).gt(0));
-  const sum = valid ? selected.reduce((acc, l) => acc.plus(l.amount), new BN(0)) : null;
-  const yourPart = sum ? new BN(total).minus(sum) : null;
-  const ok = valid && yourPart !== null && yourPart.gte(0);
-  const hadSplit = lines.some((l) => !l.locked && l.settled) || requests.some((r) => r.splitOf === expense.id && r.status === 'open');
-  const shares: SplitShareInput[] = selected
-    .filter((l) => !l.locked)
-    .map((l) => ({ handle: l.handle, amountUsd: l.amount, settled: l.settled }));
-
-  return (
-    <>
-      <Grab />
-      <SheetHeader eyebrow={usd(total)} title="Split with" onClose={close} />
-      <SheetBody>
-        <Field>
-          <Input value={note} onChangeText={setNote} placeholder="What was it? (they see this)" maxLength={80} style={inputStyle} />
-        </Field>
-
-        {lines.length === 0 && !adding ? (
-          <Txt style={[type.rowTime, { textAlign: 'center', marginTop: 18 }]}>Add the people this was for.</Txt>
-        ) : null}
-        <List style={{ marginTop: 14 }}>
-          {lines.map((l) => (
-            <Row key={l.handle} onPress={l.locked ? undefined : () => toggle(l.handle)} style={l.on ? undefined : { opacity: 0.55 }}>
-              <Fav label={ini(l.handle)} />
-              <RowMeta>
-                <Txt style={type.rowName}>{l.handle}</Txt>
-                <Txt style={[type.rowTime, { marginTop: 3 }]}>
-                  {l.locked ? 'paid' : l.on ? (l.settled ? 'already paid' : 'will be asked') : 'not included'}
-                </Txt>
-              </RowMeta>
-              {l.on ? (
-                <View style={styles.lineRight}>
-                  {l.locked ? (
-                    <Txt style={type.rowAmount}>{usd(l.amount)}</Txt>
-                  ) : (
-                    <>
-                      <Chip label="paid" on={l.settled} onPress={() => setSettled(l.handle)} />
-                      <Field style={styles.amountField}>
-                        <Input value={l.amount} onChangeText={(v) => setAmount(l.handle, v)} keyboardType="decimal" placeholder="0.00" style={sx(inputStyle, { textAlign: 'right' })} />
-                      </Field>
-                    </>
-                  )}
-                </View>
-              ) : null}
-            </Row>
-          ))}
-        </List>
-
-        {adding ? (
-          <View style={{ marginTop: 14 }}>
-            <PeopleSearch onPick={(fr) => add(fr.handle)} />
-            <TextLink label="Cancel" onPress={() => setAdding(false)} />
-          </View>
-        ) : (
-          <View style={{ marginTop: 10, alignItems: 'flex-start' }}>
-            <TextLink label="+ Add someone else" onPress={() => setAdding(true)} />
-          </View>
-        )}
-
-        <View style={styles.yourPart}>
-          <Txt style={type.eyebrow}>Your part</Txt>
-          <Txt style={[type.rowAmount, { fontSize: 20, color: ok ? colors.ink : colors.danger }]}>
-            {yourPart ? usd(yourPart.toFixed(2)) : '-'}
-          </Txt>
-          {!ok && sum ? <Txt style={[type.rowTime, { color: colors.danger }]}>The parts add up to more than the bill.</Txt> : null}
-        </View>
-
-        <Spacer />
-        <View style={styles.cta}>
-          <Btn label={shares.length ? `Ask ${shares.filter((s) => !s.settled).length || 'no one'} · save` : 'Save'} disabled={!ok || busy || (shares.length === 0 && !hadSplit)} onPress={() => void splitExpense(shares, note.trim() || undefined)} />
-          {hadSplit ? <TextLink label="Remove the split" onPress={() => !busy && void splitExpense([], note.trim() || undefined)} /> : null}
-        </View>
-      </SheetBody>
-    </>
-  );
-}
+export { ExpenseSheet as Split } from './expenses';
 
 const inputStyle = sx(type.fieldText, {
   flex: 1,

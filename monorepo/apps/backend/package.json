@@ -35,7 +35,12 @@
     "check:escrow": "tsx scripts/check-escrow-switch.ts",
     "check:pool": "tsx scripts/check-escrow-pool.ts",
     "check:gas": "tsx scripts/check-gas-modes.ts",
-    "check:prelaunch": "tsx scripts/check-prelaunch.ts"
+    "check:prelaunch": "tsx scripts/check-prelaunch.ts",
+    "check:flist:access": "tsx scripts/check-flist-access.ts",
+    "check:expenses": "tsx scripts/check-expenses.ts",
+    "check:expenses:db": "tsx scripts/check-expenses-db.ts",
+    "check:expenses:postgres": "EXPENSES_POSTGRES=1 node --import tsx scripts/check-expenses-db.ts",
+    "check:payments": "node --import tsx scripts/check-merchant-payments.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
@@ -44,6 +49,7 @@
     "@privy-io/server-auth": "^1.32.5",
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",
+    "@walletconnect/pay": "1.1.0",
     "bignumber.js": "^9.3.1",
     "dotenv": "^16.4.7",
     "fastify": "^5.2.0",
@@ -51,8 +57,10 @@
     "viem": "^2.55.5"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@types/node": "^22.10.5",
     "@types/pg": "^8.11.10",
+    "embedded-postgres": "18.4.0-beta.17",
     "esbuild": "^0.25.0",
     "tsx": "^4.19.2",
     "typescript": "~6.0.3"

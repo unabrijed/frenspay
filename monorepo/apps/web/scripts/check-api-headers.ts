@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { configure } from '@fpay/app/configure'; // the subpath: the barrel pulls TSX through tsx's classic runtime
 
 import { webPlatform } from '../src/platform';
-import { req } from '../src/services/api';
+import { req, requestFlist, setAuthToken, setTokenRefresher } from '../src/services/api';
 
 // req() reads the API base through the platform seam; boot it the way AppProviders does.
 configure(webPlatform);
@@ -67,6 +67,21 @@ async function main(): Promise<void> {
   // 4. An explicit caller-supplied content-type still wins (the spread order in req()).
   await req('/x', { method: 'POST', body: 'raw', headers: { 'content-type': 'text/plain' } });
   assert.equal(lastHeaders()['content-type'], 'text/plain', 'caller headers must override the default');
+
+  // Access checks precede the bridge and must never inherit a previous account's token.
+  setAuthToken('previous-account');
+  setTokenRefresher(async () => 'previous-account');
+  await requestFlist(async () => 'current-account');
+  assert.equal(lastHeaders().authorization, 'Bearer current-account');
+  assert.equal(calls.at(-1)?.init.cache, 'no-store');
+  const before = calls.length;
+  await assert.rejects(requestFlist(async () => null), /unauthorized/);
+  assert.equal(calls.length, before, 'missing session cannot fall back to a cached account or dev header');
+  await requestFlist(async () => 'current-account', 'FREN-1234-5678');
+  assert.equal(lastHeaders()['content-type'], 'application/json');
+  assert.equal(calls.at(-1)?.init.body, JSON.stringify({ code: 'FREN-1234-5678' }));
+  setAuthToken(null);
+  setTokenRefresher(null);
 
   console.log('check-api-headers: ok');
 }

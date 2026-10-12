@@ -9,7 +9,7 @@ import type { ReactNode } from 'react';
 
 import { Splash } from '@/components/ui/Splash';
 import { webPlatform } from '@/platform';
-import { PRELAUNCH_ENABLED, USE_PRIVY } from '@/services/envConfig';
+import { IS_LOCAL_ENV, USE_PRIVY } from '@/services/envConfig';
 
 // Boot the product BEFORE any render: this module is imported by the root layout, so it evaluates
 // ahead of every route. configure() hands @fpay/app the web's storage/env/etc. and hydrates the store.
@@ -26,10 +26,11 @@ export function AppProviders({ children }: { children: ReactNode }) {
   // LiveSync keeps balance/activity fresh while signed in (so received money appears live).
   const content = (
     <>
-      {!PRELAUNCH_ENABLED && <LiveSync />}
+      <LiveSync />
       {children}
     </>
   );
   if (USE_PRIVY) return <PrivyRoot>{content}</PrivyRoot>;
+  if (!IS_LOCAL_ENV) return <main style={{ padding: 32 }}><h1>Sign-in is temporarily unavailable</h1><p>Please try again shortly.</p></main>;
   return content;
 }

@@ -1,95 +1,114 @@
-# 19 · Trips, circles and bill splitting — the decision (2026-09-02)
+# 19 · Friends, trips, and bill splitting
 
-Plan: `~/.claude/plans/we-are-missing-the-distributed-bumblebee.md`. Product doc: [04 §Flow — trips,
-circles and splitting](04-p2p-and-contacts.md). Schema: [09](09-data-model.md).
+Friends are personal saved Frenspay accounts. Bills record allocations separately from the transfers
+that paid for them. Payment requests represent the resulting reimbursements, not each person's share.
+This replaces the original 0026 split model; migration 0032 preserves its request and transfer IDs.
 
-## What Bridge asked
+## Finding people and inviting them
 
-"We are missing the trip or friends creation and easily bill splitting feature… that feature seems
-half baked." Seven pointers: create a trip / circle; split a bill easily; move a transaction between
-trips or to personal; Activity shows every transaction with its parts and can show only "my part";
-inside a trip, total + my part; personal Activity can filter trips out, and unfiltered reads "paid
-100, your part 20"; receiving must not double-count a reimbursement once the expense was reduced to
-my part.
+The shared web/mobile people picker accepts usernames and phone numbers. A selected device contact
+prefills a directory lookup; there is no background address-book upload. Saved friends use account IDs
+so renaming a username does not lose a friendship. Favorites and removal affect only the owner's list.
 
-## What was there
+Suggestions prioritize the selected trip, favorites, repeated time-of-day/weekend patterns, frequent
+interactions, then recency. History covers 90 days; a routine requires three matching interactions.
+The picker suggests groups without adding their members until the user chooses one. Device location
+and other people's location are not collected for suggestions.
 
-Nothing. "Trip balance" on Activity was a label on the wallet balance (the card's own comment said
-`trip summary`); the Payments/Friends filters tested a kind no real row has (scan-and-pay debits are
-`escrow_fund`); `group_id` on `orders` is LP routing legs. Two explorers over 25 migrations, every
-route, the contract, the store and both activity screens: no groups table, no shares, no route, no
-DTO, no store state, no screen.
+An unregistered number can receive an invitation through the inviter's own SMS composer. The user
+chooses whether to send it. The invitation contains an unused code owned by that user and their
+username; unavailable SMS has a copy fallback. Lookup failures never masquerade as unregistered
+numbers. The invitee becomes selectable only when directory lookup resolves their Frenspay account.
+An invitation alone never creates a participant, debt, external payment, or automatic SMS.
 
-## Recommendation (shipped)
+## Bill workflow and accounting
 
-**Shares are payment requests.** 0026 adds `groups`, `group_members`, `transfers.group_id`,
-`payment_requests.split_of` and a partial unique index on `payment_requests.transfer_id`. A split of
-expense T is one request per friend (requester = T's payer, `split_of = T.id`). The payer's own part
-is DERIVED — `amount − Σ shares(open|paid)` — never stored. Settling a share is the existing
-pay-request flow, untouched. The expense rule: an OUT row counts at your part, an IN row never — so
-a reimbursement contributes 0 and there is no dedup table. Exception: a refunded scan-and-pay is 0.
-The trip view is a shared sheet; splitting and moving happen from a row's detail and inside the trip.
+Start a bill from a completed eligible Frenspay payment. The creator can save a draft, choose people,
+assign a trip, review reimbursements, and publish. Drafts do not issue payment requests. Participants
+can link their own additional eligible payments; the creator redistributes shares and reviews again.
+Only the owner of an additional payment can unlink it. The initial payment and contributing
+participants cannot be removed. Linking/unlinking requires saving any unsaved draft first.
 
-**Why.** Every guarantee a share needs already lived on `payment_requests` (lifecycle, payer-scoped
-settle CAS, transfer link, the Requests UI, the paid notification); a shares table would re-implement
-all four. Deriving the payer's part puts over-splitting in one place (the split transaction's sum
-check under `FOR UPDATE`) instead of a stored number that drifts on cancel. "IN never counts" is one
-predicate and is exactly pointer 7.
+Bills support up to 21 participants including the initial payer. Equal splitting rounds nonpayer
+shares down to cents; the initial payer receives the exact remainder. Accounting stays in canonical
+USD/USDC with six decimal places. Manual allocations survive adding or removing people; new people
+initially have zero when custom amounts are in use. Equal/custom mode persists across saving and reopening. **Split equally again** explicitly redistributes.
+Original fiat amounts are display context, not a second ledger.
 
-## Steelman of what was rejected
+Contributions and shares are independent. If Alice pays $90 and Bravo $30 for a $120 bill with three
+$40 shares, Bravo owes Alice $10 and Chris owes Alice $40. Matching is deterministic and per bill;
+there is no cross-bill or cross-trip netting. A one-time merchant QR can be paid once by one person,
+then reimbursed through Frenspay. This adds no payment rail or manual/external settlement method.
 
-- **A dedicated `transfer_shares` table.** A share is not semantically a request; N rows per dinner
-  land in Requests; the note doubles as the label; non-fpay members become possible. Passed: Requests
-  shows OPEN rows only, which is the right "you still owe" list; the note IS the label; non-users are
-  not in the ask (contacts sync is deliberately unbuilt); A re-implements settle/lifecycle/link/notify.
-  Falsifier: Bridge wants non-user members.
-- **Tags instead of groups.** Fails pointer 5 — a member who paid nothing has no row to see the trip
-  through — and pointer 1 has no roster to create.
-- **A server-side spend aggregate.** Correct at any length; passed because the client holds one page
-  and no pager. Falsifier: paging ships.
-- **A "Your share" toggle swapping row amounts** (the literal words). Bridge chose caption + totals.
+Trip membership and bill participation are separate. Outsiders can access the bill they share but
+not the trip's other bills or roster. A $120 bill with two $40 trip-member shares contributes $80 to
+trip cost. Full bill amounts and outside participants remain visible on the bill. Membership snapshots
+are taken on assignment/addition and preserved through note edits and publication, even if the roster
+changes later. Changing the bill's trip explicitly takes a new snapshot.
 
-## Found on the way, fixed here
+Activity's monthly **Spent** measures outgoing cash; **Your share** counts published allocations once,
+including unpaid debts, plus unsplit spending. Reimbursements do not add another personal expense.
+Lists use cursor pagination; summary totals are calculated on the server across the full month.
+Source payment eligibility is checked for selection, bill review, and allocation totals. Incomplete
+merchant payouts, failed transfers, bridge funding, operational-wallet transfers, and reimbursements
+cannot become new bill contributions. A source reversal pauses further settlement and flags the bill.
 
-1. `TxCard` derived the sign from the kind: a send you RECEIVED printed a minus.
-2. `markRequestPaid` never verified the transfer id the client posted — any id marked any debt paid.
-   Now: the payer's, to the requester, unfailed, ≥ the amount, unused (index + predicate).
-3. `POST /requests` with an unknown handle wrote a request addressed to nobody. Now 404.
-4. Scan-and-pay rows were titled with the escrow pool's address; the payee name was one join away.
-5. The detail page showed a hardcoded date, "Apple Pay" and "#577665".
+## Review, settlement, and recovery
 
-## Decisions (Bridge, 2026-09-02)
+Reads use a consistent snapshot. Financial mutations require the current version and serialize on
+the bill row. Review freezes that saved revision; background changes invalidate confirmation rather
+than silently replacing the amounts being approved. Publication retries with the original reviewed
+version return the same debt requests. Notifications are inserted with publication in its transaction.
 
-Caption + totals, not a toggle · Spent = this month over the loaded page · one entity, no archive ·
-split from detail and inside the trip only.
+Preparing a reimbursement atomically reserves a transfer on the debt and locks financial edits to
+the bill. Debtor, creditor, amount, and current source eligibility are checked server-side. A unique
+index permits only one live transfer per request. The signed transaction carries an opaque
+`FPAY-BILL:<transfer-id>` memo. Historical transfers are exempt from the new memo requirement.
 
-## Assumptions & falsifiers
+The client stores an attempt key before invoking the wallet and persists its signature when possible.
+After broadcast, submission still runs if receipt storage fails. A lost submit response is retried
+without another signing operation. Clearing local storage after successful submission is best effort.
 
-Members are fpay users by handle · Activity is cash-basis, the trip sheet accrual · no netting · one
-page is enough for Spent · no archive. Each has its falsifier in the plan file.
+The confirmer verifies mint, authority, destination, amount, and attempt memo before marking a new
+reimbursement confirmed or authoritatively failed. A mismatched receipt cannot release a reservation.
+A paginated source-account history scan recovers broadcasts whose client receipt was lost. RPC gaps,
+unknown wallet results, and absent signatures remain pending and cannot produce another transaction.
+There is deliberately no timeout-based retry for ambiguous reimbursements: an unresolved attempt can
+remain pending until its chain status is established. A build failure before a transaction is returned
+to the client, or a verified failed transaction, permits a fresh attempt. No live funds move in tests.
 
-## Open (for prism-retro)
+Confirmed transfers and request status are reconciled on every worker pass, so a crash between those
+updates heals automatically. The request-paid notification is inserted in the same SQL statement as
+that transition. Once settlement starts, financial edits remain locked even after a failed attempt.
+Historical manually recorded payments remain read-only; new manual payment ticks are rejected.
 
-The two-phase pay (send, then mark paid) is pre-existing and non-atomic — a dropped second call
-leaves money moved and the share open. `Txn.rupees` is INR-only, so an IDR scan-and-pay detail shows
-dollars. A friend paid before the split exists is a double-ask unless the payer ticks "already
-paid". Stage walkthrough (docs/04 §Status) not yet run; 0026 is Bridge's to apply.
+## Interfaces, migration, and checks
 
-## Changelog
+- `/friends`: list, save/favorite, remove; `/friends/suggestions` and `/friends/invite` support the picker.
+- `/expenses`: cursor-paginated bills; `/expenses/eligible-payments`: cursor-paginated contributions;
+  `/expenses/summary`: server-side monthly totals with local time zone and trip/personal filtering.
+- `/expenses/:id`: versioned draft edits; `/payments`: link/unlink; `/publish`: publish reviewed debts.
+- `/transfer/prepare` accepts `requestId`; request and bill responses distinguish pending from paid.
+- Legacy transfer split/move endpoints validate input and adapt to the same atomic bill workflow.
 
-Draft v1 held under the orchestrator's three lens passes (the fleet died on a 429). Two claims
-corrected by source: the request→transfer link is `payment_requests.transfer_id` only, and a refund
-is an IN `escrow_release` row (→ the refunded-is-0 exception). Four pre-existing holes promoted into
-scope. Open risk not closed: the non-atomic two-phase pay.
+Apply 0032 through the normal migration deployment process before releasing the corresponding API.
+It backfills existing bills, preserves historical request identities and settlement links, and moves
+trip ownership from source transfers to bills. It has not been applied to stage or production as part
+of this work. Existing F-list access gates still apply. No deployment is implied by local validation.
 
-## Telemetry
-- divergence: evidence ≈ 1.0 by construction (three disjoint orchestrator file sets: backend / frontend /
-  model+docs) · conclusion n/a (single judge) | threshold 0.30 UNCALIBRATED — no independent lenses ran
-- models: draft=fable · lenses: 2× Explore completed; 3× Explore + 1× Plan FAILED (429 session limit);
-  skeptic trio NOT RUN (plan mode). Version axis unavailable.
-- claims: C1 feature-absent grounded · C2 TxCard-sign grounded · C3 request-pay-unverified grounded ·
-  C4 request_id-never-written grounded · C5 escrow_fund-is-the-activity-row grounded · C6 refund-is-IN-row
-  grounded · C7 PeopleSearch-not-exported grounded · C8 payee-name-one-join-away grounded ·
-  C9 client-holds-one-page grounded
-- grounding: 31 anchors re-opened, 0 struck, 2 corrected
-- fleet: 2 of 6 lenses completed; loop stopped after round 1
+Run from the monorepo with its supported Node runtime:
+
+```sh
+yarn check:expenses
+yarn check:expenses:db
+yarn check:expenses:postgres
+yarn check:expenses:browser
+```
+
+The database suite uses declared PGlite dependencies by default. The PostgreSQL variant starts an
+isolated temporary server from the declared embedded-postgres package, uses real connections for
+lock races, then stops it and removes only its temporary data. Neither variant reads or writes an
+application database. The browser suite uses actual shared sheets, the people picker, API client,
+and wallet provider against a loopback fixture server. It uses installed Chrome by default; set
+`PLAYWRIGHT_CHANNEL=chromium` to use a Playwright-installed Chromium. Tests cover invitations,
+stale lookups, manual shares, review invalidation, masking, lost receipts, and storage failures.

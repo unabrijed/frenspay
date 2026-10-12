@@ -1,11 +1,15 @@
 # fpay — monorepo
 
-The optional [Monad prelaunch campaign](docs/24-monad-prelaunch.md) is the public Singapore test experience: free practice credits, optional USDC-funded credits, profile tiers and simulated PayNow history. Recipients receive no money. It is enabled locally by default; stage/production require matching frontend/backend flags and the additive migration. Existing Solana funds and native flows stay separate.
+Frenspay supports username/phone sends, friends, invitations and bill splitting. The web-first
+merchant pilot adds card-funded USDC and supported merchant QR payments, with Solana selected internally.
+Provider activation, customer eligibility and a participating merchant must be verified before live use.
+Ordinary PayNow/UPI/QRIS codes are not payable through this integration. See [deployment setup](DEPLOY.md).
 
-Yarn-workspaces monorepo for **fpay**, a travel payments app (hold USD, spend INR at a
-locked rate via UPI QR, plus send/request with friends). Three Next.js frontends — the
-**web app**, an operator **console**, and the **landing** page — share one backend, design
-system, and business logic. An Expo **mobile app** renders the same product natively.
+The [Monad practice campaign](docs/24-monad-prelaunch.md) is retired. Existing funds and receipts remain
+accessible through Settings → Legacy wallet recovery. Wallets, bill data and payment recovery records are preserved.
+
+The web, operator, LP and landing apps share a backend and design system. Expo renders the core product
+natively; its new card/merchant actions stay disabled until native validation is complete.
 
 ```
 monorepo/
@@ -115,15 +119,8 @@ yarn workspace @fpay/web build   # production build
 yarn workspace @fpay/web tsc --noEmit   # typecheck just the web app
 ```
 
-Mobile-first by design: it renders as a **fixed phone column that never widens** on
-desktop/tablet.
-
-**There is no mock mode.** The app always talks to the real backend, so it needs a way to sign in
-and a way to sign. With an empty `.env.local` you get the shell and nothing else: Privy never
-mounts, requests go out unauthenticated and come back 401, and the first send throws
-*"No active signer configured"*. Pick one of the two paths below.
-
-**Privy (email OTP + an embedded Solana wallet, no device needed)** — `apps/web/.env.local`:
+Mobile-first by design: a fixed phone column on desktop/tablet. The app uses the real backend.
+For email sign-in and an embedded wallet, configure `apps/web/.env.local`:
 
 ```bash
 NEXT_PUBLIC_APP_ENV=stage
@@ -230,9 +227,8 @@ source, and the backend may only `import type` from `@fpay/shared`. `yarn check:
 blocks stay identical and that nothing reads `process.env` outside an `envConfig.ts`.
 
 Three kinds of vars sit outside the `NEXT_PUBLIC_*` pattern: host-level ones (`PORT` — the platform
-injects it, `PUBLIC_BASE_URL`); the deploy access gates' server-only keys (`STAGE_ACCESS_KEY` on a
-stage Vercel project / bare `ACCESS_KEY` on prod — one per project, read by `src/middleware.ts` in
-`apps/web` and `apps/lp`, never inlined into a browser bundle); and the Privy app, which is ONE value
+injects it, `PUBLIC_BASE_URL`); the LP gate's server-only keys (`STAGE_ACCESS_KEY` on stage / bare
+`ACCESS_KEY` on prod, read by `apps/lp/src/middleware.ts`, never inlined into a browser bundle); and the Privy app, which is ONE value
 on every tier and so is read bare everywhere — `NEXT_PUBLIC_PRIVY_APP_ID` / `_CLIENT_ID` in every
 frontend, `PRIVY_APP_ID` / `_APP_SECRET` on the backend — never through the tier chain (a stale
 `STAGE_PRIVY_*` twin is read by nothing). See each app's `.env.example` and `DEPLOY.stage.md`.
@@ -285,10 +281,8 @@ backend with `curl localhost:3001/health` plus the endpoints in the backend READ
 
 - **Env changes don't take effect** — `NEXT_PUBLIC_*` is inlined at start, not read at runtime;
   restart `yarn dev:web`.
-- **Every route shows an "Enter your access key" form** — the deploy access gate is on because
-  `STAGE_ACCESS_KEY` is set in `apps/web/.env.local` (or `apps/lp/.env.local` for the LP console).
-  Enter that value once, or remove the line
-  (unset = gate off, the local default). On a stage/prod domain that form is correct behavior.
+- **An access-key form appears** — only the LP console uses this gate. A customer web deploy
+  showing it is running an older build. Current web uses email OTP and invited f-list membership.
 - **Privy login rejected on web** — add `http://localhost:3000` as an allowed origin in the
   Privy dashboard app; confirm `NEXT_PUBLIC_PRIVY_APP_ID` is set (bare — the `STAGE_` name is read by nothing).
 - **`/balance` is 0** — the wallet holds no mainnet USDC yet; deposit some to the address in Add money.
@@ -309,8 +303,8 @@ Mobile app:
 
 Backend on **Railway** (Supabase Postgres), frontends on **Vercel**. Web has a project per
 environment (`stage` branch → `frenspay-stage`, `sacred` → `frenspay-prod`); admin, the LP console and
-landing are one project each, built from `sacred`. The deployed web app and LP console each sit
-behind their own **access-key gate** until launch. The runbooks — every dashboard setting, variable, domain
+landing are one project each, built from `sacred`. Customer web uses **email OTP + invited f-list
+membership**; the LP console retains its **access-key gate**. The runbooks — every dashboard setting, variable, domain
 step, and test — are [`DEPLOY.stage.md`](./DEPLOY.stage.md) (start here) and
 [`DEPLOY.md`](./DEPLOY.md) (prod/mainnet).
 

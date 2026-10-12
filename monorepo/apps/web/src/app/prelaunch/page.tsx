@@ -1,2 +1,2 @@
-'use client';
-export { default } from '@/components/prelaunch/Prelaunch';
+import { redirect } from 'next/navigation';
+export default function RetiredCampaign() { redirect('/legacy-wallet'); }

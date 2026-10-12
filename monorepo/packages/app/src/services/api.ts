@@ -2,7 +2,17 @@
 import { type AddMemberRequest, type ApiGroupDetail, type ApiPaymentRequest, type AuthSyncRequest, type BalanceResponse, type CreateGroupRequest, type CreateOrderRequest, type CreateOrderResponse, type CreateRequestRequest, type CrosschainQuoteResponse, type DepositBalancesResponse, type DepositInfoResponse, type DepositPrepareRequest, type DepositPrepareResponse, type FundSubmitRequest, type GroupsResponse, type KycVerifyResponse, type MeResponse, type MoveTransferRequest, type NotificationsResponse, type OrderResponse, type OrdersResponse, type PrepareCrosschainRequest, type PrepareCrosschainResponse, type PrepareTransferRequest, type PrepareTransferResponse, type PushTokenRequest, type QuoteRequest, type QuoteResponse, type ReportDepositRequest, type ReportDepositResponse, type RequestsResponse, type ResolveHandleResponse, type SplitRequest, type SubmitCrosschainRequest, type SubmitTransferRequest, type SubmitTransferResponse, type TransactionsResponse } from '@fpay/shared';
 
 import { platform } from '../platform';
-import type { PrelaunchAccount, PrelaunchQuote, PrelaunchSpend, PrelaunchTransaction } from '@fpay/shared';
+import type { FlistResponse, PrelaunchAccount, PrelaunchQuote, PrelaunchSpend, PrelaunchTransaction } from '@fpay/shared';
+
+/** Access is checked before the account bridge mounts, using the current Privy session directly. */
+export function requestFlist(getToken: () => Promise<string | null>, code?: string): Promise<FlistResponse> {
+  return req<FlistResponse>(`/flist/${code === undefined ? 'me' : 'join'}`, {
+    method: code === undefined ? 'GET' : 'POST',
+    ...(code === undefined ? {} : { body: JSON.stringify({ code }) }),
+    signal: AbortSignal.timeout(20_000),
+    cache: 'no-store',
+  }, false, getToken);
+}
 
 // Bounded waits for the campaign UI. A timeout is ambiguous for writes: spend callers retain
 // their idempotency key and recover the original result rather than creating another payment.
@@ -50,6 +60,11 @@ export function setTokenRefresher(fn: (() => Promise<string | null>) | null): vo
 }
 
 let onSessionRevoked: (() => void) | null = null;
+let onFlistRequired: (() => void) | null = null;
+/** Customer web can return to inline invite entry when server membership changes. */
+export function setFlistRequiredHandler(fn: (() => void) | null): void {
+  onFlistRequired = fn;
+}
 /**
  * Registered by the Privy bridge. Fires only when the server CONFIRMS this session has no account —
  * the row was deleted or access was revoked — never on a transient failure. Distinct from an expired
@@ -80,7 +95,7 @@ export function setAccountDeletedHandler(fn: (() => void) | null): void {
   onAccountDeleted = fn;
 }
 
-export async function req<T>(path: string, init?: RequestInit, retried = false): Promise<T> {
+export async function req<T>(path: string, init?: RequestInit, retried = false, sessionToken?: () => Promise<string | null>): Promise<T> {
   // Only when there IS a body. Fastify's default parser answers a bodyless POST that claims
   // application/json with 400 FST_ERR_CTP_EMPTY_JSON_BODY — before the auth preHandler, so the
   // route never runs. That silently killed every no-body POST we have (invite ack, cancel
@@ -93,18 +108,20 @@ export async function req<T>(path: string, init?: RequestInit, retried = false):
   // refresh when it is about to expire), so a request never carries one the SDK has already
   // rotated. The registered refresher IS that provider; the cached copy is the fallback (and what
   // the dev signer path sets), and the 401 retry below still covers a token the SERVER rejects.
-  const token = (refreshToken ? await refreshToken().catch(() => null) : null) ?? authToken;
+  const tokenProvider = sessionToken ?? refreshToken;
+  const token = (tokenProvider ? await tokenProvider().catch(() => null) : null) ?? (sessionToken ? null : authToken);
+  if (sessionToken && !token) throw new ApiError(401, 'unauthorized');
   if (token) headers.authorization = `Bearer ${token}`;
   else if (platform().env.devUserId) headers['x-dev-user-id'] = platform().env.devUserId;
 
   const res = await fetch(`${platform().env.apiUrl}${path}`, { ...init, headers });
 
   // Expired Privy access token → refresh once and retry transparently.
-  if (res.status === 401 && !retried && refreshToken) {
-    const fresh = await refreshToken().catch(() => null);
+  if (res.status === 401 && !retried && tokenProvider) {
+    const fresh = await tokenProvider().catch(() => null);
     if (fresh) {
-      authToken = fresh;
-      return req<T>(path, init, true);
+      if (!sessionToken) authToken = fresh;
+      return req<T>(path, init, true, sessionToken);
     }
   }
   if (!res.ok) {
@@ -123,6 +140,7 @@ export async function req<T>(path: string, init?: RequestInit, retried = false):
     // "Unauthorized" for the 401 shape and 'user_not_found' for the 404 one.
     const noAccount = payload.message === 'no_account' || payload.error === 'user_not_found';
     if (noAccount) onSessionRevoked?.();
+    if (payload.error === 'flist_required' || payload.error === 'invite_required') onFlistRequired?.();
     // Sent via reply.send() in authPreHandler, so the code is in `error` (not Fastify's `message`).
     if (payload.error === 'account_suspended') onAccountSuspended?.();
     if (payload.error === 'account_deleted') onAccountDeleted?.();
@@ -255,4 +273,29 @@ export const api = {
   depositBalances: () => req<DepositBalancesResponse>('/crosschain/deposit-balances'),
   reportDeposit: (body: ReportDepositRequest) =>
     req<ReportDepositResponse>('/crosschain/deposit', { method: 'POST', body: JSON.stringify(body) }),
+};
+
+
+export const friendsApi = {
+  list: () => req<{friends: import('@fpay/shared').SavedFriend[]}>('/friends'),
+  save: (handle: string, favorite?: boolean) => req<{ok:true}>('/friends', {method:'PUT',body:JSON.stringify({handle,favorite})}),
+  remove: (userId: string) => req<{ok:true}>(`/friends/${userId}`, {method:'DELETE'}),
+  suggestions: (groupId?:string) => {
+    const params = new URLSearchParams({timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'});
+    if(groupId) params.set('groupId',groupId);
+    return req<import('@fpay/shared').PeopleSuggestions>(`/friends/suggestions?${params}`);
+  },
+  invite: () => req<{code:string|null}>('/friends/invite'),
+};
+export const expensesApi = {
+  summary: (filter:'all'|'personal'|'trips') => req<{spentUsd:string;yourShareUsd:string}>(`/expenses/summary?${new URLSearchParams({filter,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'})}`),
+  list: (cursor?:string) => req<{expenses: import('@fpay/shared').ApiExpense[];nextCursor?:string}>(`/expenses${cursor?`?cursor=${encodeURIComponent(cursor)}`:''}`),
+  get: (id:string) => req<import('@fpay/shared').ApiExpense>(`/expenses/${id}`),
+  forTransfer: (id:string) => req<{expense:import('@fpay/shared').ApiExpense|null}>(`/expenses/for-transfer/${id}`),
+  create: (transferId:string,groupId?:string) => req<import('@fpay/shared').ApiExpense>('/expenses',{method:'POST',body:JSON.stringify({transferId,groupId})}),
+  edit: (id:string,body:import('@fpay/shared').ExpenseEdit) => req<import('@fpay/shared').ApiExpense>(`/expenses/${id}`,{method:'PATCH',body:JSON.stringify(body)}),
+  publish: (id:string,version:number) => req<import('@fpay/shared').ApiExpense>(`/expenses/${id}/publish`,{method:'POST',body:JSON.stringify({version})}),
+  payments: (cursor?:string) => req<{payments:import('@fpay/shared').ExpensePayment[];nextCursor?:string}>(`/expenses/eligible-payments${cursor?`?cursor=${encodeURIComponent(cursor)}`:''}`),
+  link: (id:string,transferId:string,version:number) => req<import('@fpay/shared').ApiExpense>(`/expenses/${id}/payments`,{method:'POST',body:JSON.stringify({transferId,version})}),
+  unlink: (id:string,transferId:string,version:number) => req<import('@fpay/shared').ApiExpense>(`/expenses/${id}/payments/${transferId}`,{method:'DELETE',body:JSON.stringify({version})}),
 };

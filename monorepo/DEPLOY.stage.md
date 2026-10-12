@@ -362,7 +362,6 @@ both twins and it disables `stage` for both.
    NEXT_PUBLIC_PRIVY_APP_ID=<privy app id>                    # BARE on every tier — one Privy app everywhere; NEXT_PUBLIC_STAGE_PRIVY_* is read by nothing
    NEXT_PUBLIC_PRIVY_CLIENT_ID=<privy client id>
    NEXT_PUBLIC_STAGE_LANDING_URL=https://frenspay.xyz
-   STAGE_ACCESS_KEY=<openssl rand -hex 32>                    # deploy access gate — this project's OWN key; see below
    ```
    admin (the only admin project — it serves both environments):
    ```
@@ -386,9 +385,8 @@ both twins and it disables `stage` for both.
    NEXT_PUBLIC_APP_ENV=stage
    NEXT_PUBLIC_STAGE_API_URL=<same as web>                    # POST /waitlist — code + email — posts here
    ```
-   `NEXT_PUBLIC_STAGE_APP_URL` is no longer read and can be removed if it is already set. The landing
-   page spends an invite code joining the f list rather than handing off to the app, so it links to
-   the app in neither direction and needs no URL for it.
+   Set `NEXT_PUBLIC_STAGE_APP_URL=https://<stage-web-domain>` for the signup OTP handoff and
+   Launch app link. It must target the web deployment using the same stage backend.
    lp (stage) — the LP console; the backend calls it "merchants", `/merchants/*`:
    ```
    NEXT_PUBLIC_APP_ENV=stage
@@ -396,7 +394,7 @@ both twins and it disables `stage` for both.
    NEXT_PUBLIC_STAGE_SOLANA_RPC_URL=https://api.mainnet-beta.solana.com   # deployed tiers fail closed to mainnet anyway; set it for parity
    NEXT_PUBLIC_PRIVY_APP_ID=<same privy app id as web>                    # bare on every tier; staking signs a real USDC transfer, so it needs the embedded wallet
    NEXT_PUBLIC_PRIVY_CLIENT_ID=<privy client id>                          # optional
-   STAGE_ACCESS_KEY=<openssl rand -hex 32>                                # deploy access gate — its OWN key, not web's (rotating one must not evict the other)
+   STAGE_ACCESS_KEY=<openssl rand -hex 32>                                # LP deployment gate; customer web uses email login
    ```
    Nothing else: no landing link, and the dev
    identity (`*_DEV_USER_ID`) is only read when `NODE_ENV !== 'production'` — never in a build.
@@ -408,9 +406,9 @@ both twins and it disables `stage` for both.
    missing origin breaks that frontend silently. If the landing domain ever changes, update
    `NEXT_PUBLIC_STAGE_LANDING_URL` (web) and `STAGE_LANDING_URL` (backend) to match.
 8. **Test**, per app:
-   - **web**: the domain serves the access-key form (HTTP 401) on every route; a wrong key shows
-     the inline error; the right key lands in the app and a reload skips the form (device cookie).
-     Then the real smoke test (real money, keep it small): Privy email login → onboarding skips
+   - **web**: email OTP opens the existing UI for invited f-list members. A nonmember sees inline
+     invite entry. Test the landing handoff, returning login, and Invite a fren after reload.
+     For the legacy payment mode only, the real smoke test (real money, keep it small): onboarding skips
      the fund step straight to Home ($0) → Add money shows the Solana deposit address (no faucet,
      no EVM chips) → send it ~$2 real USDC from an exchange/wallet → balance appears (Helius push
      or poller) → `/sim/kyc` to tier 2 → a small P2P or external send, verified on Solscan. Network
@@ -420,29 +418,24 @@ both twins and it disables `stage` for both.
      as `NEXT_PUBLIC_API_URL` is set. Switch to prod and back: one login covers both, so each side
      should land in a working console without re-signing in, never on a spinner. "No profile here"
      means only what it says — that database has no row for the account yet.
-   - **landing**: static pages render; a waitlist signup round-trips (needs the Resend block
-     above, otherwise it accepts silently without mail — that's the documented safe state).
-   - **lp**: the domain serves the access-key form (HTTP 401) on every route — a different key than
-     web's, and a device that passed web's gate still sees this one once (the cookie is per-origin).
+   - **landing**: an invite link autofills the code; submitting code + email joins the f-list
+     and opens the app at email OTP. Launch app also reaches the configured web origin.
+   - **lp**: the domain serves its access-key form (HTTP 401) until the device presents the key.
      The right key lands on the path that was asked for: open `/identity?inquiry-id=x` on a fresh
      device, enter the key, and the URL must keep its query (the vendor return polls only while it is
      there); a Telegram alert button (`/orders/:id`) behaves the same. Then Privy email login (same
      app as web — an account created on web signs straight in) → apply → stake.
 
-### Deploy access gate (web + lp)
+### Deploy access gate (LP only)
 
-`src/middleware.ts` + the `/gate` route, in `apps/web` and — byte-for-byte, headers aside — in
-`apps/lp`. Until a device presents the key, every route serves a key form; the right key sets a
-year-long `fpay_gate` cookie (the key's SHA-256, httpOnly) and that device never sees the form
-again — and lands on the path it asked for, provided it resolves to the same origin (`/\evil.com`
-goes home; `yarn check:gate` asserts the cases). Unset key = gate off — the local-dev default; a
-deployed tier with no key fails CLOSED (503), never open. Each project has its OWN key — four in all
-(web·stage, web·prod, lp), all different; the cookie is per-origin, so passing one
-gate opens no other. Rotate a project's key to evict every device on that project. The middleware
-matcher deliberately skips `_next/*`, `icon.svg`, `apple-icon.png`, `favicon*`, `manifest*`, so a
-gated tab still gets its icon — that asymmetry is expected, not a leak. The projects on `sacred` set bare
-`ACCESS_KEY` (`DEPLOY.md`). Because of the gate, web and lp ship middleware — they are server apps on
-Vercel and can never become a static export like landing.
+The LP console retains `src/middleware.ts`, `/gate`, its `STAGE_ACCESS_KEY` / `ACCESS_KEY`, and
+its httpOnly `fpay_gate` cookie. Deployed LP environments fail closed without a configured key.
+`yarn check:gate` validates its same-origin redirect handling.
+
+Customer web uses email OTP + invited f-list membership in both existing modes. Remove obsolete
+customer access-key variables after deploying the new build. Deploy backend support before web
+and landing; set the landing app URL to the web origin using the same backend. See the email and
+invite rollout in `DEPLOY.md` for the verification sequence.
 
 ### One Privy app, every tier — and what changing it does to existing accounts
 

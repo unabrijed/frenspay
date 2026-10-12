@@ -34,7 +34,7 @@ const PROBE = `import('./src/envConfig.ts').then(async (m) => {
 
 /** Boot the config + the KYC guard under one env, and report what happened. */
 function probe(env: Record<string, string>): { live: boolean; provider: string; threw: string | null } {
-  const out = execFileSync('npx', ['tsx', '-e', PROBE], {
+  const out = execFileSync('yarn', ['tsx', '-e', PROBE], {
     cwd: BACKEND,
     encoding: 'utf8',
     // Capture stderr rather than inheriting it: the boot warnings are the POINT of several of these

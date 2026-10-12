@@ -369,6 +369,8 @@ async function notifyGroupSettled(orderId: string): Promise<void> {
 /** The confirmer AND the Helius webhook both funnel a confirmed transfer through here: advance any
  *  linked order, then notify the recipient of a P2P send. Keeps both confirmation paths in sync. */
 export async function onTransferConfirmedAndNotify(transferId: string): Promise<void> {
+  const { reconcileExpenseSettlements } = await import('../db/expenses');
+  await reconcileExpenseSettlements();
   await onTransferConfirmed(transferId);
   // Merchant stake deposits land here too — a plain send whose recipient is the stake treasury.
   // No-op for everything else. Credited on confirmation, never on submit.

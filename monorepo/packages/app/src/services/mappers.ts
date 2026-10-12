@@ -57,6 +57,7 @@ export function apiTxnToTxn(t: ApiTxn): Txn {
     // ponytail: the detail page's fiat line is rupees-only until Txn carries a currency; IDR rows show dollars.
     rupees: t.amountFiat && t.fiatCurrency === 'INR' ? Number(t.amountFiat) : undefined,
     groupId: t.groupId,
+    expenseId: t.expenseId,
     yourPart: t.yourPartUsd === undefined ? undefined : Number(t.yourPartUsd),
     settlesNote: t.settlesNote,
   };
