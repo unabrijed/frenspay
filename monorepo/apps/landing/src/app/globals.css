@@ -1369,3 +1369,9 @@ button:not(:disabled),
     width: 100%;
   }
 }
+
+/* A quiet, persistent route back for people already on the f-list. */
+.things-launch {
+  display: inline-flex; align-items: center; min-height: 44px; margin-top: 6px;
+  color: var(--color-ink); font-size: 14px; text-underline-offset: 4px;
+}

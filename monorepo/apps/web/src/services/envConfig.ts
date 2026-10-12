@@ -37,11 +37,6 @@ function pick(local?: string, stage?: string, prod?: string): string | undefined
 }
 
 const E = {
-  prelaunch: pick(
-    process.env.NEXT_PUBLIC_LOCAL_PRELAUNCH_ENABLED,
-    process.env.NEXT_PUBLIC_STAGE_PRELAUNCH_ENABLED,
-    process.env.NEXT_PUBLIC_PRELAUNCH_ENABLED,
-  ),
   apiUrl: pick(
     process.env.NEXT_PUBLIC_LOCAL_API_URL,
     process.env.NEXT_PUBLIC_STAGE_API_URL,
@@ -63,7 +58,8 @@ const E = {
 // environment via *_API_URL (e.g. http://localhost:3001 when running the backend locally).
 const DEFAULT_API_URL = 'http://localhost:3001';
 export const API_URL = E.apiUrl || DEFAULT_API_URL;
-export const PRELAUNCH_ENABLED = E.prelaunch === 'true' || (APP_ENV === 'local' && E.prelaunch !== 'false');
+// Retained for old imports; the customer prototype cannot be re-enabled by a stale build flag.
+export const PRELAUNCH_ENABLED = false;
 // Every tier is mainnet — there is no testnet (2026-08-30). The var only picks the RPC provider.
 export const SOLANA_RPC_URL = E.solanaRpcUrl || 'https://api.mainnet-beta.solana.com';
 
@@ -107,11 +103,6 @@ export const USE_PRIVY = PRIVY_APP_ID.length > 0;
 // sign up still lands somewhere that explains what fpay is. Also the f-list exit from the invite gate.
 export const LANDING_URL = (E.landingUrl || 'https://frenspay.xyz').replace(/\/$/, '');
 
-// Deploy access gate (src/middleware.ts): one key per project per environment, no NEXT_PUBLIC_ prefix —
-// it's server-side only (middleware + /gate route), so it resolves undefined in browser bundles and
-// can never be inlined. Unset = gate off on the local tier only; deployed tiers fail CLOSED (the
-// middleware locks the build) so a missing key can never silently expose the app.
-export const ACCESS_KEY = (isProdEnv ? process.env.ACCESS_KEY : process.env.STAGE_ACCESS_KEY) || '';
 export const IS_LOCAL_ENV = APP_ENV === 'local';
 
 // Dev-only build flag: true under `next dev` (yarn web), false in a production build. Gates testing

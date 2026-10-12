@@ -18,7 +18,10 @@ interface Rule {
 
 // Per-minute caps. Reads are unlimited.
 export const RATE_LIMIT_RULES: Rule[] = [
-  ...['/prelaunch/session','/prelaunch/profile','/prelaunch/balance/sync','/prelaunch/quotes','/prelaunch/spends','/prelaunch/withdraw/prepare'].map(path =>
+  ...['/merchant-payments/prepare', '/merchant-payments/:id/actions', '/merchant-payments/:id/confirm'].map(path => ({method: 'POST', path, bucket: 'merchant_payment', limit: 30, windowMs: 60_000})),
+  { method: 'POST', path: '/flist/join', bucket: 'waitlist', limit: 5, windowMs: 60_000 },
+  { method: 'GET', path: '/flist/me', bucket: 'flist_read', limit: 60, windowMs: 60_000 },
+  ...['/prelaunch/session','/prelaunch/profile','/prelaunch/balance/sync','/prelaunch/quotes','/prelaunch/spends','/prelaunch/withdraw/prepare','/prelaunch/withdraw/status'].map(path =>
     ({ method:'POST',path,bucket:'prelaunch',limit:30,windowMs:60_000 })),
   { method:'POST',path:'/prelaunch/phone/start',bucket:'prelaunch_phone',limit:3,windowMs:60_000 },
   { method:'POST',path:'/prelaunch/phone/confirm',bucket:'prelaunch_code',limit:10,windowMs:60_000 },

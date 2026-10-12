@@ -1,11 +1,24 @@
 import type { FastifyInstance } from 'fastify';
 import { requirePrivyDid, requireAdmin } from '../auth';
-import { config } from '../envConfig';
 import { getPool } from '../db/pool';
 import * as campaign from '../services/prelaunch/ledger';
+import { monadClient, MONAD_USDC } from '../services/prelaunch/chain';
 import { PhoneOtpProviderError } from '../services/phoneOtp';
 
 export async function registerPrelaunchRoutes(app: FastifyInstance) {
+  app.post<{Body:{hash:string}}>('/prelaunch/withdraw/status', async (req,reply) => {
+    const owner = await campaign.account(requirePrivyDid(req));
+    const hash = req.body?.hash;
+    if (typeof hash !== 'string' || !/^0x[0-9a-f]{64}$/i.test(hash)) return reply.code(400).send({error:'invalid_signature'});
+    try {
+      const receipt = await monadClient().getTransactionReceipt({hash:hash as `0x${string}`});
+      if (receipt.from.toLowerCase() !== owner.wallet_address.toLowerCase() || receipt.to?.toLowerCase() !== MONAD_USDC.toLowerCase()) return reply.code(400).send({error:'invalid_signature'});
+      return {status:receipt.status==='success'?'confirmed':'failed'};
+    } catch (error) {
+      if ((error as Error).name==='TransactionReceiptNotFoundError') return {status:'pending'};
+      return reply.code(503).send({error:'recovery_unavailable'});
+    }
+  });
   // Separate account/ledger: public campaign signup cannot unlock any legacy real-money API.
   const route = (
     method: 'GET' | 'POST',
@@ -17,7 +30,8 @@ export async function registerPrelaunchRoutes(app: FastifyInstance) {
       url,
       bodyLimit: 8192,
       handler: async (req, reply) => {
-        if (!config.prelaunchEnabled) return reply.code(404).send({ error: 'campaign_unavailable' });
+        // Retired campaign: only existing balances, receipts and withdrawals remain accessible.
+        if (!['/prelaunch/account','/prelaunch/balance/sync','/prelaunch/history','/prelaunch/withdraw/prepare'].includes(url)) return reply.code(410).send({ error: 'campaign_retired' });
         const did = requirePrivyDid(req);
         try {
           return await fn(did, (req.body ?? {}) as Record<string, any>);
@@ -52,6 +66,9 @@ export async function registerPrelaunchRoutes(app: FastifyInstance) {
   route('POST', '/prelaunch/withdraw/prepare', (did, body) =>
     campaign.prepareWithdrawal(did, body.to, body.amount),
   );
+}
+
+export async function registerPrelaunchAdminRoutes(app: FastifyInstance) {
   app.get('/admin/prelaunch', async (req) => {
     await requireAdmin(req);
     const stats = (

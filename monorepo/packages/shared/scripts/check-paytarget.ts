@@ -39,7 +39,9 @@ ok('precedence: handle / pay: / VPA / tel: / bare phone each land on their own b
 // ordering is what guarantees it.
 const SOL = '7dHbWXmci3dT8UFYWYZweBLXgycu7Y3iL6trKn1Y7ARj';
 assert.deepEqual(classifyPayTarget(SOL), { kind: 'address', address: SOL, network: 'solana' });
-assert.deepEqual(classifyPayTarget(`solana:${SOL}`), { kind: 'address', address: SOL, network: 'solana' });
+assert.equal(classifyPayTarget(`solana:${SOL}`).kind, 'unsupported', 'A SOL request must not silently become a USDC send');
+assert.equal(classifyPayTarget(`solana:${SOL}?amount=2&reference=${SOL}`).kind, 'unsupported');
+assert.equal(classifyPayTarget('https://pay.walletconnect.com/pay_invoice').kind, 'merchant');
 const EVM = '0x2a3274c541d9b641db9275cd6806b25fab17fe00';
 assert.deepEqual(classifyPayTarget(EVM), { kind: 'address', address: EVM, network: 'evm' });
 ok('addresses classify to their family and survive their URI wrappers');

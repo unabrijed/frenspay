@@ -37,6 +37,8 @@ const inBrowser = typeof window !== 'undefined';
 type ContactsNav = Navigator & { contacts?: { select: (props: string[], opts: { multiple: boolean }) => Promise<Array<{ name?: string[]; tel?: string[] }>> } };
 const contactsSupported = inBrowser && 'contacts' in navigator && 'ContactsManager' in window;
 
+import { smsInviteUrl } from '@fpay/shared';
+
 export const webPlatform: Platform = {
   env: {
     apiUrl: API_URL,
@@ -61,6 +63,9 @@ export const webPlatform: Platform = {
   },
   openMail: (to, subject) => {
     window.location.href = `mailto:${to}?subject=${encodeURIComponent(subject)}`;
+  },
+  openSms: async (to, body) => {
+    window.location.href = smsInviteUrl(to, body, /iPad|iPhone|iPod/.test(navigator.userAgent));
   },
   share: async ({ title, text, url }) => {
     if (navigator.share) {

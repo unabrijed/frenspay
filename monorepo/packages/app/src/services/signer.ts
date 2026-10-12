@@ -10,6 +10,8 @@ export interface SignOptions {
 }
 export interface Signer {
   publicKey(): Promise<string>;
+  /** Sign only; the merchant payment provider broadcasts. Absent until a platform is validated. */
+  signTransaction?(unsignedTxBase64: string): Promise<string>;
   /** Add the user signature to a prepared base64 tx, broadcast, return the signature. */
   signAndSend(unsignedTxBase64: string, opts: SignOptions): Promise<string>;
 }

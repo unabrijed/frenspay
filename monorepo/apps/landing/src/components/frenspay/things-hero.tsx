@@ -7,6 +7,7 @@ import { InlineFListForm } from '@/components/frenspay/inline-f-list-form';
 import { FrensLogo } from '@/components/frenspay/logo';
 import { ThingsBackdrop } from '@/components/frenspay/things-backdrop';
 import { PaySwap, PlayCradle, RelayNote, StayKnot } from '@/components/frenspay/things-objects';
+import { APP_URL } from '@/lib/envConfig';
 import { FRENSPAY_COPY } from '@/lib/frenspay-copy';
 
 // play and pay sit opposite each other: in a four-slide loop that is the only
@@ -111,6 +112,7 @@ export function ThingsHero() {
         <div className="things-intro">
           <p className="things-eyebrow">Things between frens</p>
           <p className="things-support">{FRENSPAY_COPY.supporting}</p>
+          <a className="things-launch" href={APP_URL}>Launch app ↗</a>
         </div>
       </header>
 

@@ -37,6 +37,16 @@ function needsChainCheck(row: PendingTransfer): boolean {
 /** The status the row may now be flipped to. 'confirmed' means: landed, AND moved what the row says. */
 export async function verifiedStatus(row: PendingTransfer): Promise<TransferStatus> {
   const status = await getTransferStatus(row.signature);
+  if (row.expense_memo_required) {
+    if (status === 'pending') return 'pending';
+    // A failed unrelated signature does not prove this payment failed. Only the transaction
+    // carrying this attempt's exact instructions can release its reservation or settle the debt.
+    try {
+      return (await splTransferMatches(row, `FPAY-BILL:${row.id}`, true)) ? status : 'pending';
+    } catch {
+      return 'pending';
+    }
+  }
   if (status !== 'confirmed' || !needsChainCheck(row)) return status;
 
   let matched: boolean | null;
@@ -82,14 +92,23 @@ async function expectedDepositMemo(row: PendingTransfer): Promise<string | null>
  * unique signature + the admin's recorded attribution instead; the sender is simply not asked.
  * `parsed` is `any` in web3.js, hence the runtime narrowing.
  */
-async function splTransferMatches(row: PendingTransfer, memo?: string): Promise<boolean> {
-  const tx = await connection().getParsedTransaction(row.signature, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' });
+async function splTransferMatches(row: PendingTransfer, memo?: string, allowFailed = false): Promise<boolean> {
+  const tx = await connection().getParsedTransaction(row.signature, {
+    maxSupportedTransactionVersion: 0,
+    commitment: 'confirmed',
+  });
   if (!tx) throw new Error('transaction not returned'); // → 'pending', asked again next tick
-  if (tx.meta?.err) return false;
+  if (tx.meta?.err && !allowFailed) return false;
   const mint = usdcMint().toBase58();
   const destination = (await getAssociatedTokenAddress(new PublicKey(mint), new PublicKey(row.to_address))).toBase58();
   const want = (await toUsdcBaseUnits(row.amount_usdc)).toString();
-  return instructionsMove(parsedInstructionsOf(tx), { mint, destination, amount: want, authority: row.from_address ?? undefined, memo });
+  return instructionsMove(parsedInstructionsOf(tx), {
+    mint,
+    destination,
+    amount: want,
+    authority: row.from_address ?? undefined,
+    memo,
+  });
 }
 
 /** Every parsed instruction of a tx, outer and inner: CPI transfers surface under
@@ -110,10 +129,20 @@ export type StakeDepositRead =
   | { kind: 'failed' } // landed and failed
   | { kind: 'none' } // landed, no USDC into the treasury
   | { kind: 'shared'; count: number } // two or more transfers into the treasury in one tx — one signature is one transfers row, so this cannot be represented; a human sorts it
-  | { kind: 'ok'; amountUsdc: string; sender: string | null; memo: string | null; blockTime: number | null; slot: number };
+  | {
+      kind: 'ok';
+      amountUsdc: string;
+      sender: string | null;
+      memo: string | null;
+      blockTime: number | null;
+      slot: number;
+    };
 
 export async function readStakeDeposit(signature: string, treasuryOwner: string): Promise<StakeDepositRead> {
-  const tx = await connection().getParsedTransaction(signature, { maxSupportedTransactionVersion: 0, commitment: 'confirmed' });
+  const tx = await connection().getParsedTransaction(signature, {
+    maxSupportedTransactionVersion: 0,
+    commitment: 'confirmed',
+  });
   if (!tx) return { kind: 'not_found' };
   if (tx.meta?.err) return { kind: 'failed' };
   const mint = usdcMint().toBase58();
@@ -147,7 +176,10 @@ export interface ParsedDeposit {
  * ATA). The other legs of a batched exchange withdrawal — one tx, many customers — are ignored, so a
  * batch that pays one partner still reads as one deposit. Pure, for check-transfer-verify.
  */
-export function treasuryDepositsIn(instructions: readonly ParsedIx[], expect: { mint: string; destination: string }): ParsedDeposit[] {
+export function treasuryDepositsIn(
+  instructions: readonly ParsedIx[],
+  expect: { mint: string; destination: string },
+): ParsedDeposit[] {
   const out: ParsedDeposit[] = [];
   for (const ix of instructions) {
     const t = splTransfer(ix);
@@ -220,5 +252,12 @@ function splTransfer(ix: ParsedIx): {
         : undefined;
   if (type !== 'transfer' && type !== 'transferChecked') return null;
   const s = info.authority ?? info.multisigAuthority;
-  return { type, amount, destination: info.destination, mint: info.mint, authority: info.authority, sender: typeof s === 'string' ? s : null };
+  return {
+    type,
+    amount,
+    destination: info.destination,
+    mint: info.mint,
+    authority: info.authority,
+    sender: typeof s === 'string' ? s : null,
+  };
 }

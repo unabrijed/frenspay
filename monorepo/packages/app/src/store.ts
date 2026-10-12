@@ -10,6 +10,7 @@ import { FALLBACK_RATES } from '@fpay/shared';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
+import { migrateProductCache } from './lib/productCache';
 import { friendlyError } from './lib/errors';
 import { api, ApiError, setAuthToken } from './services/api';
 import { getActiveSigner } from './services/signer';
@@ -35,6 +36,7 @@ let refreshing = false;
 
 export type SheetId =
   | 'scan'
+  | 'merchantPayment'
   | 'amount'
   | 'add'
   | 'send'
@@ -61,6 +63,8 @@ export type SheetId =
   | 'newGroup'
   | 'addMember'
   | 'moveToGroup'
+  | 'friends'
+  | 'bills'
   | 'split'
   | 'trip';
 
@@ -126,6 +130,7 @@ interface PayState {
 
   // ---- ephemeral ----
   sheet: SheetId | null;
+  merchantLink: string | null;
   closing: boolean;
   /** The shop/person being paid — from a scanned UPI QR. NOT the LP that settles it. */
   payee: Payee;
@@ -159,7 +164,7 @@ interface PayState {
    *  written by whoever opens it (the detail page, a trip row), like `friend` for Send. */
   groups: ApiGroup[];
   trip: ApiGroupDetail | null;
-  expense: { id: string; amountUsd: number; label: string; groupId?: string } | null;
+  expense: { id: string; amountUsd: number; label: string; groupId?: string; expenseId?: string } | null;
   busy: boolean;
   /** True once the first signed-in load() of this SESSION has resolved. Ephemeral (never persisted)
    *  so every fresh app load starts false → screens show skeletons until live data arrives, instead
@@ -224,7 +229,7 @@ interface PayState {
 
   // ---- payment requests ----
   requestMoney: (handle: string, amountUsd: number, note?: string) => Promise<void>;
-  payRequest: (id: string) => Promise<void>;
+  payRequest: (id: string) => Promise<'submitted' | 'unavailable' | 'failed'>;
   cancelRequest: (id: string) => Promise<void>;
 
   // ---- trips & splitting ----
@@ -361,6 +366,7 @@ export const usePayStore = create<PayState>()(
       depositBusy: false,
 
       sheet: null,
+      merchantLink: null,
       closing: false,
       // Empty, not a plausible demo value. Every sheet that reads these is opened by the same set()
       // that writes the real ones, so a seed is never SUPPOSED to render — which is exactly why a
@@ -770,7 +776,10 @@ export const usePayStore = create<PayState>()(
       // the (Phase-2 mock) merchant pay flow; anything else → a friendly error on the Scan sheet.
       handleScan: async (text) => {
         const res = classifyPayTarget(text);
-        if (res.kind === 'handle') {
+        if (res.kind === 'merchant') {
+          set({ merchantLink: res.paymentLink, error: null });
+          get().open('merchantPayment');
+        } else if (res.kind === 'handle') {
           if (res.handle === get().handle) {
             set({ error: "That's your own code" });
             return;
@@ -787,17 +796,8 @@ export const usePayStore = create<PayState>()(
           } catch (e) {
             set({ error: e instanceof Error ? e.message : String(e) });
           }
-        } else if (res.kind === 'upi') {
-          // Merchant pay → the real order lifecycle: quote (rate+fee+ETA, 45s lock) → escrow → settle.
-          // Keep the VPA: it's WHO the merchant actually pays. Dropping it (as this used to) left the
-          // order with a rail but no destination, so no merchant could have settled it.
-          set({ error: null });
-          get().payPayee({ name: res.name ?? res.payee ?? 'Recipient', vpa: res.payee, rail: 'UPI', currency: 'INR' }, res.amountInr ?? 0);
-        } else if (res.kind === 'qris') {
-          // Same lifecycle on the Indonesian rail — the NMID is the payout destination, IDR the
-          // quote currency. The rail rides on the payee so every quote call names it.
-          set({ error: null });
-          get().payPayee({ name: res.name ?? 'Recipient', vpa: res.payee, rail: 'QRIS', currency: 'IDR' }, res.amountIdr ?? 0);
+        } else if (res.kind === 'upi' || res.kind === 'qris') {
+          set({ error: 'This merchant code is not supported yet.' });
         } else if (res.kind === 'paynow') {
           // Recognition is not activation. No quote, wallet signature or sandbox payout from UI.
           set({ error: "Singapore payments aren’t available yet" });
@@ -1395,20 +1395,42 @@ export const usePayStore = create<PayState>()(
 
       // Pay an incoming request: send to the requester, then link the transfer to the request.
       payRequest: async (id) => {
-        const r = get().requests.find((x) => x.id === id);
-        if (!r?.counterpartyHandle) return;
+        if(get().busy) return 'unavailable';
+        let r;
+        try {
+          const requests=await wallet.getRequests();
+          set({requests});
+          r=requests.find((x)=>x.id===id);
+        } catch(e) { get().notify(friendlyError(e)); return 'failed'; }
+        if (!r?.counterpartyHandle || r.status!=='open') {
+          get().notify('This request is no longer available to pay.');
+          return 'unavailable';
+        }
         const handle = r.counterpartyHandle;
+        if (r.expenseId) {
+          set({ busy: true });
+          try {
+            const tx = await wallet.transfer({ toHandle: handle, amountUsd: Number(r.amountUsd), requestId: r.id });
+            set((s) => ({ transactions: [tx, ...s.transactions.filter((t) => t.id !== tx.id)],
+              requests: s.requests.map((x) => x.id === id ? {...x,status:'pending',transferId:tx.id} : x) }));
+            get().notify('Payment submitted. Waiting for confirmation.', 'success');
+            return 'submitted';
+          } catch (e) { get().notify(friendlyError(e)); return 'failed'; }
+          finally { set({ busy: false }); void get().refresh(); }
+        }
         get().setFriend({ name: handle, handle, ini: (handle.replace(/^@/, '')[0] ?? '?').toUpperCase() });
         const tx = await get().doSend(Number(r.amountUsd));
-        if (!tx) return; // doSend already set the error
+        if (!tx) return 'failed'; // doSend already set the error
         try {
           await wallet.payRequest(id, tx.id);
           set((s) => ({
             requests: s.requests.map((x) => (x.id === id ? { ...x, status: 'paid' } : x)),
           }));
           void get().refresh();
+          return 'submitted';
         } catch (e) {
           get().notify(friendlyError(e));
+          return 'failed';
         }
       },
 
@@ -1535,18 +1557,8 @@ export const usePayStore = create<PayState>()(
     }),
     {
       name: 'pay-store',
-      version: 2,
-      migrate: (persisted: unknown) => {
-        const s = (persisted ?? {}) as Record<string, unknown>;
-        // v1: the old cosmetic `kyc: boolean` became the real `kycTier` (verified → tier 2).
-        if (typeof s.kycTier !== 'number') s.kycTier = s.kyc === true ? 2 : 1;
-        delete s.kyc;
-        // v2: drop the stored display currency so it falls back to the new USD default. Everyone
-        // holding 'INR' got it from the old default rather than by choosing it, and without this
-        // they keep reading a conversion where the balance itself belongs.
-        delete s.displayCurrency;
-        return s as unknown as PayState;
-      },
+      version: 3,
+      migrate: (persisted: unknown, version: number) => migrateProductCache(persisted, version) as unknown as PayState,
       // The platform's storage, read lazily: configure() runs before the first render but after this
       // module evaluates, so hydration is skipped here and kicked off by configure() instead.
       storage: createJSONStorage(() => ({

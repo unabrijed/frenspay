@@ -18,7 +18,7 @@ import {
   listKybEvents,
   merchantSettledCount,
   listStakeWithdrawals,
-  hasAnyUsers,
+  joinWaitlistWithCode,
   markInvitesRevealed,
   getUserKycStatus,
   getUserKycTier,
@@ -34,7 +34,8 @@ import {
   upsertWalletForChain,
 } from '../db/queries';
 import { screenHandle } from '../services/compliance';
-import { canonicalInviteCode, inviteRequired } from '../services/invites';
+import { canonicalInviteCode } from '../services/invites';
+import { isFlistMember, requireFlist } from '../services/flist';
 import { confirmPhoneEnrollment, PhoneOtpProviderError, startPhoneEnrollment } from '../services/phoneOtp';
 import { getLinkedEmail, privyConfigured } from '../services/privy';
 
@@ -47,6 +48,19 @@ function toKycStatus(s: string): MeResponse['kycStatus'] {
 }
 
 export async function registerAuthRoutes(app: FastifyInstance) {
+  // Shared profile APIs also serve the operator/partner consoles. Their established roles,
+  // determined by the server, keep access; ordinary customer profiles require membership.
+  app.addHook('preHandler', async (req, reply) => {
+    const path = req.routeOptions.url;
+    if (!path || !(path === '/me' || path.startsWith('/me/') || path === '/users/resolve' || path === '/kyc/verify')) return;
+    // Preserve the shared bootstrap signal used by the LP console and native clients.
+    if (path === '/me' && !req.userId) return;
+    if (req.userId) {
+      const user = await findUserById(req.userId);
+      if (effectiveRole(user) === 'admin' || await getMerchantForUser(req.userId)) return;
+    }
+    return requireFlist(req, reply);
+  });
   // There was a public POST /invite/check here — the landing gate's pre-flight, which answered "is
   // this code redeemable?" without burning it, then handed off to the app. It is gone with the gate
   // it served: the landing page now spends the code where it validates it, inside POST /waitlist,
@@ -72,42 +86,33 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     // Browser-locale country guess (weakest source — the upsert only fills it when NULL).
     const rawCountry = req.body?.country ?? '';
     const country = /^[A-Za-z]{2}$/.test(rawCountry) ? rawCountry.toUpperCase() : undefined;
-    // Privy is the only source of a verified address, and it is what ADMIN_EMAILS matches against.
-    // Best-effort: a Privy hiccup must not block a signup, so a failure here just leaves it null.
-    // Read BEFORE the invite gate because the gate now asks whether this address is a root admin —
-    // and a null here simply means "not one", i.e. the hiccup fails toward the gate, never past it.
-    const email = privyConfigured() ? await getLinkedEmail(privyDid).catch(() => null) : null;
+    let email: string | null;
+    try { email = privyConfigured() ? await getLinkedEmail(privyDid) : null; }
+    catch { return reply.code(503).send({ error: 'flist_unavailable' }); }
     // Who this address already is, if anyone. It decides two things: whether a missing handle is an
     // error (nothing to adopt and no row for this DID → the screen has to ask, and asks THAT before
     // the invite gate can ask for a code), and whether the gate applies at all. The transaction
     // re-checks both facts under lock — this pre-flight only orders the answers.
     const existing = email ? await findUserByEmail(email) : null;
-    if (!canonical && !existing && !req.userId) return reply.code(400).send({ error: 'handle_required' });
-    // Invite gate: fires only when this sync CREATES the account (no row for this DID → authPreHandler
-    // left req.userId unset). Who skips it and why is inviteRequired() in services/invites.ts. The
-    // code is validated and BURNED inside the upsert transaction, not here: checking it here and
-    // spending it there would leave a window where two people both pass this line.
-    //
-    // "Existing" is asked of the EMAIL as well as the DID. authPreHandler can only match a DID, so a
-    // returning person under a new one reads as brand new here and gets asked for an invite to their
-    // own account — a code they have no reason to have, blocking the adoption path in
-    // upsertUserByPrivyDid before it can run. The address is Privy-verified, never self-claimed.
-    let inviteCode: string | undefined;
-    if (
-      inviteRequired({
-        isExistingUser: Boolean(req.userId) || Boolean(existing),
-        directoryHasUsers: await hasAnyUsers(),
-        isRootAdmin: isRootAdminEmail(email),
-      })
-    ) {
-      const canonicalCode = canonicalInviteCode(req.body?.inviteCode ?? '');
-      // No code at all reads differently to a bad one — the first is "you need an invite", the
-      // second is "that isn't one". Beyond that the server never says WHY a code failed.
-      if (!canonicalCode) {
-        return reply.code(403).send({ error: req.body?.inviteCode ? 'invalid_invite' : 'invite_required' });
+    const operator = (req.userId ? await findUserById(req.userId) : existing);
+    const consoleAccess = isRootAdminEmail(email) || effectiveRole(operator) === 'admin'
+      || Boolean(operator && await getMerchantForUser(operator.id));
+    if (!consoleAccess) {
+      if (!email) return reply.code(403).send({ error: 'verified_email_required' });
+      if (!(await isFlistMember(email))) {
+        // Older native/LP clients can still submit a code with setup. It now joins the same
+        // f-list as the web entrance, so no second code or second invite allowance is needed.
+        const code = canonicalInviteCode(req.body?.inviteCode ?? '');
+        if (!code) return reply.code(403).send({ error: req.body?.inviteCode ? 'invalid_invite' : 'invite_required' });
+        try { await joinWaitlistWithCode({ email, code }); }
+        catch (e) {
+          if ((e as { code?: string }).code === 'invalid_invite')
+            return reply.code(403).send({ error: 'invalid_invite' });
+          throw e;
+        }
       }
-      inviteCode = canonicalCode;
     }
+    if (!canonical && !existing && !req.userId) return reply.code(400).send({ error: 'handle_required' });
     let user;
     try {
       user = await upsertUserByPrivyDid({
@@ -116,7 +121,6 @@ export async function registerAuthRoutes(app: FastifyInstance) {
         walletAddress,
         country,
         email: email ?? undefined,
-        inviteCode,
       });
     } catch (e) {
       const code = (e as { code?: string }).code;
@@ -215,23 +219,20 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       role: effectiveRole(user) as MeResponse['role'],
       invitesTotal: invites.total,
       invitesUsed: invites.used,
-      // Present exactly once. Once /me/invites/ack stamps invites_revealed_at this goes undefined
-      // forever — the user's one look is over, and only the admin console can read them after that.
+      // Legacy/native reveal compatibility. Customer web retrieves reusable codes via /flist/me.
       invites: invites.codes,
     };
   });
 
-  /** The user has seen their codes. Idempotent: acking twice is not an error, it just already
-   *  happened. After this /me stops returning the strings, so a client that loses them cannot ask
-   *  again — which is the point ("lose it, lose a fren"). */
+  /** Legacy/native reveal acknowledgement. Does not affect the reusable /flist/me listing. */
   app.post('/me/invites/ack', async (req) => {
     await markInvitesRevealed(requireUserId(req));
     return { ok: true };
   });
 
   // --- directory ---
-  // ?handle= stays unauthenticated (the onboarding availability check runs before a DB user
-  // exists). ?phone= requires auth — binds the rate-limit bucket to an identity so the E.164
+  // Handle availability accepts a verified f-list member before a DB user exists.
+  // ?phone= additionally requires an account — binds the rate-limit bucket to an identity so the E.164
   // space can't be scraped anonymously. Invalid, unknown, and not-enrolled all return the same
   // { user: null } (enumeration-proof by construction).
   app.get<{ Querystring: { handle?: string; phone?: string } }>(

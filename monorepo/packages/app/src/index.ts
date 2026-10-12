@@ -13,6 +13,7 @@ export * from './lib/base58';
 export * from './lib/bootRoute';
 export * from './hooks/useLiveSync';
 export * from './hooks/useBalanceDisplay';
+export * from './hooks/useSpendSummary';
 export * from './components/SheetHost';
 export * from './components/ToastHost';
 export * from './components/SuspendedGate';
@@ -23,3 +24,5 @@ export * from './components/ResultBlock';
 export * from './components/VerifyCard';
 export * from './components/Skeleton';
 export * from './components/MaskedAmount';
+
+export { ExpenseShortcuts } from './sheets/expenses';

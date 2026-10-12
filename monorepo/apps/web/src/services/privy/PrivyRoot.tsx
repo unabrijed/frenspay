@@ -7,10 +7,13 @@ import { SmartWalletsProvider } from '@privy-io/react-auth/smart-wallets';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 
+import { CustomerAccess } from '@/components/CustomerAccess';
 import { Splash } from '@/components/ui/Splash';
 import { bootTrace } from '@/lib/boot';
-import { PRELAUNCH_ENABLED, PRIVY_APP_ID, PRIVY_CLIENT_ID } from '@/services/envConfig';
+import { PRIVY_APP_ID, PRIVY_CLIENT_ID } from '@/services/envConfig';
 
+import { mainnet, base, arbitrum, monad } from 'viem/chains';
+import { PaymentBridge } from './PaymentBridge';
 import { PrivyBridge } from './PrivyBridge';
 
 bootTrace('privy chunk loaded');
@@ -49,13 +52,7 @@ export default function PrivyRoot({ children }: { children: ReactNode }) {
       appId={PRIVY_APP_ID}
       clientId={PRIVY_CLIENT_ID || undefined}
       config={{
-        ...(PRELAUNCH_ENABLED ? {
-          defaultChain: { id:143,name:'Monad',nativeCurrency:{name:'MON',symbol:'MON',decimals:18},rpcUrls:{default:{http:['https://rpc.monad.xyz']}} },
-          supportedChains: [
-            { id:143,name:'Monad',nativeCurrency:{name:'MON',symbol:'MON',decimals:18},rpcUrls:{default:{http:['https://rpc.monad.xyz']}} },
-            { id:10143,name:'Monad Testnet',nativeCurrency:{name:'MON',symbol:'MON',decimals:18},rpcUrls:{default:{http:['https://testnet-rpc.monad.xyz']}} },
-          ],
-        } : {}),
+        supportedChains: [mainnet, base, arbitrum, monad],
         // Email, and nothing else. The app's own UI already can't do anything else — PrivyBridge
         // calls useLoginWithEmail and there is no login() modal, connectWallet or linkWallet
         // anywhere in the app — but that left "can someone bring their own wallet?" answered by a
@@ -75,14 +72,17 @@ export default function PrivyRoot({ children }: { children: ReactNode }) {
         // and behaviour is exactly as before.
         embeddedWallets: {
           ethereum: { createOnLogin: 'users-without-wallets' },
-          ...(!PRELAUNCH_ENABLED ? { solana: { createOnLogin: 'users-without-wallets' as const } } : {}),
+          solana: { createOnLogin: 'users-without-wallets' },
         },
       }}
     >
-      {PRELAUNCH_ENABLED ? <PrivyGate>{children}</PrivyGate> : <SmartWalletsProvider>
-        <PrivyBridge />
-        <PrivyGate>{children}</PrivyGate>
-      </SmartWalletsProvider>}
+      <PrivyGate><CustomerAccess>
+        <SmartWalletsProvider>
+          <PrivyBridge />
+          <PaymentBridge />
+          {children}
+        </SmartWalletsProvider>
+      </CustomerAccess></PrivyGate>
     </PrivyProvider>
   );
 }

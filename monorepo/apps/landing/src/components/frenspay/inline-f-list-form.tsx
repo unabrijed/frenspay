@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
+import { APP_URL } from '@/lib/envConfig';
 import { FrensLogo } from '@/components/frenspay/logo';
 import { captureRef } from '@/components/ref';
 import { isValidEmail, normalizeEmail, suggestEmail } from '@/lib/email';
@@ -24,13 +25,16 @@ export function InlineFListForm({ onInteractionChange }: { onInteractionChange: 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggestion, setSuggestion] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [codeValue, setCodeValue] = useState('');
   const busyRef = useRef(false);
   const mountedRef = useRef(true);
   const controllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    mountedRef.current = true;
     captureRef();
+    const incoming = new URLSearchParams(window.location.search).get('invite');
+    if (incoming) setCodeValue(incoming.trim().toUpperCase());
     const verification = new URLSearchParams(window.location.search).get('v');
     // A confirm-link bounce. `?v=1` is someone returning from their inbox, not someone who just
     // joined — they already have their three (in that same email), so this shows the success line
@@ -56,7 +60,7 @@ export function InlineFListForm({ onInteractionChange }: { onInteractionChange: 
     // normalisation below. The server canonicalises for real; this is only cosmetic + a cheap
     // filter so an obviously-empty entry never spends one of the 5 attempts a minute.
     const code = codeField.value.trim().toUpperCase();
-    codeField.value = code;
+    setCodeValue(code);
     if (!looksLikeCode(code)) {
       setError('That doesn’t look like an invite code.');
       setSuggestion(null);
@@ -98,10 +102,11 @@ export function InlineFListForm({ onInteractionChange }: { onInteractionChange: 
     controllerRef.current = controller;
 
     try {
-      const { invites: minted } = await joinWaitlist(email, code, controller.signal);
+      await joinWaitlist(email, code, controller.signal);
       if (mountedRef.current) {
-        setInvites(minted);
-        onInteractionChange(false);
+        const target = new URL(APP_URL);
+        target.hash = new URLSearchParams({ login: '1', email }).toString();
+        window.location.assign(target.toString());
       }
     } catch (caught) {
       if (controller.signal.aborted || !mountedRef.current) return;
@@ -144,36 +149,7 @@ export function InlineFListForm({ onInteractionChange }: { onInteractionChange: 
           </p>
           {/* Empty on a `?v=1` bounce — they already have their three in the inbox they just came
               from, and re-printing them here would suggest a second set. */}
-          {invites.length ? (
-            <div className="tearoff-invites">
-              <p className="tearoff-invites-lead">{FRENSPAY_COPY.invitesLead}</p>
-              <ul>
-                {invites.map((code) => (
-                  <li key={code}>{code}</li>
-                ))}
-              </ul>
-              <p className="tearoff-invites-note">{FRENSPAY_COPY.invitesNote}</p>
-              {/* One button for all three, not one each: they are given away as a set, and three
-                  buttons is three decisions where there is only one. */}
-              <button
-                type="button"
-                className="tearoff-copy"
-                onClick={() => {
-                  // `?.` short-circuits the whole chain where there is no clipboard (http origins,
-                  // older Safari), and a denied permission rejects — neither is worth an error
-                  // message, because the codes are right there to select and the mail has them too.
-                  void navigator.clipboard
-                    ?.writeText(invites.join('\n'))
-                    .then(() => {
-                      if (mountedRef.current) setCopied(true);
-                    })
-                    .catch(() => {});
-                }}
-              >
-                {copied ? FRENSPAY_COPY.copied : FRENSPAY_COPY.copyAll}
-              </button>
-            </div>
-          ) : null}
+          <a className="tearoff-copy" href={APP_URL}>Launch app ↗</a>
         </div>
       ) : (
         <form onSubmit={submit} noValidate aria-describedby={error ? 'f-list-error' : undefined}>
@@ -181,13 +157,15 @@ export function InlineFListForm({ onInteractionChange }: { onInteractionChange: 
             <label htmlFor="f-list-code">{FRENSPAY_COPY.inviteLabel}</label>
             <input
               id="f-list-code"
+              value={codeValue}
+              onChange={(event) => setCodeValue(event.target.value)}
               name="code"
               type="text"
               inputMode="text"
               autoComplete="off"
               autoCapitalize="characters"
               spellCheck={false}
-              placeholder="FP-XXXX-XXXX"
+              placeholder="FREN-XXXX-XXXX"
               required
               aria-invalid={Boolean(error)}
             />

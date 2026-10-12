@@ -7,6 +7,7 @@ import { hasDatabase } from './db/pool';
 import { assertDatabaseTier } from './db/tier';
 import { registerRoutes } from './routes/index';
 import { startBridgePoller } from './services/bridge/poller';
+import { startMerchantPaymentWorker } from './services/merchantPayments';
 import { startConfirmer } from './services/confirmer';
 import { startFxRefresher } from './services/fxRate';
 import { registerHeliusWebhook } from './services/helius';
@@ -79,6 +80,7 @@ async function start() {
 
   // M2: poll pending transfers to confirmation (no-op without DB + USDC_MINT).
   startConfirmer(8000, (m) => app.log.info(m));
+  startMerchantPaymentWorker(m => app.log.info(m));
 
   // v2 cross-chain: attestation + settle worker (no-op without DB + EVM minter config).
   startBridgePoller(5000, (m) => app.log.info(m));

@@ -2,7 +2,8 @@
 
 // Settings — profile, account rows, replay onboarding. Per screens-more.jsx.
 import { useRouter } from 'next/navigation';
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { prelaunchApi } from '@/services/api';
 
 
 import { Icons } from '@/components/icons';
@@ -19,6 +20,8 @@ import { usePayStore } from '@/store/usePayStore';
 
 export default function Settings() {
   const router = useRouter();
+  const [hasLegacyWallet,setHasLegacyWallet]=useState(false);
+  useEffect(()=>{let active=true;void prelaunchApi.account().then(()=>{if(active)setHasLegacyWallet(true);}).catch(()=>{});return()=>{active=false;};},[]);
   const open = usePayStore((s) => s.open);
   const handle = usePayStore((s) => s.handle);
   const phone = usePayStore((s) => s.phone);
@@ -57,6 +60,7 @@ export default function Settings() {
         <VerifyCard tier={kycTier} status={kycStatus} available={identityCheckAvailable} onPress={() => open('verify')} />
 
         <InviteCard used={invitesUsed} total={invitesTotal} />
+        <TextLink label="Invite a fren" onPress={() => router.push('/invites')} />
 
         <List>
           <SettingsRow k="Recovery" v={recoveryPasskey ? 'Passkey set' : 'Email'} onPress={() => open('recovery')} />
@@ -70,6 +74,7 @@ export default function Settings() {
           />
           <SettingsRow k="Display currency" v={displayCurrency} accent onPress={() => open('currency')} />
           <SettingsRow k="Local currency" v={localCurrency ?? 'Auto'} accent onPress={() => open('localCurrency')} />
+          {hasLegacyWallet?<SettingsRow k="Legacy wallet recovery" onPress={()=>router.push('/legacy-wallet')}/>:null}
           <SettingsRow k="Help and support" onPress={() => open('help')} />
         </List>
 
@@ -123,10 +128,7 @@ function SettingsRow({ k, v, icon, accent, onPress }: { k: string; v?: string; i
   );
 }
 
-// Invite status — COUNTS ONLY, deliberately. The codes were shown once at signup and are gone from
-// the app forever; re-listing them here would quietly undo that ("lose it, lose a fren"), so there
-// is no share button and nothing to copy. What's left is the one thing still worth knowing: how
-// many frens you have left to bring.
+// Invite allowance; the link above opens the reusable invite list.
 function InviteCard({ used, total }: { used: number; total: number }) {
   const left = Math.max(0, total - used);
   return (

@@ -210,13 +210,11 @@ const KNOWN_UNSPENDABLE = new Set([
  * routes that record whose deposit it is, and USDC sent there any other way is credited to nobody.
  * Callers add their own context (a send also refuses partners' release addresses).
  */
+export function operationalAddresses(): string[] {
+  return [feePayerAddress(), config.usdcMint, config.stakeTreasuryAddress, ...KNOWN_UNSPENDABLE].filter(Boolean);
+}
 export function isOperationalAddress(addr: string): boolean {
-  return (
-    addr === feePayerAddress() ||
-    addr === config.usdcMint ||
-    (!!config.stakeTreasuryAddress && addr === config.stakeTreasuryAddress) ||
-    KNOWN_UNSPENDABLE.has(addr)
-  );
+  return operationalAddresses().includes(addr);
 }
 
 /** Fee-payer public address — exposed so the send path can refuse it as a recipient. Empty when no

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   usePrivy,
@@ -371,6 +372,7 @@ function Connected() {
   };
   return (
     <Frame>
+      <div style={{ padding: '0 20px 12px', textAlign: 'right' }}><Link href="/invites" className={s.link}>Invite a fren ↗</Link></div>
       <div className={s.banner}>
         PRELAUNCH TEST <span>No money goes to recipients</span>
       </div>
@@ -891,6 +893,7 @@ function Connected() {
             Points may count toward future rewards. They are not tokens, have no cash value and do not
             guarantee an allocation.
           </p>
+          <Link href="/invites" className={s.link}>Invite a fren ↗</Link>
           <p className={s.note}>{account.email}</p>
           <button className={s.link} onClick={() => void run(logout)}>
             Sign out

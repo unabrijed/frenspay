@@ -9,7 +9,8 @@
     "start": "next start -p 3004",
     "typecheck": "tsc --noEmit",
     "check:api": "tsx scripts/check-api-headers.ts",
-    "check:next": "tsx scripts/check-next-step.ts"
+    "check:next": "tsx scripts/check-next-step.ts",
+    "check:gate": "tsx scripts/check-gate.ts"
   },
   "dependencies": {
     "@fpay/shared": "*",

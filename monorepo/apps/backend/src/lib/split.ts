@@ -1,6 +1,6 @@
 // split.ts — the one rule a bill split must hold: the friends' parts never exceed the bill. Pure
 // (BigNumber over canonical strings, no I/O) so check-split.ts can assert it without a database.
-// The route resolves handles and writes rows; replaceShares holds the lock; this decides only the
+// Historical split validator retained for migration regression checks; this decides only the
 // arithmetic. The payer's own part is what is left — it is never a stored number (docs/04).
 import { BN, normalizeAmount, USDC_DECIMALS } from './units';
 

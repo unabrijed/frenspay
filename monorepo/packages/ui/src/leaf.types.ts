@@ -7,6 +7,7 @@ export interface InputProps {
   value: string;
   onChangeText: (t: string) => void;
   placeholder?: string;
+  accessibilityLabel?: string;
   autoFocus?: boolean;
   keyboardType?: KeyboardType;
   maxLength?: number;

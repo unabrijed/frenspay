@@ -9,8 +9,10 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "check:api": "tsx scripts/check-api-headers.ts",
-    "check:gate": "tsx scripts/check-gate.ts",
-    "check:boot": "tsx scripts/check-boot.ts"
+    "check:boot": "tsx scripts/check-boot.ts",
+    "check:invites:browser": "node scripts/check-invite-browser.mjs",
+    "check:expenses:browser": "node scripts/check-expenses-browser.mjs",
+    "check:payments:browser": "node scripts/check-merchant-payments-browser.mjs"
   },
   "dependencies": {
     "@fpay/shared": "*",
@@ -34,6 +36,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.0",
     "@types/node": "^22.10.0",
     "@types/react": "~19.2.2",
     "@types/react-dom": "^19.2.0",

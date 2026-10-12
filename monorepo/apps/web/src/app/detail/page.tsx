@@ -38,11 +38,11 @@ export default function Detail() {
   const isAdd = tx.type === 'add';
   const out = tx.usd < 0;
   // Only a payment YOU made can be put in a trip or split — never one that settled a share.
-  const splittable = out && !isAdd && !tx.settlesNote && tx.status !== 'failed';
+  const splittable = out && !isAdd && !tx.settlesNote && tx.status === 'confirmed';
   const shares = requests.filter((r) => r.direction === 'outgoing' && r.splitOf === tx.id && r.status !== 'cancelled');
   const tripName = tx.groupId ? groups.find((g) => g.id === tx.groupId)?.name : undefined;
   const act = (sheet: 'split' | 'moveToGroup') => {
-    setExpense({ id: tx.id, amountUsd: Math.abs(tx.usd), label: tx.title, groupId: tx.groupId });
+    setExpense({ id: tx.id, expenseId: tx.expenseId, amountUsd: Math.abs(tx.usd), label: tx.title, groupId: tx.groupId });
     open(sheet);
   };
   const status = isAdd ? 'Added' : tx.status === 'pending' ? 'Processing' : tx.status === 'failed' ? 'Failed' : out ? 'Paid' : 'Received';

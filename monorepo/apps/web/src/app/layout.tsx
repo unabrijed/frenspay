@@ -10,7 +10,6 @@ import { SuspendedGate } from '@/components/SuspendedGate';
 import { ToastHost } from '@/components/ToastHost';
 import { SwKiller } from '@/components/SwKiller';
 import { fontVars } from '@/lib/fonts';
-import { PRELAUNCH_ENABLED } from '@/services/envConfig';
 
 // Pre-paint guard for the icon font. Icons render their glyph NAME as ligature text (icons.tsx),
 // so globals.css hides `.material-symbols-outlined` until `fonts-ready` is set — otherwise the raw
@@ -21,9 +20,7 @@ const FONTS_READY_SCRIPT = `(function(){var F="24px 'Material Symbols Outlined'"
 
 export const metadata: Metadata = {
   title: 'fpay',
-  description: PRELAUNCH_ENABLED
-    ? 'Try Singapore PayNow with test credits. Prelaunch simulation: recipients receive no money.'
-    : 'fpay: hold dollars, pay like a local.',
+  description: 'Frenspay: send, pay and split with friends.',
 };
 
 export const viewport: Viewport = {
@@ -57,7 +54,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {/* Neutralize any leftover service worker on this shared dev origin before the app boots. */}
           <SwKiller />
           <AppProviders>{children}</AppProviders>
-          {!PRELAUNCH_ENABLED && <><SheetHost /><ToastHost /><SuspendedGate /></>}
+          <SheetHost /><ToastHost /><SuspendedGate />
         </div>
         <Analytics />
         <SpeedInsights />

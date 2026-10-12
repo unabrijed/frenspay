@@ -33,6 +33,8 @@ export interface Platform {
    *  resolves when the in-app browser closes, and the caller polls from there. */
   openKyc(url: string): Promise<void>;
   openMail(to: string, subject: string): void;
+  /** Opens the person's SMS composer; never sends a message automatically. */
+  openSms?(to: string, body: string): Promise<void>;
   /** 'copied' when there was no share sheet and the text went to the clipboard instead. */
   share(p: { title: string; text: string; url?: string }): Promise<'shared' | 'copied'>;
   copy(text: string): Promise<void>;

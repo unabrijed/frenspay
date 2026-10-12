@@ -17,6 +17,8 @@ import type {
 } from '@fpay/shared';
 
 import { requireUserId } from '../auth';
+import { expenseTransaction, createExpense, editExpense, expenseForTransfer, ExpenseError, publishExpense, reserveExpenseTransfer } from '../db/expenses';
+import { expenseReply } from './expenses';
 import { config } from '../envConfig';
 import {
   attachTransferSignature,
@@ -34,8 +36,7 @@ import {
   listRequestsForUser,
   listTransactionsForUser,
   markRequestPaid,
-  replaceShares,
-  setTransferGroup,
+  setTransferStatus,
   withUserLock,
 } from '../db/queries';
 import { amt, positiveAmount, USDC_DECIMALS } from '../lib/amount';
@@ -43,7 +44,7 @@ import { formatAmount } from '../lib/units';
 import { checkSendLimit, scoreAndRecord, screenAddress, screenHandle } from '../services/compliance';
 import { KYC_APPROVED_TIER } from '../services/kyc';
 import { metrics } from '../services/metrics';
-import { notifyRequestPaid, notifyShare } from '../services/notify';
+import { notifyRequestPaid } from '../services/notify';
 import {
   buildUsdcTransfer,
   getUsdcBalance,
@@ -104,49 +105,31 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
     return createRequest({ fromUserId: userId, toUserId: to.id, amountUsd, note });
   });
 
-  // --- trips & splitting (docs/04 §Trips): an expense is a transfer; a share is a request ---
-  // Move an expense into a trip, or back to personal. The payer's own rows only (setTransferGroup).
-  app.patch<{ Params: { id: string }; Body: MoveTransferRequest }>('/transfers/:id', async (req, reply) => {
-    const userId = requireUserId(req);
-    const groupId = req.body?.groupId ?? null;
-    if (groupId !== null && typeof groupId !== 'string') return reply.code(400).send({ error: 'missing_fields' });
-    const ok = await setTransferGroup(req.params.id, userId, groupId);
-    if (!ok) return reply.code(404).send({ error: 'transfer_not_found' });
-    return { ok: true };
-  });
-
-  // Split an expense among friends: one open request per share, each naming the expense. Replaces
-  // the open shares; the ones a transfer already settled are kept (replaceShares). The payer's own
-  // part is what is left, never a stored number.
-  app.post<{ Params: { id: string }; Body: SplitRequest }>('/transfers/:id/split', async (req, reply) => {
-    const userId = requireUserId(req);
-    const body = req.body ?? ({} as SplitRequest);
-    if (!Array.isArray(body.shares) || body.shares.length > MAX_SHARES) {
-      return reply.code(400).send({ error: 'missing_fields' });
-    }
-    const shares: { toUserId: string; amountUsd: unknown; settled: boolean }[] = [];
-    for (const s of body.shares) {
-      const to = s?.handle ? await findUserByHandle(s.handle) : null;
-      if (!to) return reply.code(404).send({ error: 'unknown_handle' });
-      // Your own share is what is left, not a request to yourself; the same friend twice is a client bug.
-      if (to.id === userId || shares.some((x) => x.toUserId === to.id)) {
-        return reply.code(400).send({ error: 'invalid_share' });
-      }
-      shares.push({ toUserId: to.id, amountUsd: s.amountUsd, settled: s.settled === true });
-    }
-    const note = typeof body.note === 'string' && body.note.trim() ? body.note.trim().slice(0, 80) : null;
-    const result = await replaceShares({ transferId: req.params.id, payerUserId: userId, note, shares });
-    if (!result.ok) {
-      const status = result.error === 'not_found' ? 404 : result.error === 'transfer_failed' || result.error === 'is_settlement' || result.error === 'share_already_paid' ? 409 : 400;
-      return reply.code(status).send({ error: result.error === 'not_found' ? 'transfer_not_found' : result.error });
-    }
-    // Best-effort, after commit: the friends learn there is a request waiting (notify never throws).
-    const me = await findUserById(userId);
-    for (const o of result.opened) {
-      await notifyShare(o.toUserId, Number(o.amountUsd), me?.handle ?? 'A friend', note ?? 'a bill');
-    }
-    return { ok: true };
-  });
+  // Older clients use the same atomic bill workflow and validation as the current UI.
+  const transferParams={type:'object',required:['id'],properties:{id:{type:'string',format:'uuid'}}};
+  app.patch<{ Params: { id: string }; Body: MoveTransferRequest }>('/transfers/:id', {schema:{params:transferParams,
+    body:{type:'object',required:['groupId'],additionalProperties:false,properties:{groupId:{anyOf:[{type:'string',format:'uuid'},{type:'null'}]}}}}},
+    async(req,reply)=>expenseReply(reply,()=>expenseTransaction(async(db)=>{
+      const user=requireUserId(req);
+      const existing=await expenseForTransfer(req.params.id,user,db);
+      let expense=existing??await createExpense(user,req.params.id,req.body.groupId,db);
+      if(existing) expense=await editExpense(user,expense.id,{version:expense.version,groupId:req.body.groupId},db);
+      await publishExpense(user,expense.id,expense.version,db);
+      return {ok:true};
+    })));
+  app.post<{ Params: { id: string }; Body: SplitRequest }>('/transfers/:id/split',{schema:{params:transferParams,
+    body:{type:'object',required:['shares'],additionalProperties:false,properties:{note:{type:'string',minLength:1,maxLength:80},
+      shares:{type:'array',maxItems:MAX_SHARES,items:{type:'object',required:['handle','amountUsd'],additionalProperties:false,
+        properties:{handle:{type:'string',minLength:1,maxLength:40},amountUsd:{anyOf:[{type:'number',minimum:0},{type:'string',pattern:'^\\d{1,14}(\\.\\d{1,6})?$'}]},settled:{type:'boolean'}}}}}}}},
+    async(req,reply)=>expenseReply(reply,()=>expenseTransaction(async(db)=>{
+      const user=requireUserId(req),body=req.body;
+      if(body.shares.some((s)=>s.settled)) throw new ExpenseError('manual_payment_unsupported');
+      let expense=await expenseForTransfer(req.params.id,user,db)??await createExpense(user,req.params.id,undefined,db);
+      expense=await editExpense(user,expense.id,{version:expense.version,note:body.note,
+        participants:[{handle:expense.creatorHandle},...body.shares.map((s)=>({handle:s.handle,shareUsd:String(s.amountUsd)}))]},db);
+      await publishExpense(user,expense.id,expense.version,db);
+      return {ok:true};
+    })));
 
   // Resolve a request as paid, linking the transfer that fulfilled it. The payer (request's
   // addressee) makes the transfer via /transfer/prepare+submit first, then calls this with that id.
@@ -179,7 +162,9 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
   // gated). Exactly one must be set. All compliance controls run for BOTH modes (docs/16 §6).
   app.post<{ Body: PrepareTransferRequest }>('/transfer/prepare', async (req, reply) => {
     const userId = requireUserId(req);
-    const { toHandle, toAddress, idempotencyKey } = req.body ?? ({} as PrepareTransferRequest);
+    const { toHandle, toAddress, idempotencyKey, requestId } = req.body ?? ({} as PrepareTransferRequest);
+    if(requestId && (typeof requestId!=='string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId)))
+      return reply.code(400).send({error:'invalid_request'});
     // Free text into an unbounded column, rendered on the payer's feed, in notifications and on the
     // admin ledger: typed, trimmed and capped, the rule the split note above has always had.
     const note = typeof req.body?.note === 'string' && req.body.note.trim() ? req.body.note.trim().slice(0, 80) : undefined;
@@ -254,6 +239,9 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
     if (idempotencyKey) {
       const existing = await findTransferByIdempotencyKey(userId, idempotencyKey);
       if (existing) {
+        if ((requestId ?? null) !== (existing.requestId ?? null)) return reply.code(409).send({error:'request_mismatch'});
+        // A response may have been lost AFTER the wallet broadcast. Never give it a new transaction.
+        if (requestId) return reply.code(409).send({error:existing.status==='failed'?'request_payment_failed':'request_payment_pending',transferId:existing.id});
         if (existing.signature || existing.status !== 'pending') {
           return reply.code(409).send({ error: 'duplicate_request', transferId: existing.id });
         }
@@ -296,33 +284,33 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
       });
       if (risk.decision === 'block') return { kind: 'blocked' as const, reason: risk.reason };
 
+      let transferId: string | undefined;
+      const input = {fromUserId:userId,toUserId,fromAddress:fromWallet.address,toAddress:toOwnerAddress,
+        amountUsd,kind:'send' as const,note,chain:'solana',idempotencyKey};
+      // Reserve before building so the immutable attempt reference is part of the signed message.
+      if(requestId) {
+        try { ({id:transferId}=await reserveExpenseTransfer({...input,requestId})); }
+        catch(e) {
+          if(e instanceof ExpenseError) return {kind:'expense_error' as const,error:e.message,status:e.status};
+          throw e;
+        }
+      }
       let built;
       try {
-        built = await buildUsdcTransfer({ fromOwner: fromWallet.address, toOwner: toOwnerAddress, amountUsd });
-      } catch (e) {
-        // Recipient is pre-validated above, so failures here are genuinely RPC/mint/blockhash —
-        // surface as a clean 503.
-        req.log.error({ err: e }, 'buildUsdcTransfer failed');
-        return { kind: 'solana_unavailable' as const };
+        built=await buildUsdcTransfer({fromOwner:fromWallet.address,toOwner:toOwnerAddress,amountUsd,
+          memo:requestId?`FPAY-BILL:${transferId}`:undefined});
+      } catch(e) {
+        // This transaction was never returned to a signer, so this failure is safe to retry.
+        if(transferId) await setTransferStatus(transferId,'failed');
+        req.log.error({err:e},'buildUsdcTransfer failed');
+        return {kind:'solana_unavailable' as const};
       }
-      // Record the intent now so /transfer/submit only needs the transferId + signed tx.
-      let transferId: string;
-      try {
-        ({ id: transferId } = await createPendingTransfer({
-          fromUserId: userId,
-          toUserId,
-          fromAddress: fromWallet.address,
-          toAddress: toOwnerAddress,
-          amountUsd,
-          kind: 'send',
-          note,
-          chain: 'solana',
-          idempotencyKey,
-        }));
-      } catch (e) {
-        // Unique-index race on the idempotency key: a concurrent prepare with the same key won.
-        if ((e as { code?: string }).code === '23505') return { kind: 'duplicate' as const };
-        throw e;
+      if(!transferId) {
+        try { ({id:transferId}=await createPendingTransfer(input)); }
+        catch(e) {
+          if((e as {code?:string}).code==='23505') return {kind:'duplicate' as const};
+          throw e;
+        }
       }
       return { kind: 'ok' as const, unsignedTx: built.unsignedTx, feePayer: built.feePayer, sponsored: built.sponsored, transferId };
     });
@@ -342,6 +330,7 @@ export async function registerMoneyRoutes(app: FastifyInstance) {
     if (outcome.kind === 'blocked') return reply.code(403).send({ error: 'blocked', reason: outcome.reason });
     if (outcome.kind === 'solana_unavailable') return reply.code(503).send({ error: 'solana_unavailable' });
     if (outcome.kind === 'duplicate') return reply.code(409).send({ error: 'duplicate_request' });
+    if (outcome.kind === 'expense_error') return reply.code(outcome.status).send({error:outcome.error});
     return { unsignedTx: outcome.unsignedTx, feePayer: outcome.feePayer, sponsored: outcome.sponsored, transferId: outcome.transferId } satisfies PrepareTransferResponse;
   });
 

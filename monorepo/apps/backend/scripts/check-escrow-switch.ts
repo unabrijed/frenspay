@@ -29,7 +29,7 @@ const PROBE = `import('./src/envConfig.ts').then((m) => {
 });`;
 
 function probe(env: Record<string, string>): { live: boolean; sponsored: boolean } {
-  const out = execFileSync('npx', ['tsx', '-e', PROBE], {
+  const out = execFileSync('yarn', ['tsx', '-e', PROBE], {
     cwd: BACKEND,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],

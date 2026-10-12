@@ -1,5 +1,6 @@
 // Activity — the month's spend (paid, and your part), trips & circles, open requests, filters,
 // date-grouped rows. Port of the web's (tabs)/activity/page.tsx.
+import { ExpenseShortcuts, useSpendSummary } from '@fpay/app';
 import { isThisMonth, MaskedAmount, relTime, Skeleton, TxCard, TxListSkeleton, usePayStore } from '@fpay/app';
 import { type Txn, usd } from '@fpay/shared';
 import { Btn, colors, Empty, Fav, GUTTER, Icons, List, Pressable, radii, rnStyle, Row, RowAmount, RowMeta, Screen, shadows, TextLink, Txt, type, View } from '@fpay/ui';
@@ -20,7 +21,7 @@ function Requests() {
   const busy = usePayStore((s) => s.busy);
   const hideAmounts = usePayStore((s) => s.hideAmounts);
   const openSheet = usePayStore((s) => s.open);
-  const openReqs = requests.filter((r) => r.status === 'open');
+  const openReqs = requests.filter((r) => r.status === 'open' || r.status === 'pending');
 
   return (
     <>
@@ -52,15 +53,15 @@ function Requests() {
                   </RowAmount>
                 </Row>
                 <View style={styles.reqAction}>
-                  {incoming ? (
+                  {r.status === 'pending' ? <Txt style={type.sub}>Waiting for confirmation</Txt> : incoming ? (
                     <Btn
                       label={hideAmounts ? 'Pay ••••' : `Pay ${usd(r.amountUsd)}`}
                       height={42}
-                      disabled={busy}
+                      disabled={busy || r.status !== 'open'}
                       onPress={() => void payRequest(r.id)}
                     />
                   ) : (
-                    <TextLink label="Cancel request" onPress={() => void cancelRequest(r.id)} />
+                    <TextLink label={r.expenseId ? "View bill" : "Cancel request"} onPress={() => r.expenseId ? openSheet('bills') : void cancelRequest(r.id)} />
                   )}
                 </View>
               </View>
@@ -90,7 +91,7 @@ function Trips() {
           {groups.map((g) => (
             <Pressable key={g.id} onPress={() => void openTrip(g.id)} style={({ pressed }) => [styles.tripCard, pressed ? { backgroundColor: colors.surfaceLow } : null]}>
               <Txt style={type.rowName} numberOfLines={1}>{g.name}</Txt>
-              <MaskedAmount value={usd(g.totalUsd)} style={[type.rowAmount, { marginTop: 6 }]} />
+              <MaskedAmount value={usd(g.memberCostUsd ?? g.totalUsd)} style={[type.rowAmount, { marginTop: 6 }]} />
               <Txt style={[type.rowTime, { marginTop: 2 }]}>{g.members.length} {g.members.length === 1 ? 'person' : 'people'}</Txt>
             </Pressable>
           ))}
@@ -114,9 +115,9 @@ export default function Activity() {
 
   // Spent = what left your balance this month, under the current filter; your share = the same
   // rows at your part (docs/04 §Trips: money in never counts). ponytail: sums the loaded page.
-  const monthOut = shown.filter((t) => t.usd < 0 && isThisMonth(t.createdAt));
-  const spent = monthOut.reduce((acc, t) => acc + Math.abs(t.usd), 0);
-  const yourShare = monthOut.reduce((acc, t) => acc + (t.yourPart ?? Math.abs(t.usd)), 0);
+  const { summary, error: summaryError, retry: retrySummary } = useSpendSummary(f);
+  const spent = summary?.spentUsd ?? '0';
+  const yourShare = summary?.yourShareUsd ?? '0';
 
   const openTx = (tx: Txn) => {
     openDetail(tx);
@@ -144,13 +145,13 @@ export default function Activity() {
 
         <View style={styles.summary}>
           <Txt style={type.eyebrow}>Spent this month{f === 'All' ? '' : ` · ${f.toLowerCase()}`}</Txt>
-          {loaded ? (
+          {loaded && summary ? (
             <MaskedAmount value={usd(spent)} style={[type.heroBalance, { fontSize: 38, lineHeight: '44px', marginTop: 6 }]} />
           ) : (
             <Skeleton w={180} h={40} r={12} style={{ marginTop: 8, marginBottom: 4 }} />
           )}
           <View style={styles.realRate}>
-            {loaded ? (
+            {loaded && summary ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                 <Txt style={type.sub}>Your share</Txt>
                 <MaskedAmount value={usd(yourShare)} style={type.sub} />
@@ -159,12 +160,14 @@ export default function Activity() {
               <Skeleton w={90} h={13} />
             )}
           </View>
+          {summaryError ? <TextLink label="Couldn’t refresh totals · retry" onPress={retrySummary} /> : null}
           <Pressable onPress={() => open('add')} style={({ pressed }) => [styles.addFunds, pressed ? { opacity: 0.9 } : null]}>
             <Icons.Plus size={16} color={colors.white} />
             <Txt style={[type.tileLabel, { color: colors.white }]}>Add Funds</Txt>
           </Pressable>
         </View>
 
+        <ExpenseShortcuts />
         <Trips />
         <Requests />
 

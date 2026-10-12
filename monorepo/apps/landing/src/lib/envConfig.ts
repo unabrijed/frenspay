@@ -35,6 +35,11 @@ function pick(local?: string, stage?: string, prod?: string): string | undefined
 }
 
 const E = {
+  appUrl: pick(
+    process.env.NEXT_PUBLIC_LOCAL_APP_URL,
+    process.env.NEXT_PUBLIC_STAGE_APP_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
+  ),
   apiUrl: pick(
     process.env.NEXT_PUBLIC_LOCAL_API_URL,
     process.env.NEXT_PUBLIC_STAGE_API_URL,
@@ -46,6 +51,5 @@ const E = {
 // (which only sets NEXT_PUBLIC_STAGE_API_URL) fell through to localhost and every signup was lost.
 export const API_URL = (E.apiUrl || 'http://localhost:3001').replace(/\/$/, '');
 
-// There was an APP_URL here, for handing a valid code off to the app. Gone with the handoff: a code
-// is now spent joining the f list, so it has nothing left to open, and this site links to the app in
-// neither direction again. `NEXT_PUBLIC_*_APP_URL` can come out of the deploy env.
+// Signup hands off to email OTP in the customer app. Stage must name its own app origin.
+export const APP_URL = (E.appUrl || (APP_ENV === 'local' ? 'http://localhost:3000' : 'https://app.frenspay.xyz')).replace(/\/$/, '');

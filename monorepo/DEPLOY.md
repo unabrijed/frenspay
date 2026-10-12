@@ -36,11 +36,9 @@ environment's bare `CORS_ORIGIN`. Details and the reasoning: `apps/admin/README.
   CLOSED to mainnet if unset — envConfig.ts — so this var only picks WHICH mainnet RPC),
   `NEXT_PUBLIC_PRIVY_APP_ID`, `NEXT_PUBLIC_PRIVY_CLIENT_ID` (the SAME values stage uses — the one
   Privy app has no tiered twins, on any app or the backend), `NEXT_PUBLIC_LANDING_URL` (web only —
-  landing gets `NEXT_PUBLIC_API_URL`; admin reads neither, see above), and web's and lp's own
-  **`ACCESS_KEY`** — the deploy access gate, a fresh `openssl rand -hex 32` per project, **different
-  from each other and from stage's keys**. Each project is gated from its first deploy, not just at
-  mainnet; unsetting web's `ACCESS_KEY` later is the "open to the public" launch switch (lp stays
-  gated — partners are onboarded by hand and get the key with their approval).
+  landing gets `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_APP_URL`; admin reads neither).
+  Only the LP console sets **`ACCESS_KEY`**, a fresh `openssl rand -hex 32` distinct from its stage
+  key. Customer web ignores old `ACCESS_KEY` / `STAGE_ACCESS_KEY` variables; remove them after deploy.
 - **Domains**: attach per the table (CNAME from Vercel), API domain `api.frenspay.xyz` on the
   Railway prod service (same steps as stage's step 6), then set the backend's bare `CORS_ORIGIN`
   to the full prod origin list.
@@ -115,8 +113,8 @@ environment's bare `CORS_ORIGIN`. Details and the reasoning: `apps/admin/README.
 `NODE_ENV=production` + the **bare** (unprefixed) names — the full backend list lives in
 `apps/backend/.env.production.example`. Host-level vars stay unprefixed everywhere (`PORT` is
 injected by Railway — never set it; `PUBLIC_BASE_URL=https://api.frenspay.xyz`). Frontend
-variables live per Vercel project (see the block above); web's and lp's `ACCESS_KEY` are documented in
-`apps/web/.env.example` and `apps/lp/.env.example`.
+variables live per Vercel project (see the block above); the LP console's `ACCESS_KEY` is documented
+in `apps/lp/.env.example`. Customer web uses email OTP and invited f-list membership.
 
 ## Keys
 
@@ -176,29 +174,92 @@ key does not own.
 - `CORS_ORIGIN` must list EVERY prod browser origin (see the CORS section in `DEPLOY.stage.md` —
   same rule, bare variable name).
 - A **security review** before handling real funds (key custody, rate-limits, abuse).
-- **Decide the door — there are now two, and they don't stack well.** Web's `ACCESS_KEY` is one shared
-  secret checked in `apps/web/src/middleware.ts` (device cookie, no identity); invite codes are
-  per-person and enforced at `/auth/sync`. Since the landing gate hands a valid-code holder to the
-  web app, they hit the access-key wall *anyway* and still can't get in unless you also send them
-  the shared key — two secrets per invited user, which defeats the invite.
-  - Recommended at launch: **unset web's `ACCESS_KEY`** and let the invite code be the only door
-    (lp keeps its own key — the console is for hand-picked partners). That is
-    what it is for, and it is the same launch switch described in the Vercel block above.
-  - Keep both only while the deploy itself is meant to be private (a build nobody outside the team
-    should reach), and accept that invites are inert until you unset it.
+- **Customer access:** verified email plus an f-list entry backed by a redeemed invite. This applies
+  to existing customer accounts too. Nonmembers redeem an invite inside the app; no landing detour.
+  Shared profile/identity endpoints preserve established admin and partner access, while customer
+  payment and campaign routes enforce membership server-side.
 - **Bootstrap the first admin, in this order.** Not hardening for later — the console is unreachable
   until both steps are done, and doing them backwards fails in a way that reads like a bug (a 401
   with no explanation, or your own signup asking you for an invite code).
   1. Set the **bare** `ADMIN_EMAILS` on the Railway production service (prod takes no prefix, so
      `STAGE_ADMIN_EMAILS` here does nothing). Wait for the redeploy.
-  2. Sign into **web** once with that address and pick a handle. The console never calls
-     `/auth/sync` — only web does — so this is the only way its operator's row gets created, and it
-     is what writes the Privy-verified email that `ADMIN_EMAILS` matches against.
+  2. Create the operator's handle through the **LP console** (using its access key). Its
+     `/auth/sync` setup supports root-admin bootstrap without f-list membership. Alternatively,
+     an invited member can use the customer web flow. The admin console itself never creates users.
+  Customer web always requires invited membership, including when an operator visits it.
+- Landing uses `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_APP_URL=https://app.frenspay.xyz`.
+  Both its header's Launch app link and signup handoff use that app URL.
 
-  The order is load-bearing: the invite gate exempts root admins by checking `ADMIN_EMAILS` **during
-  that sync**, so if the variable isn't live yet, your own signup is treated as an ordinary one and
-  is refused with `invite_required` on any non-empty directory. Note web sits behind its `ACCESS_KEY`
-  until you unset it, so you need that key (web's — lp's is a separate one) to do step 2 at all. Why this exists at all:
-  the root-admins section in `DEPLOY.stage.md`.
-- Landing needs only `NEXT_PUBLIC_API_URL`. `NEXT_PUBLIC_APP_URL` is no longer read — a code is spent
-  joining the f list, not handed off to the app — so remove it if it is already set.
+### Email and invite rollout
+
+Deploy the backend first, then customer web and landing. No new schema migration is needed:
+existing `waitlist.invite_code`, redemption records and code ownership are reused. Existing list
+rows without a redeemed invite must redeem one; no automatic grandfathering is performed.
+
+The public signup response retains `invites: []` for compatibility. Private code retrieval uses
+`GET /flist/me`; `POST /flist/join` accepts a code and derives the email from Privy. New signup uses
+OTP verification instead of a separate confirmation email; existing confirmation links still work.
+The three-code allowance is reused when an f-list member creates an app account.
+
+Validate signup → OTP → app, direct-app inline joining, returning login, and Invite a fren on
+staging before promoting the frontend builds. Check both existing web modes and verify partner
+and admin login. Old access-key cookies have no effect on customer web.
+
+Isolated SQL/HTTP check (Yarn-installed PGlite; no application DB connection):
+`FLIST_PGLITE_MODULE=/absolute/path/to/@electric-sql/pglite/dist/index.js yarn workspace @fpay/backend check:flist:access`.
+PGlite serializes connections; verify competing redemptions against isolated PostgreSQL when
+checking production lock scheduling.
+
+
+## Solana merchant-payment pilot
+
+The customer entry is the main product. Legacy Monad practice signup, quotes and spends are retired;
+`/prelaunch` redirects to `/legacy-wallet`. Existing wallet access, funds and receipt recovery remain available.
+Do not reset the database or erase device storage. Cache version 3 refreshes only cached identity, balance,
+activity and rates; authentication, wallets, bill data and pending transaction/deposit/withdrawal keys survive.
+
+Apply additive migrations **0032 and 0033** through the normal database deployment workflow before serving
+this release. No existing financial records are deleted. Ordinary LP-backed rails remain outside the new
+merchant route; normal Scan rejects UPI/QRIS/PayNow. Existing order recovery continues.
+
+Backend variables (use `STAGE_` or `LOCAL_` prefixes for those tiers):
+
+| Variable | Initial setting / purpose |
+|---|---|
+| `MERCHANT_PAY_ENABLED` | `false`; enable after provider eligibility and smoke testing |
+| `CARD_FUNDING_ENABLED` | `false`; enable after dashboard funding activation and eligibility checks |
+| `WCP_PROJECT_ID` | Wallet project ID from the WalletConnect dashboard |
+| `PAYMENT_PILOT_USERS` | Explicit comma-separated customer UUIDs; empty denies everyone |
+| `PAYMENT_CHAIN` | `solana`; unknown/unimplemented chains fail closed |
+| `PAYMENT_POLICY_VERSION` | `solana-usdc-v1`; change when changing policy |
+| `PAYMENT_COLLECT_HOSTS` | Exact verified HTTPS information-form hosts; empty refuses forms |
+
+The backend uses the standalone Node SDK with the project ID, not the separately approved Gateway API.
+The client only signs the reviewed Solana transaction. The provider broadcasts; do not use the existing
+sign-and-send method or rewrite the provider's transaction for sponsorship. V1 accepts one direct native-USDC
+SPL transfer transaction with an external fee payer. Mixed-chain routes, arbitrary programs and user-paid SOL
+fees fail closed. Adding a network requires a tested adapter and a balance migration plan, not just a config edit.
+Changing policy does not rewrite pending transactions. Keep the old provider credentials/RPC available for recovery.
+
+Enable card funding in the existing Privy dashboard. The installed web SDK uses `useFundWallet` with explicit
+USDC and Solana mainnet options. Card entry and any provider-supported saved-card flow are hosted. The app never
+stores card details or credits a callback balance. Check actual payer-country/card eligibility; broader fiat
+currency support can require Meld KYB. Frenspay does not yet have a registered entity, and wallet integration
+access alone is not proof of production eligibility.
+
+Before activation, verify the selected information-form hosts, zero-SOL fee sponsorship and one complete
+eligible card → confirmed USDC → supported Singapore merchant payment → receipt → bill journey. The dashboard
+POS test can move real funds: do not treat it as a simulated sandbox. Native merchant signing/card funding
+remain disabled until device testing. A participating merchant is required; this does not enable arbitrary
+national QR codes. Hosted forms retain their provider disclosures; normal Frenspay screens omit provider branding.
+
+Checks: `yarn check:payments`, `yarn check:payments:browser`, `yarn check:expenses:db`, and web/backend/mobile
+TypeScript checks. The merchant tests use isolated PGlite and mocked provider/RPC responses; no live funds move.
+Watch `merchant_payment_completed`, `merchant_payment_failed`, `merchant_payment_retry` and
+`merchant_payment_receipt_wait` metrics. Inspect aging `merchant_payments.status='processing'` records if
+receipt verification stalls. Disable new payments with `MERCHANT_PAY_ENABLED=false`; the reconciler continues
+existing signed attempts. Never retry a payment with a new provider invoice solely because confirmation timed out.
+
+Sources: [Wallet SDK](https://docs.walletconnect.com/payments/wallets/standalone/web),
+[Solana signing](https://docs.walletconnect.com/payments/wallets/token-chain-support/solana-support),
+[funding setup](https://docs.privy.io/financial-flows/deposits/configuration).

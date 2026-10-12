@@ -8,7 +8,15 @@ export class PrivySigner implements Signer {
   constructor(
     private readonly address: string,
     private readonly send: (txBytes: Uint8Array, sponsored: boolean) => Promise<string>,
+    private readonly sign?: (txBytes: Uint8Array) => Promise<Uint8Array>,
   ) {}
+
+  async signTransaction(raw: string): Promise<string> {
+    if (!this.sign) throw new Error('sponsorship_unsupported');
+    const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
+    const signed = await this.sign(bytes);
+    return btoa(Array.from(signed, b => String.fromCharCode(b)).join(''));
+  }
 
   async publicKey(): Promise<string> {
     return this.address;

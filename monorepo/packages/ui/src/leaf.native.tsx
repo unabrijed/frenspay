@@ -18,9 +18,10 @@ const KEYBOARD: Record<KeyboardType, KeyboardTypeOptions> = {
   tel: 'phone-pad',
 };
 
-export function Input({ value, onChangeText, placeholder, autoFocus, keyboardType = 'default', maxLength, autoComplete, onSubmit, style }: InputProps) {
+export function Input({ value, onChangeText, placeholder, autoFocus, keyboardType = 'default', maxLength, autoComplete, onSubmit, style, accessibilityLabel }: InputProps) {
   return (
     <TextInput
+      accessibilityLabel={accessibilityLabel ?? placeholder}
       value={value}
       onChangeText={onChangeText}
       onSubmitEditing={onSubmit}

@@ -10,12 +10,14 @@
 // belongs to an fpay user, whether that rail can execute today — is the server's job.
 
 import { classifyAddress } from './chains';
+import { merchantPaymentLink } from './merchantPayments';
 import { parseEmvQr } from './emvqr';
 import { looksLikePhone } from './phones';
 import { railById } from './rails';
 import { parsePayNowQr, type PayNowTarget } from './paynow';
 
 export type PayTarget =
+  | { kind: 'merchant'; paymentLink: string }
   | PayNowTarget // Singapore recognition only; customer payments remain unavailable
   | { kind: 'handle'; handle: string } // another fpay user → in-app USDC send
   | { kind: 'upi'; payee: string; name?: string; amountInr?: number; note?: string } // Indian shop → merchant rail
@@ -97,6 +99,8 @@ export function classifyPayTarget(text: string): PayTarget {
   const raw = (text ?? '').trim();
   if (!raw) return { kind: 'unknown', raw };
   const lower = raw.toLowerCase();
+  const paymentLink = merchantPaymentLink(raw);
+  if (paymentLink) return { kind: 'merchant', paymentLink };
 
   // 1) UPI deep link: upi://pay?pa=<vpa>&pn=<name>&am=<amount>&tn=<note>
   if (lower.startsWith('upi:')) {
@@ -148,16 +152,11 @@ export function classifyPayTarget(text: string): PayTarget {
     if (handle) return { kind: 'handle', handle };
   }
 
-  // 4) Solana Pay URI: solana:<recipient>?… → treat the recipient as a raw address.
+  // 4) Native Solana Pay needs its own adapter; never reinterpret its payment semantics.
   if (lower.startsWith('solana:')) {
-    // USDC-only rule: a request pinned to a specific token could silently pay the wrong asset if we
-    // ignored it — refuse rather than substitute (docs/16 §6.7).
-    if (param(raw, 'spl-token')) {
-      return { kind: 'unsupported', reason: "This code asks for a payment fpay can't make yet." };
-    }
-    const address = raw.slice('solana:'.length).split('?')[0].trim();
-    const c = classifyAddress(address);
-    return c.kind === 'solana' ? { kind: 'address', address: c.address, network: 'solana' } : { kind: 'unknown', raw };
+    // A Solana Pay request includes asset, amount and reference semantics. Never reinterpret it
+    // as an ordinary USDC address transfer (even a request without spl-token asks for SOL).
+    return { kind: 'unsupported', reason: 'This payment code is not supported yet.' };
   }
 
   // 5) EIP-681 EVM URI: ethereum:0x…
