@@ -72,5 +72,8 @@
     "check:campaign:postgres": "yarn workspace @fpay/backend check:campaign:postgres",
     "check:campaign:browser": "yarn workspace @fpay/web check:campaign:browser",
     "check:dynamic": "yarn workspace @fpay/backend check:dynamic"
+  },
+  "resolutions": {
+    "@solana/web3.js": "1.98.4"
   }
 }
