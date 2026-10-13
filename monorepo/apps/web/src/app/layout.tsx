@@ -18,7 +18,7 @@ const FONTS_READY_SCRIPT = `(function(){var F="24px 'Material Symbols Outlined'"
 
 export const metadata: Metadata = {
   title: 'fpay',
-  description: 'Frenspay: send, pay and split with friends.',
+  description: 'fpay: send, pay and split with friends.',
 };
 
 export const viewport: Viewport = {

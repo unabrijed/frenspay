@@ -42,7 +42,7 @@ function InviteCard({ invite }: { invite: FlistInvite }) {
   };
   const share = async () => {
     if (!navigator.share) return copy();
-    try { await navigator.share({ title: 'Invite a fren', text: 'You’re invited to frenspay.', url: link }); }
+    try { await navigator.share({ title: 'Invite a fren', text: 'You’re invited to fpay.', url: link }); }
     catch (e) { if (!(e instanceof Error && e.name === 'AbortError')) setNotice('Couldn’t share. Copy the link instead.'); }
   };
   return <article className={s.invite}>

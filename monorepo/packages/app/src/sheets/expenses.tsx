@@ -607,7 +607,7 @@ export function ExpenseSheet() {
                   }
                 />
                 {paymentOptions?.length === 0 ? (
-                  <Txt style={type.sub}>No other completed Frenspay payments available.</Txt>
+                  <Txt style={type.sub}>No other completed fpay payments available.</Txt>
                 ) : null}
                 {paymentOptions?.map((p) => (
                   <TextLink
