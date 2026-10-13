@@ -29,6 +29,12 @@ export function EmailLogin() {
     try { await action(); } catch { setError(message); }
     finally { pending.current = false; setBusy(false); }
   }
+  function verifyCode(value: string) {
+    if (value.length !== 6) return;
+    void run(async () => {
+      await verifyOneTimePassword(value);
+    }, 'That code could not be verified. Try again or request a new one.');
+  }
   return <>
     <h1 id="welcome-title">{step === 'email' ? 'Welcome to fpay' : 'Check your email'}</h1>
     <p className={s.intro}>{step === 'email' ? 'Your money, among friends.' : email.trim()}</p>
@@ -37,16 +43,17 @@ export function EmailLogin() {
       if (step === 'email') void run(async () => {
         await connectWithEmail(email.trim()); setCode(''); setCooldown(30); setStep('code');
       }, 'Could not send a code. Please try again.');
-      else if (code.length === 6) void run(async () => {
-        await verifyOneTimePassword(code);
-      }, 'That code could not be verified. Try again or request a new one.');
+      else verifyCode(code);
     }}>
       {step === 'email' ? <>
         <label className={s.fieldLabel} htmlFor="login-email">Email</label>
         <input className={s.email} id="login-email" type="email" autoComplete="email" autoCapitalize="none"
           spellCheck={false} required value={email} onChange={event => setEmail(event.target.value)}
           placeholder="you@example.com" disabled={busy}/>
-      </> : <CodeInput value={code} onChange={setCode} disabled={busy}/>}
+      </> : <CodeInput value={code} onChange={value => {
+        setCode(value);
+        if (value !== code) verifyCode(value);
+      }} disabled={busy}/>}
       <button className={s.primary} disabled={busy || (step === 'code' && code.length !== 6)}>
         {busy ? (step === 'email' ? 'Sending…' : 'Verifying…') : step === 'email' ? 'Continue with email' : 'Verify code'}
       </button>
