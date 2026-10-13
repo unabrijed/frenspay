@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import pg from 'pg';
 import Fastify from 'fastify';
+import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 
 const modulePath = process.env.FLIST_PGLITE_MODULE;
 if (!modulePath) throw new Error('Set FLIST_PGLITE_MODULE to an isolated PGlite installation');
@@ -110,6 +111,48 @@ try {
   assert.equal(bound?.id,alice.id);
   assert.equal((await q.getWalletForUser(alice.id))?.address,'alice-wallet');
   await assert.rejects(q.findOrBindDynamicUser('dynamic:fixture:other','alice@example.test'),/identity_already_bound/);
+  assert.equal((await q.findOrBindDynamicUser('dynamic:fixture:alice','alice@example.test'))?.id, alice.id);
+
+  // Exercise the real auth hook with a signed token and offline Dynamic responses.
+  // A conflicting identity must not become an authenticated user or change the binding.
+  const { authPreHandler } = await import('../src/auth');
+  const authApp = Fastify();
+  authApp.addHook('preHandler', authPreHandler);
+  let reachedRoute = false;
+  authApp.get('/probe', async () => { reachedRoute = true; return { ok: true }; });
+  const environment = '4fc2a73c-1662-45eb-9257-8baa567066a6';
+  const subject = '11111111-1111-4111-8111-111111111111';
+  const previousEnvironment = config.dynamicEnvironmentId;
+  const previousAudience = config.dynamicAudience;
+  const offlineFetch = globalThis.fetch;
+  try {
+    config.dynamicEnvironmentId = environment;
+    config.dynamicAudience = '';
+    const { privateKey, publicKey } = await generateKeyPair('RS256');
+    const jwk = await exportJWK(publicKey);
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith('/.well-known/jwks')) return Response.json({ keys: [{ ...jwk, kid: 'fixture', alg: 'RS256' }] });
+      if (url.endsWith('/users')) return Response.json({ id: subject, projectEnvironmentId: environment,
+        email: 'alice@example.test', verifiedCredentials: [{ format: 'email', email: 'alice@example.test' }] });
+      throw new Error('Unexpected URL in auth test');
+    };
+    const token = await new SignJWT({ scope: 'user:basic', environment_id: environment })
+      .setProtectedHeader({ alg: 'RS256', kid: 'fixture' }).setSubject(subject)
+      .setIssuer(`app.dynamicauth.com/${environment}`).setIssuedAt().setExpirationTime('5m').sign(privateKey);
+    const conflict = await authApp.inject({ method: 'GET', url: '/probe', headers: { authorization: `Bearer ${token}` } });
+    assert.equal(conflict.statusCode, 409, conflict.body);
+    assert.deepEqual(conflict.json(), { error: 'identity_already_bound' });
+    assert.equal(reachedRoute, false);
+    assert.deepEqual((await db.query('select subject from user_auth_subjects where user_id=$1', [alice.id])).rows,
+      [{ subject: 'dynamic:fixture:alice' }]);
+    assert.equal((await q.getWalletForUser(alice.id))?.address, 'alice-wallet');
+  } finally {
+    globalThis.fetch = offlineFetch;
+    config.dynamicEnvironmentId = previousEnvironment;
+    config.dynamicAudience = previousAudience;
+    await authApp.close();
+  }
   await q.markInvitesRevealed(alice.id);
   assert.equal((await readFlist('alice@example.test')).invites.length, 3);
   await q.ensureInviteCodes(alice.id);

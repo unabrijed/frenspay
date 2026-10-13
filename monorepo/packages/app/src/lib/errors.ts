@@ -60,6 +60,7 @@ const BY_CODE: Record<string, string> = {
   // shows this with a reload; the phone app cannot reload, so the copy stays neutral.
   wallet_not_ready: 'Your wallet is taking longer than usual to set up. Please try again.',
   // account lifecycle
+  identity_already_bound: 'This email is linked to a different sign-in identity. Contact support to restore access to your existing account.',
   account_suspended: 'Your account is paused. Contact support to sort it out.',
   account_deleted: 'This account has been deleted. Your money is still yours via your embedded wallet.',
   // signup

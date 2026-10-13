@@ -12,6 +12,9 @@ const scratch = await mkdtemp(join(tmpdir(), 'fpay-session-browser-'));
 const fixtures = {
   '@dynamic-labs/sdk-react-core': `
     export const DynamicContextProvider=({children})=>children;
+    export const useProjectSettings=()=>undefined;
+    export const useRefreshUser=()=>async()=>window.session.user;
+    export const useDynamicWaas=()=>({initializeWaas:async()=>{},createWalletAccount:async()=>{throw Error('Unexpected wallet creation')}});
     export const useDynamicContext=()=>({...window.session,setShowAuthFlow:()=>{throw Error("Dynamic popup must not open")},handleLogOut:async()=>{window.change({sdkHasLoaded:true})}});
     export const useConnectWithOtp=()=>({
       connectWithEmail:async email=>{window.sentEmail=email;if(window.failSend)throw Error('send failed')},
@@ -25,7 +28,7 @@ const fixtures = {
   '@dynamic-labs/ethereum': `export const EthereumWalletConnectors=[];export const isEthereumWallet=()=>true;`,
   '@dynamic-labs/solana': `export const SolanaWalletConnectors=[];`,
   '@fpay/app': `export const LiveSync=()=>null;`,
-  '@fpay/app/services/api': `export const setAuthToken=()=>{};export const setTokenRefresher=()=>{};
+  '@fpay/app/services/api': `export class ApiError extends Error{};export const setAuthToken=()=>{};export const setTokenRefresher=()=>{};
     export const setFlistRequiredHandler=fn=>{window.revoke=fn};
     export const requestFlist=()=>new Promise((resolve,reject)=>{window.requests.push({resolve,reject})});`,
   '@fpay/app/campaignStore': `export const useCampaignStore={getState:()=>({reset:()=>{}})};`,

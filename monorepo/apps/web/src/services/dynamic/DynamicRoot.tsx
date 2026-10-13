@@ -16,6 +16,7 @@ import { monad } from 'viem/chains';
 import type { FlistResponse } from '@fpay/shared';
 import { requestFlist, setAuthToken, setTokenRefresher, setFlistRequiredHandler } from '@fpay/app/services/api';
 import { useCampaignStore } from '@fpay/app/campaignStore';
+import { friendlyError } from '@fpay/app/lib/errors';
 import { AccessContext } from '@/components/CustomerAccess';
 import { CampaignWalletProvider, type CampaignWallet } from '@/components/campaign/CampaignWallet';
 import CampaignApp from '@/components/campaign/CampaignApp';
@@ -23,6 +24,7 @@ import { DYNAMIC_ENVIRONMENT_ID } from '@/services/envConfig';
 import s from './welcome.module.css';
 import { EmailLogin } from './EmailLogin';
 import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { WalletSetup } from './WalletSetup';
 
 const networks = [{chainId:143, networkId:143, name:'Monad', iconUrls:[], nativeCurrency:{name:'Monad',symbol:'MON',decimals:18}, rpcUrls:['https://rpc.monad.xyz'], blockExplorerUrls:['https://monadscan.com']}];
 
@@ -30,7 +32,7 @@ export default function DynamicRoot({ children }: { children: ReactNode }) {
   if (!/^[0-9a-f-]{36}$/i.test(DYNAMIC_ENVIRONMENT_ID))
     return <main className={s.shell}><h1>Sign-in is being configured</h1><p>Please try again shortly.</p></main>;
   return <DynamicContextProvider settings={{ environmentId: DYNAMIC_ENVIRONMENT_ID,
-    appName: 'fpay', walletConnectors: [EthereumWalletConnectors, SolanaWalletConnectors],
+    appName: 'fpay', walletConnectors: SIMULATION_MODE ? [EthereumWalletConnectors] : [SolanaWalletConnectors],
     initialAuthenticationMode: 'connect-and-sign', overrides: {evmNetworks: networks},
   }}>{SIMULATION_MODE ? <DynamicSession>{children}</DynamicSession> : <><LiveBridge/><LiveSync/>{children}</>}</DynamicContextProvider>;
 }
@@ -76,8 +78,8 @@ function DynamicAccount({ ready, userId, logout, children }: {
       accessCheckedAt.current = 0;
       setAccess(previous => previous ? {...previous, member:false} : null);
     });
-    if (ready && userId) void refresh().catch(() => {
-      if(active.current) setError('Could not restore your account. Please try again.');
+    if (ready && userId) void refresh().catch((error) => {
+      if(active.current) setError(friendlyError(error, 'Could not restore your account. Please try again.'));
     });
     return () => { active.current = false; setAuthToken(null); setTokenRefresher(null); setFlistRequiredHandler(null); useCampaignStore.getState().reset(''); };
   }, [ready, userId, refresh]);
@@ -132,8 +134,8 @@ function DynamicAccount({ ready, userId, logout, children }: {
           .catch(()=>setError('Could not redeem that invitation. Check the code and try again.')).finally(()=>setBusy(false));}}>
         <p className={s.inviteIntro}>Enter your invite code to join.</p><div className={s.fieldLabel}>Your invite code <span>FREN + 8 characters</span></div><CodeInput label="Invite code" value={invite} onChange={setInvite} length={8} numeric={false} invite disabled={busy}/>
         <button className={s.primary} disabled={busy}>{busy ? 'Joining…' : 'Join the f-list'}</button></form>}
-      {access?.member && !embedded && <LoadingStatus label="Getting your wallet ready…" />}
-      {error && <button className={s.link} onClick={() => {setError('');void refresh().catch(()=>setError('Please try again shortly.'));}}>Try again</button>}
+      {userId && access?.member && !embedded && <WalletSetup userId={userId} />}
+      {error && <button className={s.link} onClick={() => {setError('');void refresh().catch(error=>setError(friendlyError(error, 'Please try again shortly.')));}}>Try again</button>}
       <div className={s.actions}>{embedded && <button className={s.link} onClick={()=>void value.exportWallet().catch(()=>setError('Could not open wallet recovery. Try again.'))}>Export wallet</button>}
       <button className={s.link} onClick={()=>void logout()}>Sign out</button></div>
     </>}
