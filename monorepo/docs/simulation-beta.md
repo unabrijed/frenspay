@@ -153,3 +153,9 @@ Isolated checks cover verified Dynamic identities and Solana wallet binding, exi
 The invitation browser fixture now mounts the Dynamic gate; SDK email delivery and private-key export still require an authenticated production smoke test. Removed browser assertions for the retired Privy card-checkout widget; shared payment/recovery checks remain. Native changes require a new device build.
 
 Receipt wallet testnet gas is separate from user USDC spending caps. With zero testnet MON, simulations and points remain usable but onchain receipt publication cannot complete. No real funds should be sent to the platform receipt wallet.
+
+### Production promotion (2026-10-13)
+
+Release `8fa6a18` was promoted in `f97efb8` to both `stage` and `sacred`. Railway production deployment `79dde42d-3b01-4e23-85ff-2fa5b7b3a5c5` succeeded and applied migrations 0034–0036; `/health` returns 200 and the campaign routes require authentication. Vercel completed customer, admin, LP and landing deployments. The live customer page opens Dynamic email sign-in; browser inspection identified missing Dynamic asset origins in CSP, corrected in the following frontend patch.
+
+Dynamic public settings were re-read after the dashboard update: Solana enabled, SOL and EVM embedded wallets enabled, automatic wallet creation enabled. SDK email delivery, authenticated funding/withdrawal/export, native device behavior and a confirmed testnet receipt still need acceptance testing.

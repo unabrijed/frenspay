@@ -10,23 +10,23 @@ import type { NextConfig } from 'next';
 // ponytail: 'unsafe-inline' in script-src — Next app-router injects dynamic inline bootstrap
 // scripts that can't be hashed; upgrade path = nonce middleware (forces all routes dynamic).
 const CSP = [
-  "default-src 'self'",
+  "default-src 'self' https://dynamic-static-assets.com https://iconic.dynamic-static-assets.com",
   // Turnstile (Dynamic bundles it) + Vercel Analytics fallback; 'wasm-unsafe-eval' for the QR
   // scanner's zxing WASM.
   "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://challenges.cloudflare.com https://va.vercel-scripts.com",
   // Material Symbols is a remote Google Fonts <link> (deliberate — do not self-host); the UI is
   // inline style={} throughout. Hanken Grotesk is next/font self-hosted → no extra origin.
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' https://fonts.gstatic.com",
+  "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net",
   // Country flags CDN; data:/blob: for QR rendering.
-  "img-src 'self' data: blob: https://cdn.jsdelivr.net",
+  "img-src 'self' data: blob: https://dynamic-static-assets.com https://*.dynamic-static-assets.com https://app.dynamic.xyz https://app.dynamicauth.com https://cdn.jsdelivr.net",
   // Camera MediaStream in the QR scan sheet.
   "media-src 'self' blob:",
-  // *.frenspay.xyz = stage + prod API. Dynamic signing goes through *.rpc.privy.systems (public
-  // Solana RPC is dev-only, and dev has no CSP). fastly.jsdelivr.net = zxing WASM fetch.
+  // *.frenspay.xyz serves the APIs; Dynamic serves authentication and signing.
+  // Dynamic static assets supply the wallet catalogue and icons; jsdelivr serves fonts and WASM.
   // WalletConnect origins per Dynamic's template: loginMethods is dashboard-inherited, so wallet
   // login could be enabled there — drop these once it's confirmed off.
-  "connect-src 'self' https://app.dynamicauth.com https://*.dynamicauth.com https://app.dynamic.xyz https://*.dynamic.xyz https://*.frenspay.xyz https://rpc.monad.xyz https://testnet-rpc.monad.xyz https://fastly.jsdelivr.net https://vitals.vercel-insights.com wss://relay.walletconnect.com wss://relay.walletconnect.org https://explorer-api.walletconnect.com",
+  "connect-src 'self' https://dynamic-static-assets.com https://iconic.dynamic-static-assets.com https://app.dynamicauth.com https://*.dynamicauth.com https://app.dynamic.xyz https://*.dynamic.xyz https://*.frenspay.xyz https://rpc.monad.xyz https://testnet-rpc.monad.xyz https://fastly.jsdelivr.net https://vitals.vercel-insights.com wss://relay.walletconnect.com wss://relay.walletconnect.org https://explorer-api.walletconnect.com",
   // Dynamic auth iframe + Turnstile. Persona KYC is a full-page redirect, not an iframe.
   "frame-src https://app.dynamicauth.com https://*.dynamicauth.com https://app.dynamic.xyz https://*.dynamic.xyz https://challenges.cloudflare.com https://verify.walletconnect.com https://verify.walletconnect.org",
   "worker-src 'self' blob:",
