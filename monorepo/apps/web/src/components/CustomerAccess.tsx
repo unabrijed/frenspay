@@ -1,5 +1,7 @@
 'use client';
 
+import { useExportWallet as useExportSolanaWallet } from '@privy-io/react-auth/solana';
+
 import { useLoginWithEmail, usePrivy } from '@privy-io/react-auth';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { isValidEmail, normalizeEmail, type FlistResponse } from '@fpay/shared';
@@ -9,7 +11,7 @@ import { usePayStore } from '@/store/usePayStore';
 import { ApiError, requestFlist, setAuthToken, setTokenRefresher, setFlistRequiredHandler } from '@fpay/app/services/api';
 import s from './customer-access.module.css';
 
-const AccessContext = createContext<{ data: FlistResponse; refresh: () => Promise<void> } | null>(null);
+export const AccessContext = createContext<{ data: FlistResponse; refresh: () => Promise<void> } | null>(null);
 export const useFlist = () => useContext(AccessContext);
 
 const errorCopy: Record<string, string> = {
@@ -23,10 +25,11 @@ const errorCopy: Record<string, string> = {
 
 /** One entrance for both customer UIs. No app data or bridge mounts before membership is checked. */
 export function CustomerAccess({ children }: { children: ReactNode }) {
-  const { ready, authenticated, user, getAccessToken, logout } = usePrivy();
+  const { ready, authenticated, user, getAccessToken, logout, exportWallet } = usePrivy();
   const { sendCode, loginWithCode } = useLoginWithEmail();
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
+  const { exportWallet: exportSolanaWallet } = useExportSolanaWallet();
   const [invite, setInvite] = useState('');
   const [handoff, setHandoff] = useState<LoginHandoff | null>(null);
   const [initialized, setInitialized] = useState(false);
@@ -187,6 +190,8 @@ export function CustomerAccess({ children }: { children: ReactNode }) {
         {error && <button className={s.primary} onClick={() => setRetry((n) => n + 1)}>Try again</button>}
       </>}
       {error && <p className={s.error} role="alert">{error}</p>}
+      {did && user?.linkedAccounts.filter(a => a.type === 'wallet' && a.walletClientType === 'privy').map(a => a.type === 'wallet' &&
+        <button key={a.address} className={s.link} onClick={() => void run(() => (a.chainType === 'solana' ? exportSolanaWallet : exportWallet)({address:a.address}))}>Recover existing {a.chainType} wallet</button>)}
       {did && !mismatch && <button className={s.link} disabled={busy} onClick={() => void run(async () => {
         await logout(); setMembership(null); setSent(false); setOtp(''); setHandoff(null); saveLoginHandoff(null);
       })}>Use a different email</button>}

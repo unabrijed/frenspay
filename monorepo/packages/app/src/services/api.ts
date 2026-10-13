@@ -299,3 +299,6 @@ export const expensesApi = {
   link: (id:string,transferId:string,version:number) => req<import('@fpay/shared').ApiExpense>(`/expenses/${id}/payments`,{method:'POST',body:JSON.stringify({transferId,version})}),
   unlink: (id:string,transferId:string,version:number) => req<import('@fpay/shared').ApiExpense>(`/expenses/${id}/payments/${transferId}`,{method:'DELETE',body:JSON.stringify({version})}),
 };
+
+/** Shared transport only; campaign endpoints remain in their own typed client. */
+export const request = req;

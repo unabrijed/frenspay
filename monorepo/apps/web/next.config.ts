@@ -26,9 +26,9 @@ const CSP = [
   // Solana RPC is dev-only, and dev has no CSP). fastly.jsdelivr.net = zxing WASM fetch.
   // WalletConnect origins per Privy's template: loginMethods is dashboard-inherited, so wallet
   // login could be enabled there — drop these once it's confirmed off.
-  "connect-src 'self' https://*.frenspay.xyz https://auth.privy.io https://*.rpc.privy.systems https://rpc.monad.xyz https://testnet-rpc.monad.xyz https://fastly.jsdelivr.net https://vitals.vercel-insights.com wss://relay.walletconnect.com wss://relay.walletconnect.org https://explorer-api.walletconnect.com",
+  "connect-src 'self' https://app.dynamicauth.com https://*.dynamicauth.com https://app.dynamic.xyz https://*.dynamic.xyz https://*.frenspay.xyz https://auth.privy.io https://*.rpc.privy.systems https://rpc.monad.xyz https://testnet-rpc.monad.xyz https://fastly.jsdelivr.net https://vitals.vercel-insights.com wss://relay.walletconnect.com wss://relay.walletconnect.org https://explorer-api.walletconnect.com",
   // Privy auth iframe + Turnstile. Persona KYC is a full-page redirect, not an iframe.
-  "frame-src https://auth.privy.io https://challenges.cloudflare.com https://verify.walletconnect.com https://verify.walletconnect.org",
+  "frame-src https://app.dynamicauth.com https://*.dynamicauth.com https://app.dynamic.xyz https://*.dynamic.xyz https://auth.privy.io https://challenges.cloudflare.com https://verify.walletconnect.com https://verify.walletconnect.org",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",

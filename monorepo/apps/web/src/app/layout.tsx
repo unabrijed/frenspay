@@ -5,9 +5,7 @@ import { SpeedInsights } from '@vercel/speed-insights/next';
 import type { Metadata, Viewport } from 'next';
 
 import { AppProviders } from '@/components/AppProviders';
-import { SheetHost } from '@/components/SheetHost';
-import { SuspendedGate } from '@/components/SuspendedGate';
-import { ToastHost } from '@/components/ToastHost';
+import { ProductOverlays } from '@/components/ProductOverlays';
 import { SwKiller } from '@/components/SwKiller';
 import { fontVars } from '@/lib/fonts';
 
@@ -54,7 +52,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {/* Neutralize any leftover service worker on this shared dev origin before the app boots. */}
           <SwKiller />
           <AppProviders>{children}</AppProviders>
-          <SheetHost /><ToastHost /><SuspendedGate />
+          <ProductOverlays />
         </div>
         <Analytics />
         <SpeedInsights />

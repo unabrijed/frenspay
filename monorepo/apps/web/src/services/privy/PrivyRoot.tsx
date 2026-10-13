@@ -10,9 +10,12 @@ import { useEffect, useState } from 'react';
 import { CustomerAccess } from '@/components/CustomerAccess';
 import { Splash } from '@/components/ui/Splash';
 import { bootTrace } from '@/lib/boot';
-import { PRIVY_APP_ID, PRIVY_CLIENT_ID } from '@/services/envConfig';
+import { PRIVY_APP_ID, PRIVY_CLIENT_ID, SIMULATION_MODE } from '@/services/envConfig';
 
 import { mainnet, base, arbitrum, monad } from 'viem/chains';
+import { usePathname } from 'next/navigation';
+import { PrivyCampaignWallet } from './PrivyCampaignWallet';
+import CampaignApp from '@/components/campaign/CampaignApp';
 import { PaymentBridge } from './PaymentBridge';
 import { PrivyBridge } from './PrivyBridge';
 
@@ -47,6 +50,7 @@ function PrivyGate({ children }: { children: ReactNode }) {
 }
 
 export default function PrivyRoot({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   return (
     <PrivyProvider
       appId={PRIVY_APP_ID}
@@ -72,16 +76,16 @@ export default function PrivyRoot({ children }: { children: ReactNode }) {
         // and behaviour is exactly as before.
         embeddedWallets: {
           ethereum: { createOnLogin: 'users-without-wallets' },
-          solana: { createOnLogin: 'users-without-wallets' },
+          solana: { createOnLogin: SIMULATION_MODE ? 'off' : 'users-without-wallets' },
         },
       }}
     >
       <PrivyGate><CustomerAccess>
-        <SmartWalletsProvider>
+        {SIMULATION_MODE ? (['/invites', '/legacy-wallet'].includes(pathname) ? children : <PrivyCampaignWallet><CampaignApp /></PrivyCampaignWallet>) : <SmartWalletsProvider>
           <PrivyBridge />
           <PaymentBridge />
           {children}
-        </SmartWalletsProvider>
+        </SmartWalletsProvider>}
       </CustomerAccess></PrivyGate>
     </PrivyProvider>
   );

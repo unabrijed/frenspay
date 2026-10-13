@@ -108,3 +108,25 @@ export const IS_LOCAL_ENV = APP_ENV === 'local';
 // Dev-only build flag: true under `next dev` (yarn web), false in a production build. Gates testing
 // affordances (e.g. the Settings "Reset for testing" action) so they never ship to a prod bundle.
 export const IS_DEV = !isProduction;
+
+// Selects UI only. The server independently enforces simulation-only payment capabilities.
+export const CUSTOMER_PAYMENT_MODE = pick(
+  process.env.NEXT_PUBLIC_LOCAL_CUSTOMER_PAYMENT_MODE,
+  process.env.NEXT_PUBLIC_STAGE_CUSTOMER_PAYMENT_MODE,
+  process.env.NEXT_PUBLIC_CUSTOMER_PAYMENT_MODE,
+) || 'live';
+if (!['live', 'simulation'].includes(CUSTOMER_PAYMENT_MODE)) throw new Error('Invalid CUSTOMER_PAYMENT_MODE');
+export const SIMULATION_MODE = CUSTOMER_PAYMENT_MODE === 'simulation';
+
+// Provider selection applies to the Monad web beta. Privy configuration stays intact.
+export const CAMPAIGN_AUTH_PROVIDER = pick(
+  process.env.NEXT_PUBLIC_LOCAL_CAMPAIGN_AUTH_PROVIDER,
+  process.env.NEXT_PUBLIC_STAGE_CAMPAIGN_AUTH_PROVIDER,
+  process.env.NEXT_PUBLIC_CAMPAIGN_AUTH_PROVIDER,
+) || 'privy';
+export const DYNAMIC_ENVIRONMENT_ID = pick(
+  process.env.NEXT_PUBLIC_LOCAL_DYNAMIC_ENVIRONMENT_ID,
+  process.env.NEXT_PUBLIC_STAGE_DYNAMIC_ENVIRONMENT_ID,
+  process.env.NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID,
+) || '';
+if (!['privy', 'dynamic'].includes(CAMPAIGN_AUTH_PROVIDER)) throw new Error('Invalid campaign wallet provider');

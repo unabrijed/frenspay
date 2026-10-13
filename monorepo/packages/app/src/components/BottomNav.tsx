@@ -9,7 +9,7 @@ import { usePayStore } from '../store';
 
 // Props, not a router: Next and expo-router both answer push(), but neither hook is shared. The
 // tabs layout of each app passes its own.
-export function BottomNav({ active, onHome, onActivity: goActivity }: { active: 'home' | 'activity'; onHome: () => void; onActivity: () => void }) {
+export function BottomNav({ active, onHome, onActivity: goActivity, onScan }: { active: 'home' | 'activity'; onHome: () => void; onActivity: () => void; onScan?: () => void }) {
   const open = usePayStore((s) => s.open);
   const onActivity = active === 'activity';
 
@@ -20,7 +20,7 @@ export function BottomNav({ active, onHome, onActivity: goActivity }: { active: 
         <Txt style={[type.tabLabel, { color: !onActivity ? colors.accent : colors.muted }]}>Home</Txt>
       </Pressable>
 
-      <Pressable style={styles.pay} onPress={() => open('scan')}>
+      <Pressable style={styles.pay} onPress={onScan ?? (() => open('scan'))}>
         <View style={styles.payBtn}>
           <Icons.QrBig size={26} color={colors.white} />
         </View>
