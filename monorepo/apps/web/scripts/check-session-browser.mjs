@@ -50,7 +50,7 @@ await build({entryPoints:[join(scratch,'entry.tsx')],outfile:join(scratch,'app.j
 const server=createServer(async(req,res)=>{
   if(req.url==='/app.js'||req.url==='/app.css'){
     res.setHeader('content-type',req.url.endsWith('.js')?'text/javascript':'text/css');res.end(await readFile(join(scratch,req.url.slice(1))));
-  }else res.end('<!doctype html><html><head><link rel="stylesheet" href="/app.css"></head><body><div id="root"></div><script src="/app.js"></script></body></html>');
+  }else res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/app.css"><style>body{margin:0;background:#dbb88b;font-family:Georgia,serif}#root{display:flex;flex-direction:column;max-width:430px;height:100dvh;margin:auto}</style></head><body><div id="root"></div><script src="/app.js"></script></body></html>');
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 let browser;
@@ -91,6 +91,17 @@ try {
   await expect(page.getByRole('heading',{name:'Join the f-list'})).toBeVisible();
   await page.getByRole('button',{name:'Sign out',exact:true}).click();
   await expect(page.getByRole('button',{name:'Continue with email'})).toBeVisible();
+  // The welcome must remain usable inside the app's fixed-width, scrollable frame.
+  for (const width of [320, 390, 1280]) {
+    await page.setViewportSize({width,height:740});
+    await expect(page.getByRole('heading',{name:'Welcome, fren.'})).toBeVisible();
+    await page.getByRole('button',{name:'Continue with email'}).scrollIntoViewIfNeeded();
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'welcome must not overflow horizontally');
+    if (process.env.WELCOME_SCREENSHOT_DIR) {
+      await page.locator('main').evaluate(el=>el.scrollTop=0);
+      await page.screenshot({path:join(process.env.WELCOME_SCREENSHOT_DIR,`welcome-${width}.png`)});
+    }
+  }
   assert.deepEqual(errors,[]);
   console.log('check-session-browser: restoration, membership, navigation, account isolation, retry and revocation passed');
 } finally {await browser?.close();await new Promise(resolve=>server.close(resolve));}

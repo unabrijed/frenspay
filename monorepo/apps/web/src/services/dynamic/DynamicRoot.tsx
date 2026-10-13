@@ -1,6 +1,7 @@
 'use client';
 
 import {CodeInput} from '@fpay/ui/CodeInput';
+import { Mark } from '@fpay/ui/leaf';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { DynamicContextProvider, useDynamicContext, useEmbeddedReveal,
@@ -19,7 +20,7 @@ import { AccessContext } from '@/components/CustomerAccess';
 import { CampaignWalletProvider, type CampaignWallet } from '@/components/campaign/CampaignWallet';
 import CampaignApp from '@/components/campaign/CampaignApp';
 import { DYNAMIC_ENVIRONMENT_ID } from '@/services/envConfig';
-import s from '@/components/customer-access.module.css';
+import s from './welcome.module.css';
 import { LoadingStatus } from '@/components/ui/LoadingStatus';
 
 const networks = [{chainId:143, networkId:143, name:'Monad', iconUrls:[], nativeCurrency:{name:'Monad',symbol:'MON',decimals:18}, rpcUrls:['https://rpc.monad.xyz'], blockExplorerUrls:['https://monadscan.com']}];
@@ -116,20 +117,38 @@ function DynamicAccount({ ready, userId, login, logout, children }: {
       {pathname === '/invites' && children}
     </CampaignWalletProvider></AccessContext.Provider>;
 
-  return <main className={s.shell}><div className={s.brand}>frenspay</div><section className={s.card}>
-    <h1>{!ready || (userId && !access) ? 'Welcome back, fren.' : !userId ? 'Welcome, fren.' : !access?.member ? 'Join the f-list' : 'Your wallet is getting ready'}</h1>
-    {!ready ? <LoadingStatus label="Restoring your session…" /> : !userId ? <><p>Sign in with your email to get started.</p><button className={s.primary} onClick={login}>Continue with email</button></> : <>
+  return <main className={s.shell}>
+    <header className={s.header}><div className={s.brand}>frenspay<span>.</span></div><span className={s.beta}>Invite-only beta</span></header>
+    <div className={s.content}>
+    <div className={s.emblem} aria-hidden="true"><Mark size={76} enter /></div>
+    <section className={s.card} aria-labelledby="welcome-title">
+    <div className={s.eyebrow}>{userId && access && !access.member ? 'A little invite. A new beginning.' : 'Good things start with frens.'}</div>
+    <h1 id="welcome-title">{!ready || (userId && !access) ? 'Welcome back, fren.' : !userId ? 'Welcome, fren.' : !access?.member ? 'Join the f-list' : 'Your wallet is getting ready'}</h1>
+    {!ready ? <LoadingStatus label="Restoring your session…" /> : !userId ? <>
+      <p className={s.intro}>Your wallet. A little practice.<br />A head start with your frens.</p>
+      <div className={s.preview}>
+        <div className={s.previewHeading}><span className={s.eyebrow}>The Frenspay beta</span><span className={s.previewTag}>On Monad</span></div>
+        <div className={s.feature}><span className={s.number}>01</span><div><h2>Bring your USDC</h2><p>Hold USDC in your own wallet.</p></div></div>
+        <div className={s.feature}><span className={s.number}>02</span><div><h2>Try a scan. Earn points.</h2><p>Unlock practice credits and explore UPI QR scans.</p></div></div>
+        <p className={s.disclosure}>Practice credits only. Merchants aren’t paid.</p>
+      </div>
+      <button className={s.primary} onClick={login}>Continue with email <span aria-hidden="true">↗</span></button>
+      <p className={s.hint}>New here or coming back? Start with your email.</p>
+    </> : <>
       {!access && !error && <LoadingStatus label="Opening your account…" />}
       {access && !access.member && <form onSubmit={e => {e.preventDefault(); if(busy)return; setBusy(true);setError('');
         void (async () => {const next = await requestFlist(token, invite.trim());if(active.current)setAccess(next);})()
           .catch(()=>setError('Could not redeem that invitation. Check the code and try again.')).finally(()=>setBusy(false));}}>
-        <label>Invite code · FREN</label><CodeInput label="Invite code" value={invite} onChange={setInvite} length={8} numeric={false} invite disabled={busy}/>
-        <button className={s.primary} disabled={busy}>{busy ? 'Joining…' : 'Join'}</button></form>}
+        <p className={s.inviteIntro}>You’re on the doorstep. Enter the code a fren shared with you to join the beta.</p><div className={s.fieldLabel}>Your invite code <span>FREN + 8 characters</span></div><CodeInput label="Invite code" value={invite} onChange={setInvite} length={8} numeric={false} invite disabled={busy}/>
+        <button className={s.primary} disabled={busy}>{busy ? 'Joining…' : 'Join the f-list'}</button></form>}
       {access?.member && !embedded && <LoadingStatus label="Getting your wallet ready…" />}
       {error && <button className={s.link} onClick={() => {setError('');void refresh().catch(()=>setError('Please try again shortly.'));}}>Try again</button>}
-      {embedded && <button className={s.link} onClick={()=>void value.exportWallet().catch(()=>setError('Could not open wallet recovery. Try again.'))}>Export wallet</button>}
-      <button className={s.link} onClick={()=>void logout()}>Sign out</button>
+      <div className={s.actions}>{embedded && <button className={s.link} onClick={()=>void value.exportWallet().catch(()=>setError('Could not open wallet recovery. Try again.'))}>Export wallet</button>}
+      <button className={s.link} onClick={()=>void logout()}>Sign out</button></div>
     </>}
     {error && <p role="alert" className={s.error}>{error}</p>}
-  </section></main>;
+  </section>
+    </div>
+    <footer className={s.footer}><span>Made for frens.</span><span>Built on Monad.</span></footer>
+  </main>;
 }
