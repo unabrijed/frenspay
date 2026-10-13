@@ -54,12 +54,12 @@ const documentHtml=`<!doctype html>
 let funded=preview,loseResponse=false,spendCalls=0,legacyCalls=0,paused=false,pendingWithdrawal=null;
 let credits=10,points=0;
 const spends=new Map();
-const account=()=>({id:'alice',email:'alice@example.test',walletAddress:'0x'+'1'.repeat(40),name:'Alice',country:'IN',phoneVerified:false,xLinked:false,multiplier:1,peakUsdc:funded?'10':'0',realUsdc:funded?'10':'0',balanceCheckedAt:new Date().toISOString(),rewardCredits:funded?String(credits):'0',practiceCredits:'0',points:String(points),fundingAvailable:true,receiptsAvailable:true,phoneAvailable:false,badges:points?['first-simulation']:[]});
+const account=()=>({id:'alice',email:'alice@example.test',walletAddress:'0x'+'1'.repeat(40),name:'Alice',country:'IN',phoneVerified:false,xLinked:false,multiplier:10,peakUsdc:funded?'10':'0',realUsdc:funded?'10':'0',balanceCheckedAt:new Date().toISOString(),rewardCredits:funded?String(credits):'0',practiceCredits:'0',points:String(points),fundingAvailable:true,receiptsAvailable:false,phoneAvailable:false,badges:points?['first-simulation']:[]});
 const server=createServer(async(req,res)=>{
   const url=new URL(req.url,'http://localhost');let raw='';for await(const chunk of req)raw+=chunk;
   const body=raw?JSON.parse(raw):{};
   const reply=(data,status=200)=>{res.writeHead(status,{'content-type':'application/json'});res.end(JSON.stringify(data));};
-  if(url.pathname==='/campaign/capabilities')return reply({mode:'simulation',campaignId:'monad-upi-2026',spendingEnabled:!paused,fundingEnabled:true,receiptChainId:10143,fundingChainId:143});
+  if(url.pathname==='/campaign/capabilities')return reply({mode:'simulation',campaignId:'monad-upi-2026',spendingEnabled:!paused,fundingEnabled:true,receiptChainId:null,fundingChainId:143});
   if(['/campaign/session','/campaign/account','/campaign/balance/sync'].includes(url.pathname))return reply(account());
   if(url.pathname==='/campaign/history')return reply({spends:[...spends.values()]});
   if(url.pathname==='/campaign/withdraw/pending')return reply({withdrawal:pendingWithdrawal});
@@ -68,7 +68,7 @@ const server=createServer(async(req,res)=>{
     spendCalls++;
     if(!spends.has(body.idempotencyKey)){
       assert.ok(funded);credits--;points++;
-      spends.set(body.idempotencyKey,{id:body.idempotencyKey,recipientName:'Corner Cafe',payeeVpa:'cafe@upi',amountInr:'100',credits:'1',points:'1',createdAt:new Date().toISOString(),receiptStatus:'pending',receiptHash:null,commitment:'0x'+'1'.repeat(64)});
+      spends.set(body.idempotencyKey,{id:body.idempotencyKey,recipientName:'Corner Cafe',payeeVpa:'cafe@upi',amountInr:'100',credits:'1',points:'1',createdAt:new Date().toISOString(),receiptStatus:'simulated',receiptHash:null,commitment:'0x'+'1'.repeat(64)});
     }
     if(loseResponse){loseResponse=false;return reply({error:'campaign_temporarily_unavailable'},503);}
     return reply(spends.get(body.idempotencyKey));
@@ -178,6 +178,51 @@ try{
   await expect(page.getByRole('status')).toContainText('confirmed');
   paused=true;await page.reload();await expect(page.getByText('New simulations are paused. Your wallet and history remain available.')).toBeVisible();
   await page.getByRole('button',{name:'Wallet',exact:true}).click();await expect(page.getByRole('button',{name:'Review withdrawal',exact:true})).toBeEnabled();
+  // Slow secondary data must not block the account or tab navigation.
+  const heldHistory = [], heldRecovery = [];
+  await page.route('**/campaign/history', route => { heldHistory.push(route); });
+  await page.route('**/campaign/withdraw/pending', route => { heldRecovery.push(route); });
+  let sessionRequests = 0, historyRequests = 0;
+  page.on('request', request => {
+    if (request.url().endsWith('/campaign/session')) sessionRequests++;
+    if (request.url().endsWith('/campaign/history')) historyRequests++;
+  });
+  await page.reload();
+  await expect(page.getByText('Recent activity')).toBeVisible();
+  await expect(page.getByText('Loading activity…')).toBeVisible();
+  await page.getByRole('button',{name:'Wallet',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Your wallet',exact:true})).toBeVisible();
+  await expect(page.getByText('Checking pending withdrawals…')).toBeVisible();
+  await expect(page.getByRole('button',{name:'Review withdrawal',exact:true})).toHaveCount(0);
+  await page.getByText('Activity',{exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Activity',exact:true})).toBeVisible();
+  await page.getByText('Home',{exact:true}).click();
+  assert.equal(sessionRequests,1,'tab navigation must reuse the existing account');
+  await expect.poll(()=>heldHistory.length).toBe(1);
+  await expect.poll(()=>heldRecovery.length).toBe(1);
+  await heldHistory.shift().fulfill({status:503,contentType:'application/json',body:'{"error":"unavailable"}'});
+  await heldRecovery.shift().continue();
+  await expect(page.getByRole('button',{name:'Retry activity',exact:true})).toBeVisible();
+  await page.unroute('**/campaign/history');await page.unroute('**/campaign/withdraw/pending');
+  await page.getByRole('button',{name:'Retry activity',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Retry activity',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Wallet',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Review withdrawal',exact:true})).toBeEnabled();
+  await page.getByLabel('Destination address').fill('draft destination');
+  await page.locator('main').evaluate(el => {el.scrollTop = 350});
+  const walletScroll = await page.locator('main').evaluate(el => el.scrollTop);
+  await page.getByText('Home',{exact:true}).click();
+  await expect.poll(()=>page.locator('main').evaluate(el=>el.scrollTop)).toBe(0);
+  await page.getByRole('button',{name:'Wallet',exact:true}).click();
+  await expect(page.getByLabel('Destination address')).toHaveValue('draft destination');
+  await expect.poll(()=>page.locator('main').evaluate(el=>el.scrollTop)).toBe(walletScroll);
+  const historyBeforeBalance = historyRequests;
+  await page.getByRole('button',{name:'Refresh balance',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Refresh balance',exact:true})).toBeEnabled();
+  assert.equal(historyRequests,historyBeforeBalance,'balance updates must not reload history');
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.getByText('Home',{exact:true}).click();
+  assert.equal(await page.getByText('Recent activity').evaluate(el=>getComputedStyle(el.parentElement).animationName),'none');
   assert.equal(legacyCalls,0);assert.deepEqual(failures,[]);
   console.log('check-campaign-browser: app theme/frame at mobile + desktop widths, funding gate, scan, durable retry, storage failure, no payment signatures, withdrawal recovery and pause OK');
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

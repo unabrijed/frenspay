@@ -3,7 +3,7 @@
 import { useCampaignWallet } from './CampaignWallet';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import {CodeInput} from '@fpay/ui/CodeInput';
 import { QRCodeSVG } from 'qrcode.react';
@@ -12,9 +12,11 @@ import { campaignApi as api, type PendingWithdrawal } from '@fpay/app/services/c
 import { ApiError, setAuthToken, setTokenRefresher } from '@fpay/app/services/api';
 import { useCampaignStore } from '@fpay/app/campaignStore';
 import { BottomNav } from '@/components/BottomNav';
-import { Scanner } from '@fpay/app/components/Scanner';
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
 import { Icons } from '@/components/icons';
 import s from './campaign.module.css';
+
+const Scanner = lazy(() => import('@fpay/app/components/Scanner').then(module => ({default: module.Scanner})));
 
 const display = (value: string, digits = 2) => Number(value).toLocaleString('en-IN', { maximumFractionDigits: digits });
 const badgeNames: Record<string, string> = { 'first-simulation': 'First simulation', 'three-payees': 'Three payees', 'three-days': 'Three active days' };
@@ -44,15 +46,19 @@ type Attempt = { quoteId: string; idempotencyKey: string };
 function save(key: string, value: unknown) { localStorage.setItem(key, JSON.stringify(value)); }
 function read<T>(key: string): T | null { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } }
 
-export default function CampaignApp() {
+export default function CampaignApp({visible = true}: {visible?: boolean}) {
   const { user } = useCampaignWallet();
-  return <CampaignSession key={user?.id} />;
+  return <CampaignSession key={user?.id} visible={visible} />;
 }
-function CampaignSession() {
+function CampaignSession({visible}: {visible: boolean}) {
   const { user, provider, getAccessToken, logout, exportWallet, sendTransaction, linkTwitter, fundFromWallet } = useCampaignWallet();
   const did = user?.id || '';
   const { owner, account: storedAccount, history, reset, update } = useCampaignStore();
   const account = owner === did ? storedAccount : null;
+  const [historyState, setHistoryState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [recoveryState, setRecoveryState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const body = useRef<HTMLElement>(null);
+  const scrollPositions = useRef<Partial<Record<Tab, number>>>({});
   const [caps, setCaps] = useState<CampaignCapabilities | null>(null);
   const [tab, setTab] = useState<Tab>('home');
   const [error, setError] = useState(''), [notice, setNotice] = useState('');
@@ -67,9 +73,28 @@ function CampaignSession() {
   const mounted = useRef(true), lock = useRef(false);
   const active = useCallback(() => mounted.current && useCampaignStore.getState().owner === did, [did]);
   const refresh = useCallback(async (sync = false) => {
-    const [next, activity] = await Promise.all([sync ? api.sync() : api.account(), api.history()]);
-    if (active()) update(did, next, activity.spends);
+    const [next, activity] = await Promise.all([sync ? api.sync() : api.account(), sync ? Promise.resolve(null) : api.history()]);
+    if (active()) { update(did, next, activity?.spends); if (activity) setHistoryState('ready'); }
   }, [did, update, active]);
+  const loadHistory = useCallback(async () => {
+    setHistoryState('loading');
+    try {
+      const activity = await api.history();
+      const current = useCampaignStore.getState();
+      if (active() && current.account) { update(did, current.account, activity.spends); setHistoryState('ready'); }
+    } catch { if (active()) setHistoryState('error'); }
+  }, [active, did, update]);
+  const loadRecovery = useCallback(async () => {
+    setRecoveryState('loading');
+    try {
+      const recovery = await api.withdrawalPending();
+      if (!active()) return;
+      setWithdrawal(recovery.withdrawal);
+      const accountId = useCampaignStore.getState().account?.id;
+      setWithdrawHash(recovery.withdrawal?.tx_hash || (accountId && read<string>(`campaign:withdraw:${accountId}`)) || '');
+      setRecoveryState('ready');
+    } catch { if (active()) setRecoveryState('error'); }
+  }, [active]);
   const run = async (action: () => Promise<void>) => {
     if (lock.current) return;
     lock.current = true; setBusy(true); setError(''); setNotice('');
@@ -81,30 +106,41 @@ function CampaignSession() {
     let cancelled = false;
     setTokenRefresher(getAccessToken);
     void (async () => {
-      setAuthToken(await getAccessToken());
-      const capability = await api.capabilities();
-      if (capability.mode !== 'simulation') throw new Error('The beta is not enabled on this server yet.');
-      const next = await api.session().catch(async e => {
+      const sessionToken = await getAccessToken();
+      if (cancelled) return;
+      setAuthToken(sessionToken);
+      const [capability, next] = await Promise.all([api.capabilities(), api.session().catch(async e => {
         if (e instanceof ApiError && ['campaign_paused', 'account_suspended'].includes(e.code)) return api.account();
         throw e;
-      });
-      const [activity, recovery] = await Promise.all([api.history(), api.withdrawalPending()]);
+      })]);
+      if (capability.mode !== 'simulation') throw new Error('The beta is not enabled on this server yet.');
       if (cancelled) return;
-      update(did, next, activity.spends); setCaps(capability); setName(next.name); setCountry(next.country || 'IN');
+      update(did, next); setCaps(capability); setName(next.name); setCountry(next.country || 'IN');
       setPending(read<Attempt>(`campaign:pending:${next.id}`));
-      setWithdrawal(recovery.withdrawal);
-      setWithdrawHash(recovery.withdrawal?.tx_hash || read<string>(`campaign:withdraw:${next.id}`) || '');
+      void loadHistory();
+      void loadRecovery();
       if (capability.fundingEnabled) await refresh(true);
     })().catch(e => { if (!cancelled) setError(errorText(e)); });
     return () => { cancelled = true; mounted.current = false; if (useCampaignStore.getState().owner === did) reset(null); };
-  }, [did, getAccessToken, reload, reset, update, refresh]);
+  }, [did, getAccessToken, reload, reset, update, refresh, loadHistory, loadRecovery]);
+  useEffect(() => { if (!visible) setCamera(false); }, [visible]);
   useEffect(() => {
-    if (!account || !caps?.fundingEnabled || tab !== 'wallet') return;
-    const timer = setInterval(() => { if (!lock.current) void refresh(true).catch(() => {}); }, 20000);
+    if (!visible || !account || !caps?.fundingEnabled || tab !== 'wallet') return;
+    let refreshing = false;
+    const timer = setInterval(() => {
+      if (document.visibilityState !== 'visible' || lock.current || refreshing) return;
+      refreshing = true;
+      void refresh(true).catch(() => {}).finally(() => { refreshing = false; });
+    }, 20000);
     return () => clearInterval(timer);
-  }, [account?.id, caps?.fundingEnabled, tab, refresh]);
+  }, [visible, account?.id, caps?.fundingEnabled, tab, refresh]);
 
-  const go = (next: Tab) => { setTab(next); setCamera(false); setError(''); setNotice(''); };
+  useLayoutEffect(() => {
+    if (body.current) body.current.scrollTop = scrollPositions.current[tab] || 0;
+  }, [tab]);
+  const go = (next: Tab) => {
+    if (body.current) scrollPositions.current[tab] = body.current.scrollTop;
+    setTab(next); setCamera(false); setError(''); setNotice(''); };
   const scan = (text: string) => {
     const target = parseUpiQr(text);
     if (!target) { setError(errors.invalid_upi); return; }
@@ -135,7 +171,7 @@ function CampaignSession() {
   const target = parseUpiQr(raw);
   const canSpend = !!caps?.spendingEnabled && !!account && !account.suspended && Number(account.rewardCredits) > 0;
   return <div className={s.app}>
-    <main className={s.body}>
+    <main className={s.body} ref={body}>
       <header className={s.bar}>
         <button className={s.secondary} aria-label="Profile" onClick={() => go('profile')}><Icons.Person size={20} /></button>
         <span className={s.brand}>fpay</span>
@@ -144,7 +180,9 @@ function CampaignSession() {
       <div className={s.mode}>Simulation beta · Recipients receive no money</div>
       {error && <p className={s.error} role="alert">{error}</p>}
       {notice && <p className={s.notice} role="status">{notice}</p>}
+      {busy && !notice && !error && <div className={s.progress}><LoadingStatus label="Working on it…" /></div>}
       {!account ? <section className={s.card}><h1>{error ? 'Let’s try again' : 'Opening your wallet…'}</h1>
+        {!error && <LoadingStatus label="Loading your balance and activity…" />}
         {error && <button className={s.button} onClick={() => setReload(x => x + 1)}>Retry</button>}
         <button className={s.link} onClick={() => void logout()}>Sign out</button>
         <button className={s.link} onClick={() => void exportWallet()}>Export existing wallet</button>
@@ -152,6 +190,7 @@ function CampaignSession() {
         {account.suspended && <p className={s.notice}>Your simulations are paused. Your wallet and history remain available.</p>}
         {!caps?.spendingEnabled && <p className={s.notice}>New simulations are paused. Your wallet and history remain available.</p>}
         {pending && <button disabled={busy} className={s.secondary} onClick={() => void run(() => recover(pending))}>Check pending simulation</button>}
+        <div key={tab} className={s.screen}>
         {tab === 'home' && <>
           <section className={s.hero}><span className={s.label}>Test spending allowance</span><h1>{display(account.rewardCredits)} <small style={{fontSize:18}}>credits</small></h1>
             <p className={s.muted}>1 credit = US$1 of simulated spending</p>
@@ -161,12 +200,12 @@ function CampaignSession() {
           <button className={s.row} onClick={() => go('wallet')}><span>Real USDC balance<small>Monad · Your funds</small></span><b>{account.realUsdc === null ? 'Not checked' : display(account.realUsdc,6)}</b></button>
           <Link className={s.link} href="/invites">Invite a fren ↗</Link>
           <h2>Recent activity</h2>{history.slice(0,4).map(item => <Activity key={item.id} item={item} open={() => {setResult(item);go('scan');}} />)}
-          {!history.length && <p className={s.muted}>Your simulations will appear here.</p>}
+          {historyState === 'loading' && !history.length && <LoadingStatus label="Loading activity…" />}{historyState === 'error' && <button className={s.link} onClick={() => void loadHistory()}>Retry activity</button>}{historyState === 'ready' && !history.length && <p className={s.muted}>Your simulations will appear here.</p>}
         </>}
         {tab === 'scan' && (result ? <section className={s.receipt}>
           <Icons.Check size={42} /><h1>Payment simulated</h1><p>{result.recipientName}</p><p className={s.muted}>{result.payeeVpa}</p><strong>₹{display(result.amountInr)}</strong>
           <p>Recipient received no money.</p><p>+{display(result.points,6)} points</p>
-          <div className={s.card}><dl className={s.facts}><dt>Credits used</dt><dd>{display(result.credits,6)}</dd><dt>Remaining</dt><dd>{display(account.rewardCredits,6)}</dd><dt>Reference</dt><dd>{result.id}</dd><dt>Testnet receipt</dt><dd>{result.receiptStatus}</dd></dl>
+          <div className={s.card}><dl className={s.facts}><dt>Credits used</dt><dd>{display(result.credits,6)}</dd><dt>Remaining</dt><dd>{display(account.rewardCredits,6)}</dd><dt>Reference</dt><dd>{result.id}</dd><dt>Status</dt><dd>Simulation recorded</dd></dl>
             {result.receiptHash && <a className={s.link} target="_blank" rel="noreferrer" href={`https://testnet.monadexplorer.com/tx/${result.receiptHash}`}>View testnet receipt ↗</a>}</div>
           <button className={s.button} onClick={() => {setResult(null);setRaw('');setQuote(null);}}>Scan another QR</button>
         </section> : <>
@@ -177,16 +216,16 @@ function CampaignSession() {
             <p className={s.muted}>{target.vpa}</p><label>Amount in INR<input className={`${s.input} ${s.money}`} aria-label="Amount in INR" inputMode="decimal" value={amount} readOnly={!!target.amountInr} required onChange={e => setAmount(e.target.value)} /></label>
             <button className={s.button} disabled={busy || !canSpend || !!pending}>Review simulation</button><button type="button" className={s.link} onClick={() => setRaw('')}>Scan a different code</button>
           </form> : <>
-            {camera ? <div className={s.camera}><Scanner paused={busy} onScan={scan} onError={() => {setCamera(false);setError('Allow camera access, or paste a UPI payment link below.');}} /></div> : <button className={s.button} disabled={!canSpend || !!pending} onClick={() => setCamera(true)}>Open camera</button>}
+            {camera && visible ? <div className={s.camera}><Suspense fallback={<LoadingStatus label="Opening camera…" />}><Scanner paused={busy} onScan={scan} onError={() => {setCamera(false);setError('Allow camera access, or paste a UPI payment link below.');}} /></Suspense></div> : <button className={s.button} disabled={!canSpend || !!pending} onClick={() => setCamera(true)}>Open camera</button>}
             <details className={s.card}><summary>Use a UPI payment link</summary><form className={s.form} onSubmit={e => {e.preventDefault();const form = new FormData(e.currentTarget);scan(String(form.get('qr') || ''));}}><label>UPI payment link<input className={s.input} name="qr" placeholder="upi://pay?pa=…" required /></label><button className={s.secondary} disabled={!canSpend || !!pending}>Continue</button></form></details>
           </>}
         </>)}
-        {tab === 'activity' && <><h1>Activity</h1><p className={s.muted}>Simulations only. No money was sent to these recipients.</p>{history.map(item => <Activity key={item.id} item={item} open={() => {setResult(item);go('scan');}} />)}{!history.length && <p>No activity yet.</p>}<button className={s.link} disabled={busy} onClick={() => void run(() => refresh())}>Refresh history</button></>}
+        {tab === 'activity' && <><h1>Activity</h1><p className={s.muted}>Simulations only. No money was sent to these recipients.</p>{history.map(item => <Activity key={item.id} item={item} open={() => {setResult(item);go('scan');}} />)}{historyState === 'loading' && !history.length && <LoadingStatus label="Loading activity…" />}{historyState === 'error' && <button className={s.link} onClick={() => void loadHistory()}>Retry activity</button>}{historyState === 'ready' && !history.length && <p>No activity yet.</p>}<button className={s.link} disabled={busy} onClick={() => void run(() => refresh())}>Refresh history</button></>}
         {tab === 'wallet' && <>
           <h1>Your wallet</h1><div className={s.hero}><span className={s.label}>Real funds · Monad mainnet</span><h1>{account.realUsdc === null ? '-' : display(account.realUsdc,6)} <small style={{fontSize:18}}>USDC</small></h1><p className={s.muted}>{account.balanceCheckedAt ? `Checked ${new Date(account.balanceCheckedAt).toLocaleString()}` : 'Balance not checked yet'}</p><button className={s.link} disabled={busy} onClick={() => void run(() => refresh(true))}>Refresh balance</button></div>
           {account.fundingAvailable && caps?.fundingEnabled ? <section className={s.card}><h2>Add USDC</h2>{fundFromWallet && <button className={s.button} disabled={busy} onClick={() => void run(() => fundFromWallet(account.walletAddress))}>Transfer from another wallet</button>}<h3>Deposit from a wallet or exchange</h3><p>Send native USDC on Monad mainnet to your wallet. Other networks and tokens do not unlock credits.</p><div className={s.qr}><QRCodeSVG value={account.walletAddress} size={180}/></div><code>{account.walletAddress}</code><button className={s.link} onClick={() => void run(async () => {await navigator.clipboard.writeText(account.walletAddress);setNotice('Address copied.');})}>Copy address</button><p className={s.muted}>Credits appear after your funds are confirmed. No USDC is spent when you simulate a payment.</p><p className={s.muted}>For an exchange withdrawal, select USDC and the Monad network. If Monad is unavailable, use another funding source.</p><p className={s.muted}>Card and bank purchases are not enabled yet.</p></section> : <p className={s.notice}>New funding is not enabled yet. Existing wallet recovery remains available.</p>}
-          <div className={s.card}><h2>{account.multiplier}× credit allowance</h2><p>Highest verified balance: {display(account.peakUsdc,6)} USDC.</p><p className={s.muted}>Only a new balance high or a higher profile multiplier grants extra credits. Withdrawals preserve your credits. Redepositing the same amount does not grant more.</p></div>
-          {withdrawal ? <section className={s.card}><h2>Check withdrawal</h2><p>{display(withdrawal.amount,6)} USDC to {withdrawal.recipient}</p><p className={s.muted}>A wallet request may already have been submitted. Check its result before starting another.</p><label>Transaction hash<input className={s.input} value={withdrawHash} onChange={e => setWithdrawHash(e.target.value)} placeholder="0x…" /></label>
+          <div className={s.card}><h2>{account.multiplier}× credit allowance</h2><p>Highest verified balance: {display(account.peakUsdc,6)} USDC.</p><p className={s.muted}>A new verified balance high grants 10× the increase as simulation credits. Withdrawals preserve your credits. Redepositing the same amount does not grant more.</p></div>
+          {recoveryState !== 'ready' ? <section className={s.card}><h2>Withdraw USDC</h2>{recoveryState === 'loading' ? <LoadingStatus label="Checking pending withdrawals…" /> : <><p>We couldn’t check your pending withdrawals.</p><button className={s.link} onClick={() => void loadRecovery()}>Retry withdrawal check</button></>}</section> : withdrawal ? <section className={s.card}><h2>Check withdrawal</h2><p>{display(withdrawal.amount,6)} USDC to {withdrawal.recipient}</p><p className={s.muted}>A wallet request may already have been submitted. Check its result before starting another.</p><label>Transaction hash<input className={s.input} value={withdrawHash} onChange={e => setWithdrawHash(e.target.value)} placeholder="0x…" /></label>
             <button className={s.button} disabled={busy || !withdrawHash} onClick={() => void run(async () => {const status = await api.withdrawalStatus(withdrawal.id, withdrawHash);if(!active())return;setNotice(`Withdrawal ${status.status}.`);if(status.status !== 'pending'){setWithdrawal(null);try{localStorage.removeItem(`campaign:withdraw:${account.id}`);}catch{}await refresh(true);}})}>Check status</button>
             <button className={s.link} disabled={busy} onClick={() => {if(window.confirm('Only clear this request if you rejected it in the wallet or verified that no transaction was sent. This does not cancel a blockchain transaction.')) void run(async () => {await api.cancelWithdrawal(withdrawal.id);if(active())setWithdrawal(null);});}}>I verified that nothing was sent</button>
           </section> : <form className={`${s.card} ${s.form}`} onSubmit={e => {e.preventDefault();void run(async () => {
@@ -200,13 +239,14 @@ function CampaignSession() {
           <button className={s.link} onClick={() => void exportWallet({address:account.walletAddress})}>Export wallet / private key</button>
           <p className={s.muted}>Existing wallets on other networks have not moved. You can export them from your account below.</p>
         </>}
-        {tab === 'rewards' && <><h1>Your rewards</h1><div className={s.hero}><h1>{display(account.points,6)}</h1><span className={s.label}>Points</span></div><p>Every credit used in a simulation earns one point.</p><div className={s.badges}>{Object.entries(badgeNames).map(([id,label]) => <div className={s.badge} key={id}>{account.badges.includes(id) ? '✓' : '○'} {label}</div>)}</div><p className={s.muted}>Badges are in-app collectibles. Points are not tokens or money. Future drops and their eligibility have not been defined.</p><button className={s.link} onClick={() => go('profile')}>Increase your credit multiplier</button></>}
-        {tab === 'profile' && <><h1>Your profile</h1><p>{account.email}</p><form className={s.form} onSubmit={e => {e.preventDefault();void run(async () => {const next = await api.profile(name,country);if(active())update(did,next);});}}><label>Name<input className={s.input} value={name} onChange={e => setName(e.target.value)} maxLength={100} required /></label><label>Country code<input className={s.input} value={country} onChange={e => setCountry(e.target.value.toUpperCase())} maxLength={2} pattern="[A-Z]{2}" required /></label><button className={s.button} disabled={busy || !caps?.spendingEnabled}>Save profile · unlock 2×</button></form>
-          <div className={s.card}><h2>{account.multiplier}× multiplier</h2><p className={s.muted}>Email 1× → profile 2× → verified phone 5× → linked X 10×. Each step builds on the previous one.</p>
+        {tab === 'rewards' && <><h1>Your rewards</h1><div className={s.hero}><h1>{display(account.points,6)}</h1><span className={s.label}>Points</span></div><p>Every credit used in a simulation earns one point.</p><div className={s.badges}>{Object.entries(badgeNames).map(([id,label]) => <div className={s.badge} key={id}>{account.badges.includes(id) ? '✓' : '○'} {label}</div>)}</div><p className={s.muted}>Badges are in-app collectibles. Points are not tokens or money. Future drops and their eligibility have not been defined.</p><button className={s.link} onClick={() => go('profile')}>Edit your profile</button></>}
+        {tab === 'profile' && <><h1>Your profile</h1><p>{account.email}</p><form className={s.form} onSubmit={e => {e.preventDefault();void run(async () => {const next = await api.profile(name,country);if(active())update(did,next);});}}><label>Name<input className={s.input} value={name} onChange={e => setName(e.target.value)} maxLength={100} required /></label><label>Country code<input className={s.input} value={country} onChange={e => setCountry(e.target.value.toUpperCase())} maxLength={2} pattern="[A-Z]{2}" required /></label><button className={s.button} disabled={busy || !caps?.spendingEnabled}>Save profile</button></form>
+          <div className={s.card}><h2>{account.multiplier}× multiplier</h2><p className={s.muted}>Every funded account gets a 10× simulation allowance. Profile details do not change your allowance.</p>
             {account.phoneVerified ? <p>Phone verified ✓</p> : account.phoneAvailable && <form className={s.form} onSubmit={e => {e.preventDefault();void run(async () => {if(phoneSent){const next=await api.phoneConfirm(code);if(active())update(did,next);}else{await api.phoneStart(phone);if(active())setPhoneSent(true);}});}}><label>{phoneSent ? 'Verification code' : 'Phone with country code'}</label>{phoneSent ? <CodeInput value={code} onChange={setCode} disabled={busy}/> : <input className={s.input} aria-label="Phone with country code" value={phone} onChange={e=>setPhone(e.target.value)} required/>}<button className={s.secondary} disabled={busy || !caps?.spendingEnabled}>{phoneSent?'Verify phone':'Send code'}</button></form>}
             <button className={s.link} disabled={busy || !account.phoneVerified || !caps?.spendingEnabled} onClick={() => void run(async () => {if(!account.xLinked) await linkTwitter(); const next=await api.session();if(active())update(did,next);})}>{account.xLinked ? 'X linked ✓' : 'Link X'}</button><button className={s.link} disabled={busy} onClick={() => void run(async () => {const next=await api.session();if(active())update(did,next);})}>Refresh connections</button>
           </div><Link className={s.link} href="/invites">Invite a fren ↗</Link><button className={s.link} onClick={() => void logout()}>Sign out</button>
         </>}
+        </div>
       </>}
     </main>
     <BottomNav active={tab==='activity'?'activity':'home'} onHome={() => go('home')} onActivity={() => go('activity')} onScan={() => {setResult(null);setQuote(null);setRaw('');go('scan');}} />
