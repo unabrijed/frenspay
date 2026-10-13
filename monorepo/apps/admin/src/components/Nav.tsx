@@ -12,6 +12,7 @@ import { SignOut } from './Providers';
 
 const LINKS = [
   { href: '/', label: 'Overview' },
+  { href: '/campaign', label: 'Simulation beta' },
   { href: '/transactions', label: 'Transactions' },
   { href: '/merchants', label: 'Partners' },
   { href: '/providers', label: 'Payout providers' },
