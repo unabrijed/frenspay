@@ -1,1 +1,4 @@
 .DS_Store
+# The Yarn workspace lives in monorepo; ignore accidental installs at this root.
+/node_modules/
+/yarn.lock

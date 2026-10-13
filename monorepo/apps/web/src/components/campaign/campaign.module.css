@@ -1,4 +1,4 @@
-.app { height: 100%; display: flex; flex-direction: column; background: var(--canvas); }
+.app { height: 100%; min-height: 0; width: 100%; display: flex; flex-direction: column; background: var(--canvas); }
 .screen { animation: enter 140ms ease-out; }
 .progress { position: absolute; z-index: 5; top: 12px; left: 50%; transform: translateX(-50%); padding: 0 16px; border-radius: 18px; background: var(--surface); box-shadow: 0 3px 14px #493c3318; pointer-events: none; white-space: nowrap; animation: reveal 180ms ease-out 180ms both; }
 .app { position: relative; }
@@ -7,27 +7,45 @@
 @keyframes enter { from { opacity: .65; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes reveal { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .screen, .progress { animation: none; } }
-.body { flex: 1; min-height: 0; overflow: auto; padding: 20px 24px 44px; }
+.body { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 12px 24px 44px; }
+.body h1 { font-size: 30px; line-height: 1.2; margin: 24px 0 16px; }
+.body h2 { font-size: 20px; line-height: 1.3; margin: 28px 0 14px; }
+.body h3 { font-size: 17px; margin: 12px 0; }
+.body p { line-height: 1.5; }
+.body code { display: block; overflow-wrap: anywhere; font-size: 12px; }
+.boot { padding: 16px 0; }
+.boot > button { display: block; margin-top: 12px; }
+.skeletons { display: grid; gap: 18px; padding: 24px 0; }
 .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
-.brand { font-size: 28px; letter-spacing: -1px; font-weight: 600; }
-.mode { padding: 8px 12px; border: 1px solid var(--hair); border-radius: 12px; font-size: 12px; text-align: center; color: var(--muted); }
-.hero { text-align: center; padding: 32px 0 22px; }
-.hero h1 { font-size: clamp(36px, 10vw, 58px); line-height: 1.1; margin: 12px 0; overflow-wrap: anywhere; }
-.label { font: 11px var(--font-mono), monospace; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.brand { font-family: var(--font-display), sans-serif; font-size: 28px; letter-spacing: -1px; font-weight: 700; }
+.mode { padding: 6px 0; font-size: 11px; text-align: center; color: var(--muted); }
+.hero { text-align: center; padding: 36px 16px 28px; margin: 12px 0 24px; border-radius: 28px; background: var(--surface); }
+.hero h1 { font-size: clamp(40px, 12vw, 60px); font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.045em; line-height: 1.1; margin: 12px 0; overflow-wrap: anywhere; }
+.label { font: 600 11px var(--font-body), sans-serif; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
 .muted { font-size: 14px; color: var(--muted); line-height: 1.5; }
-.actions { display: flex; gap: 12px; margin: 18px 0; }
-.button { border: 0; border-radius: 18px; padding: 14px 18px; background: var(--accent); color: white; font: inherit; cursor: pointer; }
+.actions { display: flex; justify-content: space-between; gap: 8px; margin: 0 0 28px; }
+.action { display: flex; flex: 1; flex-direction: column; align-items: center; gap: 10px; min-width: 0; font-size: 12px; font-weight: 600; text-align: center; }
+.action > span { display: flex; align-items: center; justify-content: center; width: 58px; height: 58px; border-radius: 21px; background: var(--cloud); color: var(--ink); box-shadow: inset 0 1px 0 #ffffff60, 0 4px 10px #493c3308; transition: transform 140ms ease; }
+.action[data-tone='water'] > span { background: var(--water); color: var(--surface); }
+.action[data-tone='sage'] > span { background: var(--sage); color: #fff; }
+.action[data-tone='paper'] > span { background: var(--surface); color: var(--petrol); }
+.action:active > span { transform: translateY(2px); }
+.app :is(button, a, input):focus-visible { outline: 2px solid var(--petrol); outline-offset: 4px; }
+.hero small { font-family: var(--font-body), sans-serif; font-weight: 500; letter-spacing: 0; color: var(--muted); }
+.button { border: 0; border-radius: 18px; padding: 14px 18px; background: var(--accent); color: white; font: inherit; font-weight: 600; min-height: 48px; cursor: pointer; }
 .button:disabled, .secondary:disabled { opacity: .5; cursor: not-allowed; }
-.secondary { border: 1px solid var(--hair); border-radius: 18px; padding: 12px 16px; background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
+.secondary { border: 1px solid var(--hair); border-radius: 18px; padding: 12px 16px; background: var(--surface); color: var(--ink); font: inherit; font-weight: 600; min-height: 48px; cursor: pointer; }
 .link { border: none; padding: 8px 0; background: transparent; color: var(--accent); font: inherit; cursor: pointer; }
-.card { padding: 20px; margin: 16px 0; border: 1px solid var(--hair); border-radius: 22px; background: var(--surface); overflow-wrap: anywhere; }
-.row { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; text-align: left; border: none; border-bottom: 1px solid var(--hair); padding: 16px 0; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
+.card { padding: 20px; margin: 20px 0; border: 0; border-radius: 22px; background: var(--surface); overflow-wrap: anywhere; }
+.card h2:first-child { margin-top: 0; }
+.row { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; text-align: left; border: 0; border-radius: 18px; margin: 10px 0; padding: 16px; background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
 .row small { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
+.row b, .amount { font-family: var(--font-mono), monospace; font-size: 14px; font-variant-numeric: tabular-nums; }
 .amount { text-align: right; white-space: nowrap; }
 .form { display: grid; gap: 14px; }
 .form label { display: grid; gap: 7px; font-size: 14px; }
-.input { width: 100%; border: 1px solid var(--hair); border-radius: 14px; background: var(--surface); padding: 14px; color: var(--ink); font: inherit; }
-.money { font-size: 38px; text-align: center; }
+.input { width: 100%; border: 1px solid #8a7a63; border-radius: 14px; background: var(--surface); padding: 14px; min-height: 52px; color: var(--ink); font: inherit; }
+.money { font-family: var(--font-mono), monospace; font-variant-numeric: tabular-nums; font-size: 38px; text-align: center; }
 .error { padding: 12px; border-radius: 12px; background: #ffe0d7; color: #862a17; margin: 12px 0; }
 .notice { padding: 12px; border-radius: 12px; background: var(--surface); margin: 12px 0; font-size: 14px; }
 .camera { height: 310px; border-radius: 22px; overflow: hidden; margin: 20px 0; background: var(--ink); }
@@ -36,8 +54,10 @@
 .badge { border: 1px solid var(--hair); border-radius: 12px; padding: 10px; font-size: 13px; }
 .receipt { text-align: center; padding-top: 24px; }
 .receipt h1 { font-size: 34px; margin: 12px 0; }
-.receipt strong { display: block; font-size: 44px; margin: 18px 0; }
+.receipt strong { font-family: var(--font-mono), monospace; font-variant-numeric: tabular-nums; display: block; font-size: 44px; margin: 18px 0; }
 .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: left; font-size: 14px; }
 .facts dd { text-align: right; margin: 0; overflow-wrap: anywhere; }
 
 .practice { display: inline-block; padding: 4px 9px; border: 1px dashed var(--accent); border-radius: 7px; color: var(--accent); background: var(--surface); font: 11px/1.4 var(--font-mono), monospace; letter-spacing: .02em; }
+
+@media (prefers-reduced-motion: reduce) { .action > span { transition: none; } }

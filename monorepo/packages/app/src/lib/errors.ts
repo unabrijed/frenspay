@@ -4,6 +4,8 @@
 import { ApiError } from '../services/api';
 
 const BY_CODE: Record<string, string> = {
+  unauthorized: 'Your sign-in could not be verified. Sign out and sign in again.',
+  dynamic_temporarily_unavailable: 'Sign-in verification is temporarily unavailable. Please try again shortly.',
   merchant_pay_unavailable: "Scan and pay is not available for this account yet.",
   card_funding_unavailable: "Card funding is not available for this account yet.",
   payment_information_unavailable: "We could not open the required payment information. Please try later.",

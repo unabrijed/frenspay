@@ -39,6 +39,10 @@ const CSP = [
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Our aliases opt out of Next's build worker by default. They are worker-safe;
+  // keep compilation isolated so the wallet SDK graph doesn't retain its heap
+  // throughout page generation and tracing.
+  experimental: { webpackBuildWorker: true },
   // @fpay/shared is consumed as raw TS source — let Next compile it.
   transpilePackages: ['@fpay/shared', '@fpay/ui', '@fpay/app'],
   // There's a stray yarn.lock at the payments/ root (outside the monorepo); pin the
@@ -69,6 +73,9 @@ const nextConfig: NextConfig = {
       ...(config.resolve.alias as Record<string, unknown>),
       '@stripe/crypto': false,
       '@farcaster/mini-app-solana': false,
+      // WalletConnect's Pino 7 references this optional Node console formatter.
+      // We never enable prettyPrint; production logging needs no pretty transport.
+      'pino-pretty': false,
     } as typeof config.resolve.alias;
     return config;
   },

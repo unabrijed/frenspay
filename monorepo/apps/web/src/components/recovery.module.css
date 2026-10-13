@@ -1,0 +1,15 @@
+.recovery { width: 100%; max-width: 360px; margin: 20px auto; padding: 28px 20px 20px; border-radius: 28px; background: var(--surface, #fdf3dc); text-align: center; }
+.art { display: flex; justify-content: center; margin-bottom: 12px; }
+.eyebrow { margin: 0 0 10px; font: 600 11px/1.4 var(--font-body, sans-serif); letter-spacing: .1em; text-transform: uppercase; color: var(--muted, #6b6156); }
+.recovery .title { margin: 0 0 14px; font: 700 clamp(28px, 8vw, 34px)/1.1 var(--font-display, sans-serif); letter-spacing: -.035em; color: var(--ink, #2b3131); text-wrap: balance; }
+.description { margin: 0 0 24px; font: 400 14px/1.65 var(--font-body, sans-serif); color: var(--muted, #6b6156); overflow-wrap: anywhere; }
+.primary { width: 100%; min-height: 52px; padding: 14px 18px; border: 0; border-radius: 17px; background: var(--accent, #b94f2b); color: white; font: 600 15px/1.4 var(--font-body, sans-serif); cursor: pointer; }
+.primary:hover:not(:disabled) { background: #8f3a1e; }
+.primary:disabled { opacity: .6; cursor: wait; }
+.secondary { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 12px; }
+.secondary button, .secondary a { min-height: 44px; padding: 10px; background: none; border: 0; color: var(--muted, #6b6156); font: 500 13px/1.5 var(--font-body, sans-serif); text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }
+.recovery :is(button, a):focus-visible { outline: 2px solid #0e3d45; outline-offset: 4px; }
+.inline { display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px; margin: 16px 0; border: 1px solid #b94f2b30; border-radius: 16px; background: #fff0e3; color: #862a17; text-align: left; font: 400 14px/1.5 var(--font-body, sans-serif); overflow-wrap: anywhere; }
+.inline > svg { flex-shrink: 0; margin-top: 1px; }
+.inline button { display: block; min-height: 44px; margin-top: 4px; padding: 8px 0; color: inherit; font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 4px; cursor: pointer; }
+@media (max-height: 700px) { .recovery { margin: 12px auto; padding-top: 16px; } .art svg { height: 80px; } }

@@ -6,6 +6,11 @@
    They only style the app-frame + body chrome; component styling is shared via lib/theme.ts.
    Theme: frenspay v2 — the palette sampled from the four scene paintings. */
 :root {
+  --font-display-weight: 700;
+  --sage: #718479;
+  --water: #4e6d6a;
+  --petrol: #0e3d45;
+  --cloud: #f8cba0;
   --canvas: #fce8cb; /* paper */
   --surface: #fdf3dc; /* sun — cards sit lighter than the page */
   --ink: #2b3131;
@@ -40,7 +45,7 @@ body {
 body {
   background: var(--backdrop);
   color: var(--ink);
-  font-family: var(--font-spectral), Georgia, serif;
+  font-family: var(--font-body), Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -409,4 +414,11 @@ a {
 
 input {
   font-family: inherit;
+}
+
+/* Native headings and shared typography use the same app display family. */
+h1, h2, h3 {
+  font-family: var(--font-display), Arial, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.035em;
 }

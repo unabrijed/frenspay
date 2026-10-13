@@ -23,9 +23,10 @@ export default function GlobalError({ error }: { error: Error & { digest?: strin
       );
     if (isChunkError && typeof window !== 'undefined') {
       const KEY = 'fpay:chunk-reload-at';
-      const last = Number(window.sessionStorage.getItem(KEY) || 0);
+      let last = 0;
+      try { last = Number(window.sessionStorage.getItem(KEY) || 0); } catch { return; }
       if (Date.now() - last > 10_000) {
-        window.sessionStorage.setItem(KEY, String(Date.now()));
+        try { window.sessionStorage.setItem(KEY, String(Date.now())); } catch { return; }
         const u = new URL(window.location.href);
         u.searchParams.set('_r', String(Date.now())); // cache-bust: forces a fresh document
         window.location.replace(u.toString());
@@ -47,6 +48,9 @@ export default function GlobalError({ error }: { error: Error & { digest?: strin
         <div
           style={{
             minHeight: '100dvh',
+            boxSizing: 'border-box',
+            maxWidth: 430,
+            margin: '0 auto',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -61,9 +65,11 @@ export default function GlobalError({ error }: { error: Error & { digest?: strin
               stylesheet, and a failure screen is not the place for the pair to hop. */}
           <div
             style={{
-              width: 56,
-              height: 56,
-              borderRadius: 16,
+              width: 88,
+              height: 88,
+              borderRadius: 28,
+              transform: 'rotate(-6deg)',
+              marginBottom: 12,
               background: ACCENT,
               display: 'flex',
               alignItems: 'center',
@@ -82,12 +88,17 @@ export default function GlobalError({ error }: { error: Error & { digest?: strin
               <circle cx="190" cy="74" r="31" fill={CANVAS} />
             </svg>
           </div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>Something went wrong</h1>
-          <p style={{ margin: 0, maxWidth: 280, color: MUTED }}>The app failed to load. Reload to try again.</p>
+          <p style={{ margin: 0, color: MUTED, fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>A little pause</p>
+          <h1 style={{ fontSize: 34, lineHeight: 1.1, letterSpacing: '-0.035em', fontWeight: 700, margin: 0 }}>Let’s get you back in</h1>
+          <p role="alert" style={{ margin: 0, maxWidth: 310, color: MUTED, fontSize: 15, lineHeight: 1.65 }}>fpay couldn’t finish loading. Reload to get a fresh start.</p>
+          <p style={{ margin: 0, maxWidth: 310, color: MUTED, fontSize: 13, lineHeight: 1.6 }}>If you were making a payment, check your activity before submitting it again.</p>
           <button
             onClick={reload}
             style={{
               marginTop: 8,
+              width: '100%',
+              maxWidth: 310,
+              minHeight: 52,
               background: ACCENT,
               color: '#fff',
               border: 'none',
@@ -98,7 +109,7 @@ export default function GlobalError({ error }: { error: Error & { digest?: strin
               cursor: 'pointer',
             }}
           >
-            Reload
+            Reload fpay
           </button>
         </div>
       </body>

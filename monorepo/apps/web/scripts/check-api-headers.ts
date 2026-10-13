@@ -103,6 +103,13 @@ async function main(): Promise<void> {
   attempts = 0;
   await assert.rejects(req('/me'), /unauthorized/);
   assert.equal(attempts, 2, 'a rejected session must not loop');
+  // A stuck SDK refresh must obey the same deadline as the network request.
+  setTokenRefresher(() => new Promise(() => {}));
+  const abort = new AbortController();
+  const stuck = req('/me', {signal: abort.signal});
+  abort.abort(new Error('session deadline exceeded'));
+  await assert.rejects(stuck, /session deadline exceeded/);
+  assert.equal(attempts, 2, 'timed-out token acquisition must not send a request');
   setAuthToken(null);
   setTokenRefresher(null);
 
