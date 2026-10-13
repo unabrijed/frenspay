@@ -1,8 +1,7 @@
  'use client';
 import { SIMULATION_MODE } from '@/services/envConfig';
-import { SheetHost } from './SheetHost';
-import { ToastHost } from './ToastHost';
-import { SuspendedGate } from './SuspendedGate';
+import dynamic from 'next/dynamic';
+const ProductOverlayContent = dynamic(() => import('./ProductOverlayContent'), {ssr:false});
 export function ProductOverlays() {
-  return SIMULATION_MODE ? null : <><SheetHost /><ToastHost /><SuspendedGate /></>;
+  return SIMULATION_MODE ? null : <ProductOverlayContent />;
 }
