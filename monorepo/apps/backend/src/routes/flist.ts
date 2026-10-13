@@ -4,6 +4,7 @@ import { getPool } from '../db/pool';
 import { joinWaitlistWithCode, verifyWaitlistEmail } from '../db/queries';
 import { isFlistMember, verifiedEmail } from '../services/flist';
 import { canonicalInviteCode } from '../services/invites';
+import { dynamicConfigured } from '../services/dynamic';
 
 export async function readFlist(email: string): Promise<FlistResponse> {
   const member = await isFlistMember(email);
@@ -19,8 +20,15 @@ export async function readFlist(email: string): Promise<FlistResponse> {
 
 export async function registerFlistRoutes(app: FastifyInstance) {
   const identity = async (req: FastifyRequest) => {
-    if (!req.privyDid && !req.userId && !req.campaignIdentity)
+    if (!req.privyDid && !req.userId && !req.campaignIdentity) {
+      // Diagnose requests that never enter token verification without logging credentials.
+      req.log.warn({
+        dynamicConfigured: dynamicConfigured(),
+        authorizationPresent: typeof req.headers.authorization === 'string',
+        bearerPresent: req.headers.authorization?.startsWith('Bearer ') === true,
+      }, 'F-list request has no authenticated identity');
       throw Object.assign(new Error('unauthorized'), { statusCode: 401 });
+    }
     const email = await verifiedEmail(req);
     if (!email) throw Object.assign(new Error('verified_email_required'), { statusCode: 403 });
     return email;
