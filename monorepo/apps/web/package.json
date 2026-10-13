@@ -20,6 +20,7 @@
   "dependencies": {
     "@dynamic-labs-sdk/client": "1.37.0",
     "@dynamic-labs/ethereum": "5.10.0",
+    "@dynamic-labs/sdk-api-core": "0.70.0",
     "@dynamic-labs/sdk-react-core": "5.10.0",
     "@dynamic-labs/solana": "5.10.0",
     "@fpay/shared": "*",

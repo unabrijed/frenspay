@@ -60,6 +60,7 @@ const BY_CODE: Record<string, string> = {
   // shows this with a reload; the phone app cannot reload, so the copy stays neutral.
   wallet_not_ready: 'Your wallet is taking longer than usual to set up. Please try again.',
   // account lifecycle
+  identity_already_bound: 'This email is linked to a different sign-in identity. Contact support to restore access to your existing account.',
   account_suspended: 'Your account is paused. Contact support to sort it out.',
   account_deleted: 'This account has been deleted. Your money is still yours via your embedded wallet.',
   // signup
@@ -74,7 +75,7 @@ const BY_CODE: Record<string, string> = {
   expense_changed: 'Someone changed this bill. Reload it before saving.',
   expense_locked: 'Settlement has started, so this bill’s amounts are fixed.',
   expense_needs_review: 'A payment on this bill needs review. Settlement is paused.',
-  payment_not_eligible: 'Choose a completed Frenspay payment that has not been refunded.',
+  payment_not_eligible: 'Choose a completed fpay payment that has not been refunded.',
   payment_already_linked: 'That payment already belongs to another bill.',
   request_payment_failed: 'The previous payment failed. You can try again.',
   request_payment_pending: 'This payment is already in progress. Wait for confirmation.',
@@ -82,7 +83,7 @@ const BY_CODE: Record<string, string> = {
   request_mismatch: 'The request changed. Reload it before paying.',
   invalid_participants: 'Include each person once, including the initial payer.',
   contributor_required: 'Unlink a person’s payment before removing them from the bill.',
-  manual_payment_unsupported: 'Only payments recorded in Frenspay can settle this bill.',
+  manual_payment_unsupported: 'Only payments recorded in fpay can settle this bill.',
   initial_payment_required: 'The original payment must stay with this bill.',
   adjust_shares_first: 'Adjust the shares before unlinking this payment.',
   invalid_note: 'Give the bill a label, up to 80 characters.',

@@ -271,7 +271,7 @@ function ContactsPrompt({ onAllow }: { onAllow: () => void }) {
       </View>
       <View style={{ flex: 1 }}>
         <Txt style={type.rowName}>Choose a contact</Txt>
-        <Txt style={[type.rowTime, { marginTop: 2 }]}>Pick someone to find their Frenspay account</Txt>
+        <Txt style={[type.rowTime, { marginTop: 2 }]}>Pick someone to find their fpay account</Txt>
       </View>
       <Txt style={{ ...fonts.body500, fontSize: 14, color: colors.accent }}>Allow</Txt>
     </Pressable>
@@ -394,7 +394,7 @@ export function PeopleSearch({
       }
       const url = new URL(platform().env.landingUrl || platform().origin());
       url.searchParams.set('invite', code);
-      const text = `Join me on Frenspay to send money and split bills. My username is ${me}. ${url}`;
+      const text = `Join me on fpay to send money and split bills. My username is ${me}. ${url}`;
       setInviteText(text);
       if (platform().openSms) await platform().openSms!(phone, text);
       else setNotice('Copy the invitation below and send it from your messaging app.');
@@ -465,7 +465,7 @@ export function PeopleSearch({
       {phoneQuery && !checking && lookupDone && !match && !lookupFailed ? (
         <View style={{ gap: 10, marginTop: 12 }}>
           <Txt style={type.sub}>
-            No Frenspay account found for this number. Invite them to join, then look them up again.
+            No fpay account found for this number. Invite them to join, then look them up again.
           </Txt>
           <Btn label="Invite by SMS" variant="secondary" onPress={() => void invite()} />
           <TextLink label="Check again" onPress={() => setReload((n) => n + 1)} />

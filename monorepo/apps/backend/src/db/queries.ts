@@ -5199,6 +5199,13 @@ export async function listAdminActions(limit = 50, cursor?: string): Promise<Pag
   };
 }
 
+export class IdentityAlreadyBoundError extends Error {
+  constructor() {
+    super('identity_already_bound');
+    this.name = 'IdentityAlreadyBoundError';
+  }
+}
+
 /** Verified Dynamic email may bind an existing profile once; funds and payout addresses never move here. */
 export async function findOrBindDynamicUser(subject: string, email: string): Promise<UserRow | null> {
   const client = await getPool().connect();
@@ -5210,7 +5217,7 @@ export async function findOrBindDynamicUser(subject: string, email: string): Pro
     const user = existing.rows[0];
     if (!user) { await client.query('commit'); return null; }
     const other = await client.query('select subject from user_auth_subjects where user_id=$1', [user.id]);
-    if (other.rows.some(row => row.subject !== subject)) throw new Error('identity_already_bound');
+    if (other.rows.some(row => row.subject !== subject)) throw new IdentityAlreadyBoundError();
     await client.query('insert into user_auth_subjects(subject,user_id) values($1,$2) on conflict(subject) do nothing', [subject,user.id]);
     await client.query('commit'); return user;
   } catch(error) { await client.query('rollback'); throw error; }

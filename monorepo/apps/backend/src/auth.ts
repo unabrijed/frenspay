@@ -7,7 +7,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { authenticateDynamic, dynamicConfigured, type CampaignIdentity } from './services/dynamic';
 import { config } from './envConfig';
-import { findUserById, findOrBindDynamicUser, getMerchantForUser, touchMerchantSeen, type MerchantRow } from './db/queries';
+import { findUserById, findOrBindDynamicUser, getMerchantForUser, touchMerchantSeen, IdentityAlreadyBoundError, type MerchantRow, type UserRow } from './db/queries';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -32,7 +32,13 @@ export async function authPreHandler(req: FastifyRequest, reply: FastifyReply): 
     try { identity = await authenticateDynamic(authz.slice(7)); }
     catch { return reply.code(401).send({ error: 'unauthorized' }); }
     // Database failures propagate as server failures, never as a missing account.
-    const user = await findOrBindDynamicUser(identity.subject, identity.email);
+    let user: UserRow | null;
+    try { user = await findOrBindDynamicUser(identity.subject, identity.email); }
+    catch (error) {
+      if (error instanceof IdentityAlreadyBoundError)
+        return reply.code(409).send({ error: 'identity_already_bound' });
+      throw error;
+    }
     req.campaignIdentity = identity;
     req.privyDid = identity.subject;
     if (user && user.status !== 'active' && effectiveRole(user) !== 'admin')

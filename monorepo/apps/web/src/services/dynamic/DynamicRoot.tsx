@@ -16,12 +16,15 @@ import { monad } from 'viem/chains';
 import type { FlistResponse } from '@fpay/shared';
 import { requestFlist, setAuthToken, setTokenRefresher, setFlistRequiredHandler } from '@fpay/app/services/api';
 import { useCampaignStore } from '@fpay/app/campaignStore';
+import { friendlyError } from '@fpay/app/lib/errors';
 import { AccessContext } from '@/components/CustomerAccess';
 import { CampaignWalletProvider, type CampaignWallet } from '@/components/campaign/CampaignWallet';
 import CampaignApp from '@/components/campaign/CampaignApp';
 import { DYNAMIC_ENVIRONMENT_ID } from '@/services/envConfig';
 import s from './welcome.module.css';
+import { EmailLogin } from './EmailLogin';
 import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { WalletSetup } from './WalletSetup';
 
 const networks = [{chainId:143, networkId:143, name:'Monad', iconUrls:[], nativeCurrency:{name:'Monad',symbol:'MON',decimals:18}, rpcUrls:['https://rpc.monad.xyz'], blockExplorerUrls:['https://monadscan.com']}];
 
@@ -29,19 +32,19 @@ export default function DynamicRoot({ children }: { children: ReactNode }) {
   if (!/^[0-9a-f-]{36}$/i.test(DYNAMIC_ENVIRONMENT_ID))
     return <main className={s.shell}><h1>Sign-in is being configured</h1><p>Please try again shortly.</p></main>;
   return <DynamicContextProvider settings={{ environmentId: DYNAMIC_ENVIRONMENT_ID,
-    appName: 'Frenspay', walletConnectors: [EthereumWalletConnectors, SolanaWalletConnectors],
+    appName: 'fpay', walletConnectors: SIMULATION_MODE ? [EthereumWalletConnectors] : [SolanaWalletConnectors],
     initialAuthenticationMode: 'connect-and-sign', overrides: {evmNetworks: networks},
   }}>{SIMULATION_MODE ? <DynamicSession>{children}</DynamicSession> : <><LiveBridge/><LiveSync/>{children}</>}</DynamicContextProvider>;
 }
 
 function DynamicSession({ children }: { children: ReactNode }) {
-  const { sdkHasLoaded, user, setShowAuthFlow, handleLogOut } = useDynamicContext();
+  const { sdkHasLoaded, user, handleLogOut } = useDynamicContext();
   return <DynamicAccount key={user?.userId || 'signed-out'} ready={sdkHasLoaded}
-    userId={user?.userId} login={() => setShowAuthFlow(true)} logout={handleLogOut}>{children}</DynamicAccount>;
+    userId={user?.userId} logout={handleLogOut}>{children}</DynamicAccount>;
 }
 
-function DynamicAccount({ ready, userId, login, logout, children }: {
-  ready: boolean; userId?: string; login: () => void; logout: () => Promise<void>; children: ReactNode;
+function DynamicAccount({ ready, userId, logout, children }: {
+  ready: boolean; userId?: string; logout: () => Promise<void>; children: ReactNode;
 }) {
   const pathname = usePathname();
   const wallets = useUserWallets();
@@ -75,8 +78,8 @@ function DynamicAccount({ ready, userId, login, logout, children }: {
       accessCheckedAt.current = 0;
       setAccess(previous => previous ? {...previous, member:false} : null);
     });
-    if (ready && userId) void refresh().catch(() => {
-      if(active.current) setError('Could not restore your account. Please try again.');
+    if (ready && userId) void refresh().catch((error) => {
+      if(active.current) setError(friendlyError(error, 'Could not restore your account. Please try again.'));
     });
     return () => { active.current = false; setAuthToken(null); setTokenRefresher(null); setFlistRequiredHandler(null); useCampaignStore.getState().reset(''); };
   }, [ready, userId, refresh]);
@@ -118,37 +121,28 @@ function DynamicAccount({ ready, userId, login, logout, children }: {
     </CampaignWalletProvider></AccessContext.Provider>;
 
   return <main className={s.shell}>
-    <header className={s.header}><div className={s.brand}>frenspay<span>.</span></div><span className={s.beta}>Invite-only beta</span></header>
+    <header className={s.header}><div className={s.brand}>fpay<span>.</span></div><span className={s.beta}>Early access</span></header>
     <div className={s.content}>
     <div className={s.emblem} aria-hidden="true"><Mark size={76} enter /></div>
     <section className={s.card} aria-labelledby="welcome-title">
-    <div className={s.eyebrow}>{userId && access && !access.member ? 'A little invite. A new beginning.' : 'Good things start with frens.'}</div>
-    <h1 id="welcome-title">{!ready || (userId && !access) ? 'Welcome back, fren.' : !userId ? 'Welcome, fren.' : !access?.member ? 'Join the f-list' : 'Your wallet is getting ready'}</h1>
-    {!ready ? <LoadingStatus label="Restoring your session…" /> : !userId ? <>
-      <p className={s.intro}>Your wallet. A little practice.<br />A head start with your frens.</p>
-      <div className={s.preview}>
-        <div className={s.previewHeading}><span className={s.eyebrow}>The Frenspay beta</span><span className={s.previewTag}>On Monad</span></div>
-        <div className={s.feature}><span className={s.number}>01</span><div><h2>Bring your USDC</h2><p>Hold USDC in your own wallet.</p></div></div>
-        <div className={s.feature}><span className={s.number}>02</span><div><h2>Try a scan. Earn points.</h2><p>Unlock practice credits and explore UPI QR scans.</p></div></div>
-        <p className={s.disclosure}>Practice credits only. Merchants aren’t paid.</p>
-      </div>
-      <button className={s.primary} onClick={login}>Continue with email <span aria-hidden="true">↗</span></button>
-      <p className={s.hint}>New here or coming back? Start with your email.</p>
-    </> : <>
+    {ready && !userId ? <EmailLogin/> : <>
+    <h1 id="welcome-title">{!ready || !access ? 'Welcome to fpay' : !access.member ? 'Join the f-list' : 'Almost ready'}</h1>
+    {!ready ? <LoadingStatus label="Restoring your session…" /> : <>
       {!access && !error && <LoadingStatus label="Opening your account…" />}
       {access && !access.member && <form onSubmit={e => {e.preventDefault(); if(busy)return; setBusy(true);setError('');
         void (async () => {const next = await requestFlist(token, invite.trim());if(active.current)setAccess(next);})()
           .catch(()=>setError('Could not redeem that invitation. Check the code and try again.')).finally(()=>setBusy(false));}}>
-        <p className={s.inviteIntro}>You’re on the doorstep. Enter the code a fren shared with you to join the beta.</p><div className={s.fieldLabel}>Your invite code <span>FREN + 8 characters</span></div><CodeInput label="Invite code" value={invite} onChange={setInvite} length={8} numeric={false} invite disabled={busy}/>
+        <p className={s.inviteIntro}>Enter your invite code to join.</p><div className={s.fieldLabel}>Your invite code <span>FREN + 8 characters</span></div><CodeInput label="Invite code" value={invite} onChange={setInvite} length={8} numeric={false} invite disabled={busy}/>
         <button className={s.primary} disabled={busy}>{busy ? 'Joining…' : 'Join the f-list'}</button></form>}
-      {access?.member && !embedded && <LoadingStatus label="Getting your wallet ready…" />}
-      {error && <button className={s.link} onClick={() => {setError('');void refresh().catch(()=>setError('Please try again shortly.'));}}>Try again</button>}
+      {userId && access?.member && !embedded && <WalletSetup userId={userId} />}
+      {error && <button className={s.link} onClick={() => {setError('');void refresh().catch(error=>setError(friendlyError(error, 'Please try again shortly.')));}}>Try again</button>}
       <div className={s.actions}>{embedded && <button className={s.link} onClick={()=>void value.exportWallet().catch(()=>setError('Could not open wallet recovery. Try again.'))}>Export wallet</button>}
       <button className={s.link} onClick={()=>void logout()}>Sign out</button></div>
+    </>}
     </>}
     {error && <p role="alert" className={s.error}>{error}</p>}
   </section>
     </div>
-    <footer className={s.footer}><span>Made for frens.</span><span>Built on Monad.</span></footer>
+    <footer className={s.footer}><span>Invite-only alpha</span><span>fpay</span></footer>
   </main>;
 }

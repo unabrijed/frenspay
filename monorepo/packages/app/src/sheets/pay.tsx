@@ -62,7 +62,7 @@ export function Scan() {
           <Txt style={[type.lead, styles.scanError]}>{error}</Txt>
         ) : (
           <Txt style={[type.lead, styles.scanLead]}>
-            {camErr ? CAM_MESSAGES[camErr] : 'Scan a supported payment QR or a friend’s Frenspay code.'}
+            {camErr ? CAM_MESSAGES[camErr] : 'Scan a supported payment QR or a friend’s fpay code.'}
           </Txt>
         )}
         {camErr ? (
