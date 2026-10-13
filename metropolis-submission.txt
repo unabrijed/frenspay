@@ -1,0 +1,269 @@
+FRENSPAY - METROPOLIS SUBMISSION
+================================
+
+HOW TO USE THIS FILE
+
+Copy each answer into the matching application field.
+Replace anything in [SQUARE BRACKETS] before submitting.
+The checklist and recording instructions are for you, not application answers.
+
+CURRENT STATUS
+
+The Monad simulation code is implemented and locally tested.
+Dynamic is integrated for the new beta; Privy remains for legacy recovery.
+The provider switch and real wallet flows still need deployed acceptance tests.
+The local preview uses mock funds and wallet actions.
+The deployed Monad journey, sponsorship and real deposit/withdrawal checks
+still need to be completed. Do not describe the mock preview as on-chain.
+
+------------------------------------------------------------
+1. PROJECT NAME
+------------------------------------------------------------
+
+Frenspay
+
+------------------------------------------------------------
+2. TAGLINE
+------------------------------------------------------------
+
+USDC-powered payment practice for frens
+
+------------------------------------------------------------
+3. PRIMARY TRACK
+------------------------------------------------------------
+
+Consumer Products & Payments
+
+------------------------------------------------------------
+4. PROBLEM, SOLUTION AND USEFULNESS - COPY THIS ANSWER
+------------------------------------------------------------
+
+Holding stablecoins and knowing how to use them are different things.
+For someone encountering crypto payments for the first time, wallet
+addresses, networks, funding and transaction approvals can feel unfamiliar,
+even when scanning a payment QR is already second nature.
+
+Frenspay is building a familiar way to learn that journey: an invite-only,
+USDC-funded payment simulation built on Monad.
+
+Users sign in with email and receive an embedded wallet. Real native USDC
+held in their wallet on Monad mainnet unlocks a test spending allowance.
+They can then scan an Indian UPI QR, review its payee and INR amount, and
+complete a clearly labelled simulation that earns points and badges.
+
+These simulations do not transfer funds to merchants or settle UPI payments.
+The user's USDC remains in their wallet unless they explicitly withdraw it.
+A separate, zero-value receipt commitment is designed to record simulation
+activity on Monad testnet without publishing the QR's payment details.
+
+The allowance follows a peak-balance model: the highest verified USDC balance
+and attained profile multiplier determine cumulative credits. Spending
+consumes those credits; withdrawing and redepositing the same balance does
+not replenish them. There are no free starting credits, daily resets or
+promises that points will become valuable tokens.
+
+Our initial goal is to validate the complete consumer journey: email
+onboarding, funding, QR scanning, understandable confirmations and wallet
+recovery. Live merchant settlement will require an eligible payment provider.
+
+Monad is the wallet and receipt infrastructure for this beta. The application
+combines mainnet USDC balance verification with testnet attestations, while
+keeping simulated activity separate from real funds.
+
+The implementation includes strict UPI QR parsing, server-side credit
+accounting, retry protection against duplicate debits, withdrawal recovery,
+invite controls and an operator dashboard. The current build has passed
+isolated database and browser tests; production sponsorship and real
+deposit/withdrawal acceptance testing remain release gates.
+
+NOTE FOR YOU: Update the last sentence only after those checks pass.
+
+------------------------------------------------------------
+5. FIRST USERS AND DISTRIBUTION - COPY THIS ANSWER
+------------------------------------------------------------
+
+Our first users are a small, invited group of crypto-curious friends and
+existing stablecoin users familiar with Indian UPI QR payments. We want
+people who can tell us where a USDC wallet feels confusing and whether a
+familiar scan-and-confirm interaction makes the experience easier to
+understand.
+
+We will recruit the first cohort through the founder's personal network
+and direct outreach to Monad community members. Onboarding will be hands-on:
+help users enter through an invitation, explain the distinction between
+real USDC and simulated spending, and observe where they need assistance.
+
+Once the initial journey works reliably, we will expand through member
+invitations, short product demonstrations on X and community feedback
+sessions. Points and badges provide a reason to explore the experience,
+without promising financial rewards.
+
+We will measure invited-to-activated conversion, verified funding,
+completion of a first simulation, return usage on separate days, and
+successful wallet recovery. Internal and demonstration accounts will be
+excluded from usage reporting.
+
+QR metadata and simulations are not evidence of actual merchant purchases
+or physical visits. We will report product engagement separately from
+real payment volume.
+
+We are at the implementation and pilot-preparation stage. We are not
+claiming an established user base, merchant adoption or live UPI settlement.
+
+------------------------------------------------------------
+6. REPOSITORY LINK
+------------------------------------------------------------
+
+[ACTUAL GITHUB REPOSITORY URL]
+
+If private, share access with metropolis@hackathon.monad.xyz.
+Include setup instructions, architecture, Monad integration, and a clear
+distinction between pre-existing code and work completed during the event.
+
+------------------------------------------------------------
+7. PRODUCT LINK
+------------------------------------------------------------
+
+https://app.frenspay.xyz
+
+IMPORTANT: Use this only after the submitted Monad build is deployed there
+and accessible to judges. A localhost mock preview does not satisfy the
+form's requirement to run on Monad mainnet or testnet.
+
+------------------------------------------------------------
+8. DEMO VIDEO LINK - MAXIMUM 3 MINUTES
+------------------------------------------------------------
+
+[HTTPS LINK TO DEMO VIDEO]
+
+Record the working product, not slides or a code walkthrough.
+
+Suggested recording sequence:
+0:00-0:20  Explain: real USDC wallet, simulated UPI payments.
+0:20-0:50  Show onboarding, Monad wallet and verified funded balance.
+0:50-1:40  Scan/paste a QR, review and complete a simulation.
+1:40-2:10  Show points, a badge and a confirmed testnet receipt.
+2:10-2:40  Show unchanged real balance and withdrawal/recovery flow.
+2:40-3:00  Explain what works today and the future provider requirement.
+
+Show only steps that actually work. Do not present mock wallet actions as
+on-chain transactions. Public display permission is your choice; judges
+can see the video either way, according to the submission form.
+
+------------------------------------------------------------
+9. PITCH VIDEO LINK - MAXIMUM 2 MINUTES
+------------------------------------------------------------
+
+[HTTPS LINK TO PITCH VIDEO]
+
+Suggested spoken script:
+
+Hi, I'm [NAME], building Frenspay.
+
+We're exploring a simple question: can using a stablecoin wallet feel as
+familiar as scanning a payment QR?
+
+Frenspay starts with an invite-only simulation on Monad. Users sign in with
+email, fund their own wallet with USDC, and unlock a test spending allowance.
+They scan an Indian UPI QR, review an amount, and complete a simulation that
+earns points and badges.
+
+The distinction matters: the wallet holds real USDC, but merchants are not
+paid during this beta. Simulated spending does not move the user's funds.
+
+We're using this phase to learn where people struggle with onboarding,
+funding, confirmations and recovery. Our first users will come from our own
+network and the Monad community, with hands-on feedback before expanding
+invitations.
+
+[ADD ONE TRUTHFUL SENTENCE ABOUT YOUR BACKGROUND AND WHY YOU CARE.]
+
+Our next milestone is a reliable funded pilot with repeat usage. Live
+merchant settlement comes later, once the appropriate provider integration
+is in place.
+
+------------------------------------------------------------
+10. STEPS TO TRY THE PRODUCT - PRIVATE JUDGE INSTRUCTIONS
+------------------------------------------------------------
+
+Complete all placeholders and verify these steps before pasting.
+
+Frenspay is an invite-only payment simulation. Merchants receive no money.
+
+1. Open [DEPLOYED HTTPS URL].
+
+2. Sign in using your own email and the Dynamic email verification code.
+
+3. Redeem this judge invitation:
+   [VALID INVITATION / ARRANGEMENT FOR MULTIPLE JUDGES]
+
+4. Open Wallet. Funding uses native USDC on Monad mainnet, chain ID 143.
+   Mainnet USDC is real money. Do not send tokens on another network.
+
+5. [DESCRIBE THE ACTUAL ARRANGED JUDGE FUNDING PROCESS.]
+   There are no free practice credits. Alternatively, review the funded
+   journey in the demo video without depositing funds.
+
+6. After funding, refresh the balance to see the test spending allowance.
+
+7. Select Scan, then Use a UPI payment link. Paste:
+   upi://pay?pa=cafe@upi&pn=Corner%20Cafe&cu=INR
+
+8. Enter INR 100, review and confirm the simulation. This example payee
+   is for demonstration; no recipient is paid.
+
+9. Check Activity for the simulated receipt and Points for earned rewards.
+   Where confirmed, the receipt links to Monad testnet.
+
+10. Open Wallet to verify the real USDC balance remains unchanged by
+    simulated spending. Withdrawal is a separate action that transfers
+    real funds.
+
+Support: [MONITORED EMAIL OR CONTACT]
+
+Known limitations: no live UPI settlement, no redeemable reward token and
+no guarantee of future drops.
+[ADD ANY REMAINING DEPLOYED-BUILD LIMITATIONS.]
+
+NOTE FOR YOU: Do not supply shared email passwords or private keys.
+Arrange judge invitations and funding before claiming the flow is ready.
+
+------------------------------------------------------------
+11. SPONSOR BOUNTIES
+------------------------------------------------------------
+
+Optional. Leave empty unless an implemented integration meets a specific
+bounty's requirements. The primary track can stand alone.
+
+------------------------------------------------------------
+12. OPTIONAL PROMOTION
+------------------------------------------------------------
+
+Promotional video, up to 30 seconds:
+[HTTPS LINK, OR LEAVE EMPTY]
+
+Project X account:
+[ACTUAL PROJECT X URL]
+
+These optional fields do not affect judging, according to the form.
+
+------------------------------------------------------------
+FINAL CHECKLIST - FOR YOU ONLY
+------------------------------------------------------------
+
+[ ] Logo meets the form's file size and dimension requirements.
+[ ] Replace every placeholder.
+[ ] Deploy the actual Monad build to an HTTPS URL.
+[ ] Verify sponsorship, real funding, withdrawal and testnet receipts.
+[ ] Confirm judge invitations and access work.
+[ ] Arrange and explain judge funding.
+[ ] Verify repository access for organizers.
+[ ] Record and upload the product demo, maximum 3 minutes.
+[ ] Record and upload the team pitch, maximum 2 minutes.
+[ ] Test all links without relying on your own logged-in session.
+[ ] Check current eligibility and deadline in the registered portal.
+[ ] Keep simulation claims distinct from real merchant settlement.
+[ ] Submit through your registered account.
+
+The main submission blocker is the working HTTPS Monad deployment,
+not the written application. Nothing in this file has been submitted.
