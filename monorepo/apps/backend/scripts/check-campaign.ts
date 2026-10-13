@@ -58,8 +58,36 @@ if (usePostgres) {
   const { PGlite } = await import('@electric-sql/pglite');
   db = new PGlite();
 }
+// Historical receipt confirmation must never reclassify a simulation as real spending.
+const classificationMigration = readFileSync(new URL('../src/db/migrations/0038_simulation_classification.sql', import.meta.url), 'utf8');
+await db.exec(`create schema classification_fixture; set search_path to classification_fixture;
+  create table campaign_spends (id text primary key, receipt_status text);
+  create table prelaunch_spends (id text primary key, receipt_status text);
+  insert into campaign_spends values ('old-campaign','confirmed');
+  insert into prelaunch_spends values ('old-prelaunch','confirmed');`);
+await db.exec(classificationMigration);
+for (const table of ['campaign_spends', 'prelaunch_spends']) {
+  assert.deepEqual((await db.query(`select transaction_kind,counts_toward_expenses from ${table}`)).rows,
+    [{transaction_kind:'simulation',counts_toward_expenses:false}]);
+  await assert.rejects(db.query(`update ${table} set counts_toward_expenses=true`), /check constraint/);
+  await assert.rejects(db.query(`update ${table} set transaction_kind='payment'`), /check constraint/);
+  await db.query(`insert into ${table}(id,receipt_status) values ('new','confirmed')`);
+  assert.equal((await db.query(`select count(*)::int as n from ${table} where counts_toward_expenses`)).rows[0].n,0);
+}
+await db.exec('set search_path to public; drop schema classification_fixture cascade;');
+await db.exec(readFileSync(new URL('../src/db/migrations/0031_monad_prelaunch.sql', import.meta.url), 'utf8'));
 await db.exec(readFileSync(new URL('../src/db/migrations/0034_monad_upi_campaign.sql', import.meta.url), 'utf8'));
 await db.exec(readFileSync(new URL('../src/db/migrations/0035_campaign_identity_provider.sql', import.meta.url), 'utf8'));
+await db.exec(`insert into campaign_accounts(auth_subject,email,wallet_address,peak_usdc,granted_credits,reward_credits,multiplier,is_test)
+  values('migration-fixture','migration@example.test','0x0000000000000000000000000000000000000001',10,20,16,2,true)`);
+await db.exec(readFileSync(new URL('../src/db/migrations/0037_offchain_simulation.sql', import.meta.url), 'utf8'));
+await db.exec(readFileSync(new URL('../src/db/migrations/0038_simulation_classification.sql', import.meta.url), 'utf8'));
+const migrated=(await db.query("select * from campaign_accounts where auth_subject='migration-fixture'")).rows[0];
+assert.equal(migrated.multiplier,10);assert.equal(migrated.granted_credits,'100.000000');
+assert.equal(migrated.reward_credits,'96.000000','migration preserves four previously spent credits');
+assert.equal((await db.query('select amount from campaign_grants where account_id=$1',[migrated.id])).rows[0].amount,'80.000000');
+await db.query('delete from campaign_grants where account_id=$1',[migrated.id]);
+await db.query('delete from campaign_accounts where id=$1',[migrated.id]);
 await db.exec(`create table invite_codes (code text,redeemed_email text,redeemed_at timestamptz);
   create table waitlist(email text,invite_code text);
   insert into invite_codes values('ALICE','alice@example.test',now());
@@ -140,10 +168,10 @@ try {
   await assert.rejects(ledger.makeQuote('alice',qr(),'10'),/funding_required/);
   assert.equal((await app.inject({method:'POST',url:'/campaign/quotes',payload:{qr:qr(),amountInr:'10'}})).statusCode,401);
   observed=10_000000n; await ledger.syncBalance('alice');
-  assert.equal((await ledger.account('alice')).reward_credits,'10.000000');
+  assert.equal((await ledger.account('alice')).reward_credits,'100.000000');
   observed=0n;block++;await ledger.syncBalance('alice');observed=10_000000n;block++;await ledger.syncBalance('alice');
-  assert.equal((await ledger.account('alice')).reward_credits,'10.000000');
-  const upgraded=await ledger.syncIdentity('alice',{name:'Alice',country:'IN'},users.alice);assert.equal(upgraded.rewardCredits,'20.000000');
+  assert.equal((await ledger.account('alice')).reward_credits,'100.000000');
+  const upgraded=await ledger.syncIdentity('alice',{name:'Alice',country:'IN'},users.alice);assert.equal(upgraded.rewardCredits,'100.000000');
   chain=10143;await assert.rejects(ledger.syncBalance('alice'),/wrong_network/);chain=143;
   rpcFails=true;await assert.rejects(ledger.syncBalance('alice'));rpcFails=false;
   assert.equal((await ledger.account('alice')).balance_usdc,'10.000000');
@@ -152,6 +180,11 @@ try {
   const key=randomUUID();
   const same=await Promise.all(Array.from({length:5},()=>ledger.spend('alice',q.id,key)));
   assert.equal(new Set(same.map(x=>x.id)).size,1);
+  assert.equal(same[0].transactionKind,'simulation');assert.equal(same[0].countsTowardExpenses,false);
+  await assert.rejects(db.query("update campaign_spends set transaction_kind='real' where id=$1",[same[0].id]), /check constraint/);
+  await assert.rejects(db.query('update campaign_spends set counts_toward_expenses=true where id=$1',[same[0].id]), /check constraint/);
+  assert.equal(same[0].receiptStatus,'simulated');assert.equal(same[0].receiptHash,null);
+  assert.equal(ledger.view(await ledger.account('alice')).receiptsAvailable,false);
   assert.equal((await ledger.account('alice')).points,q.credits);
   assert.equal((await ledger.account('alice')).balance_usdc,'10.000000');
   await db.query("update campaign_quotes set expires_at=now()-interval '1 minute' where id=$1",[q.id]);
@@ -192,9 +225,9 @@ try {
   await assert.rejects(ledger.makeQuote('alice',qr(),'10'),/account_suspended/);
   const recovery=await prepareWithdrawal('alice','0x'+'9'.repeat(40),'1',randomUUID());assert.equal(recovery.transaction.chainId,143);
   assert.ok((await ledger.history('alice')).length);
-  const analytics=await campaignAnalytics();assert.equal(analytics.summary.simulations,'4');assert.equal(analytics.payees[0].payee_vpa,'cafe@upi');
+  const analytics=await campaignAnalytics('2000-01-01','2100-01-01');assert.equal(analytics.summary.simulations,'4');assert.equal(analytics.payees[0].payee_vpa,'cafe@upi');
   await db.query('update campaign_accounts set is_test=true where id=$1',[initial.id]);
-  assert.equal((await campaignAnalytics()).summary.simulations,'0');
+  assert.equal((await campaignAnalytics('2000-01-01','2100-01-01')).summary.simulations,'0');
   await assert.rejects(campaignAnalytics('2026-02-30'),/invalid_date/);
   assert.ok(new BN((await ledger.account('alice',true)).points).gt(0));
   const dynamicSubject = 'dynamic:environment:dan';

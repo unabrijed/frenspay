@@ -10,7 +10,7 @@ import type { CampaignIdentity } from '../dynamic';
 import { normalizePhone } from '../../db/queries';
 import { sendOtp, verifyOtp } from '../phoneOtp';
 import { balance, withdrawal } from '../prelaunch/chain';
-import { debit, grant, quoteCredits, tier } from '../prelaunch/math';
+import { debit, grant, quoteCredits } from '../prelaunch/math';
 
 interface AccountRow {
   id: string;
@@ -93,11 +93,7 @@ export function view(row: AccountRow): CampaignAccount {
     practiceCredits: row.practice_credits,
     points: row.points,
     fundingAvailable: !row.suspended && config.campaignFundingEnabled && !!config.monadRpcUrl,
-    receiptsAvailable: !!(
-      config.dynamicApiToken && config.dynamicReceiptWallet &&
-      config.prelaunchReceiptAddress &&
-      config.monadTestnetRpcUrl
-    ),
+    receiptsAvailable: false, // Simulations are recorded only in the application ledger.
     phoneAvailable:
       (config.isLocal && config.phoneOtpProvider === 'console') ||
       (config.phoneOtpProvider === 'messagecentral' &&
@@ -110,7 +106,7 @@ async function credit(db: PoolClient, row: AccountRow, observed = row.peak_usdc)
     row.peak_usdc,
     observed,
     row.multiplier,
-    tier(!!row.name && !!row.country, !!row.phone, !!row.twitter_subject),
+    10,
     row.granted_credits,
   );
   if (new BN(next.increment).gt(0))
@@ -321,6 +317,8 @@ export async function makeQuote(did: string, raw: string, amountInr: string): Pr
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function spendView(row: Record<string, any>): CampaignSpend {
   return {
+    transactionKind: row.transaction_kind,
+    countsTowardExpenses: row.counts_toward_expenses,
     id: row.id,
     recipientName: row.recipient_name,
     payeeVpa: row.payee_vpa,
@@ -361,7 +359,7 @@ export async function spend(did: string, quoteId: string, key: string): Promise<
     } catch {
       fail('insufficient_credits', 409);
     }
-    // A random salt prevents guessing identities/payee details from the on-chain commitment.
+    // A random salt prevents guessing identities/payee details from the internal audit reference.
     const payload = JSON.stringify({
       version: 1,
       campaign: 'monad-upi-2026',

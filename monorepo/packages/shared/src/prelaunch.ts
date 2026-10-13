@@ -28,6 +28,9 @@ export interface PrelaunchQuote {
   expiresAt: string;
 }
 export interface PrelaunchSpend {
+  /** Permanent classification; receipt confirmation never makes this a real payment. */
+  transactionKind: 'simulation';
+  countsTowardExpenses: false;
   id: string;
   recipientName: string;
   amountSgd: string;

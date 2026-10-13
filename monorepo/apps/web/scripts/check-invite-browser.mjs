@@ -37,7 +37,7 @@ const mocks={
     export const useUserWallets=()=>[{id:'wallet',address:'0x123'}],useEmbeddedReveal=()=>({initExportProcess:async()=>{}}),useSocialAccounts=()=>({linkSocialAccount:async()=>{}}),useFundWithWallet=()=>({externalWalletFundingEnabled:false});`,
   ethereum:'export const EthereumWalletConnectors=[],isEthereumWallet=()=>true;',
   solana:'export const SolanaWalletConnectors=[];',
-  client:'export const getDefaultClient=()=>({token:"fixture-token"});',
+  client:'export const getDefaultClient=()=>({token:"fixture-token"}),refreshAuth=async()=>{};',
   router:'export const usePathname=()=>"/";',
   env:'export const SIMULATION_MODE=true,DYNAMIC_ENVIRONMENT_ID="4fc2a73c-1662-45eb-9257-8baa567066a6";',
   bridge:'export const LiveBridge=()=>null;',
@@ -61,8 +61,8 @@ try{
   await page.getByLabel('Invite code').fill('fren-abcd-1234');await page.getByRole('button',{name:'Join',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Simulation home'})).toBeVisible();
   await page.reload();await expect(page.getByRole('heading',{name:'Simulation home'})).toBeVisible();
-  unavailable=true;await page.reload();await expect(page.getByRole('alert')).toContainText('Could not verify');
-  unavailable=false;await page.getByRole('button',{name:'Retry access check'}).click();
+  unavailable=true;await page.reload();await expect(page.getByRole('alert')).toContainText('Could not restore');
+  unavailable=false;await page.getByRole('button',{name:'Try again'}).click();
   await expect(page.getByRole('heading',{name:'Simulation home'})).toBeVisible();assert.deepEqual(errors,[]);
   console.log('Dynamic invite gate: prefill, invalid invitation, normalized paste, membership reload, token transport and retry passed');
 }finally{await browser.close();await new Promise(r=>server.close(r));}

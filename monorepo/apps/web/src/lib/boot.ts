@@ -1,9 +1,9 @@
-// boot.ts — boot instrumentation + the splash watchdog.
+// boot.ts — boot instrumentation + explicit recovery for slow startup.
 //
 // The web app's first COLD load can stall on a gate — Dynamic `ready`, store hydration, or the Dynamic
 // chunk download — and a warm reload then "fixes" it (the reported "doesn't load until I refresh").
 // These helpers (a) log each gate's elapsed time in dev so the real stall is MEASURED, not guessed,
-// and (b) back a last-resort auto-reload if a Splash stays on screen past a ceiling.
+// and (b) offer a user-triggered retry if a Splash stays on screen past a ceiling.
 
 import { IS_DEV } from '@/services/envConfig';
 
@@ -18,7 +18,7 @@ export function bootTrace(label: string): void {
   console.info(`[boot] ${label} +${ms}ms`);
 }
 
-/** How long a Splash may stay mounted before the watchdog force-reloads (last resort). */
+/** How long a Splash stays mounted before offering a retry. */
 export const SPLASH_WATCHDOG_MS = 8000;
 
 /**

@@ -53,9 +53,9 @@ export function setAuthToken(token: string | null): void {
   authToken = token;
 }
 
-let refreshToken: (() => Promise<string | null>) | null = null;
+let refreshToken: ((force?: boolean) => Promise<string | null>) | null = null;
 /** Registered by the Privy bridge so a 401 (expired access token) refreshes once and retries. */
-export function setTokenRefresher(fn: (() => Promise<string | null>) | null): void {
+export function setTokenRefresher(fn: ((force?: boolean) => Promise<string | null>) | null): void {
   refreshToken = fn;
 }
 
@@ -95,7 +95,7 @@ export function setAccountDeletedHandler(fn: (() => void) | null): void {
   onAccountDeleted = fn;
 }
 
-export async function req<T>(path: string, init?: RequestInit, retried = false, sessionToken?: () => Promise<string | null>): Promise<T> {
+export async function req<T>(path: string, init?: RequestInit, retried = false, sessionToken?: (force?: boolean) => Promise<string | null>): Promise<T> {
   // Only when there IS a body. Fastify's default parser answers a bodyless POST that claims
   // application/json with 400 FST_ERR_CTP_EMPTY_JSON_BODY — before the auth preHandler, so the
   // route never runs. That silently killed every no-body POST we have (invite ack, cancel
@@ -118,7 +118,7 @@ export async function req<T>(path: string, init?: RequestInit, retried = false, 
 
   // Expired Privy access token → refresh once and retry transparently.
   if (res.status === 401 && !retried && tokenProvider) {
-    const fresh = await tokenProvider().catch(() => null);
+    const fresh = await tokenProvider(true).catch(() => null);
     if (fresh) {
       if (!sessionToken) authToken = fresh;
       return req<T>(path, init, true, sessionToken);

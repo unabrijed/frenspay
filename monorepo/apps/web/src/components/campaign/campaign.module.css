@@ -1,4 +1,12 @@
 .app { height: 100%; display: flex; flex-direction: column; background: var(--canvas); }
+.screen { animation: enter 140ms ease-out; }
+.progress { position: absolute; z-index: 5; top: 12px; left: 50%; transform: translateX(-50%); padding: 0 16px; border-radius: 18px; background: var(--surface); box-shadow: 0 3px 14px #493c3318; pointer-events: none; white-space: nowrap; animation: reveal 180ms ease-out 180ms both; }
+.app { position: relative; }
+.app button { touch-action: manipulation; }
+.app button:active:not(:disabled) { opacity: .8; }
+@keyframes enter { from { opacity: .65; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes reveal { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .screen, .progress { animation: none; } }
 .body { flex: 1; min-height: 0; overflow: auto; padding: 20px 24px 44px; }
 .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .brand { font-size: 28px; letter-spacing: -1px; font-weight: 600; }
@@ -31,3 +39,5 @@
 .receipt strong { display: block; font-size: 44px; margin: 18px 0; }
 .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: left; font-size: 14px; }
 .facts dd { text-align: right; margin: 0; overflow-wrap: anywhere; }
+
+.practice { display: inline-block; padding: 4px 9px; border: 1px dashed var(--accent); border-radius: 7px; color: var(--accent); background: var(--surface); font: 11px/1.4 var(--font-mono), monospace; letter-spacing: .02em; }

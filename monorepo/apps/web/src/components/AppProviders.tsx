@@ -1,5 +1,5 @@
 'use client';
-import { configure } from '@fpay/app';
+import { configure } from '@fpay/app/configure';
 import dynamic from 'next/dynamic';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';

@@ -1,3 +1,10 @@
+CURRENT DIRECTION — 14 OCTOBER 2026
+Real native USDC on Monad mainnet unlocks 10x simulation credits.
+Example: 10 USDC = 100 simulation credits, shown separately from real funds.
+Simulated QR payments only debit credits and add points in our database.
+No merchant payment, testnet receipt transaction or testnet MON is required.
+Deposits and withdrawals remain real mainnet transfers with normal gas fees.
+
 FRENSPAY - METROPOLIS SUBMISSION
 ================================
 
@@ -53,11 +60,11 @@ complete a clearly labelled simulation that earns points and badges.
 
 These simulations do not transfer funds to merchants or settle UPI payments.
 The user's USDC remains in their wallet unless they explicitly withdraw it.
-A separate, zero-value receipt commitment is designed to record simulation
-activity on Monad testnet without publishing the QR's payment details.
+Simulation activity and points are recorded offchain in our application
+ledger. No payment or receipt transaction is sent to a blockchain.
 
 The allowance follows a peak-balance model: the highest verified USDC balance
-and attained profile multiplier determine cumulative credits. Spending
+multiplied by a fixed 10 determines cumulative simulation credits. Spending
 consumes those credits; withdrawing and redepositing the same balance does
 not replenish them. There are no free starting credits, daily resets or
 promises that points will become valuable tokens.
@@ -66,8 +73,8 @@ Our initial goal is to validate the complete consumer journey: email
 onboarding, funding, QR scanning, understandable confirmations and wallet
 recovery. Live merchant settlement will require an eligible payment provider.
 
-Monad is the wallet and receipt infrastructure for this beta. The application
-combines mainnet USDC balance verification with testnet attestations, while
+Monad provides the real-USDC wallet infrastructure for this beta. The application
+verifies mainnet USDC balances and records simulations offchain, while
 keeping simulated activity separate from real funds.
 
 The implementation includes strict UPI QR parsing, server-side credit
@@ -269,7 +276,7 @@ BOUNTIES TO PRIORITIZE
 
 2. PRIVY! - DO NOT SELECT
    Removed from the implementation. We now use Dynamic for customer wallets
-   and the platform testnet receipt signer. Keeping old credentials or historical
+   and wallet export. Keeping old credentials or historical
    schema names is not a qualifying integration.
 
 3. BEST COMMUNITY TEAM PROJECT - $5,000 USD
@@ -335,7 +342,7 @@ BUILD ORDER
 
 1. Deploy and verify Dynamic onboarding, invitations and wallet recovery.
 2. Prove real USDC funding and withdrawal, then the simulation journey.
-3. Fund and demonstrate the Dynamic testnet receipt worker.
+3. Demonstrate 10 real USDC unlocking 100 simulation credits, then an offchain simulated payment.
 4. Complete Dynamic bounty questions after demonstrating the deployed flow.
 5. Check community-team eligibility separately.
 6. Consider Envio or Alchemy only after the core demo is complete.
@@ -364,7 +371,7 @@ FINAL CHECKLIST - FOR YOU ONLY
 [ ] Logo meets the form's file size and dimension requirements.
 [ ] Replace every placeholder.
 [ ] Deploy the actual Monad build to an HTTPS URL.
-[ ] Verify sponsorship, real funding, withdrawal and testnet receipts.
+[ ] Verify real funding, withdrawal, export and offchain simulation records.
 [ ] Confirm judge invitations and access work.
 [ ] Arrange and explain judge funding.
 [ ] Verify repository access for organizers.

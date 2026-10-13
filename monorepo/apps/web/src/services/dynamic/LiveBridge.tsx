@@ -1,14 +1,14 @@
 'use client';
 import {useDynamicContext,useConnectWithOtp,useUserWallets,useRegisterPasskey} from '@dynamic-labs/sdk-react-core';
 import {isSolanaWallet} from '@dynamic-labs/solana';
-import {getDefaultClient,refreshAuth} from '@dynamic-labs-sdk/client';
+import {getSessionToken} from './token';
 import {Connection,Transaction} from '@solana/web3.js';
 import {useEffect} from 'react';
 import {usePayStore,setAuthToken,setTokenRefresher,setActiveSigner,setSessionRevokedHandler,setAccountSuspendedHandler,setAccountDeletedHandler} from '@fpay/app';
 import {SOLANA_RPC_URL} from '@/services/envConfig';
 import {DynamicSigner} from './signer';
-const token=async()=>getDefaultClient().token;
-const refreshToken=async()=>{await refreshAuth();return token();};
+const token=getSessionToken;
+const refreshToken=getSessionToken;
 export function LiveBridge() {
   const {user,sdkHasLoaded,handleLogOut}=useDynamicContext();
   const {connectWithEmail,verifyOneTimePassword}=useConnectWithOtp();

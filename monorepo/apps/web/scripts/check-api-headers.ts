@@ -80,6 +80,29 @@ async function main(): Promise<void> {
   await requestFlist(async () => 'current-account', 'FREN-1234-5678');
   assert.equal(lastHeaders()['content-type'], 'application/json');
   assert.equal(calls.at(-1)?.init.body, JSON.stringify({ code: 'FREN-1234-5678' }));
+
+  // An expired Dynamic token must actually rotate, then retry once with the new token.
+  let currentToken = 'expired';
+  const refreshCalls: boolean[] = [];
+  setTokenRefresher(async (force = false) => {
+    refreshCalls.push(force);
+    if (force) currentToken = 'renewed';
+    return currentToken;
+  });
+  let attempts = 0;
+  globalThis.fetch = (async (_url, init) => {
+    attempts++;
+    const authorization = (init?.headers as Record<string, string>).authorization;
+    return new Response(JSON.stringify(authorization === 'Bearer renewed' ? {ok:true} : {error:'unauthorized'}),
+      {status: authorization === 'Bearer renewed' ? 200 : 401});
+  }) as typeof fetch;
+  assert.deepEqual(await req('/me'), {ok:true});
+  assert.equal(attempts, 2);
+  assert.deepEqual(refreshCalls, [false, true, false]);
+  globalThis.fetch = (async () => { attempts++; return new Response('{"error":"unauthorized"}', {status:401}); }) as typeof fetch;
+  attempts = 0;
+  await assert.rejects(req('/me'), /unauthorized/);
+  assert.equal(attempts, 2, 'a rejected session must not loop');
   setAuthToken(null);
   setTokenRefresher(null);
 

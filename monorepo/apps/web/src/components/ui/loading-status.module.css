@@ -1,0 +1,4 @@
+.status { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 24px 0; color: inherit; font-size: 14px; }
+.spinner { width: 20px; height: 20px; flex-shrink: 0; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }

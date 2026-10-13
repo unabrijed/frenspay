@@ -6,7 +6,7 @@ export interface CampaignWallet {
   provider: 'dynamic';
   fundFromWallet?: (address: string) => Promise<void>;
   user: { id: string; linkedAccounts: { type: 'wallet'; walletClientType: string; chainType: string; address: string }[] } | null;
-  getAccessToken: () => Promise<string | null>;
+  getAccessToken: (force?: boolean) => Promise<string | null>;
   logout: () => Promise<void>;
   exportWallet: (options?: { address: string }) => Promise<unknown>;
   linkTwitter: () => Promise<unknown>;

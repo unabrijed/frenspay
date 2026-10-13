@@ -1,28 +1,29 @@
 'use client';
 
 import {CodeInput} from '@fpay/ui/CodeInput';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Mark } from '@fpay/ui/leaf';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { DynamicContextProvider, useDynamicContext, useEmbeddedReveal,
   useSocialAccounts, useUserWallets, useFundWithWallet } from '@dynamic-labs/sdk-react-core';
 import { EthereumWalletConnectors, isEthereumWallet } from '@dynamic-labs/ethereum';
-import { getDefaultClient } from '@dynamic-labs-sdk/client';
+import { getSessionToken as token } from './token';
 import {SolanaWalletConnectors} from '@dynamic-labs/solana';
 import {LiveSync} from '@fpay/app';
 import {LiveBridge} from './LiveBridge';
 import {SIMULATION_MODE} from '@/services/envConfig';
 import { monad } from 'viem/chains';
 import type { FlistResponse } from '@fpay/shared';
-import { request, setAuthToken, setTokenRefresher } from '@fpay/app/services/api';
+import { requestFlist, setAuthToken, setTokenRefresher, setFlistRequiredHandler } from '@fpay/app/services/api';
 import { useCampaignStore } from '@fpay/app/campaignStore';
 import { AccessContext } from '@/components/CustomerAccess';
 import { CampaignWalletProvider, type CampaignWallet } from '@/components/campaign/CampaignWallet';
 import CampaignApp from '@/components/campaign/CampaignApp';
 import { DYNAMIC_ENVIRONMENT_ID } from '@/services/envConfig';
-import s from '@/components/customer-access.module.css';
+import s from './welcome.module.css';
+import { LoadingStatus } from '@/components/ui/LoadingStatus';
 
 const networks = [{chainId:143, networkId:143, name:'Monad', iconUrls:[], nativeCurrency:{name:'Monad',symbol:'MON',decimals:18}, rpcUrls:['https://rpc.monad.xyz'], blockExplorerUrls:['https://monadscan.com']}];
-const token = async () => getDefaultClient().token;
 
 export default function DynamicRoot({ children }: { children: ReactNode }) {
   if (!/^[0-9a-f-]{36}$/i.test(DYNAMIC_ENVIRONMENT_ID))
@@ -52,25 +53,33 @@ function DynamicAccount({ ready, userId, login, logout, children }: {
   const [invite, setInvite] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const active = useRef(false);
+  const accessRequest = useRef<Promise<void> | null>(null);
+  const accessCheckedAt = useRef(0);
   const embedded = wallets.find(w => isEthereumWallet(w) && user?.verifiedCredentials.some(c =>
     c.walletProvider === 'embeddedWallet' && c.address?.toLowerCase() === w.address.toLowerCase()));
-  const refresh = useCallback(async () => {
-    setAuthToken(await token());
-    const next = await request<FlistResponse>('/flist/me', { cache: 'no-store' });
-    setAccess(next);
+  const refresh = useCallback((): Promise<void> => {
+    if (accessRequest.current) return accessRequest.current;
+    if (Date.now() - accessCheckedAt.current < 30_000) return Promise.resolve();
+    accessRequest.current = requestFlist(token).then(next => {
+      if (active.current) { setAccess(next); setError(''); accessCheckedAt.current = Date.now(); }
+    }).finally(() => { accessRequest.current = null; });
+    return accessRequest.current;
   }, []);
   useEffect(() => {
+    active.current = true;
     const incoming = new URLSearchParams(window.location.search).get('invite');
     if (incoming) setInvite(incoming);
     setAuthToken(null); setTokenRefresher(token);
-    let active = true;
-    if (ready && userId) void (async () => {
-      setAuthToken(await token());
-      const next = await request<FlistResponse>('/flist/me', {cache: 'no-store'});
-      if (active) setAccess(next);
-    })().catch(() => { if(active) setError('Could not verify your invitation. Try again.'); });
-    return () => { active = false; setAuthToken(null); setTokenRefresher(null); useCampaignStore.getState().reset(''); };
-  }, [ready, userId]);
+    setFlistRequiredHandler(() => {
+      accessCheckedAt.current = 0;
+      setAccess(previous => previous ? {...previous, member:false} : null);
+    });
+    if (ready && userId) void refresh().catch(() => {
+      if(active.current) setError('Could not restore your account. Please try again.');
+    });
+    return () => { active.current = false; setAuthToken(null); setTokenRefresher(null); setFlistRequiredHandler(null); useCampaignStore.getState().reset(''); };
+  }, [ready, userId, refresh]);
 
   const value = useMemo<CampaignWallet>(() => ({ provider: 'dynamic',
     user: userId ? { id: `dynamic:${DYNAMIC_ENVIRONMENT_ID}:${userId}`, linkedAccounts: [] } : null,
@@ -104,22 +113,42 @@ function DynamicAccount({ ready, userId, login, logout, children }: {
 
   if (ready && userId && access?.member && embedded)
     return <AccessContext.Provider value={{data: access, refresh}}><CampaignWalletProvider value={value}>
-      {pathname === '/invites' ? children : <CampaignApp />}
+      <div hidden={pathname === '/invites'} style={{height:'100%', minHeight:0}}><CampaignApp visible={pathname !== '/invites'} /></div>
+      {pathname === '/invites' && children}
     </CampaignWalletProvider></AccessContext.Provider>;
 
-  return <main className={s.shell}><div className={s.brand}>frenspay</div><section className={s.card}>
-    <h1>{!ready ? 'One moment, fren.' : !userId ? 'Welcome, fren.' : !access?.member ? 'Join the f-list' : 'Your wallet is getting ready'}</h1>
-    {!userId ? <><p>Sign in with your email to get started.</p><button className={s.primary} disabled={!ready} onClick={login}>Continue with email</button></> : <>
+  return <main className={s.shell}>
+    <header className={s.header}><div className={s.brand}>frenspay<span>.</span></div><span className={s.beta}>Invite-only beta</span></header>
+    <div className={s.content}>
+    <div className={s.emblem} aria-hidden="true"><Mark size={76} enter /></div>
+    <section className={s.card} aria-labelledby="welcome-title">
+    <div className={s.eyebrow}>{userId && access && !access.member ? 'A little invite. A new beginning.' : 'Good things start with frens.'}</div>
+    <h1 id="welcome-title">{!ready || (userId && !access) ? 'Welcome back, fren.' : !userId ? 'Welcome, fren.' : !access?.member ? 'Join the f-list' : 'Your wallet is getting ready'}</h1>
+    {!ready ? <LoadingStatus label="Restoring your session…" /> : !userId ? <>
+      <p className={s.intro}>Your wallet. A little practice.<br />A head start with your frens.</p>
+      <div className={s.preview}>
+        <div className={s.previewHeading}><span className={s.eyebrow}>The Frenspay beta</span><span className={s.previewTag}>On Monad</span></div>
+        <div className={s.feature}><span className={s.number}>01</span><div><h2>Bring your USDC</h2><p>Hold USDC in your own wallet.</p></div></div>
+        <div className={s.feature}><span className={s.number}>02</span><div><h2>Try a scan. Earn points.</h2><p>Unlock practice credits and explore UPI QR scans.</p></div></div>
+        <p className={s.disclosure}>Practice credits only. Merchants aren’t paid.</p>
+      </div>
+      <button className={s.primary} onClick={login}>Continue with email <span aria-hidden="true">↗</span></button>
+      <p className={s.hint}>New here or coming back? Start with your email.</p>
+    </> : <>
+      {!access && !error && <LoadingStatus label="Opening your account…" />}
       {access && !access.member && <form onSubmit={e => {e.preventDefault(); if(busy)return; setBusy(true);setError('');
-        void (async () => {setAuthToken(await token());setAccess(await request<FlistResponse>('/flist/join', {method:'POST',body:JSON.stringify({code:invite.trim()})}));})()
+        void (async () => {const next = await requestFlist(token, invite.trim());if(active.current)setAccess(next);})()
           .catch(()=>setError('Could not redeem that invitation. Check the code and try again.')).finally(()=>setBusy(false));}}>
-        <label>Invite code · FREN</label><CodeInput label="Invite code" value={invite} onChange={setInvite} length={8} numeric={false} invite disabled={busy}/>
-        <button className={s.primary} disabled={busy}>Join</button></form>}
-      {access?.member && !embedded && <p>Finish wallet setup in the sign-in window. Email login and automatic EVM wallet creation must be enabled.</p>}
-      <button className={s.link} onClick={() => void refresh().catch(()=>setError('Please try again shortly.'))}>Retry access check</button>
-      {embedded && <button className={s.link} onClick={()=>void value.exportWallet().catch(()=>setError('Could not open wallet recovery. Try again.'))}>Export wallet</button>}
-      <button className={s.link} onClick={()=>void logout()}>Sign out</button>
+        <p className={s.inviteIntro}>You’re on the doorstep. Enter the code a fren shared with you to join the beta.</p><div className={s.fieldLabel}>Your invite code <span>FREN + 8 characters</span></div><CodeInput label="Invite code" value={invite} onChange={setInvite} length={8} numeric={false} invite disabled={busy}/>
+        <button className={s.primary} disabled={busy}>{busy ? 'Joining…' : 'Join the f-list'}</button></form>}
+      {access?.member && !embedded && <LoadingStatus label="Getting your wallet ready…" />}
+      {error && <button className={s.link} onClick={() => {setError('');void refresh().catch(()=>setError('Please try again shortly.'));}}>Try again</button>}
+      <div className={s.actions}>{embedded && <button className={s.link} onClick={()=>void value.exportWallet().catch(()=>setError('Could not open wallet recovery. Try again.'))}>Export wallet</button>}
+      <button className={s.link} onClick={()=>void logout()}>Sign out</button></div>
     </>}
     {error && <p role="alert" className={s.error}>{error}</p>}
-  </section></main>;
+  </section>
+    </div>
+    <footer className={s.footer}><span>Made for frens.</span><span>Built on Monad.</span></footer>
+  </main>;
 }
