@@ -4,7 +4,7 @@ import {useEffect, useRef, useState} from 'react';
 import {useDynamicWaas, useProjectSettings, useRefreshUser} from '@dynamic-labs/sdk-react-core';
 import {ChainEnum} from '@dynamic-labs/sdk-api-core';
 import {LoadingStatus} from '@/components/ui/LoadingStatus';
-import s from './welcome.module.css';
+import { RecoveryState } from '@/components/RecoveryState';
 
 /** Recovery for signed-in members whose EVM wallet has not become available. */
 export function WalletSetup({userId}: {userId: string}) {
@@ -56,10 +56,9 @@ export function WalletSetup({userId}: {userId: string}) {
   const message = disabled ? 'Wallet setup is temporarily unavailable. Please contact support.' : error;
   return <>
     {!message && <LoadingStatus label={busy ? 'Setting up your Monad wallet…' : 'Getting your wallet ready…'} />}
-    {message && <>
-      <p role="alert" className={s.error}>{message}</p>
-      {!disabled && <button className={s.primary} disabled={busy} onClick={() => void retry()}>Set up Monad wallet</button>}
-      <button className={s.link} onClick={() => window.location.reload()}>Reload</button>
-    </>}
+    {message && <RecoveryState title={disabled ? 'Wallet setup is on pause' : 'Your wallet needs another moment'} description={message}
+      actionLabel={disabled || busy ? 'Reload' : 'Set up Monad wallet'} onAction={() => disabled || busy ? window.location.reload() : void retry()}>
+      {!disabled && !busy && <button onClick={() => window.location.reload()}>Reload instead</button>}
+    </RecoveryState>}
   </>;
 }

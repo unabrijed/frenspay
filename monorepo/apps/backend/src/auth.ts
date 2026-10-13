@@ -30,7 +30,20 @@ export async function authPreHandler(req: FastifyRequest, reply: FastifyReply): 
   if (dynamicConfigured() && typeof authz === 'string' && authz.startsWith('Bearer ')) {
     let identity: CampaignIdentity;
     try { identity = await authenticateDynamic(authz.slice(7)); }
-    catch { return reply.code(401).send({ error: 'unauthorized' }); }
+    catch (error) {
+      // Log classification only: never serialize a token, credential, or provider response.
+      const code = error instanceof Error && 'code' in error ? String(error.code) : '';
+      const known = ['invalid_dynamic_session', 'dynamic_not_configured', 'dynamic_identity_mismatch',
+        'verified_email_required', 'ambiguous_dynamic_wallet', 'ambiguous_dynamic_solana_wallet',
+        'dynamic_profile_unavailable', 'dynamic_profile_unauthorized'];
+      const reason = code.startsWith('ERR_J') ? code :
+        error instanceof Error && known.includes(error.message) ? error.message : 'provider_request_failed';
+      const claim = error instanceof Error && 'claim' in error &&
+        ['sub', 'iat', 'exp', 'iss', 'aud', 'scope'].includes(String(error.claim)) ? String(error.claim) : undefined;
+      req.log.warn({ reason, claim }, 'Dynamic authentication failed');
+      const unavailable = reason === 'provider_request_failed' || reason === 'dynamic_profile_unavailable' || reason === 'ERR_JWKS_TIMEOUT';
+      return reply.code(unavailable ? 503 : 401).send({ error: unavailable ? 'dynamic_temporarily_unavailable' : 'unauthorized' });
+    }
     // Database failures propagate as server failures, never as a missing account.
     let user: UserRow | null;
     try { user = await findOrBindDynamicUser(identity.subject, identity.email); }

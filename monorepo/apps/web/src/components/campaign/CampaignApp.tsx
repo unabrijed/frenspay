@@ -9,18 +9,23 @@ import {CodeInput} from '@fpay/ui/CodeInput';
 import { QRCodeSVG } from 'qrcode.react';
 import { parseUpiQr, type CampaignCapabilities, type CampaignQuote, type CampaignSpend } from '@fpay/shared';
 import { campaignApi as api, type PendingWithdrawal } from '@fpay/app/services/campaignApi';
-import { ApiError, setAuthToken, setTokenRefresher } from '@fpay/app/services/api';
+import { ApiError, setTokenRefresher } from '@fpay/app/services/api';
 import { useCampaignStore } from '@fpay/app/campaignStore';
 import { BottomNav } from '@/components/BottomNav';
 import { LoadingStatus } from '@/components/ui/LoadingStatus';
+import { Skeleton, TxListSkeleton } from '@fpay/app/components/Skeleton';
 import { Icons } from '@/components/icons';
 import s from './campaign.module.css';
+import { RecoveryState, InlineFailure } from '@/components/RecoveryState';
 
 const Scanner = lazy(() => import('@fpay/app/components/Scanner').then(module => ({default: module.Scanner})));
 
 const display = (value: string, digits = 2) => Number(value).toLocaleString('en-IN', { maximumFractionDigits: digits });
 const badgeNames: Record<string, string> = { 'first-simulation': 'First simulation', 'three-payees': 'Three payees', 'three-days': 'Three active days' };
 const errors: Record<string, string> = {
+  unauthorized: 'Your sign-in could not be verified. Sign out and sign in again.',
+  identity_changed_contact_support: 'This account is linked to a different wallet. Contact support to restore access.',
+  dynamic_temporarily_unavailable: 'Sign-in verification is temporarily unavailable. Please retry shortly.',
   funding_required: 'Add USDC to unlock your test spending allowance.',
   insufficient_credits: 'This amount exceeds your remaining test allowance.',
   insufficient_usdc: 'Your wallet does not have enough USDC for this withdrawal.',
@@ -40,7 +45,10 @@ const errors: Record<string, string> = {
   bad_code: 'That code did not match.', code_expired: 'That code expired. Request another.',
   rate_limited: 'Please wait a minute before trying again.',
 };
-function errorText(e: unknown) { return e instanceof ApiError ? errors[e.code] || 'Could not complete that request. Please retry.' : (e instanceof Error ? e.message : 'Please retry.'); }
+function errorText(e: unknown) {
+  if (e instanceof Error && ['TimeoutError', 'AbortError'].includes(e.name)) return 'The connection is taking too long. Please retry.';
+  return e instanceof ApiError ? errors[e.code] || 'Could not complete that request. Please retry.' : (e instanceof Error ? e.message : 'Please retry.');
+}
 type Tab = 'home' | 'scan' | 'activity' | 'wallet' | 'rewards' | 'profile';
 type Attempt = { quoteId: string; idempotencyKey: string };
 function save(key: string, value: unknown) { localStorage.setItem(key, JSON.stringify(value)); }
@@ -102,13 +110,13 @@ function CampaignSession({visible}: {visible: boolean}) {
     finally { lock.current = false; if (active()) setBusy(false); }
   };
   useEffect(() => {
-    mounted.current = true; reset(did);
+    mounted.current = true;
+    if (useCampaignStore.getState().owner !== did) reset(did);
     let cancelled = false;
     setTokenRefresher(getAccessToken);
     void (async () => {
-      const sessionToken = await getAccessToken();
-      if (cancelled) return;
-      setAuthToken(sessionToken);
+      // The transport reads the current token within its request deadline. An unbounded
+      // SDK refresh here used to leave the entire account behind a permanent loader.
       const [capability, next] = await Promise.all([api.capabilities(), api.session().catch(async e => {
         if (e instanceof ApiError && ['campaign_paused', 'account_suspended'].includes(e.code)) return api.account();
         throw e;
@@ -178,15 +186,18 @@ function CampaignSession({visible}: {visible: boolean}) {
         <button className={s.link} onClick={() => go('wallet')}>Wallet</button>
       </header>
       <div className={s.mode}>Simulation beta · Recipients receive no money</div>
-      {error && <p className={s.error} role="alert">{error}</p>}
+      {error && account && <InlineFailure>{error}</InlineFailure>}
       {notice && <p className={s.notice} role="status">{notice}</p>}
       {busy && !notice && !error && <div className={s.progress}><LoadingStatus label="Working on it…" /></div>}
-      {!account ? <section className={s.card}><h1>{error ? 'Let’s try again' : 'Opening your wallet…'}</h1>
-        {!error && <LoadingStatus label="Loading your balance and activity…" />}
-        {error && <button className={s.button} onClick={() => setReload(x => x + 1)}>Retry</button>}
+      {!account ? (error ? <RecoveryState title="Your account couldn’t load" description={error}
+        actionLabel="Retry" onAction={() => {setError('');setReload(x => x + 1);}}>
+        <button onClick={() => void logout()}>Sign out and start again</button>
+        <button onClick={() => void exportWallet().catch(() => setError('Wallet recovery couldn’t open. Try signing in again.'))}>Export existing wallet</button>
+      </RecoveryState> : <section className={s.boot}>
+        <h1>{({home:'Your account',wallet:'Your wallet',activity:'Practice activity',scan:'Scan a UPI QR',profile:'Your profile',rewards:'Your rewards'}[tab])}</h1>
+        <div role="status" aria-label="Loading account" className={s.skeletons}><Skeleton w="65%" h={64} /><Skeleton w="45%" h={16} /><TxListSkeleton rows={2} /></div>
         <button className={s.link} onClick={() => void logout()}>Sign out</button>
-        <button className={s.link} onClick={() => void exportWallet()}>Export existing wallet</button>
-      </section> : <>
+      </section>) : <>
         {account.suspended && <p className={s.notice}>Your simulations are paused. Your wallet and history remain available.</p>}
         {!caps?.spendingEnabled && <p className={s.notice}>New simulations are paused. Your wallet and history remain available.</p>}
         {pending && <button disabled={busy} className={s.secondary} onClick={() => void run(() => recover(pending))}>Check pending simulation</button>}
@@ -194,13 +205,18 @@ function CampaignSession({visible}: {visible: boolean}) {
         {tab === 'home' && <>
           <section className={s.hero}><span className={s.label}>Test spending allowance</span><h1>{display(account.rewardCredits)} <small style={{fontSize:18}}>credits</small></h1>
             <p className={s.muted}>1 credit = US$1 of simulated spending</p>
-            <div className={s.actions} style={{justifyContent:'center'}}><button className={s.button} onClick={() => go('wallet')}>Add USDC</button><button className={s.secondary} onClick={() => go('rewards')}>{display(account.points)} points</button></div>
           </section>
+          <div className={s.actions}>
+            <button className={s.action} onClick={() => {setResult(null);setQuote(null);setRaw('');go('scan');}}><span><Icons.QrBig size={24} color="var(--accent)" /></span>Scan QR</button>
+            <button className={s.action} data-tone="water" onClick={() => go('wallet')}><span><Icons.Plus size={24} color="currentColor" /></span>Add USDC</button>
+            <button className={s.action} data-tone="sage" onClick={() => go('rewards')}><span><Icons.Activity size={24} color="currentColor" /></span>{display(account.points)} points</button>
+            <Link className={s.action} data-tone="paper" href="/invites"><span><Icons.Person size={24} color="currentColor" /></span>Invite</Link>
+          </div>
           {Number(account.peakUsdc) === 0 && <div className={s.card}><h2>Your first test starts here.</h2><p>Add real USDC to your wallet to unlock credits. Simulating a payment leaves your USDC untouched.</p></div>}
           <button className={s.row} onClick={() => go('wallet')}><span>Real USDC balance<small>Monad · Your funds</small></span><b>{account.realUsdc === null ? 'Not checked' : display(account.realUsdc,6)}</b></button>
           <Link className={s.link} href="/invites">Invite a fren ↗</Link>
           <h2>Recent activity</h2>{history.slice(0,4).map(item => <Activity key={item.id} item={item} open={() => {setResult(item);go('scan');}} />)}
-          {historyState === 'loading' && !history.length && <LoadingStatus label="Loading activity…" />}{historyState === 'error' && <button className={s.link} onClick={() => void loadHistory()}>Retry activity</button>}{historyState === 'ready' && !history.length && <p className={s.muted}>Your simulations will appear here.</p>}
+          {historyState === 'loading' && !history.length && <LoadingStatus label="Loading activity…" />}{historyState === 'error' && <InlineFailure>We couldn’t load your recent activity.<button onClick={() => void loadHistory()}>Retry activity</button></InlineFailure>}{historyState === 'ready' && !history.length && <p className={s.muted}>Your simulations will appear here.</p>}
         </>}
         {tab === 'scan' && (result ? <section className={s.receipt}>
           <span className={s.practice}>Prelaunch · Practice</span>
@@ -221,7 +237,7 @@ function CampaignSession({visible}: {visible: boolean}) {
             <details className={s.card}><summary>Use a UPI payment link</summary><form className={s.form} onSubmit={e => {e.preventDefault();const form = new FormData(e.currentTarget);scan(String(form.get('qr') || ''));}}><label>UPI payment link<input className={s.input} name="qr" placeholder="upi://pay?pa=…" required /></label><button className={s.secondary} disabled={!canSpend || !!pending}>Continue</button></form></details>
           </>}
         </>)}
-        {tab === 'activity' && <><h1>Practice activity</h1><p className={s.muted}>Your prelaunch playground. No money sent; these payments never count toward real expenses.</p>{history.map(item => <Activity key={item.id} item={item} open={() => {setResult(item);go('scan');}} />)}{historyState === 'loading' && !history.length && <LoadingStatus label="Loading activity…" />}{historyState === 'error' && <button className={s.link} onClick={() => void loadHistory()}>Retry activity</button>}{historyState === 'ready' && !history.length && <p>No activity yet.</p>}<button className={s.link} disabled={busy} onClick={() => void run(() => refresh())}>Refresh history</button></>}
+        {tab === 'activity' && <><h1>Practice activity</h1><p className={s.muted}>Your prelaunch playground. No money sent; these payments never count toward real expenses.</p>{history.map(item => <Activity key={item.id} item={item} open={() => {setResult(item);go('scan');}} />)}{historyState === 'loading' && !history.length && <LoadingStatus label="Loading activity…" />}{historyState === 'error' && <InlineFailure>We couldn’t load your recent activity.<button onClick={() => void loadHistory()}>Retry activity</button></InlineFailure>}{historyState === 'ready' && !history.length && <p>No activity yet.</p>}<button className={s.link} disabled={busy} onClick={() => void run(() => refresh())}>Refresh history</button></>}
         {tab === 'wallet' && <>
           <h1>Your wallet</h1><div className={s.hero}><span className={s.label}>Real funds · Monad mainnet</span><h1>{account.realUsdc === null ? '-' : display(account.realUsdc,6)} <small style={{fontSize:18}}>USDC</small></h1><p className={s.muted}>{account.balanceCheckedAt ? `Checked ${new Date(account.balanceCheckedAt).toLocaleString()}` : 'Balance not checked yet'}</p><button className={s.link} disabled={busy} onClick={() => void run(() => refresh(true))}>Refresh balance</button></div>
           {account.fundingAvailable && caps?.fundingEnabled ? <section className={s.card}><h2>Add USDC</h2>{fundFromWallet && <button className={s.button} disabled={busy} onClick={() => void run(() => fundFromWallet(account.walletAddress))}>Transfer from another wallet</button>}<h3>Deposit from a wallet or exchange</h3><p>Send native USDC on Monad mainnet to your wallet. Other networks and tokens do not unlock credits.</p><div className={s.qr}><QRCodeSVG value={account.walletAddress} size={180}/></div><code>{account.walletAddress}</code><button className={s.link} onClick={() => void run(async () => {await navigator.clipboard.writeText(account.walletAddress);setNotice('Address copied.');})}>Copy address</button><p className={s.muted}>Credits appear after your funds are confirmed. No USDC is spent when you simulate a payment.</p><p className={s.muted}>For an exchange withdrawal, select USDC and the Monad network. If Monad is unavailable, use another funding source.</p><p className={s.muted}>Card and bank purchases are not enabled yet.</p></section> : <p className={s.notice}>New funding is not enabled yet. Existing wallet recovery remains available.</p>}

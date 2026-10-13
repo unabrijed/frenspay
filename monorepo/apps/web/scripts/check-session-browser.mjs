@@ -120,7 +120,6 @@ try {
   await expect(page.getByRole('heading',{name:'Check your email'})).toBeVisible();
   assert.equal(await page.evaluate(()=>window.sentEmail),'fren@example.test');
   await page.getByLabel('Verification code').fill('000000');
-  await page.getByRole('button',{name:'Verify code'}).click();
   await expect(page.getByRole('alert')).toContainText('could not be verified');
   await page.getByRole('button',{name:'Change email'}).click();
   await expect(page.getByLabel('Email',{exact:true})).toHaveValue('fren@example.test');
@@ -130,7 +129,6 @@ try {
   await expect(page.getByRole('status')).toHaveText('New code sent.');
   assert.equal(await page.evaluate(()=>window.resent),true);
   await page.getByLabel('Verification code').fill('123456');
-  await page.getByRole('button',{name:'Verify code'}).click();
   await respond(true);
   await expect(page.getByLabel('Wallet draft')).toBeVisible();
   assert.deepEqual(errors,[]);

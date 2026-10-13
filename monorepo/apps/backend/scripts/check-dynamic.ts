@@ -41,3 +41,22 @@ const solana={format:'blockchain',chain:'solana',wallet_provider:'embeddedWallet
 assert.equal(identityFromDynamicProfile({...profile,verifiedCredentials:[...profile.verifiedCredentials,solana]},subject).solanaWalletAddress,solana.address);
 assert.throws(()=>identityFromDynamicProfile({...profile,verifiedCredentials:[...profile.verifiedCredentials,solana,solana]},subject));
 assert.equal(identityFromDynamicProfile({...profile,verifiedCredentials:[...profile.verifiedCredentials,{...solana,wallet_provider:'browserExtension'}]},subject).solanaWalletAddress,undefined);
+
+// Production /sdk/:environment/users returns camelCase credentials, unlike older
+// JWT fixtures. Preserve both verified embedded wallets; never adopt an external one.
+const camelEvm = {format:'blockchain',chain:'eip155',walletProvider:'embeddedWallet',address:'0x'+'aB'.repeat(20)};
+const camelSol = {format:'blockchain',chain:'solana',walletProvider:'embeddedWallet',address:solana.address};
+const camelProfile = {...profile,verifiedCredentials:[profile.verifiedCredentials[0],camelEvm,camelSol,
+  {format:'oauth',oauthProvider:'twitter',oauthAccountId:'fixture-x'}]};
+const camelIdentity = identityFromDynamicProfile(camelProfile,subject);
+assert.equal(camelIdentity.walletAddress,camelEvm.address.toLowerCase());
+assert.equal(camelIdentity.solanaWalletAddress,camelSol.address);
+assert.equal(camelIdentity.xSubject,'fixture-x');
+for (const credential of [
+  {...camelEvm,walletProvider:'browserExtension'},
+  {...camelEvm,walletProvider:undefined},
+  {...camelEvm,chain:'solana'},
+]) assert.equal(identityFromDynamicProfile({...profile,verifiedCredentials:[profile.verifiedCredentials[0],credential]},subject).walletAddress,undefined);
+assert.throws(()=>identityFromDynamicProfile({...camelProfile,verifiedCredentials:[...camelProfile.verifiedCredentials,camelEvm]},subject),/ambiguous_dynamic_wallet/);
+assert.throws(()=>identityFromDynamicProfile({...profile,verifiedCredentials:[profile.verifiedCredentials[0],{...camelEvm,wallet_provider:'browserExtension'}]},subject),/dynamic_identity_mismatch/);
+console.log('check-dynamic: current camelCase profiles and legacy credentials preserve wallet ownership and reject conflicting providers');

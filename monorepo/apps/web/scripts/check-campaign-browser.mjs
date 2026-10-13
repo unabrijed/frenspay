@@ -29,12 +29,12 @@ const documentHtml=`<!doctype html>
   <title>Frenspay · Simulation preview</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:wght@300;400;500;600&family=JetBrains+Mono:wght@100..800&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@100..800&display=swap">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=block">
   <link rel="stylesheet" href="/globals.css">
   <link rel="stylesheet" href="/app.css">
   <style>
-    :root { --font-spectral: 'Spectral'; --font-mono: 'JetBrains Mono'; }
+    :root { --font-display: 'Bricolage Grotesque'; --font-body: 'Inter'; --font-mono: 'JetBrains Mono'; }
     #root { flex: 1; min-height: 0; }
     .preview-note { flex-shrink: 0; padding: 8px 16px; background: var(--surface); color: var(--muted); border-bottom: 1px solid var(--hair); font: 11px/1.5 var(--font-mono), monospace; text-align: center; }
     .preview-note summary { cursor: pointer; }
@@ -102,7 +102,7 @@ await build({entryPoints:[join(scratch,'entry.tsx')],outfile:join(scratch,'app.j
     b.onResolve({filter:/^@\/components\//},args=>({path:join(root,'apps/web/src',args.path.slice(2)+'.tsx')}));
     b.onResolve({filter:/^\.\.\/store$/},args=>args.importer.endsWith('/BottomNav.tsx')?({path:'store',namespace:'fixture'}):undefined);
     b.onLoad({filter:/.*/,namespace:'fixture'},args=>({loader:'tsx',resolveDir:join(root,'apps/web'),contents:args.path==='wallet'?`
-      const token=async()=>'fixture';const logout=async()=>{};const exportWallet=async()=>{window.exports++};
+      const token=async()=>localStorage.getItem('fixture-hung-token')?new Promise(()=>{}):'fixture';const logout=async()=>{};const exportWallet=async()=>{window.exports++};
       export function useExportWallet(){return{exportWallet};}
       export function useCampaignWallet(){return{provider:'dynamic',fundFromWallet:async(address)=>{if(address!=='0x'+'1'.repeat(40))throw Error('wrong funding address');window.fundingCalls++},user:{id:'alice',linkedAccounts:[]},getAccessToken:token,logout,exportWallet,linkTwitter:async()=>{},sendTransaction:async()=>{window.signs++;return{hash:'0x'+'a'.repeat(64)}}};}
       export function useSendTransaction(){return{sendTransaction:async()=>{window.signs++;return{hash:'0x'+'a'.repeat(64)}}};}
@@ -142,7 +142,7 @@ try{
         iconGuarded:getComputedStyle(icon).visibility==='hidden'||getComputedStyle(icon).fontFamily.includes('Material Symbols Outlined')};
     });
     assert.equal(appearance.canvas,'#fce8cb');assert.equal(appearance.accent,'#b94f2b');
-    assert.match(appearance.font,/Spectral/);assert.equal(appearance.background,'rgb(252, 232, 203)');
+    assert.match(appearance.font,/Inter/);assert.equal(appearance.background,'rgb(252, 232, 203)');
     assert.equal(appearance.width,Math.min(430,viewport.width));assert.ok(appearance.height<=viewport.height);
     assert.equal(appearance.overflows,false);assert.equal(appearance.contentOverflows,false);assert.equal(appearance.iconGuarded,true);
     await expect(page.getByText('Scan',{exact:true})).toBeInViewport();
@@ -208,6 +208,8 @@ try{
   await page.unroute('**/campaign/history');await page.unroute('**/campaign/withdraw/pending');
   await page.getByRole('button',{name:'Retry activity',exact:true}).click();
   await expect(page.getByRole('button',{name:'Retry activity',exact:true})).toHaveCount(0);
+  // Clicking Retry may scroll the taller home screen. Establish the position to restore.
+  await page.locator('main').evaluate(el => {el.scrollTop = 0});
   await page.getByRole('button',{name:'Wallet',exact:true}).click();
   await expect(page.getByRole('button',{name:'Review withdrawal',exact:true})).toBeEnabled();
   await page.getByLabel('Destination address').fill('draft destination');
@@ -226,5 +228,30 @@ try{
   await page.getByText('Home',{exact:true}).click();
   assert.equal(await page.getByText('Recent activity').evaluate(el=>getComputedStyle(el.parentElement).animationName),'none');
   assert.equal(legacyCalls,0);assert.deepEqual(failures,[]);
+  await page.screenshot({path:join(tmpdir(),'fpay-campaign-home.png')});
+  // The SDK can stall before fetch begins. Keep navigation responsive and show a
+  // bounded error rather than an infinite wallet-opening spinner.
+  await page.clock.install();
+  await page.evaluate(()=>localStorage.setItem('fixture-hung-token','1'));
+  await page.reload();
+  await expect(page.getByRole('status',{name:'Loading account'})).toBeVisible();
+  await page.getByText('Activity',{exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Practice activity'})).toBeVisible();
+  // AbortSignal.timeout uses browser active time rather than Playwright's mocked clock;
+  // verify the transport deadline in check-api-headers and recover here by remounting.
+  await page.evaluate(()=>localStorage.removeItem('fixture-hung-token'));
+  await page.reload();
+  await expect(page.getByText('Recent activity')).toBeVisible();
+  // Failed account load has one recovery action; retry returns through loading to home.
+  await page.route('**/campaign/session', route => route.fulfill({status:503,contentType:'application/json',body:'{"error":"dynamic_temporarily_unavailable"}'}));
+  await page.reload();
+  await expect(page.getByRole('heading',{name:'Your account couldn’t load'})).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(1);
+  await expect(page.getByRole('button',{name:'Retry',exact:true})).toBeVisible();
+  await page.screenshot({path:join(tmpdir(),'fpay-account-recovery.png')});
+  await page.unroute('**/campaign/session');
+  await page.getByRole('button',{name:'Retry',exact:true}).click();
+  await expect(page.getByText('Recent activity')).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Your account couldn’t load'})).toHaveCount(0);
   console.log('check-campaign-browser: app theme/frame at mobile + desktop widths, funding gate, scan, durable retry, storage failure, no payment signatures, withdrawal recovery and pause OK');
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

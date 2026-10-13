@@ -4,6 +4,7 @@ import {useEffect, useRef, useState} from 'react';
 import {useConnectWithOtp} from '@dynamic-labs/sdk-react-core';
 import {CodeInput} from '@fpay/ui/CodeInput';
 import s from './welcome.module.css';
+import { InlineFailure } from '@/components/RecoveryState';
 
 export function EmailLogin() {
   const {connectWithEmail, verifyOneTimePassword, retryOneTimePassword} = useConnectWithOtp();
@@ -66,6 +67,6 @@ export function EmailLogin() {
       }, 'Could not resend the code. Please try again.')}>{cooldown ? `Resend in ${cooldown}s` : 'Resend code'}</button>
     </div>}
     {notice && <p className={s.hint} role="status">{notice}</p>}
-    {error && <p className={s.error} role="alert">{error}</p>}
+    {error && <InlineFailure>{error}</InlineFailure>}
   </>;
 }

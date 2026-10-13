@@ -1,7 +1,7 @@
 // theme.ts — WEB adapter over the shared design tokens (@fpay/shared). The single source of
 // truth lives in packages/shared/src/tokens.ts; this only renders those tokens as web CSS
 // (font CSS-vars + numeric weights, box-shadow strings, px line-heights). Re-skin in @fpay/shared.
-// Theme: frenspay v2 — Spectral + JetBrains Mono over the painting palette.
+// Apps choose typography via CSS variables over the shared painting palette.
 import { colors, radii, shadowSpec, spacing, tile, typeScale, type FontRole, type ShadowKey, type ShadowSpec, type TypeSpec } from '@fpay/shared';
 import type { CSSProperties } from 'react';
 
@@ -11,20 +11,17 @@ export type { TileTone, TypeVariant } from '@fpay/shared';
 export const GUTTER = spacing.GUTTER;
 export const SHEET_GUTTER = spacing.SHEET_GUTTER;
 
-/* ---- fonts: role → CSS var + weight. Two faces and no third (see @fpay/shared):
-   Spectral is the voice, JetBrains Mono only marks — labels, counters, money columns.
-   ponytail: body copy is Spectral 400, not the system's 300. The system specifies light and
-   light italic only, which is right for a headline over open sky and unreadable at 13-16px on
-   a dense screen. Display keeps 300. Revisit if the app's type ever gets bigger. ---- */
-const VOICE = 'var(--font-spectral)';
+/* Apps can supply display/body families independently; the LP console retains Spectral. */
+const DISPLAY = 'var(--font-display, var(--font-spectral))';
+const BODY = 'var(--font-body, var(--font-spectral))';
 const MARK = 'var(--font-mono)';
 const TAB = { fontVariantNumeric: 'tabular-nums' } as const;
 const F: Record<FontRole, CSSProperties> = {
-  disp700: { fontFamily: VOICE, fontWeight: 300 },
-  disp800: { fontFamily: VOICE, fontWeight: 300 },
-  body400: { fontFamily: VOICE, fontWeight: 400 },
-  body500: { fontFamily: VOICE, fontWeight: 500 },
-  body600: { fontFamily: VOICE, fontWeight: 600 },
+  disp700: { fontFamily: DISPLAY, fontWeight: 'var(--font-display-weight, 300)' as CSSProperties['fontWeight'] },
+  disp800: { fontFamily: DISPLAY, fontWeight: 'var(--font-display-weight, 300)' as CSSProperties['fontWeight'] },
+  body400: { fontFamily: BODY, fontWeight: 400 },
+  body500: { fontFamily: BODY, fontWeight: 500 },
+  body600: { fontFamily: BODY, fontWeight: 600 },
   mono400: { fontFamily: MARK, fontWeight: 400, ...TAB },
   mono500: { fontFamily: MARK, fontWeight: 500, ...TAB },
   mono600: { fontFamily: MARK, fontWeight: 600, ...TAB },

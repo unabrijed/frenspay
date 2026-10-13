@@ -33,6 +33,13 @@ export async function verifyDynamicToken(token: string, keyOverride?: JWTVerifyG
   return payload.sub;
 }
 
+/** Current user profiles use camelCase; older profiles/JWT credentials use snake_case. */
+function credentialField(credential: any, current: string, legacy: string): unknown {
+  if (credential[current] !== undefined && credential[legacy] !== undefined &&
+      credential[current] !== credential[legacy]) throw new Error('dynamic_identity_mismatch');
+  return credential[current] ?? credential[legacy];
+}
+
 /** Only data fetched directly from Dynamic with a verified access token is accepted. */
 export function identityFromDynamicProfile(profile: any, subject: string): CampaignIdentity {
   if (profile?.id !== subject || profile.projectEnvironmentId !== config.dynamicEnvironmentId ||
@@ -43,24 +50,27 @@ export function identityFromDynamicProfile(profile: any, subject: string): Campa
   const email = typeof profile.email === 'string' ? profile.email.trim().toLowerCase() : '';
   if (!email || !emails.includes(email)) throw new Error('verified_email_required');
   const wallets = credentials.filter((c: any) => c.format === 'blockchain' &&
-    c.chain === 'eip155' && c.wallet_provider === 'embeddedWallet' &&
+    c.chain === 'eip155' && credentialField(c, 'walletProvider', 'wallet_provider') === 'embeddedWallet' &&
     typeof c.address === 'string' && /^0x[0-9a-f]{40}$/i.test(c.address));
   // Multiple eligible wallets need an explicit, verified selection rather than array order.
   if (wallets.length > 1) throw new Error('ambiguous_dynamic_wallet');
   const solana = credentials.filter((c: any) => c.format === 'blockchain' &&
-    c.chain === 'solana' && c.wallet_provider === 'embeddedWallet' &&
+    c.chain === 'solana' && credentialField(c, 'walletProvider', 'wallet_provider') === 'embeddedWallet' &&
     typeof c.address === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(c.address));
   if (solana.length > 1) throw new Error('ambiguous_dynamic_solana_wallet');
-  const x = credentials.find((c: any) => c.format === 'oauth' && c.oauth_provider === 'twitter' &&
-    typeof c.oauth_account_id === 'string');
+  const x = credentials.find((c: any) => c.format === 'oauth' &&
+    credentialField(c, 'oauthProvider', 'oauth_provider') === 'twitter' &&
+    typeof credentialField(c, 'oauthAccountId', 'oauth_account_id') === 'string');
   return { subject: `dynamic:${config.dynamicEnvironmentId}:${subject}`, email,
-    walletAddress: wallets[0]?.address.toLowerCase(), solanaWalletAddress: solana[0]?.address, xSubject: x?.oauth_account_id };
+    walletAddress: wallets[0]?.address.toLowerCase(), solanaWalletAddress: solana[0]?.address,
+    xSubject: x ? credentialField(x, 'oauthAccountId', 'oauth_account_id') as string : undefined };
 }
 export async function authenticateDynamic(token: string): Promise<CampaignIdentity> {
   const subject = await verifyDynamicToken(token);
   const response = await fetch(`https://app.dynamicauth.com/api/v0/sdk/${config.dynamicEnvironmentId}/users`, {
     headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(8000), redirect: 'error',
   });
+  if (response.status === 401 || response.status === 403) throw new Error('dynamic_profile_unauthorized');
   if (!response.ok) throw new Error('dynamic_profile_unavailable');
   return identityFromDynamicProfile(await response.json(), subject);
 }

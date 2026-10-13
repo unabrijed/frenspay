@@ -22,6 +22,7 @@ import { CampaignWalletProvider, type CampaignWallet } from '@/components/campai
 import CampaignApp from '@/components/campaign/CampaignApp';
 import { DYNAMIC_ENVIRONMENT_ID } from '@/services/envConfig';
 import s from './welcome.module.css';
+import { RecoveryState, InlineFailure } from '@/components/RecoveryState';
 import { EmailLogin } from './EmailLogin';
 import { LoadingStatus } from '@/components/ui/LoadingStatus';
 import { WalletSetup } from './WalletSetup';
@@ -123,9 +124,12 @@ function DynamicAccount({ ready, userId, logout, children }: {
   return <main className={s.shell}>
     <header className={s.header}><div className={s.brand}>fpay<span>.</span></div><span className={s.beta}>Early access</span></header>
     <div className={s.content}>
-    <div className={s.emblem} aria-hidden="true"><Mark size={76} enter /></div>
-    <section className={s.card} aria-labelledby="welcome-title">
-    {ready && !userId ? <EmailLogin/> : <>
+    {!(error && !access) && <div className={s.emblem} aria-hidden="true"><Mark size={76} enter /></div>}
+    <section className={s.card} aria-label="Account access">
+    {ready && !userId ? <EmailLogin/> : error && !access ? <RecoveryState title="We couldn’t open your account" description={error}
+      actionLabel="Try again" onAction={() => {setError('');void refresh().catch(error=>setError(friendlyError(error, 'Please try again shortly.')));}}>
+      <button onClick={() => void logout()}>Sign out and start again</button>
+    </RecoveryState> : <>
     <h1 id="welcome-title">{!ready || !access ? 'Welcome to fpay' : !access.member ? 'Join the f-list' : 'Almost ready'}</h1>
     {!ready ? <LoadingStatus label="Restoring your session…" /> : <>
       {!access && !error && <LoadingStatus label="Opening your account…" />}
@@ -140,7 +144,7 @@ function DynamicAccount({ ready, userId, logout, children }: {
       <button className={s.link} onClick={()=>void logout()}>Sign out</button></div>
     </>}
     </>}
-    {error && <p role="alert" className={s.error}>{error}</p>}
+    {error && access && <InlineFailure>{error}</InlineFailure>}
   </section>
     </div>
     <footer className={s.footer}><span>Invite-only alpha</span><span>fpay</span></footer>

@@ -95,6 +95,17 @@ export function setAccountDeletedHandler(fn: (() => void) | null): void {
   onAccountDeleted = fn;
 }
 
+/** Fetch's timeout does not cover the SDK work that happens before fetch. */
+function withinSignal<T>(work: Promise<T>, signal?: AbortSignal | null): Promise<T> {
+  if (!signal) return work;
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason ?? new Error('Request timed out'));
+    if (signal.aborted) { work.catch(() => {}); abort(); return; }
+    signal.addEventListener('abort', abort, { once: true });
+    work.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
+}
+
 export async function req<T>(path: string, init?: RequestInit, retried = false, sessionToken?: (force?: boolean) => Promise<string | null>): Promise<T> {
   // Only when there IS a body. Fastify's default parser answers a bodyless POST that claims
   // application/json with 400 FST_ERR_CTP_EMPTY_JSON_BODY — before the auth preHandler, so the
@@ -109,7 +120,7 @@ export async function req<T>(path: string, init?: RequestInit, retried = false, 
   // rotated. The registered refresher IS that provider; the cached copy is the fallback (and what
   // the dev signer path sets), and the 401 retry below still covers a token the SERVER rejects.
   const tokenProvider = sessionToken ?? refreshToken;
-  const token = (tokenProvider ? await tokenProvider().catch(() => null) : null) ?? (sessionToken ? null : authToken);
+  const token = (tokenProvider ? await withinSignal(tokenProvider(), init?.signal) : null) ?? (sessionToken ? null : authToken);
   if (sessionToken && !token) throw new ApiError(401, 'unauthorized');
   if (token) headers.authorization = `Bearer ${token}`;
   else if (platform().env.devUserId) headers['x-dev-user-id'] = platform().env.devUserId;
@@ -118,7 +129,7 @@ export async function req<T>(path: string, init?: RequestInit, retried = false, 
 
   // Expired Privy access token → refresh once and retry transparently.
   if (res.status === 401 && !retried && tokenProvider) {
-    const fresh = await tokenProvider(true).catch(() => null);
+    const fresh = await withinSignal(tokenProvider(true), init?.signal);
     if (fresh) {
       if (!sessionToken) authToken = fresh;
       return req<T>(path, init, true, sessionToken);
