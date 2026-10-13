@@ -40,7 +40,10 @@
     "check:expenses": "tsx scripts/check-expenses.ts",
     "check:expenses:db": "tsx scripts/check-expenses-db.ts",
     "check:expenses:postgres": "EXPENSES_POSTGRES=1 node --import tsx scripts/check-expenses-db.ts",
-    "check:payments": "node --import tsx scripts/check-merchant-payments.ts"
+    "check:payments": "node --import tsx scripts/check-merchant-payments.ts",
+    "check:campaign": "node --import tsx scripts/check-campaign.ts",
+    "check:campaign:postgres": "CAMPAIGN_POSTGRES=1 node --import tsx scripts/check-campaign.ts",
+    "check:dynamic": "node --import tsx scripts/check-dynamic.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
@@ -53,6 +56,7 @@
     "bignumber.js": "^9.3.1",
     "dotenv": "^16.4.7",
     "fastify": "^5.2.0",
+    "jose": "6.2.0",
     "pg": "^8.13.1",
     "viem": "^2.55.5"
   },

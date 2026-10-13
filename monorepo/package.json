@@ -67,6 +67,10 @@
     "check:expenses:postgres": "yarn workspace @fpay/backend check:expenses:postgres",
     "check:expenses:browser": "yarn workspace @fpay/web check:expenses:browser",
     "check:payments": "yarn workspace @fpay/backend check:payments",
-    "check:payments:browser": "yarn workspace @fpay/web check:payments:browser"
+    "check:payments:browser": "yarn workspace @fpay/web check:payments:browser",
+    "check:campaign": "yarn workspace @fpay/backend check:campaign",
+    "check:campaign:postgres": "yarn workspace @fpay/backend check:campaign:postgres",
+    "check:campaign:browser": "yarn workspace @fpay/web check:campaign:browser",
+    "check:dynamic": "yarn workspace @fpay/backend check:dynamic"
   }
 }
