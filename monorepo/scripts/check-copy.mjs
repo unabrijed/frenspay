@@ -105,6 +105,8 @@ for (const { dir, banned: BANNED } of RULES) {
     // (`role: 'user' | 'merchant' | 'admin'`).
     for (const m of src.matchAll(/(['"`])\s*([A-Za-z]+)\s*\1/g)) {
       if (!BANNED.test(m[2])) continue;
+      // Discriminant comparisons such as res.kind === 'merchant' are code, not copy.
+      if (/(?:===|!==|==|!=)\s*$/.test(src.slice(0, m.index))) continue;
       const before = src.slice(0, m.index).replace(/\s+$/, '').slice(-1);
       const after = src.slice(m.index + m[0].length).replace(/^\s+/, '').slice(0, 1);
       if (before === '|' || after === '|') continue;

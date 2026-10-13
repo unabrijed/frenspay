@@ -62,7 +62,7 @@ export function Scan() {
           <Txt style={[type.lead, styles.scanError]}>{error}</Txt>
         ) : (
           <Txt style={[type.lead, styles.scanLead]}>
-            {camErr ? CAM_MESSAGES[camErr] : 'Scan a supported merchant QR or a friend’s Frenspay code.'}
+            {camErr ? CAM_MESSAGES[camErr] : 'Scan a supported payment QR or a friend’s Frenspay code.'}
           </Txt>
         )}
         {camErr ? (
@@ -82,7 +82,7 @@ export function Scan() {
           <Icons.Qr size={16} color={colors.accent} />
           <Txt style={{ ...fonts.body500, fontSize: 14.5, color: colors.accent }}>Show my QR</Txt>
         </Pressable>
-        <TextLink label="Pending merchant payments" onPress={() => { usePayStore.setState({ merchantLink: null }); open('merchantPayment'); }} />
+        <TextLink label="Pending payments" onPress={() => { usePayStore.setState({ merchantLink: null }); open('merchantPayment'); }} />
       </SheetBody>
     </>
   );

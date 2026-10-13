@@ -110,7 +110,7 @@ export function MerchantPaymentSheet() {
     <>
       <Grab />
       <SheetHeader
-        title={payment?.status === 'completed' ? 'Payment complete' : 'Pay merchant'}
+        title={payment?.status === 'completed' ? 'Payment complete' : 'Scan and pay'}
         onClose={close}
       />
       <SheetBody>
@@ -171,13 +171,13 @@ export function MerchantPaymentSheet() {
               </>
             ) : null}
             {payment.status === 'failed' || payment.status === 'expired' ? (
-              <Txt>This payment did not complete. Ask the merchant for a new payment code.</Txt>
+              <Txt>This payment did not complete. Ask for a new payment code.</Txt>
             ) : null}
           </View>
         ) : (
           <View style={{ gap: 12 }}>
             {busy ? <Txt>Checking payment…</Txt> : null}
-            {!busy && !link && !pending.length ? <Txt>No pending merchant payments.</Txt> : null}
+            {!busy && !link && !pending.length ? <Txt>No pending payments.</Txt> : null}
             {pending.map((p) => (
               <Btn
                 key={p.id}

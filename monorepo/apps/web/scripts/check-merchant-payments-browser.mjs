@@ -158,7 +158,7 @@ try {
   confirmFails = true;
   await page.reload();
   await page.getByRole('button', { name: 'Pay $10', exact: true }).click();
-  await expect(page.getByText('Merchant payments are not available for this account yet.')).toBeVisible();
+  await expect(page.getByText('Scan and pay is not available for this account yet.')).toBeVisible();
   assert(await page.evaluate(() => localStorage.getItem('fpay:merchant:wallet:payment').includes('signed')));
   confirmFails = false;
   await page.reload();

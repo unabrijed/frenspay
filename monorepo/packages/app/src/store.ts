@@ -797,7 +797,7 @@ export const usePayStore = create<PayState>()(
             set({ error: e instanceof Error ? e.message : String(e) });
           }
         } else if (res.kind === 'upi' || res.kind === 'qris') {
-          set({ error: 'This merchant code is not supported yet.' });
+          set({ error: 'This payment code is not supported yet.' });
         } else if (res.kind === 'paynow') {
           // Recognition is not activation. No quote, wallet signature or sandbox payout from UI.
           set({ error: "Singapore payments aren’t available yet" });

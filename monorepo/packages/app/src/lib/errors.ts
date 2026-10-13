@@ -4,7 +4,7 @@
 import { ApiError } from '../services/api';
 
 const BY_CODE: Record<string, string> = {
-  merchant_pay_unavailable: "Merchant payments are not available for this account yet.",
+  merchant_pay_unavailable: "Scan and pay is not available for this account yet.",
   card_funding_unavailable: "Card funding is not available for this account yet.",
   payment_information_unavailable: "We could not open the required payment information. Please try later.",
   payment_information_cancelled: "Payment information was closed. No payment was submitted.",
@@ -13,8 +13,8 @@ const BY_CODE: Record<string, string> = {
   payment_already_started: "This payment has already started. Check pending payments for its status.",
   payment_expired: "This payment option expired. Refresh its details before paying.",
   payment_review_required: "The payment details changed. Refresh and review the new total.",
-  payment_option_unavailable: "This merchant cannot accept your balance through this code yet.",
-  payment_not_available: "This payment code is no longer available. Ask the merchant for a new one.",
+  payment_option_unavailable: "Your balance cannot be used with this payment code yet.",
+  payment_not_available: "This payment code is no longer available. Ask for a new one.",
   unsupported_payment_action: "This payment method is not supported yet.",
   payment_fee_sponsorship_unavailable: "This payment cannot be completed right now. No money has been sent.",
   payment_transaction_mismatch: "The payment did not match the amount you reviewed. No payment was submitted.",
@@ -22,7 +22,7 @@ const BY_CODE: Record<string, string> = {
   invalid_payment_signature: "We could not authorize this payment. Check its status before trying again.",
   invalid_payment_details: "This payment code has incomplete details.",
   invalid_payment_amount: "This payment amount is not supported.",
-  unsupported_payment_code: "This merchant code is not supported yet.",
+  unsupported_payment_code: "This payment code is not supported yet.",
 
   // sends to outside wallets (cross-chain)
   invalid_recipient: 'That address can’t receive money. Double-check it.',
