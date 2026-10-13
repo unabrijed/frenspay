@@ -11,6 +11,9 @@ export interface CampaignQuote {
   credits: string; inrPerUsd: string; estimatedRate: boolean; expiresAt: string;
 }
 export interface CampaignSpend {
+  /** Permanent classification; receipt confirmation never makes this a real payment. */
+  transactionKind: 'simulation';
+  countsTowardExpenses: false;
   id: string; recipientName: string; payeeVpa: string; amountInr: string; credits: string;
   points: string; createdAt: string; receiptStatus: 'simulated' | 'pending' | 'submitted' | 'confirmed' | 'review';
   receiptHash: string | null; commitment: string;

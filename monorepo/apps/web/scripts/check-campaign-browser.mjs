@@ -68,7 +68,7 @@ const server=createServer(async(req,res)=>{
     spendCalls++;
     if(!spends.has(body.idempotencyKey)){
       assert.ok(funded);credits--;points++;
-      spends.set(body.idempotencyKey,{id:body.idempotencyKey,recipientName:'Corner Cafe',payeeVpa:'cafe@upi',amountInr:'100',credits:'1',points:'1',createdAt:new Date().toISOString(),receiptStatus:'simulated',receiptHash:null,commitment:'0x'+'1'.repeat(64)});
+      spends.set(body.idempotencyKey,{transactionKind:'simulation',countsTowardExpenses:false,id:body.idempotencyKey,recipientName:'Corner Cafe',payeeVpa:'cafe@upi',amountInr:'100',credits:'1',points:'1',createdAt:new Date().toISOString(),receiptStatus:'simulated',receiptHash:null,commitment:'0x'+'1'.repeat(64)});
     }
     if(loseResponse){loseResponse=false;return reply({error:'campaign_temporarily_unavailable'},503);}
     return reply(spends.get(body.idempotencyKey));
@@ -161,6 +161,8 @@ try{
   await expect(page.getByRole('button',{name:'Check pending simulation'})).toBeVisible();
   await page.reload();await page.getByRole('button',{name:'Check pending simulation'}).click();
   await expect(page.getByRole('heading',{name:'Payment simulated'})).toBeVisible();
+  await expect(page.getByText('Prelaunch · Practice',{exact:true})).toBeVisible();
+  await expect(page.getByText('No money sent · Not a real expense.',{exact:true})).toBeVisible();
   assert.equal(spends.size,1);assert.equal(points,1);assert.equal(spendCalls,2);assert.equal(await page.evaluate(()=>window.signs),0);
   await preview('200');await page.evaluate(()=>{window.storageFailure=true});await page.getByRole('button',{name:'Confirm simulation',exact:true}).click();
   await expect(page.getByRole('alert')).toContainText('Allow browser storage');assert.equal(spendCalls,2);
@@ -195,7 +197,7 @@ try{
   await expect(page.getByText('Checking pending withdrawals…')).toBeVisible();
   await expect(page.getByRole('button',{name:'Review withdrawal',exact:true})).toHaveCount(0);
   await page.getByText('Activity',{exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Activity',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Practice activity',exact:true})).toBeVisible();
   await page.getByText('Home',{exact:true}).click();
   assert.equal(sessionRequests,1,'tab navigation must reuse the existing account');
   await expect.poll(()=>heldHistory.length).toBe(1);

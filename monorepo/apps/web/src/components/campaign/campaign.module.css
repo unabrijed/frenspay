@@ -39,3 +39,5 @@
 .receipt strong { display: block; font-size: 44px; margin: 18px 0; }
 .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: left; font-size: 14px; }
 .facts dd { text-align: right; margin: 0; overflow-wrap: anywhere; }
+
+.practice { display: inline-block; padding: 4px 9px; border: 1px dashed var(--accent); border-radius: 7px; color: var(--accent); background: var(--surface); font: 11px/1.4 var(--font-mono), monospace; letter-spacing: .02em; }

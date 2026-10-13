@@ -317,6 +317,8 @@ export async function makeQuote(did: string, raw: string, amountInr: string): Pr
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function spendView(row: Record<string, any>): CampaignSpend {
   return {
+    transactionKind: row.transaction_kind,
+    countsTowardExpenses: row.counts_toward_expenses,
     id: row.id,
     recipientName: row.recipient_name,
     payeeVpa: row.payee_vpa,

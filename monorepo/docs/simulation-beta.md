@@ -161,3 +161,11 @@ Receipt wallet testnet gas is separate from user USDC spending caps. With zero t
 Release `8fa6a18` was promoted in `f97efb8` to both `stage` and `sacred`. Railway production deployment `79dde42d-3b01-4e23-85ff-2fa5b7b3a5c5` succeeded and applied migrations 0034–0036; `/health` returns 200 and the campaign routes require authentication. Vercel completed customer, admin, LP and landing deployments. The live customer page opens Dynamic email sign-in; browser inspection identified missing Dynamic asset origins in CSP, corrected in the following frontend patch.
 
 Dynamic public settings were re-read after the dashboard update: Solana enabled, SOL and EVM embedded wallets enabled, automatic wallet creation enabled. SDK email delivery, authenticated funding/withdrawal/export, native device behavior and a confirmed testnet receipt still need acceptance testing.
+
+## Permanent practice-payment classification
+
+Campaign activity is labelled **Prelaunch · Practice** in the UI; receipts state **No money sent · Not a real expense**. This label is independent of any historical onchain receipt status.
+
+Migration `0038_simulation_classification.sql` classifies both existing and new rows in `campaign_spends` and retired `prelaunch_spends` with `transaction_kind = 'simulation'` and `counts_toward_expenses = false`. NOT NULL and CHECK constraints prevent either ledger being reclassified as real payments. History and spend API responses carry `transactionKind` and `countsTowardExpenses` too.
+
+At live launch, retain this history as practice activity. Do not import these records into `transfers`, `expense_payments`, real spending totals, or real-money balance calculations. Real expense queries already read only the transfer ledger, and expense payments have a foreign key to `transfers`. Exports or future combined activity views must preserve the classification and exclude simulations from real values. Real USDC deposits and withdrawals remain real transfers; this migration does not relabel them. Deploy the migration before the updated API.
