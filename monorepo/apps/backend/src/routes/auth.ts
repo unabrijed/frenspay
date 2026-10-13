@@ -37,7 +37,6 @@ import { screenHandle } from '../services/compliance';
 import { canonicalInviteCode } from '../services/invites';
 import { isFlistMember, requireFlist } from '../services/flist';
 import { confirmPhoneEnrollment, PhoneOtpProviderError, startPhoneEnrollment } from '../services/phoneOtp';
-import { getLinkedEmail, privyConfigured } from '../services/privy';
 
 import { toMerchantProfile } from './merchant';
 
@@ -70,6 +69,13 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     const privyDid = requirePrivyDid(req);
     const { handle, walletAddress } = req.body ?? ({} as AuthSyncRequest);
     if (!walletAddress) return reply.code(400).send({ error: 'missing_fields' });
+    if (walletAddress !== req.campaignIdentity?.solanaWalletAddress)
+      return reply.code(403).send({ error: 'wallet_identity_mismatch' });
+    if (req.userId) {
+      const previousWallet = await getWalletForUser(req.userId);
+      if (previousWallet && previousWallet.address !== walletAddress)
+        return reply.code(409).send({error:'wallet_migration_required'});
+    }
     if (handle !== undefined && typeof handle !== 'string') return reply.code(400).send({ error: 'invalid_handle' });
     // The handle is OPTIONAL. A sync without one is every setup screen's first move — "adopt whatever
     // this email already owns, or tell me to ask" — so a returning person (a Privy DID that rotated
@@ -86,9 +92,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     // Browser-locale country guess (weakest source — the upsert only fills it when NULL).
     const rawCountry = req.body?.country ?? '';
     const country = /^[A-Za-z]{2}$/.test(rawCountry) ? rawCountry.toUpperCase() : undefined;
-    let email: string | null;
-    try { email = privyConfigured() ? await getLinkedEmail(privyDid) : null; }
-    catch { return reply.code(503).send({ error: 'flist_unavailable' }); }
+    const email = req.campaignIdentity?.email ?? null;
     // Who this address already is, if anyone. It decides two things: whether a missing handle is an
     // error (nothing to adopt and no row for this DID → the screen has to ask, and asks THAT before
     // the invite gate can ask for a code), and whether the gate applies at all. The transaction
@@ -173,8 +177,8 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     //
     // ponytail: retries on every /me while it keeps failing. Bounded by "rows with a null email",
     // which is ~0 once this ships — stamp an attempted_at column if that stops being true.
-    if (!user.email && privyConfigured() && req.privyDid) {
-      const email = await getLinkedEmail(req.privyDid).catch(() => null);
+    if (!user.email && req.campaignIdentity?.email) {
+      const email = req.campaignIdentity!.email;
       if (email) user = (await setUserEmail(userId, email)) ?? user;
     }
     const wallet = await getWalletForUser(userId);
@@ -289,6 +293,8 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     const raw = (req.body?.address ?? '').trim();
     if (!/^0x[0-9a-fA-F]{40}$/.test(raw)) return reply.code(400).send({ error: 'invalid_address' });
     const address = raw.toLowerCase();
+    if (address !== req.campaignIdentity?.walletAddress)
+      return reply.code(403).send({ error: 'wallet_identity_mismatch' });
     await upsertWalletForChain(userId, 'ethereum', address);
     return { address };
   });

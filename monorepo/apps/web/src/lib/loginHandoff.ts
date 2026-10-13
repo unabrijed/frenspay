@@ -4,7 +4,7 @@ const KEY = 'fpay:email-login';
 export type LoginHandoff = { email: string; sentAt?: number; createdAt: number };
 let memory: LoginHandoff | null = null;
 
-/** Only a hint. The server always derives identity from the verified Privy session. */
+/** Only a hint. The server always derives identity from the verified Dynamic session. */
 export function readLoginHandoff(): LoginHandoff | null {
   const hash = new URLSearchParams(window.location.hash.slice(1));
   const email = normalizeEmail(hash.get('email') ?? '');

@@ -1,4 +1,4 @@
-// Splash — the LogoXl-on-Screen loading view: boot, hydration, the Privy gate, route guards.
+// Splash — the LogoXl-on-Screen loading view: boot, hydration, the Dynamic gate, route guards.
 import { LogoXl, Screen, View } from '@fpay/ui';
 
 export function Splash() {

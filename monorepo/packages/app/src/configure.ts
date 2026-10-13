@@ -17,6 +17,6 @@ export function configure(p: Platform): void {
     }
   }
   // Without Privy there is no session to resolve: auth is "ready" the moment the platform is.
-  if (!p.env.usePrivy) usePayStore.setState({ authReady: true });
+  if (!p.env.useDynamic) usePayStore.setState({ authReady: true });
   void usePayStore.persist.rehydrate();
 }

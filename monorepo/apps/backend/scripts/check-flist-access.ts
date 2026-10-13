@@ -35,24 +35,21 @@ pg.Pool.prototype.query = (async (sql: string, args?: unknown[]) => {
 process.env.LOCAL_DATABASE_URL = 'postgres://isolated.invalid/test';
 const { config } = await import('../src/envConfig');
 Object.assign(config, { databaseUrl: 'postgres://isolated.invalid/test', isLocal: true,
-  privyAppId: 'test-app', privyAppSecret: 'test-secret', prelaunchEnabled: true, adminEmails: ['admin@example.test'] });
-const { getPrivyClient } = await import('../src/services/privy');
-getPrivyClient().verifyAuthToken = (async (token: string) => {
-  if (token === 'invalid') throw new Error('Invalid token');
-  return { userId: token };
-}) as any;
-getPrivyClient().getUser = (async (did: string) => {
-  if (did === 'unavailable') throw new Error('Provider unavailable');
-  return { id: did, email: { address: `${did}@example.test` }, linkedAccounts: [
-    { type: 'wallet', chainType: 'ethereum', walletClientType: 'privy', address: '0x1111111111111111111111111111111111111111' },
-  ] };
-}) as any;
+  dynamicEnvironmentId:'', prelaunchEnabled: true, adminEmails: ['admin@example.test'] });
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async () => { throw new Error('Unexpected network request in isolated test'); };
 const q = await import('../src/db/queries');
 const { readFlist } = await import('../src/routes/flist');
 const { registerRoutes } = await import('../src/routes');
 const app = Fastify();
+// Route access uses verified fixtures; check-dynamic separately verifies signed JWTs.
+app.addHook('preHandler',async(req,reply)=>{
+  const did=req.headers.authorization?.slice(7);
+  if(!did||did==='invalid')return;
+  if(did==='unavailable')return reply.code(503).send({error:'flist_unavailable'});
+  req.privyDid=did;req.campaignIdentity={subject:did,email:did+'@example.test',solanaWalletAddress:did+'-wallet'};
+  const user=await q.findUserByPrivyDid(did);if(user)req.userId=user.id;
+});
 await registerRoutes(app);
 const call = (method: 'GET' | 'POST', url: string, did?: string, payload?: unknown) =>
   app.inject({ method, url, ...(did ? { headers: { authorization: `Bearer ${did}` } } : {}), ...(payload ? { payload } : {}) });
@@ -109,6 +106,10 @@ try {
   assert.equal((await call('GET', '/me', 'alice')).statusCode, 200);
   assert.equal((await call('GET', '/payments/capabilities', 'alice')).statusCode, 200);
   const alice = (await q.findUserByEmail('alice@example.test'))!;
+  const bound=await q.findOrBindDynamicUser('dynamic:fixture:alice','alice@example.test');
+  assert.equal(bound?.id,alice.id);
+  assert.equal((await q.getWalletForUser(alice.id))?.address,'alice-wallet');
+  await assert.rejects(q.findOrBindDynamicUser('dynamic:fixture:other','alice@example.test'),/identity_already_bound/);
   await q.markInvitesRevealed(alice.id);
   assert.equal((await readFlist('alice@example.test')).invites.length, 3);
   await q.ensureInviteCodes(alice.id);

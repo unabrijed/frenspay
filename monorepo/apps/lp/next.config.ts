@@ -15,7 +15,7 @@ const nextConfig: NextConfig = {
   // Cost: the stray payments/yarn.lock is back in scope, so Next may warn about multiple lockfiles.
   outputFileTracingRoot: path.join(__dirname, '..', '..', '..'),
   webpack: (config) => {
-    // Privy optionally imports onramp/farcaster integrations we don't use — stub them so
+    // Dynamic optionally imports onramp/farcaster integrations we don't use — stub them so
     // they don't surface as "module not found" or fail at resolve time.
     config.resolve = config.resolve || {};
     config.resolve.alias = {

@@ -13,7 +13,7 @@ import { create } from 'zustand';
 
 import { req } from '@/services/api';
 
-/** Imperative auth actions the Privy bridge registers, so screens never import Privy. */
+/** Imperative auth actions the Dynamic bridge registers, so screens never import Dynamic. */
 export interface AuthBridge {
   sendCode: (email: string) => Promise<void>;
   verifyCode: (code: string) => Promise<void>;
@@ -30,7 +30,7 @@ export interface Toast {
 
 interface LpState {
   authStatus: AuthStatus;
-  /** Set once Privy has an embedded wallet — the address the LP signs and stakes from. */
+  /** Set once Dynamic has an embedded wallet — the address the LP signs and stakes from. */
   walletAddress: string;
   /** True once /me has answered at least once, so screens can tell "loading" from "nothing". */
   loaded: boolean;

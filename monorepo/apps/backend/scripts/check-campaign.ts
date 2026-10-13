@@ -80,11 +80,7 @@ Object.assign(config, { databaseUrl:connectionString,pgSslDisable:true,isLocal:t
   monadTestnetRpcUrl:'https://isolated.invalid/testnet', phoneOtpProvider:'console',
   customerPaymentMode:'simulation',campaignSpendingEnabled:true,campaignFundingEnabled:true,
   prelaunchReceiptWalletId:'',prelaunchReceiptAddress:'' });
-const { getPrivyClient } = await import('../src/services/privy');
-const users = Object.fromEntries(['alice','bob','carol'].map((id,index)=>[id,{
-  id,email:{address:id+'@example.test'},linkedAccounts:[{type:'wallet',chainType:'ethereum',walletClientType:'privy',address:'0x'+String(index+1).repeat(40)}],
-}]));
-getPrivyClient().getUser = (async (did:string) => users[did]) as any;
+const users = Object.fromEntries(['alice','bob','carol'].map((id,index)=>[id,{subject:id,email:id+'@example.test',walletAddress:'0x'+String(index+1).repeat(40)}]));
 let observed = 0n, chain = 143, block = 16;
 let rpcFails = false;
 const originalFetch = globalThis.fetch;
@@ -137,7 +133,7 @@ try {
   assert.equal(verifySponsoredReceipt({to:entry,input},[log(true)],sender,target,'0x9999'),false);
   assert.equal(verifySponsoredReceipt({to:sender,input},[log(true)],sender,target,commitment),false);
 
-  for(const id of Object.keys(users)) await ledger.syncIdentity(id);
+  for(const id of Object.keys(users)) await ledger.syncIdentity(id,undefined,users[id]);
   assert.equal((await app.inject({method:'GET',url:'/campaign/account',headers:{'x-fixture-user':'bob'}})).statusCode,403);
   const initial=await ledger.account('alice');
   assert.equal(initial.practice_credits,'0.000000');assert.equal(initial.reward_credits,'0.000000');
@@ -147,7 +143,7 @@ try {
   assert.equal((await ledger.account('alice')).reward_credits,'10.000000');
   observed=0n;block++;await ledger.syncBalance('alice');observed=10_000000n;block++;await ledger.syncBalance('alice');
   assert.equal((await ledger.account('alice')).reward_credits,'10.000000');
-  const upgraded=await ledger.syncIdentity('alice',{name:'Alice',country:'IN'});assert.equal(upgraded.rewardCredits,'20.000000');
+  const upgraded=await ledger.syncIdentity('alice',{name:'Alice',country:'IN'},users.alice);assert.equal(upgraded.rewardCredits,'20.000000');
   chain=10143;await assert.rejects(ledger.syncBalance('alice'),/wrong_network/);chain=143;
   rpcFails=true;await assert.rejects(ledger.syncBalance('alice'));rpcFails=false;
   assert.equal((await ledger.account('alice')).balance_usdc,'10.000000');

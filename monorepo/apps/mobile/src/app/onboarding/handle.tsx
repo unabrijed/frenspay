@@ -41,7 +41,7 @@ export default function Handle() {
   }
 
   return (
-    <HandlePrivy
+    <HandleDynamic
       onDone={() => {
         // Onboarding is over here: the funding step that used to follow was the devnet faucet.
         completeOnboarding();
@@ -52,7 +52,7 @@ export default function Handle() {
   );
 }
 
-function HandlePrivy({ onDone }: { onDone: () => void }) {
+function HandleDynamic({ onDone }: { onDone: () => void }) {
   const router = useRouter();
   const authSync = usePayStore((s) => s.authSync);
   const [h, setH] = useState('');

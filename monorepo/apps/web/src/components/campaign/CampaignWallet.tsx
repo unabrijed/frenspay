@@ -3,7 +3,7 @@ import { createContext, useContext, type ReactNode } from 'react';
 import type { PrelaunchTransaction } from '@fpay/shared';
 
 export interface CampaignWallet {
-  provider: 'privy' | 'dynamic';
+  provider: 'dynamic';
   fundFromWallet?: (address: string) => Promise<void>;
   user: { id: string; linkedAccounts: { type: 'wallet'; walletClientType: string; chainType: string; address: string }[] } | null;
   getAccessToken: () => Promise<string | null>;

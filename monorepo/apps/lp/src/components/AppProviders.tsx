@@ -1,20 +1,21 @@
 'use client';
 
-// AppProviders — mounts Privy only when it is configured. The dynamic import keeps the SDK out of
+// AppProviders — mounts Dynamic only when it is configured. The dynamic import keeps the SDK out of
 // the bundle otherwise, and `loading` shows the splash while the chunk downloads so the
 // post-hydration window is never a blank frame.
 import dynamic from 'next/dynamic';
 import type { ReactNode } from 'react';
 
 import { Splash } from '@/components/Splash';
-import { USE_PRIVY } from '@/services/envConfig';
+import { USE_DYNAMIC, IS_LOCAL_ENV } from '@/services/envConfig';
 
-const PrivyRoot = dynamic(() => import('@/services/privy/PrivyRoot'), {
+const DynamicRoot = dynamic(() => import('@/services/dynamic/DynamicRoot'), {
   ssr: false,
   loading: () => <Splash />,
 });
 
 export function AppProviders({ children }: { children: ReactNode }) {
-  if (USE_PRIVY) return <PrivyRoot>{children}</PrivyRoot>;
+  if (USE_DYNAMIC) return <DynamicRoot>{children}</DynamicRoot>;
+  if (!IS_LOCAL_ENV) return <main>Dynamic sign-in is not configured.</main>;
   return <>{children}</>;
 }

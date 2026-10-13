@@ -21,3 +21,5 @@ export * from './Button';
 export * from './Keypad';
 export * from './Screen';
 export * from './BackButton';
+
+export { CodeInput } from './CodeInput';

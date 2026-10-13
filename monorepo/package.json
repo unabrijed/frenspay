@@ -19,7 +19,7 @@
     "dev:admin": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/admin dev & wait",
     "dev:landing": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/landing dev & wait",
     "dev:backend": "yarn workspace @fpay/backend dev",
-    "_comment_mobile": "Expo needs its own terminal (its keypress menu breaks under the dev:* fan-out), so dev:mobile starts Metro only: run yarn dev:backend beside it, or point EXPO_PUBLIC_STAGE_API_URL at stage. Privy needs a dev build, not Expo Go: `yarn workspace @fpay/mobile android` installs it over adb.",
+    "_comment_mobile": "Expo needs its own terminal (its keypress menu breaks under the dev:* fan-out), so dev:mobile starts Metro only: run yarn dev:backend beside it, or point EXPO_PUBLIC_STAGE_API_URL at stage. Dynamic needs a dev build, not Expo Go: `yarn workspace @fpay/mobile android` installs it over adb.",
     "dev:mobile": "yarn workspace @fpay/mobile start",
     "brand": "node brand/generate.mjs",
     "typecheck": "yarn workspace @fpay/shared tsc --noEmit && yarn workspace @fpay/ui tsc --noEmit && yarn workspace @fpay/app tsc --noEmit && yarn workspace @fpay/backend tsc --noEmit && yarn workspace @fpay/web tsc --noEmit && yarn workspace @fpay/admin tsc --noEmit && yarn workspace @fpay/lp tsc --noEmit && yarn workspace @fpay/landing tsc --noEmit && yarn workspace @fpay/mobile tsc --noEmit",
@@ -72,5 +72,8 @@
     "check:campaign:postgres": "yarn workspace @fpay/backend check:campaign:postgres",
     "check:campaign:browser": "yarn workspace @fpay/web check:campaign:browser",
     "check:dynamic": "yarn workspace @fpay/backend check:dynamic"
+  },
+  "resolutions": {
+    "@solana/web3.js": "1.98.4"
   }
 }

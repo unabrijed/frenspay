@@ -1,8 +1,8 @@
-// Auth step (Privy): email-OTP login → embedded Solana wallet → handle. Port of the web's
+// Auth step (Dynamic): email-OTP login → embedded Solana wallet → handle. Port of the web's
 // onboarding/faceid/page.tsx.
 import { bootRoute, Skeleton, usePayStore } from '@fpay/app';
 import { isValidEmail, normalizeEmail } from '@fpay/shared';
-import { BackButton, Btn, colors, Field, GlyphCircle, Icons, Input, Screen, Spacer, Txt, type, View } from '@fpay/ui';
+import { BackButton, Btn, CodeInput, colors, Field, GlyphCircle, Icons, Input, Screen, Spacer, Txt, type, View } from '@fpay/ui';
 import { useRouter } from 'expo-router';
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
@@ -63,7 +63,7 @@ export default function FaceID() {
         </Txt>
         <Field style={{ marginTop: 4, alignSelf: 'stretch' }}>
           {sent ? (
-            <Input value={code} onChangeText={setCode} placeholder="123456" keyboardType="numeric" autoComplete="one-time-code" autoFocus style={styles.input} />
+            <CodeInput value={code} onChange={setCode} disabled={submitting}/>
           ) : (
             <Input value={email} onChangeText={setEmail} placeholder="you@email.com" keyboardType="email" autoComplete="email" autoFocus style={styles.input} />
           )}
@@ -74,7 +74,7 @@ export default function FaceID() {
         {sent ? (
           <Btn
             label={submitting ? 'Verifying…' : 'Verify'}
-            disabled={code.length < 4 || submitting}
+            disabled={code.length !== 6 || submitting}
             pending={submitting}
             onPress={() => {
               setSubmitting(true);

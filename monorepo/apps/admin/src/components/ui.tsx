@@ -187,9 +187,9 @@ export function Td({ children, className = '' }: { children: ReactNode; classNam
 }
 
 /** A person, as the console names one: handle over email, always both. The email is how every
- *  login happens and the handle is the unique payment ID — an operator cross-referencing a Privy
+ *  login happens and the handle is the unique payment ID — an operator cross-referencing a Dynamic
  *  session, a payer and a partner needs the two on one line. `—` when the email never synced
- *  (Privy hiccup at signup, repaired on their next /me) or the row is deleted. */
+ *  (Dynamic hiccup at signup, repaired on their next /me) or the row is deleted. */
 export function Who({ handle, email }: { handle: string | null | undefined; email: string | null | undefined }) {
   return (
     <div className="leading-tight">

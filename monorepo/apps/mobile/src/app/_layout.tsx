@@ -1,5 +1,5 @@
 // Root layout — boots the product (configure), loads the two faces, gates on store hydration, and
-// mounts the overlay layers once: sheets, toasts, the suspended gate, the live poller. Privy's
+// mounts the overlay layers once: sheets, toasts, the suspended gate, the live poller. Dynamic's
 // native modules load only when an app id is configured.
 import { configure, LiveSync, SheetHost, SuspendedGate, ToastHost, useStoreHydrated } from '@fpay/app';
 import { colors } from '@fpay/ui';
@@ -15,12 +15,12 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { fontMap } from '@/lib/fonts';
 import { nativePlatform } from '@/platform';
 import { usePush } from '@/push';
-import { USE_PRIVY } from '@/services/envConfig';
+import { USE_DYNAMIC } from '@/services/envConfig';
 
 // Before any render: this module is the router's root, so it evaluates ahead of every route.
 configure(nativePlatform);
 
-const PrivyRoot = USE_PRIVY ? lazy(() => import('@/services/privy/PrivyRoot')) : null;
+const DynamicRoot = USE_DYNAMIC ? lazy(() => import('@/services/dynamic/DynamicRoot')) : null;
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -36,9 +36,9 @@ export default function RootLayout() {
 
   // Hydration stays in front of everything: the persist middleware merges the STORED state over
   // the current one when it lands, so a bridge write to a persisted key before that would be
-  // clobbered. Fonts do not: PrivyRoot mounts below as soon as storage has been read, so Privy's
+  // clobbered. Fonts do not: DynamicRoot mounts below as soon as storage has been read, so Dynamic's
   // own init (SecureStore, network) overlaps the font load instead of queueing behind it. The
-  // native splash still hides on `ready`, and the Privy gate's Splash is font-free.
+  // native splash still hides on `ready`, and the Dynamic gate's Splash is font-free.
   if (!hydrated) return null;
 
   const tree = (
@@ -64,9 +64,9 @@ export default function RootLayout() {
   );
 
   const shown = ready ? tree : null;
-  return PrivyRoot ? (
+  return DynamicRoot ? (
     <Suspense fallback={null}>
-      <PrivyRoot>{shown}</PrivyRoot>
+      <DynamicRoot>{shown}</DynamicRoot>
     </Suspense>
   ) : (
     shown

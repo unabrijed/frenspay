@@ -47,9 +47,10 @@
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
+    "@dynamic-labs-wallet/core": "1.1.36",
+    "@dynamic-labs-wallet/node-evm": "1.1.36",
     "@fastify/cors": "^10.0.1",
     "@fpay/shared": "*",
-    "@privy-io/server-auth": "^1.32.5",
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",
     "@walletconnect/pay": "1.1.0",

@@ -6,7 +6,7 @@ import { config, usableSecret } from '../../envConfig';
 import { BN, parseAmount } from '../../lib/units';
 import { parsePayNowQr } from '../../lib/paynow';
 import { getMidRate, getMidRateAsOf } from '../fxRate';
-import { getPrivyClient } from '../privy';
+import type { CampaignIdentity } from '../dynamic';
 import { normalizePhone } from '../../db/queries';
 import { sendOtp, verifyOtp } from '../phoneOtp';
 import { balance, withdrawal } from './chain';
@@ -91,7 +91,7 @@ export function view(row: AccountRow): PrelaunchAccount {
     points: row.points,
     fundingAvailable: !!config.monadRpcUrl,
     receiptsAvailable: !!(
-      config.prelaunchReceiptWalletId &&
+      config.dynamicApiToken && config.dynamicReceiptWallet &&
       config.prelaunchReceiptAddress &&
       config.monadTestnetRpcUrl
     ),
@@ -142,17 +142,14 @@ async function claimIdentity(db: PoolClient, id: string, kind: 'phone' | 'x', va
 export async function syncIdentity(
   did: string,
   profile?: { name?: string; country?: string },
+  verifiedIdentity?: CampaignIdentity,
 ): Promise<PrelaunchAccount> {
-  const identity = await getPrivyClient().getUser(did);
-  const email = identity.email?.address?.trim().toLowerCase();
-  const wallets = identity.linkedAccounts.filter(
-    (a) => a.type === 'wallet' && a.chainType === 'ethereum' && a.walletClientType === 'privy',
-  );
-  const wallet = wallets[0];
+  const identity = verifiedIdentity;
+  if (!identity || identity.subject !== did) fail('unauthorized', 401);
+  const email = identity.email;
+  const address = identity.walletAddress;
   if (!email) fail('verified_email_required', 403);
-  if (!wallet || wallet.type !== 'wallet') fail('wallet_not_ready', 409);
-  const address = wallet.address.toLowerCase();
-  if (!/^0x[0-9a-f]{40}$/.test(address)) fail('wallet_not_ready', 409);
+  if (!address || !/^0x[0-9a-f]{40}$/.test(address)) fail('wallet_not_ready', 409);
   if (
     profile &&
     (typeof profile.name !== 'string' ||
@@ -177,13 +174,13 @@ export async function syncIdentity(
           [row.id, profile.name!.trim(), profile.country],
         )
       ).rows[0];
-    const x = identity.linkedAccounts.find((a) => a.type === 'twitter_oauth');
-    if (x?.type === 'twitter_oauth') {
-      await claimIdentity(db, row.id, 'x', x.subject);
+    const x = identity.xSubject;
+    if (x) {
+      await claimIdentity(db, row.id, 'x', x);
       row = (
         await db.query<AccountRow>(
           'update prelaunch_accounts set twitter_subject=$2 where id=$1 returning *',
-          [row.id, x.subject],
+          [row.id, x],
         )
       ).rows[0];
     }

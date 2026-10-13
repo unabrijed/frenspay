@@ -1,5 +1,5 @@
 // Entry gate: where does this session belong? Same function as the web's entry router
-// (lib/bootRoute) — a null answer holds the splash until Privy and /me have spoken.
+// (lib/bootRoute) — a null answer holds the splash until Dynamic and /me have spoken.
 import { bootRoute, platform, usePayStore, useStoreHydrated } from '@fpay/app';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect } from 'react';

@@ -10,7 +10,7 @@ The checklist and recording instructions are for you, not application answers.
 CURRENT STATUS
 
 The Monad simulation code is implemented and locally tested.
-Dynamic is integrated for the new beta; Privy remains for legacy recovery.
+Dynamic powers authentication and wallets; Privy integrations have been removed.
 The provider switch and real wallet flows still need deployed acceptance tests.
 The local preview uses mock funds and wallet actions.
 The deployed Monad journey, sponsorship and real deposit/withdrawal checks
@@ -232,8 +232,118 @@ Arrange judge invitations and funding before claiming the flow is ready.
 11. SPONSOR BOUNTIES
 ------------------------------------------------------------
 
-Optional. Leave empty unless an implemented integration meets a specific
-bounty's requirements. The primary track can stand alone.
+Recommendation based on the track and bounty descriptions supplied from the
+registered portal. These are fit assessments, not confirmed eligibility or
+predictions of winning. Full bounty questions may add requirements.
+No selections have been changed in the portal.
+
+PRIMARY TRACK: KEEP CONSUMER PRODUCTS & PAYMENTS
+
+This is the strongest match for email onboarding, embedded wallets, USDC
+funding and a familiar consumer payment interface. Its listed pool is
+$30,000 USD; that is not necessarily the award for one winner.
+
+The beta simulates merchant payments. Demonstrate real wallet creation,
+funding and withdrawal, and explain that UPI settlement is not live.
+Make the usefulness of the real wallet experience clear; points and a QR
+simulation alone may leave judges questioning why the product needs a chain.
+
+The other primary tracks would require a different core product:
+- Onchain Finance & Trading: no trading product or new market primitive.
+- Social, Attention & Culture: invitations and badges alone are not an
+  open social graph, community governance or meaningful cultural ownership.
+- Trust, Identity & AI Infrastructure: using an auth SDK does not make
+  Frenspay protocol-level identity or AI infrastructure.
+
+BOUNTIES TO PRIORITIZE
+
+1. BEST USE OF DYNAMIC - $5,000 USD
+   Best fit. The requirement is Dynamic authentication, wallets and/or
+   signing in a deployed, demoable app.
+   Current state: SDK integration and login-screen smoke test completed;
+   the full deployed, authenticated wallet journey is not yet verified.
+   Show: email login, embedded wallet, USDC funding, an explicit withdrawal
+   signature, and the export/recovery entry point. Do not expose a key in
+   the demo video.
+   Select for the final entry after the deployed flow works.
+
+2. PRIVY! - DO NOT SELECT
+   Removed from the implementation. We now use Dynamic for customer wallets
+   and the platform testnet receipt signer. Keeping old credentials or historical
+   schema names is not a qualifying integration.
+
+3. BEST COMMUNITY TEAM PROJECT - $5,000 USD
+   Check affiliation, not an integration task. Apply only if the team
+   qualifies as being from a Metropolis community supporter under the full
+   rules. General Monad participation is not enough to establish that.
+
+OPTIONAL INTEGRATIONS, AFTER THE WORKING DEMO
+
+4. BEST USE OF ENVIO - $1,000 USD
+   Potential fit: verified USDC deposit activity or receipt tracking driven
+   by Envio, with chain confirmation checks retained before granting credits.
+   Our existing RPC polling and SQL dashboard are not an Envio integration.
+   Add only if it improves a core feature and can be demonstrated reliably.
+
+5. BEST PROJECTS USING ALCHEMY - $1,000 IN ALCHEMY CREDITS
+   Potential fit if a supported Alchemy service meaningfully powers the
+   deployed Monad wallet experience. Verify the service and chain support
+   before choosing an implementation. A logo or unused API key is not enough.
+   This award is service credits, not a cash prize.
+
+6. AURORA INTENTS - $5,000 USD
+   Strong future fit with the request for more funding options: deposits
+   from another chain could arrive as native USDC in the Monad wallet.
+   This is NOT implemented by our same-chain wallet transfer button.
+   It adds source-chain signing, quotes/fees, slippage, destination asset
+   verification and interrupted-transfer recovery. Confirm supported routes
+   and tokens first. Credit only finalized native USDC received on Monad.
+   Recommend a later funding milestone rather than delaying the base demo.
+
+SKIP FOR THIS VERSION
+
+- Agora cross-border payments ($10,000 USD): requires a mobile app, AUSD,
+  Mera onboarding and real cross-border sending. Our USDC web simulation
+  does not meet that description.
+- Agora mobile trading ($10,000 USD): requires mobile, Mera, AUSD and Perpl
+  trades. This would be a different product and primary track.
+- Cleanverse ($2,000 USD): requires CVA movement gated by on-chain CVI
+  verification; also assigned to the Trust track.
+- Kuru consumer trading ($5,000 USD): requires actual Kuru-routed spot trades.
+- Kuru new assets/markets ($5,000 USD): requires new Kuru markets and their
+  supporting infrastructure. Neither Kuru bounty matches this beta.
+- Chainlink CRE ($3,000 USD): no current CRE workflow. An orchestration
+  integration could be built, but there is no present requirement that
+  justifies adding it before launch.
+- Perpl API ($5,000 USD): requires a production-ready trading bot or
+  automation system on Perpl; payment simulation is not that.
+- Perpl analytics/risk ($3,000 USD): requires a Perpl-focused dashboard;
+  our campaign usage dashboard does not qualify.
+- Nansen ($5,000 USD total pool): no Nansen-powered product feature.
+  A new, useful data-driven experience would need to be built.
+- Hunyuan ($2,000 Tencent Cloud vouchers): requires genuine model use and
+  is assigned to Social, Attention & Culture. No current fit.
+- KIMI ($3,000 credits): open scope, but no genuine KIMI-powered feature.
+- Qwen 3.8 Max ($5,000 credits): requires an agentic product and is assigned
+  to Trust, Identity & AI Infrastructure. No current fit.
+- Mera-powered UX ($2,500 USD): Mera must be the entire account layer.
+  Adding a Mera button beside Dynamic would not meet that description.
+- Mera: One Passkey, Many Keys ($2,500 USD): requires a creative non-wallet
+  use of Mera PRF key material. Wallet login or key export does not qualify.
+
+BUILD ORDER
+
+1. Deploy and verify Dynamic onboarding, invitations and wallet recovery.
+2. Prove real USDC funding and withdrawal, then the simulation journey.
+3. Fund and demonstrate the Dynamic testnet receipt worker.
+4. Complete Dynamic bounty questions after demonstrating the deployed flow.
+5. Check community-team eligibility separately.
+6. Consider Envio or Alchemy only after the core demo is complete.
+7. Keep Aurora cross-chain funding as the next substantial product feature.
+
+No credible winning probability can be calculated from prize amounts or
+these descriptions. Competition, full judging criteria and deployed quality
+are unknown. Focus on a complete, honest demonstration over bounty count.
 
 ------------------------------------------------------------
 12. OPTIONAL PROMOTION

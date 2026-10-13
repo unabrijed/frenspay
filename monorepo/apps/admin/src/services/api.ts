@@ -29,7 +29,7 @@ import { apiHost } from './apiMode';
 import { DEV_USER_ID } from './envConfig';
 
 let authToken: string | null = null;
-/** Set by Privy after login. Until then requests fall back to the dev header. */
+/** Set by Dynamic after login. Until then requests fall back to the dev header. */
 export function setAuthToken(token: string | null): void {
   authToken = token;
 }
@@ -58,7 +58,7 @@ export async function req<T>(path: string, init?: RequestInit, retried = false):
   // Host is read per call, not captured at import: the operator can be pointed at either backend.
   const res = await fetch(`${apiHost()}${path}`, { ...init, headers });
 
-  // Expired Privy access token → refresh once and retry transparently.
+  // Expired Dynamic access token → refresh once and retry transparently.
   if (res.status === 401 && !retried && refreshToken) {
     const fresh = await refreshToken().catch(() => null);
     if (fresh) {

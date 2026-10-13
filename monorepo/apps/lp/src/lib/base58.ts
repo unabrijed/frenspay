@@ -1,4 +1,4 @@
-// Minimal base58 (Bitcoin alphabet) encoder — used to turn Privy's raw signature bytes
+// Minimal base58 (Bitcoin alphabet) encoder — used to turn Dynamic's raw signature bytes
 // into the base58 transaction signature string the backend expects. Avoids a bs58 dep.
 const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 

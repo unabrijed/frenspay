@@ -4,7 +4,7 @@ Decision: 13 October 2026. Target Metropolis, Consumer Products & Payments. This
 
 ## Product contract
 
-1. Redeem an invitation and sign in with the selected provider's email authentication (Dynamic for the new beta; Privy retained for recovery). The backend verifies membership and binds the verified identity to its verified embedded EVM wallet.
+1. Redeem an invitation and sign in with Dynamic email authentication. The backend verifies membership and binds the verified identity to its verified embedded EVM wallet.
 2. Add native USDC to that wallet on **Monad mainnet, chain 143**. The supported token is `0x754704Bc059F8C67012fEd69BC8A327a5aafb603`. Mainnet funds are real; testnet tokens do not qualify. Funding supports a connected external wallet, address/QR transfer and an exchange withdrawal that supports Monad. Card/bank on-ramps are not configured, and no cross-chain bridge is offered.
 3. Refresh the finalized balance. Lifetime credit entitlement equals highest verified USDC balance multiplied by highest attained profile multiplier. Grant only the positive increase over credits already granted. Email gives 1×; name and country 2×; verified phone 5×; linked X account 10×. There is no free allocation or daily reset.
 4. Scan or paste an Indian UPI QR, review its payee and INR amount, and confirm a simulation. Fixed QR amounts cannot be changed. The server quotes INR into test credits, expires the quote after 90 seconds, and atomically debits credits once.
@@ -34,7 +34,7 @@ Admin reporting includes invitations, funded accounts, repeat usage, payees, cat
 
 ## Configuration and release gates
 
-Backend production uses bare names; stage uses `STAGE_`; local uses `LOCAL_` with stage fallback. Privy credentials remain unprefixed. Use isolated fixtures for tests, never the inherited stage database.
+Backend production uses bare names; stage uses `STAGE_`; local uses `LOCAL_` with stage fallback. Use isolated fixtures for tests, never the inherited stage database.
 
 | Setting | Required action |
 | --- | --- |
@@ -44,8 +44,8 @@ Backend production uses bare names; stage uses `STAGE_`; local uses `LOCAL_` wit
 | `CAMPAIGN_SPENDING_ENABLED` | Keep `false` until acceptance checks; enables new sessions/simulations |
 | `MONAD_RPC_URL` | Mainnet RPC supporting finalized block and native token reads |
 | `MONAD_TESTNET_RPC_URL` | Testnet RPC for receipt confirmations |
-| `PRELAUNCH_RECEIPT_WALLET_ID`, `PRELAUNCH_RECEIPT_ADDRESS` | Matching platform-owned Privy receipt wallet; reused configuration, not the old campaign ledger |
-| Privy app sponsorship | Verify app-paid Monad mainnet withdrawals and testnet receipt transactions with the actual app |
+| `DYNAMIC_API_TOKEN`, `DYNAMIC_RECEIPT_WALLET_JSON`, `PRELAUNCH_RECEIPT_ADDRESS` | Platform-owned Dynamic signing bundle and matching address; server-only secrets |
+| Gas | Users need mainnet MON for real withdrawals; platform receipt wallet needs free testnet MON |
 | Phone verification | Configure a supported production OTP provider before advertising the phone tier; console OTP is not production verification |
 
 Keep the old campaign retired and real-payment/card features disabled for this release. Backend capabilities and frontend mode must agree; the campaign fails closed on disagreement. Feature flags do not prevent unsolicited blockchain deposits to an already-known address.
@@ -53,7 +53,7 @@ Keep the old campaign retired and real-payment/card features disabled for this r
 Release sequence:
 
 1. Deploy migration/backend and admin with both campaign flags false. Set backend simulation mode, then deploy a customer web build with matching mode. Confirm unauthenticated and non-invited requests are rejected and new real-payment intents return `simulation_only`.
-2. Provision RPCs, the receipt wallet and Privy sponsorship. Verify the configured chains, exact token, receipt wallet address and supported account-abstraction envelope. Do not infer readiness from credentials being present.
+2. Provision RPCs and the Dynamic receipt wallet. Verify the configured chains, exact token, receipt wallet address and supported account-abstraction envelope. Do not infer readiness from credentials being present.
 3. Use an explicitly invited operator account marked as test data. Enable the campaign during a controlled acceptance window for that cohort. Verify a small real USDC deposit, confirmed withdrawal, wallet export, one simulation, receipt attestation and reload recovery. This requires an operator-owned wallet and actual funds; automated fixtures cannot establish it.
 4. Check admin exclusions and pause behavior. If sponsorship, receipt recovery or withdrawal fails, turn funding and spending off while retaining wallet recovery. Resolve the failure before admitting users.
 5. Admit the limited cohort, monitor receipt review jobs/errors, and record the deployed commit, configuration and smoke-test evidence. Native mobile and real settlement are out of scope.
@@ -62,7 +62,7 @@ Production observation on 13 October: Railway `fpay` production lacks both campa
 
 ## Verification and submission
 
-Local implementation validation on 13 October: all nine workspace TypeScript checks, the existing `check:all` suite, campaign PostgreSQL integration tests, campaign browser tests, and backend/customer-web/admin production builds passed. Receipt verification tests include successful and failed sponsored operations, incorrect commitments and incorrect entry points. Frontend builds retain existing Privy dependency dynamic-import warnings. These results are not production acceptance evidence.
+Local implementation validation on 13 October: all nine workspace TypeScript checks, the existing `check:all` suite, campaign PostgreSQL integration tests, campaign browser tests, and backend/customer-web/admin production builds passed. Receipt verification tests include successful and failed sponsored operations, incorrect commitments and incorrect entry points. These results are not production acceptance evidence.
 
 From `monorepo`, use the pinned Node 24 and Yarn 1.22.22:
 
@@ -77,73 +77,79 @@ NEXT_PUBLIC_CUSTOMER_PAYMENT_MODE=simulation yarn workspace @fpay/web build
 yarn workspace @fpay/admin build
 ```
 
-Campaign tests isolate the database and mock external services. The PostgreSQL variant tests real locking and concurrent spends. Browser tests mount the actual campaign component with mocked identity/API: deposit gating, lost-response recovery, storage failure, withdrawal recovery and no payment-signing call during simulations. They do not prove production Privy sponsorship or RPC availability. Local validation used available Node 25.9.0; release runtime remains pinned to Node 24.
+Campaign tests isolate the database and mock external services. The PostgreSQL variant tests real locking and concurrent spends. Browser tests mount the actual campaign component with mocked identity/API: deposit gating, lost-response recovery, storage failure, withdrawal recovery and no payment-signing call during simulations. They do not prove production signing or RPC availability. Local validation used available Node 25.9.0; release runtime remains pinned to Node 24.
 
 Demo script: invited email login → real USDC balance and test allowance → scan ordinary UPI QR → explicit simulation confirmation → points/badge and testnet attestation → real USDC still present → withdrawal/recovery → admin usage with operator accounts excluded. Never show a simulated success as proof a shop was paid.
 
 Submission framing: “Frenspay lets invited users rehearse a USDC-funded UPI-style payment experience on Monad, earning points while testing onboarding, QR parsing and wallet recovery. Settlement is simulated; live UPI requires a future provider integration.” Show only implemented and verified behavior. Identify pre-existing components separately from work completed during the event. Confirm deadline and eligibility in the registered portal before submitting; no exact cutoff is asserted here.
 
-References: [Metropolis](https://monad.xyz/metropolis), [Circle token addresses](https://developers.circle.com/stablecoins/usdc-contract-addresses), [Privy sponsorship](https://docs.privy.io/wallets/gas-and-asset-management/gas/overview), [UPI request fields](https://developers.google.com/pay/india/api/web/create-payment-method).
+References: [Metropolis](https://monad.xyz/metropolis), [Circle token addresses](https://developers.circle.com/stablecoins/usdc-contract-addresses), [Dynamic wallet SDK](https://www.dynamic.xyz/docs/node/quickstart), [UPI request fields](https://developers.google.com/pay/india/api/web/create-payment-method).
 
 
-## Dynamic provider switch (13 October)
+## Dynamic migration (13 October)
 
-The new beta uses Dynamic React SDK 5.10.0 with its built-in authentication,
-step-up and recovery UI. Privy dependencies and credentials remain intact.
-A provider adapter keeps the simulation ledger independent of either wallet SDK.
-Use `/wallet-recovery` for existing Privy campaign wallets and `/legacy-wallet`
-for older Singapore wallets. A hard navigation between providers resets the SDK
-and API session. New Dynamic wallets have new addresses; no funds or keys are
-silently moved, and matching email addresses are never automatically merged.
-An existing campaign email collision is blocked and requires a deliberate
-migration; it cannot reset credit history. Reverting the provider selects the
-original Privy account; it does not move Dynamic wallet funds.
+Privy SDK dependencies and active integrations are removed from web, admin, LP,
+mobile and backend. Web/admin/LP use Dynamic React 5.10.0. Expo uses the current
+headless JavaScript SDK 1.37.0 and needs a new native development/release build.
+The native app retains its Solana product; it is not the Monad simulation beta.
+Solana embedded wallets must be enabled before using native/LP signing.
 
-Migration 0035 renames the campaign identity column to `auth_subject`. Existing
-Privy DIDs remain unchanged. Dynamic subjects include the environment and user
-ID. Authentication verifies RS256, issuer, expiry, issuance time, complete auth
-scope and optional audience, then fetches the authenticated profile from
-Dynamic. Email and embedded wallet ownership come only from verified provider
-credentials. External funding wallets never become the campaign spending wallet.
-The browser sends the SDK's access token, not its legacy ID token.
+The public Dynamic environment is `4fc2a73c-1662-45eb-9257-8baa567066a6`.
+Client environment overrides remain available. Customer web defaults to the
+simulation experience. Backend mode and funding/spending flags remain separately
+controlled. Deployed tiers never accept the local development identity header.
 
-Production Railway now has `DYNAMIC_ENVIRONMENT_ID` and
-`CAMPAIGN_AUTH_PROVIDER=dynamic` staged with `--skip-deploys`. No credentials were
-removed and no deployment was triggered. The customer web build also needs
-`NEXT_PUBLIC_CAMPAIGN_AUTH_PROVIDER=dynamic` and
-`NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID=4fc2a73c-1662-45eb-9257-8baa567066a6`, together
-with simulation mode. Local equivalents were added to the existing local env
-files. Roll back by selecting `privy` in both provider settings and rebuilding
-the web app; keep all Dynamic settings and recovery access for funded users.
-Do not roll back to a backend binary predating migration 0035 without a separate
-schema compatibility plan.
+Migration 0035 preserves campaign subjects under `auth_subject`. Migration 0036
+adds durable Dynamic identity bindings for existing user profiles and signed
+receipt bytes. Verified email can bind an existing operator/native profile once;
+this preserves its role, history and wallet addresses. A different wallet at
+account setup returns `wallet_migration_required`. Campaign email collisions
+remain blocked to prevent resetting grants. Old wallet funds and private keys
+are not migrated. Recovery routes now direct users to support; historical SQL
+columns retain their original names for compatibility. Old credentials may be
+retained for operational rollback, but this binary never uses them.
 
-The public Dynamic settings were checked: email authentication, automatic V3
-EVM embedded wallets and external wallet funding are enabled. Only Ethereum
-was listed in the dashboard network settings; the app explicitly overrides the
-wallet network list to Monad 143. Configure Monad in the dashboard too for
-consistency. No card/bank on-ramp providers are configured. Enable a provider
-only after confirming it can deliver native USDC on Monad for the intended
-users; we do not advertise an unavailable purchase method.
+JWT verification checks signature, issuer, expiry, issuance time, scope and
+optional audience. Email and embedded EVM/Solana ownership come from the
+provider's authenticated profile. External funding wallets cannot become the
+campaign's spending wallet.
 
-Dynamic's published native sponsorship chain list currently omits Monad.
-Dynamic withdrawals therefore use an explicitly disclosed standard Monad
-transaction and require MON for gas. There is no silent sponsored-to-paid
-fallback. The platform testnet receipt worker continues to use its separate
-Privy receipt wallet and configuration. Simulation confirmations still do not
-request a wallet signature or spend real USDC.
+The platform receipt signer uses Dynamic Node SDK 1.1.36. It signs zero-value
+commitments only on Monad testnet 10143. A database advisory lock coordinates
+nonces across workers and both ledgers. Signed bytes and hash are saved before
+broadcast; retries submit identical bytes. Ambiguous jobs from the old signer
+are quarantined for review. Funding this wallet requires only free testnet MON.
+The provisioned address is `0x4Fc9ddad150F5604d3841478E5eC6a37254355dA`.
 
-Users can choose a connected external wallet with Monad/native USDC pinned in
-the funding dialog, or use their deposit address/QR with another wallet or an
-exchange supporting Monad. Credit grants still wait for server-verified
-finalized token balances. Wallet/private-key export opens Dynamic's secure
-export UI; Frenspay never handles or stores the exported key.
+Railway production now has the Dynamic token, wallet bundle, simulation mode,
+funding/spending flags and mainnet/testnet RPCs staged without automatic deploys.
+Deployment and authenticated acceptance results must be recorded separately.
+The receipt wallet had zero testnet MON at the configuration check.
 
-Validation includes `yarn check:dynamic` for signed-token failures and verified
-identity binding, plus provider-isolated campaign creation and protection
-against duplicate email grants. A real Dynamic email login, wallet creation,
-funding, export and withdrawal still require operator acceptance testing.
+Users can fund with a connected wallet or a native-USDC deposit address/QR on
+Monad 143. No bank/card provider is configured. Real withdrawals require mainnet
+MON; no unsupported sponsorship is silently replaced with a user-paid attempt.
+Wallet export stays inside Dynamic's secure UI. Native exports use its WebView
+component, which does not expose the key to the host JavaScript layer.
 
-Sources: https://www.dynamic.xyz/docs/auth/tokens
-https://www.dynamic.xyz/docs/react/smart-wallets/evm-gas-sponsorship
-https://www.dynamic.xyz/docs/embedded-wallets/gas-sponsorship
+Invite and verification entry display individual boxes while preserving paste,
+autofill and text editing. A pasted FREN-prefixed invitation is normalized.
+
+Validation: signed-token and identity checks; PostgreSQL credit/concurrent-debit
+checks; invite/access and existing-identity binding checks; receipt durable-retry
+and nonce tests; browser simulation and code-entry tests. A real authenticated
+production login, deposit and withdrawal still need acceptance testing.
+
+References:
+- https://www.dynamic.xyz/docs/auth/tokens
+- https://www.dynamic.xyz/docs/node/quickstart
+- https://www.dynamic.xyz/docs/platform/dashboard/api-token-permissions
+- https://www.dynamic.xyz/docs/javascript/react-native/expo
+
+### Dynamic release checks (2026-10-13)
+
+All workspace typechecks and `check:all` passed. Web, admin and LP production builds passed.
+Isolated checks cover verified Dynamic identities and Solana wallet binding, existing-profile adoption without wallet replacement, invitation redemption, simulated spending, receipt retries/nonces/mainnet rejection, withdrawals, and code-box typing/paste.
+The invitation browser fixture now mounts the Dynamic gate; SDK email delivery and private-key export still require an authenticated production smoke test. Removed browser assertions for the retired Privy card-checkout widget; shared payment/recovery checks remain. Native changes require a new device build.
+
+Receipt wallet testnet gas is separate from user USDC spending caps. With zero testnet MON, simulations and points remain usable but onchain receipt publication cannot complete. No real funds should be sent to the platform receipt wallet.

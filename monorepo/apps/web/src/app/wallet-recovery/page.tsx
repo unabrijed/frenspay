@@ -1,2 +1,1 @@
-'use client';
-export default function WalletRecovery() { return null; }
+export default function Recovery() { return <main style={{padding:32}}><h1>Previous wallet recovery</h1><p>Wallets created before the Dynamic migration retain their original addresses. Contact support to arrange recovery; signing into Dynamic does not move their funds.</p><a href="mailto:frens@frenspay.xyz">Contact support</a><p><a href="/">Back to Frenspay</a></p></main>; }

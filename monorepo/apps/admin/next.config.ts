@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
   // Web keeps the monorepo pin — its Root Directory IS `monorepo`, so its roots already coincide.
   outputFileTracingRoot: path.join(__dirname, '..', '..', '..'),
   webpack: (config) => {
-    // Privy optionally imports onramp/farcaster integrations we don't use — stub them so
+    // Dynamic optionally imports onramp/farcaster integrations we don't use — stub them so
     // they don't surface as "module not found" or fail at resolve time.
     config.resolve = config.resolve || {};
     config.resolve.alias = {

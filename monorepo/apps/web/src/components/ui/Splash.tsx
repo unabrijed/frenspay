@@ -1,7 +1,7 @@
 'use client';
 
 // Splash — the LogoXl-on-Screen loading view shown during boot/hydration/navigation. Single
-// source so PrivyGate (session rehydration), the root page, the dynamic() fallback, and
+// source so DynamicGate (session rehydration), the root page, the dynamic() fallback, and
 // loading.tsx all show the identical screen instead of a blank frame.
 //
 // Because every loading state funnels through here, a Splash that stays mounted past

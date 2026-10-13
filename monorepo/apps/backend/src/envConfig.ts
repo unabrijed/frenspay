@@ -136,9 +136,11 @@ const personaApiKeyValue = env('PERSONA_API_KEY');
 const personaTemplateIdValue = env('PERSONA_TEMPLATE_ID');
 
 export const config = {
-  campaignAuthProvider: env('CAMPAIGN_AUTH_PROVIDER', 'privy') as 'privy' | 'dynamic',
+  campaignAuthProvider: 'dynamic' as const,
   dynamicEnvironmentId: env('DYNAMIC_ENVIRONMENT_ID', ''),
   dynamicAudience: env('DYNAMIC_AUDIENCE', ''),
+  dynamicApiToken: env('DYNAMIC_API_TOKEN'),
+  dynamicReceiptWallet: env('DYNAMIC_RECEIPT_WALLET_JSON'),
   customerPaymentMode: env('CUSTOMER_PAYMENT_MODE', 'live') as 'live' | 'simulation',
   campaignSpendingEnabled: env('CAMPAIGN_SPENDING_ENABLED', 'false') === 'true',
   campaignFundingEnabled: env('CAMPAIGN_FUNDING_ENABLED', 'false') === 'true',
@@ -228,16 +230,6 @@ export const config = {
   // there deep-linked at /merchant/... paths that no longer exist. Unset → alerts still send, they
   // just carry no button.
   lpBaseUrl: env('LP_BASE_URL'),
-
-  // Privy (M3). ONE app on every tier, read BARE and never through env(): every frontend mounts the
-  // same app and both backends verify with it, so a tiered name would be two variables holding one
-  // value — and a stale STAGE_ twin winning silently is how stage kept mailing OTPs from a retired
-  // app (2026-08-31). Raw process.env reads stay in this file (the one place allowed to); clean()
-  // still launders the paste. Unset ⇒ privyConfigured() false, loudly, with no fallback.
-  privyAppId: clean(process.env.PRIVY_APP_ID),
-  privyAppSecret: clean(process.env.PRIVY_APP_SECRET),
-  // Optional: paste the verification key from the Privy dashboard to skip a network fetch per verify.
-  privyVerificationKey: clean(process.env.PRIVY_VERIFICATION_KEY),
 
   // M7: KYC vendor. 'sim' = the dev instant-promote (no documents); 'persona' = real document+selfie
   // via Persona's hosted flow, decisions read back by the reconciler poller. Local defaults to sim;
@@ -358,7 +350,7 @@ const dbHost = (() => {
   }
 })();
 // The Privy app id is public and is the one credential a retired twin can silently shadow — name it.
-console.log(`[config] env=${node_env} database=${dbSource} host=${dbHost} privy=${config.privyAppId || '(unset)'}`);
+console.log(`[config] env=${node_env} database=${dbSource} host=${dbHost} dynamic=${config.dynamicEnvironmentId || '(unset)'}`);
 // Payments being OFF is a deployment state, not a bug — but silent otherwise: every quote 503s and
 // nothing says why. Name the tier-prefixed variables actually being read.
 if (!config.escrowLive && !config.isLocal) {
@@ -373,8 +365,8 @@ if (!config.escrowLive && !config.isLocal) {
 // escrow key. Say which mode this is, every boot.
 if (!config.feePayerConfigured) {
   console.warn(
-    `[config] ${envSource('FEE_PAYER_SECRET_KEY')} is unset — SPONSORED MODE: user transactions rely on Privy ` +
-      'gas sponsorship (Privy dashboard → Gas Sponsorship → Solana must be ON; web only), and the escrow key ' +
+    `[config] ${envSource('FEE_PAYER_SECRET_KEY')} is unset — SPONSORED MODE: user transactions rely on Dynamic ` +
+      'gas sponsorship (Dynamic dashboard → Gas Sponsorship → Solana must be ON), and the escrow key ' +
       'pays its own gas for release, refund and new token accounts — keep ~0.05 SOL on it.',
   );
 }
@@ -416,5 +408,3 @@ if (config.resendApiKey && !config.waitlistSecret) {
 }
 
 if (!['live', 'simulation'].includes(config.customerPaymentMode)) throw new Error('CUSTOMER_PAYMENT_MODE must be live or simulation');
-
-if (!['privy', 'dynamic'].includes(config.campaignAuthProvider)) throw new Error('CAMPAIGN_AUTH_PROVIDER must be privy or dynamic');

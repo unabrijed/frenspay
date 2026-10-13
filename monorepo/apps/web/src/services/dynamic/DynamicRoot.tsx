@@ -1,11 +1,16 @@
 'use client';
 
+import {CodeInput} from '@fpay/ui/CodeInput';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { DynamicContextProvider, useDynamicContext, useEmbeddedReveal,
   useSocialAccounts, useUserWallets, useFundWithWallet } from '@dynamic-labs/sdk-react-core';
 import { EthereumWalletConnectors, isEthereumWallet } from '@dynamic-labs/ethereum';
 import { getDefaultClient } from '@dynamic-labs-sdk/client';
+import {SolanaWalletConnectors} from '@dynamic-labs/solana';
+import {LiveSync} from '@fpay/app';
+import {LiveBridge} from './LiveBridge';
+import {SIMULATION_MODE} from '@/services/envConfig';
 import { monad } from 'viem/chains';
 import type { FlistResponse } from '@fpay/shared';
 import { request, setAuthToken, setTokenRefresher } from '@fpay/app/services/api';
@@ -21,11 +26,11 @@ const token = async () => getDefaultClient().token;
 
 export default function DynamicRoot({ children }: { children: ReactNode }) {
   if (!/^[0-9a-f-]{36}$/i.test(DYNAMIC_ENVIRONMENT_ID))
-    return <main className={s.shell}><h1>Sign-in is being configured</h1><p>Please try again shortly.</p><a href="/wallet-recovery">Access an existing wallet</a></main>;
+    return <main className={s.shell}><h1>Sign-in is being configured</h1><p>Please try again shortly.</p></main>;
   return <DynamicContextProvider settings={{ environmentId: DYNAMIC_ENVIRONMENT_ID,
-    appName: 'Frenspay', walletConnectors: [EthereumWalletConnectors],
+    appName: 'Frenspay', walletConnectors: [EthereumWalletConnectors, SolanaWalletConnectors],
     initialAuthenticationMode: 'connect-and-sign', overrides: {evmNetworks: networks},
-  }}><DynamicSession>{children}</DynamicSession></DynamicContextProvider>;
+  }}>{SIMULATION_MODE ? <DynamicSession>{children}</DynamicSession> : <><LiveBridge/><LiveSync/>{children}</>}</DynamicContextProvider>;
 }
 
 function DynamicSession({ children }: { children: ReactNode }) {
@@ -108,7 +113,7 @@ function DynamicAccount({ ready, userId, login, logout, children }: {
       {access && !access.member && <form onSubmit={e => {e.preventDefault(); if(busy)return; setBusy(true);setError('');
         void (async () => {setAuthToken(await token());setAccess(await request<FlistResponse>('/flist/join', {method:'POST',body:JSON.stringify({code:invite.trim()})}));})()
           .catch(()=>setError('Could not redeem that invitation. Check the code and try again.')).finally(()=>setBusy(false));}}>
-        <label htmlFor="dynamic-invite">Invite code</label><input id="dynamic-invite" value={invite} onChange={e=>setInvite(e.target.value.toUpperCase())} required />
+        <label>Invite code · FREN</label><CodeInput label="Invite code" value={invite} onChange={setInvite} length={8} numeric={false} invite disabled={busy}/>
         <button className={s.primary} disabled={busy}>Join</button></form>}
       {access?.member && !embedded && <p>Finish wallet setup in the sign-in window. Email login and automatic EVM wallet creation must be enabled.</p>}
       <button className={s.link} onClick={() => void refresh().catch(()=>setError('Please try again shortly.'))}>Retry access check</button>
@@ -116,6 +121,5 @@ function DynamicAccount({ ready, userId, login, logout, children }: {
       <button className={s.link} onClick={()=>void logout()}>Sign out</button>
     </>}
     {error && <p role="alert" className={s.error}>{error}</p>}
-    <a className={s.link} href="/wallet-recovery">Access a previous Privy wallet</a>
   </section></main>;
 }

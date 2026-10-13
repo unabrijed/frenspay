@@ -15,10 +15,10 @@ import {
   IS_DEV,
   IS_LOCAL_ENV,
   LANDING_URL,
-  PRIVY_APP_ID,
-  PRIVY_CLIENT_ID,
+  DYNAMIC_ENVIRONMENT_ID,
+  DYNAMIC_CLIENT_ID,
   SOLANA_RPC_URL,
-  USE_PRIVY,
+  USE_DYNAMIC,
 } from '@/services/envConfig';
 
 // The KYC stash only has to survive the in-app browser round-trip, which never leaves the process.
@@ -28,9 +28,9 @@ export const nativePlatform: Platform = {
   env: {
     apiUrl: API_URL,
     solanaRpcUrl: SOLANA_RPC_URL,
-    privyAppId: PRIVY_APP_ID,
-    privyClientId: PRIVY_CLIENT_ID,
-    usePrivy: USE_PRIVY,
+    dynamicEnvironmentId: DYNAMIC_ENVIRONMENT_ID,
+    authClientId: DYNAMIC_CLIENT_ID,
+    useDynamic: USE_DYNAMIC,
     landingUrl: LANDING_URL,
     devUserId: DEV_USER_ID,
     devSecretKey: DEV_SECRET_KEY,

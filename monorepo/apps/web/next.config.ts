@@ -2,16 +2,16 @@ import path from 'node:path';
 
 import type { NextConfig } from 'next';
 
-// Privy production checklist: strict CSP (protects the embedded-wallet iframe) + X-Frame-Options.
+// Dynamic production checklist: strict CSP (protects the embedded-wallet iframe) + X-Frame-Options.
 // Built from a scan of every origin the app actually touches — if a flow breaks with a CSP
 // violation in the console, the missing origin belongs in the matching directive here.
-// Delete this whole block if we move off Privy.
+// Delete this whole block if we move off Dynamic.
 //
 // ponytail: 'unsafe-inline' in script-src — Next app-router injects dynamic inline bootstrap
 // scripts that can't be hashed; upgrade path = nonce middleware (forces all routes dynamic).
 const CSP = [
   "default-src 'self'",
-  // Turnstile (Privy bundles it) + Vercel Analytics fallback; 'wasm-unsafe-eval' for the QR
+  // Turnstile (Dynamic bundles it) + Vercel Analytics fallback; 'wasm-unsafe-eval' for the QR
   // scanner's zxing WASM.
   "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://challenges.cloudflare.com https://va.vercel-scripts.com",
   // Material Symbols is a remote Google Fonts <link> (deliberate — do not self-host); the UI is
@@ -22,13 +22,13 @@ const CSP = [
   "img-src 'self' data: blob: https://cdn.jsdelivr.net",
   // Camera MediaStream in the QR scan sheet.
   "media-src 'self' blob:",
-  // *.frenspay.xyz = stage + prod API. Privy signing goes through *.rpc.privy.systems (public
+  // *.frenspay.xyz = stage + prod API. Dynamic signing goes through *.rpc.privy.systems (public
   // Solana RPC is dev-only, and dev has no CSP). fastly.jsdelivr.net = zxing WASM fetch.
-  // WalletConnect origins per Privy's template: loginMethods is dashboard-inherited, so wallet
+  // WalletConnect origins per Dynamic's template: loginMethods is dashboard-inherited, so wallet
   // login could be enabled there — drop these once it's confirmed off.
-  "connect-src 'self' https://app.dynamicauth.com https://*.dynamicauth.com https://app.dynamic.xyz https://*.dynamic.xyz https://*.frenspay.xyz https://auth.privy.io https://*.rpc.privy.systems https://rpc.monad.xyz https://testnet-rpc.monad.xyz https://fastly.jsdelivr.net https://vitals.vercel-insights.com wss://relay.walletconnect.com wss://relay.walletconnect.org https://explorer-api.walletconnect.com",
-  // Privy auth iframe + Turnstile. Persona KYC is a full-page redirect, not an iframe.
-  "frame-src https://app.dynamicauth.com https://*.dynamicauth.com https://app.dynamic.xyz https://*.dynamic.xyz https://auth.privy.io https://challenges.cloudflare.com https://verify.walletconnect.com https://verify.walletconnect.org",
+  "connect-src 'self' https://app.dynamicauth.com https://*.dynamicauth.com https://app.dynamic.xyz https://*.dynamic.xyz https://*.frenspay.xyz https://rpc.monad.xyz https://testnet-rpc.monad.xyz https://fastly.jsdelivr.net https://vitals.vercel-insights.com wss://relay.walletconnect.com wss://relay.walletconnect.org https://explorer-api.walletconnect.com",
+  // Dynamic auth iframe + Turnstile. Persona KYC is a full-page redirect, not an iframe.
+  "frame-src https://app.dynamicauth.com https://*.dynamicauth.com https://app.dynamic.xyz https://*.dynamic.xyz https://challenges.cloudflare.com https://verify.walletconnect.com https://verify.walletconnect.org",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
@@ -62,7 +62,7 @@ const nextConfig: NextConfig = {
     ];
   },
   webpack: (config) => {
-    // Privy optionally imports onramp/farcaster integrations we don't use — stub them so
+    // Dynamic optionally imports onramp/farcaster integrations we don't use — stub them so
     // they don't surface as "module not found" or fail at resolve time.
     config.resolve = config.resolve || {};
     config.resolve.alias = {

@@ -5198,3 +5198,21 @@ export async function listAdminActions(limit = 50, cursor?: string): Promise<Pag
     nextCursor: rows.length > n && last ? `${last.created_at.toISOString()}|${last.id}` : undefined,
   };
 }
+
+/** Verified Dynamic email may bind an existing profile once; funds and payout addresses never move here. */
+export async function findOrBindDynamicUser(subject: string, email: string): Promise<UserRow | null> {
+  const client = await getPool().connect();
+  try {
+    await client.query('begin');
+    const bound = await client.query<UserRow>('select u.* from users u join user_auth_subjects a on a.user_id=u.id where a.subject=$1', [subject]);
+    if (bound.rows[0]) { await client.query('commit'); return bound.rows[0]; }
+    const existing = await client.query<UserRow>('select * from users where privy_did=$1 or email=$2 order by (privy_did=$1) desc limit 1 for update', [subject,email]);
+    const user = existing.rows[0];
+    if (!user) { await client.query('commit'); return null; }
+    const other = await client.query('select subject from user_auth_subjects where user_id=$1', [user.id]);
+    if (other.rows.some(row => row.subject !== subject)) throw new Error('identity_already_bound');
+    await client.query('insert into user_auth_subjects(subject,user_id) values($1,$2) on conflict(subject) do nothing', [subject,user.id]);
+    await client.query('commit'); return user;
+  } catch(error) { await client.query('rollback'); throw error; }
+  finally { client.release(); }
+}

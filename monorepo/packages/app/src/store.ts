@@ -472,7 +472,7 @@ export const usePayStore = create<PayState>()(
       // unconditionally and treat 401/404 as "no account".
       load: async () => {
         // Pre-sign-in only. Leave firstLoadDone false so the splash stays until Privy resolves.
-        if (platform().env.usePrivy && get().authStatus !== 'signedIn') return;
+        if (platform().env.useDynamic && get().authStatus !== 'signedIn') return;
         // A concurrent duplicate is dropped, not queued: the one already running lands the same
         // data into the same store. Every caller fire-and-forgets (`void load()`), so nothing is
         // waiting on this promise for a result.
@@ -589,7 +589,7 @@ export const usePayStore = create<PayState>()(
       },
       refresh: async () => {
         // Same gate as load(): never poll before the backend user exists (onboarding pre-sync → 401).
-        if (platform().env.usePrivy && !(get().authStatus === 'signedIn' && (get().provisioned || get().onboarded))) return;
+        if (platform().env.useDynamic && !(get().authStatus === 'signedIn' && (get().provisioned || get().onboarded))) return;
         // Stand down for a cold load() as well as a sibling refresh() — see the flags' declaration.
         if (loading || refreshing) return;
         refreshing = true;

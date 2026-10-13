@@ -23,7 +23,7 @@ function ProductEntry() {
   const probed = usePayStore((s) => s.firstLoadDone);
 
   // Routing truth lives in lib/bootRoute — shared with the auth step, which used to decide the same
-  // thing separately. A null dest means "we don't know yet": Privy hasn't resolved, or /me hasn't
+  // thing separately. A null dest means "we don't know yet": Dynamic hasn't resolved, or /me hasn't
   // answered. Holding the splash through that window is the fix for existing users being sent to
   // pick a handle they already have — this page used to guess from localStorage and redirect away
   // before the server could contradict it.

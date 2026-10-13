@@ -36,3 +36,8 @@ assert.throws(()=>identityFromDynamicProfile({...profile,email:'unverified@examp
 assert.throws(()=>identityFromDynamicProfile({...profile,verifiedCredentials:[...profile.verifiedCredentials,wallet]},subject));
 assert.equal(identityFromDynamicProfile({...profile,verifiedCredentials:[profile.verifiedCredentials[0],{...wallet,wallet_provider:'browserExtension'}]},subject).walletAddress,undefined);
 console.log('check-dynamic: signature, expiry, audience, scope, environment, verified email and embedded wallet binding passed (offline)');
+
+const solana={format:'blockchain',chain:'solana',wallet_provider:'embeddedWallet',address:'1'.repeat(32)};
+assert.equal(identityFromDynamicProfile({...profile,verifiedCredentials:[...profile.verifiedCredentials,solana]},subject).solanaWalletAddress,solana.address);
+assert.throws(()=>identityFromDynamicProfile({...profile,verifiedCredentials:[...profile.verifiedCredentials,solana,solana]},subject));
+assert.equal(identityFromDynamicProfile({...profile,verifiedCredentials:[...profile.verifiedCredentials,{...solana,wallet_provider:'browserExtension'}]},subject).solanaWalletAddress,undefined);

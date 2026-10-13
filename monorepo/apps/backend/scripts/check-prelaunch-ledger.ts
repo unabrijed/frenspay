@@ -47,9 +47,7 @@ Object.assign(config, {
   privyAppSecret: 'test-secret',
   monadRpcUrl: 'https://isolated.invalid/rpc',
 });
-const { getPrivyClient } = await import('../src/services/privy');
 let identity: any;
-getPrivyClient().getUser = (async () => identity) as any;
 let observed = 100_000000n,
   chain = 143;
 const originalFetch = globalThis.fetch;
@@ -97,17 +95,13 @@ const raw =
   '6304';
 const qr = raw + emvCrc16(raw);
 function person(did: string, address: string) {
-  identity = {
-    id: did,
-    email: { address: `${did}@example.test` },
-    linkedAccounts: [{ type: 'wallet', chainType: 'ethereum', walletClientType: 'privy', address }],
-  };
+  identity = {subject:did,email:did+'@example.test',walletAddress:address};
 }
 try {
   person('alice', '0x1111111111111111111111111111111111111111');
-  let a = await ledger.syncIdentity('alice');
+  let a = await ledger.syncIdentity('alice',undefined,identity);
   assert.equal(a.practiceCredits, '25.000000');
-  a = await ledger.syncIdentity('alice');
+  a = await ledger.syncIdentity('alice',undefined,identity);
   assert.equal(a.practiceCredits, '25.000000');
   const practiceQuote = await ledger.makeQuote('alice', qr, '1.35');
   const first = await ledger.spend('alice', practiceQuote.id, randomUUID());
@@ -119,7 +113,7 @@ try {
   observed = 100_000000n;
   a = await ledger.syncBalance('alice');
   assert.equal(a.rewardCredits, '100.000000');
-  a = await ledger.syncIdentity('alice', { name: 'Alice', country: 'SG' });
+  a = await ledger.syncIdentity('alice', { name: 'Alice', country: 'SG' },identity);
   assert.equal(a.rewardCredits, '200.000000');
   chain = 10143;
   await assert.rejects(ledger.syncBalance('alice'), /wrong_network/);
@@ -151,16 +145,16 @@ try {
   await ledger.startPhone('alice', '+6591234567');
   a = await ledger.confirmPhone('alice', otp.lastConsoleCode);
   assert.equal(a.multiplier, 5);
-  identity.linkedAccounts.push({ type: 'twitter_oauth', subject: 'alice-x' });
-  a = await ledger.syncIdentity('alice');
+  identity.xSubject='alice-x';
+  a = await ledger.syncIdentity('alice',undefined,identity);
   assert.equal(a.multiplier, 10);
   const bobQuote = await ledger.makeQuote('alice', qr, '1');
   person('bob', '0x2222222222222222222222222222222222222222');
-  await ledger.syncIdentity('bob');
+  await ledger.syncIdentity('bob',undefined,identity);
   await assert.rejects(ledger.spend('bob', bobQuote.id, randomUUID()), /quote_expired/);
   await assert.rejects(ledger.startPhone('bob', '+6591234567'), /connection_already_rewarded/);
-  identity.linkedAccounts.push({ type: 'twitter_oauth', subject: 'alice-x' });
-  await assert.rejects(ledger.syncIdentity('bob'), /connection_already_rewarded/);
+  identity.xSubject='alice-x';
+  await assert.rejects(ledger.syncIdentity('bob',undefined,identity), /connection_already_rewarded/);
   assert.equal((await ledger.account('bob')).twitter_subject, null);
   const sum = (
     await db.query('select sum(amount)::text as total from prelaunch_grants where account_id=$1', [a.id])

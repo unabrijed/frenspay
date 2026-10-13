@@ -1,10 +1,10 @@
 'use client';
 
-// Choose handle (Privy) — real input + availability check (GET /users/resolve) + /auth/sync
+// Choose handle (Dynamic) — real input + availability check (GET /users/resolve) + /auth/sync
 // (upserts the user + their embedded wallet). fpay "Choose Handle" layout.
 //
 // First move on mount: /auth/sync with NO handle. A signed-in session with no /me user is either a
-// brand-new person or a returning one whose Privy DID rotated with the app (bootRoute.ts) — and the
+// brand-new person or a returning one whose Dynamic DID rotated with the app (bootRoute.ts) — and the
 // server can tell them apart by the verified email. It adopts the account that email already owns
 // and we are done; it answers `handle_required` when there is nothing to adopt, and only then is
 // the field shown. Before this, the returning person saw their own handle read as "Taken".
@@ -37,7 +37,7 @@ export default function Handle() {
   const load = usePayStore((s) => s.load);
 
   // Step guard: this screen calls /auth/sync (needs the signed-in wallet). If it's reached without
-  // a signed-in session (direct URL / reload before the Privy bridge re-signs in), bounce to the
+  // a signed-in session (direct URL / reload before the Dynamic bridge re-signs in), bounce to the
   // entry router, which re-routes to the correct step once auth resolves.
   useEffect(() => {
     if (hydrated && authStatus !== 'signedIn') router.replace('/');
@@ -59,7 +59,7 @@ export default function Handle() {
   }
 
   return (
-    <HandlePrivy
+    <HandleDynamic
       onDone={() => {
         // Onboarding is over here: the funding step that used to follow was the devnet faucet.
         completeOnboarding();
@@ -70,7 +70,7 @@ export default function Handle() {
   );
 }
 
-function HandlePrivy({ onDone }: { onDone: () => void }) {
+function HandleDynamic({ onDone }: { onDone: () => void }) {
   const router = useRouter();
   const authSync = usePayStore((s) => s.authSync);
   const [h, setH] = useState('');

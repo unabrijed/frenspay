@@ -4,7 +4,7 @@ import type { Platform } from '@fpay/app';
 import type { StateStorage } from 'zustand/middleware';
 
 import { bootTrace } from '@/lib/boot';
-import { API_URL, DEV_SECRET_KEY, DEV_USER_ID, IS_DEV, IS_LOCAL_ENV, LANDING_URL, PRIVY_APP_ID, PRIVY_CLIENT_ID, SOLANA_RPC_URL, USE_PRIVY } from '@/services/envConfig';
+import { API_URL, DEV_SECRET_KEY, DEV_USER_ID, IS_DEV, IS_LOCAL_ENV, LANDING_URL, DYNAMIC_ENVIRONMENT_ID, DYNAMIC_CLIENT_ID, SOLANA_RPC_URL, USE_DYNAMIC } from '@/services/envConfig';
 
 const noop: StateStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
 const webStorage = (pick: () => Storage): StateStorage => ({
@@ -43,9 +43,9 @@ export const webPlatform: Platform = {
   env: {
     apiUrl: API_URL,
     solanaRpcUrl: SOLANA_RPC_URL,
-    privyAppId: PRIVY_APP_ID,
-    privyClientId: PRIVY_CLIENT_ID,
-    usePrivy: USE_PRIVY,
+    dynamicEnvironmentId: DYNAMIC_ENVIRONMENT_ID,
+    authClientId: DYNAMIC_CLIENT_ID,
+    useDynamic: USE_DYNAMIC,
     landingUrl: LANDING_URL,
     devUserId: DEV_USER_ID,
     devSecretKey: DEV_SECRET_KEY,

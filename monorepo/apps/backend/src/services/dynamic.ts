@@ -5,6 +5,7 @@ export interface CampaignIdentity {
   subject: string;
   email: string;
   walletAddress?: string;
+  solanaWalletAddress?: string;
   xSubject?: string;
 }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -46,10 +47,14 @@ export function identityFromDynamicProfile(profile: any, subject: string): Campa
     typeof c.address === 'string' && /^0x[0-9a-f]{40}$/i.test(c.address));
   // Multiple eligible wallets need an explicit, verified selection rather than array order.
   if (wallets.length > 1) throw new Error('ambiguous_dynamic_wallet');
+  const solana = credentials.filter((c: any) => c.format === 'blockchain' &&
+    c.chain === 'solana' && c.wallet_provider === 'embeddedWallet' &&
+    typeof c.address === 'string' && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(c.address));
+  if (solana.length > 1) throw new Error('ambiguous_dynamic_solana_wallet');
   const x = credentials.find((c: any) => c.format === 'oauth' && c.oauth_provider === 'twitter' &&
     typeof c.oauth_account_id === 'string');
   return { subject: `dynamic:${config.dynamicEnvironmentId}:${subject}`, email,
-    walletAddress: wallets[0]?.address.toLowerCase(), xSubject: x?.oauth_account_id };
+    walletAddress: wallets[0]?.address.toLowerCase(), solanaWalletAddress: solana[0]?.address, xSubject: x?.oauth_account_id };
 }
 export async function authenticateDynamic(token: string): Promise<CampaignIdentity> {
   const subject = await verifyDynamicToken(token);

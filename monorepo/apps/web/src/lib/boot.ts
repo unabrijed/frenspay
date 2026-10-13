@@ -1,6 +1,6 @@
 // boot.ts — boot instrumentation + the splash watchdog.
 //
-// The web app's first COLD load can stall on a gate — Privy `ready`, store hydration, or the Privy
+// The web app's first COLD load can stall on a gate — Dynamic `ready`, store hydration, or the Dynamic
 // chunk download — and a warm reload then "fixes" it (the reported "doesn't load until I refresh").
 // These helpers (a) log each gate's elapsed time in dev so the real stall is MEASURED, not guessed,
 // and (b) back a last-resort auto-reload if a Splash stays on screen past a ceiling.

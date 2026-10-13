@@ -1,15 +1,13 @@
 // auth.ts — request identity.
 //
-// Privy mode (when PRIVY_APP_ID/SECRET set): verify the `Authorization: Bearer` access token,
-// map the Privy DID → our DB user, and set req.userId (+ req.privyDid for /auth/sync).
-// Dev mode (Privy not configured): fall back to the `x-dev-user-id` header.
+// Dynamic verifies the bearer token and binds its verified email to an existing profile.
+// Historical privyDid field names remain for database compatibility; they carry Dynamic subjects.
+// Local development can use x-dev-user-id only when Dynamic is not configured.
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { authenticateDynamic, dynamicConfigured, type CampaignIdentity } from './services/dynamic';
-import { decodeJwt } from 'jose';
 import { config } from './envConfig';
-import { findUserById, findUserByPrivyDid, getMerchantForUser, touchMerchantSeen, type MerchantRow } from './db/queries';
-import { privyConfigured, verifyAccessToken } from './services/privy';
+import { findUserById, findOrBindDynamicUser, getMerchantForUser, touchMerchantSeen, type MerchantRow } from './db/queries';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -19,7 +17,7 @@ declare module 'fastify' {
   }
 }
 
-/** preHandler: populate req.userId (and req.privyDid in Privy mode).
+/** preHandler: populate req.userId (and req.privyDid for Dynamic identities).
  *
  *  Also the ONE suspension gate: this hook already holds the user row on every authed request, so
  *  `status='suspended'` 403s here and every route — current and future — is covered at once.
@@ -30,47 +28,22 @@ declare module 'fastify' {
 export async function authPreHandler(req: FastifyRequest, reply: FastifyReply): Promise<unknown> {
   const authz = req.headers.authorization;
   if (dynamicConfigured() && typeof authz === 'string' && authz.startsWith('Bearer ')) {
-    // Unverified issuer is only a routing hint. authenticateDynamic verifies signature and claims.
-    let issuer = '';
-    try { issuer = String(decodeJwt(authz.slice(7)).iss ?? ''); } catch {}
-    if (issuer === `app.dynamicauth.com/${config.dynamicEnvironmentId}` ||
-        issuer === `app.dynamic.xyz/${config.dynamicEnvironmentId}`) {
-      try { req.campaignIdentity = await authenticateDynamic(authz.slice(7)); }
-      catch { return reply.code(401).send({ error: 'unauthorized' }); }
-      return;
-    }
-  }
-
-  if (privyConfigured() && typeof authz === 'string' && authz.startsWith('Bearer ')) {
-    try {
-      const { privyDid } = await verifyAccessToken(authz.slice(7));
-      const user = await findUserByPrivyDid(privyDid); // null until /auth/sync runs
-      // Assigned only once the lookup RETURNS. A thrown query (DB down) must not be able to look
-      // like "no account" — clients sign themselves out on that answer, so a database blip would
-      // log out every user at once. privyDid set + no userId now means exactly one thing: we
-      // verified you, we asked the DB, and you have no row.
-      req.privyDid = privyDid;
-      if (user && user.status !== 'active' && effectiveRole(user) !== 'admin') {
-        // Same gate, two answers: web paints a different full-screen for each (paused vs deleted).
-        return reply.code(403).send({ error: user.status === 'deleted' ? 'account_deleted' : 'account_suspended' });
-      }
-      if (user) req.userId = user.id;
-    } catch (e) {
-      // invalid token (or DB unavailable) → leave unauthenticated; requireUserId will 401
-      req.log.warn({ err: e }, 'privy bearer token rejected');
-    }
+    let identity: CampaignIdentity;
+    try { identity = await authenticateDynamic(authz.slice(7)); }
+    catch { return reply.code(401).send({ error: 'unauthorized' }); }
+    // Database failures propagate as server failures, never as a missing account.
+    const user = await findOrBindDynamicUser(identity.subject, identity.email);
+    req.campaignIdentity = identity;
+    req.privyDid = identity.subject;
+    if (user && user.status !== 'active' && effectiveRole(user) !== 'admin')
+      return reply.code(403).send({ error: user.status === 'deleted' ? 'account_deleted' : 'account_suspended' });
+    if (user) req.userId = user.id;
     return;
   }
-  // Dev fallback, LOCAL only, and only when Privy is unconfigured — this header is spoofable, so it
-  // names any user id you like. It said `isDevelopment` until 2026-08-29, and `isDevelopment` is
-  // `isStage || isLocal`: blanking PRIVY_APP_ID or _SECRET would have turned mainnet stage into
-  // a no-token impersonation endpoint, silently, on a server that boots healthy. Blanking a variable
-  // to switch a vendor off is a normal gesture here (docs/14), which is exactly why this can't key on
-  // a flag that includes a deployed tier. rateLimit.ts already keys the same header on isLocal.
-  if (config.isLocal && !privyConfigured() && !dynamicConfigured()) {
+  if (config.isLocal && !dynamicConfigured()) {
     const hdr = req.headers['x-dev-user-id'];
     if (typeof hdr === 'string' && hdr.length > 0) {
-      // The header names a row directly, so fetch it for the same suspension gate as the Privy
+      // The header names a row directly, so fetch it for the same suspension gate as the Dynamic
       // path. An id with no row still sets userId (matches old behavior; routes 404 as before).
       const user = await findUserById(hdr);
       if (user && user.status !== 'active' && effectiveRole(user) !== 'admin') {
@@ -98,7 +71,7 @@ export function requireUserId(req: FastifyRequest): string {
   return req.userId;
 }
 
-/** Throw 401 unless the request carries a verified Privy DID (used by /auth/sync before the user exists). */
+/** Throw 401 unless the request carries a verified auth subject (used by /auth/sync before the user exists). */
 export function requirePrivyDid(req: FastifyRequest): string {
   if (!req.privyDid) throw unauthorized();
   return req.privyDid;

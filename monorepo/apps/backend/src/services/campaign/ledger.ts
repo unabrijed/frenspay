@@ -7,7 +7,6 @@ import { BN, parseAmount } from '../../lib/units';
 import { parseUpiQr } from '../../lib/upi';
 import { getMidRate, getMidRateAsOf } from '../fxRate';
 import type { CampaignIdentity } from '../dynamic';
-import { getPrivyClient } from '../privy';
 import { normalizePhone } from '../../db/queries';
 import { sendOtp, verifyOtp } from '../phoneOtp';
 import { balance, withdrawal } from '../prelaunch/chain';
@@ -95,7 +94,7 @@ export function view(row: AccountRow): CampaignAccount {
     points: row.points,
     fundingAvailable: !row.suspended && config.campaignFundingEnabled && !!config.monadRpcUrl,
     receiptsAvailable: !!(
-      config.prelaunchReceiptWalletId &&
+      config.dynamicApiToken && config.dynamicReceiptWallet &&
       config.prelaunchReceiptAddress &&
       config.monadTestnetRpcUrl
     ),
@@ -148,16 +147,8 @@ export async function syncIdentity(
   profile?: { name?: string; country?: string },
   verifiedIdentity?: CampaignIdentity,
 ): Promise<CampaignAccount> {
-  let verified = verifiedIdentity;
-  if (!verified) {
-    if (did.startsWith('dynamic:')) fail('unauthorized', 401);
-    const identity = await getPrivyClient().getUser(did);
-    const wallet = identity.linkedAccounts.find(a => a.type === 'wallet' && a.chainType === 'ethereum' && a.walletClientType === 'privy');
-    const x = identity.linkedAccounts.find(a => a.type === 'twitter_oauth');
-    verified = { subject: did, email: identity.email?.address?.trim().toLowerCase() || '',
-      walletAddress: wallet?.type === 'wallet' ? wallet.address.toLowerCase() : undefined,
-      xSubject: x?.type === 'twitter_oauth' ? x.subject : undefined };
-  }
+  const verified = verifiedIdentity;
+  if (!verified) fail('unauthorized', 401);
   if (verified.subject !== did) fail('unauthorized', 401);
   const email = verified.email;
   const address = verified.walletAddress;

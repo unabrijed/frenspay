@@ -2,10 +2,10 @@
 // web3.js + polyfills load lazily (dynamic import) so a session that never signs anything
 // never pays for them.
 // The tx returned by the stake prepare is either fee-payer-signed (the backend's key pays gas) or
-// `sponsored` (no backend signature; the signer must ask Privy to pay). The signer adds the user
+// `sponsored` (no backend signature; the signer must ask Dynamic to pay). The signer adds the user
 // signature and broadcasts. Mirrors packages/app/src/services/signer.ts.
 export interface SignOptions {
-  /** From the prepare response: true ⇒ ask Privy to sponsor the fee (the tx carries no backend signature). */
+  /** From the prepare response: true ⇒ ask Dynamic to sponsor the fee (the tx carries no backend signature). */
   sponsored: boolean;
 }
 export interface Signer {
@@ -46,13 +46,13 @@ export class DevKeypairSigner implements Signer {
   }
 }
 
-/* ---- active-signer registry: dev default at boot; the Privy bridge swaps in PrivySigner ---- */
+/* ---- active-signer registry: dev default at boot; the Dynamic bridge swaps in DynamicSigner ---- */
 let _active: Signer | null = null;
 /** Pass null on logout to clear the signer so no stale wallet authority lingers. */
 export function setActiveSigner(s: Signer | null): void {
   _active = s;
 }
 export function getActiveSigner(): Signer {
-  if (!_active) throw new Error('No active signer configured (set DEV_SECRET_KEY or log in with Privy).');
+  if (!_active) throw new Error('No active signer configured (set DEV_SECRET_KEY or log in with Dynamic).');
   return _active;
 }

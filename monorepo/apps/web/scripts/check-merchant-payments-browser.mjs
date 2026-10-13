@@ -84,13 +84,12 @@ import{setPaymentBridge,getPaymentBridge}from ${JSON.stringify(join(app, 'servic
 import{migrateProductCache}from ${JSON.stringify(join(app, 'lib/productCache.ts'))};
 import{MerchantPaymentSheet}from ${JSON.stringify(join(app, 'sheets/MerchantPayment.tsx'))};
 import{AddMoney}from ${JSON.stringify(join(app, 'sheets/AddMoney.tsx'))};
-import{PaymentBridge}from ${JSON.stringify(join(root, 'apps/web/src/services/privy/PaymentBridge.tsx'))};
 window.openCollection=()=>getPaymentBridge().collect('https://collect.example.test/form').then(()=>{window.collected=true}).catch(e=>{window.collectError=e.message});
 window.signs=0;window.funded=0;window.storageFailure='';window.migrateProductCache=migrateProductCache;
 setPlatform({env:{apiUrl:${JSON.stringify(origin)},devUserId:'test'},storage:{getItem:k=>localStorage.getItem(k),setItem:(k,v)=>{if(window.storageFailure==='all'||window.storageFailure==='signed'&&v.includes('transactions'))throw Error('disk full');localStorage.setItem(k,v)},removeItem:k=>localStorage.removeItem(k)},capabilities:{},copy:async()=>{}});
 setActiveSigner({publicKey:async()=>'wallet',signAndSend:async()=>{throw Error('must never broadcast')},signTransaction:async()=>{window.signs++;return 'signed';}});
 setPaymentBridge({fund:async()=>{window.funded++},collect:async()=>{window.collected=true}});
-createRoot(document.getElementById('root')).render(location.pathname==='/hosted'?<><PaymentBridge/><AddMoney/></>:location.pathname==='/fund'?<AddMoney/>:<MerchantPaymentSheet/>);`;
+createRoot(document.getElementById('root')).render(location.pathname==='/fund'?<AddMoney/>:<MerchantPaymentSheet/>);`;
 await writeFile(join(scratch, 'entry.tsx'), entry);
 await build({
   entryPoints: [join(scratch, 'entry.tsx')],
@@ -100,20 +99,6 @@ await build({
   nodePaths: [join(root, 'apps/web/node_modules'), join(root, 'node_modules')],
   define: { 'process.env.NODE_ENV': '"development"' },
   plugins: [
-    {
-      name: 'wallet-fixture',
-      setup(b) {
-        b.onResolve({ filter: /^@privy-io\/react-auth\/solana$/ }, () => ({
-          path: 'wallet',
-          namespace: 'wallet-fixture',
-        }));
-        b.onLoad({ filter: /.*/, namespace: 'wallet-fixture' }, () => ({
-          contents:
-            'export function useFundWallet(callbacks){window.exitCard=()=>callbacks.onUserExited({});return{fundWallet:async args=>{window.funded++;window.fundingArgs=args;}}}',
-          loader: 'js',
-        }));
-      },
-    },
     {
       name: 'store-boundary',
       setup(b) {
@@ -231,52 +216,6 @@ try {
   assert.equal(migrated.deposit, 'keep-deposit');
   assert.equal(migrated.withdraw, 'keep-withdrawal');
   assert.equal(migrated.payment, 'keep-payment');
-  await page.goto(origin + '/hosted');
-  await page.getByRole('button', { name: 'Continue to card checkout' }).click();
-  await expect(page.getByRole('button', { name: 'Opening checkout…' })).toBeDisabled();
-  assert.equal(await page.evaluate(() => window.fundingArgs.options.asset), 'USDC');
-  await page.evaluate(() => window.exitCard());
-  await expect(
-    page.getByText('Your balance updates once the money arrives.', { exact: false }),
-  ).toBeVisible();
-  await page.evaluate(() => {
-    void window.openCollection();
-  });
-  await expect(page.getByRole('dialog', { name: 'Payment information' })).toBeVisible();
-  assert.equal(
-    await page.evaluate(() => window.collectError),
-    undefined,
-    'unstable SDK hook must not close the form',
-  );
-  await page.evaluate(() => {
-    const frame = document.querySelector('iframe');
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data: { type: 'IC_COMPLETE' },
-        origin: 'https://evil.test',
-        source: frame.contentWindow,
-      }),
-    );
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data: { type: 'IC_COMPLETE' },
-        origin: 'https://collect.example.test',
-        source: window,
-      }),
-    );
-  });
-  assert.equal(await page.evaluate(() => window.collected), undefined);
-  await page.evaluate(() =>
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        data: { type: 'IC_COMPLETE' },
-        origin: 'https://collect.example.test',
-        source: document.querySelector('iframe').contentWindow,
-      }),
-    ),
-  );
-  await expect(page.getByRole('dialog', { name: 'Payment information' })).toHaveCount(0);
-  assert.equal(await page.evaluate(() => window.collected), true);
   assert.deepEqual(errors, []);
   console.log(
     'Merchant payment browser checks: review, sign-only, receipt/split, reload recovery, storage faults, card funding and cache preservation passed.',

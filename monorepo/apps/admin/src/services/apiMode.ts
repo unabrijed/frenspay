@@ -10,7 +10,7 @@ const KEY = 'fpay_admin_env';
 
 /** False until the prod host is configured — without it the console silently fetches relative URLs,
  *  which reads like a backend bug rather than a missing variable. The switch hides itself instead of
- *  offering that. Only the host is checked now: one Privy app serves both targets (envConfig.ts). */
+ *  offering that. Only the host is checked now: one Dynamic app serves both targets (envConfig.ts). */
 export const PROD_AVAILABLE = API_HOSTS.prod.length > 0;
 
 /** Defaults to stage, always. Prod is an explicit, persisted opt-in — the safe direction is the one
@@ -29,7 +29,7 @@ export function apiHost(): string {
  * Every page holds its rows in useState (usePoll/usePaged). Carrying them across a switch would put
  * one environment's rows under the other's label, and any action fired from such a row would send
  * the wrong environment's ids to a backend that has no idea what they are. A reload costs one line
- * and removes that entire class of bug. It also drops the module-level Privy token in api.ts, so the
+ * and removes that entire class of bug. It also drops the module-level Dynamic token in api.ts, so the
  * incoming backend re-verifies from scratch instead of inheriting a session it never issued. */
 export function setApiMode(mode: ApiMode): void {
   localStorage.setItem(KEY, mode);

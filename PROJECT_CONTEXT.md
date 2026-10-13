@@ -2,7 +2,7 @@
 
 The active release direction is an **invite-only Monad UPI simulation beta**, selected on 13 October 2026 for the Metropolis Consumer Products & Payments submission. Real UPI settlement is deferred until an eligible provider arrangement exists.
 
-Users hold real native USDC in their own embedded wallet on Monad mainnet (Dynamic for the new beta, with Privy retained for recovery). A verified peak balance unlocks test spending credits. Scanning an Indian UPI QR spends only those credits and awards in-app points and badges: **the merchant receives no payment**. Receipt attestations use Monad testnet. There are no free starting credits or issued reward tokens.
+Users hold real native USDC in their own embedded wallet on Monad mainnet (Dynamic). A verified peak balance unlocks test spending credits. Scanning an Indian UPI QR spends only those credits and awards in-app points and badges: **the merchant receives no payment**. Receipt attestations use Monad testnet. There are no free starting credits or issued reward tokens.
 
 Start with [the simulation beta runbook](monorepo/docs/simulation-beta.md) for the flow, implementation, activation gates and demo. The code is implemented locally; production activation has not been verified. The older [production audit](monorepo/docs/production-pilot.md) and [provider selection](monorepo/docs/upi-provider-selection.md) remain references for deferred real settlement.
 
@@ -14,7 +14,7 @@ The Git root is `payments/`; the Yarn workspace root is `monorepo/`. The reposit
 
 | Location under monorepo | Responsibility | Delivery |
 | --- | --- | --- |
-| `apps/web` | Customer entry, Privy integration, browser signing and platform adapters | Next.js on Vercel |
+| `apps/web` | Customer entry, Dynamic integration, browser signing and platform adapters | Next.js on Vercel |
 | `apps/mobile` | Expo customer app, native signing and platform adapters | Separate native development build |
 | `apps/backend` | Fastify API, PostgreSQL persistence, payment verification and background workers | Root Dockerfile on Railway |
 | `apps/admin` | Users, invites, transactions, LPs, risk and operational controls | Next.js on Vercel |
@@ -36,7 +36,7 @@ flowchart LR
   Admin[Admin console] --> API
   LP[Partner console] --> API
   API --> DB[(PostgreSQL)]
-  API --> Privy[Privy identity]
+  API --> Dynamic[Dynamic identity and platform receipts]
   API --> Solana[Solana USDC]
   API --> WCP[WalletConnect Pay]
   API --> Workers[Confirmation and recovery workers]
@@ -47,11 +47,11 @@ flowchart LR
 ## Customer access and onboarding
 
 1. An invite code is redeemed against an email through the waitlist or authenticated F-list join flow.
-2. Privy authenticates the customer. The backend derives their email from the verified identity; a body-supplied email cannot grant access.
+2. Dynamic authenticates the customer. The backend derives their email from the verified identity; a body-supplied email cannot grant access.
 3. `/auth/sync` creates or updates the local account and wallet mapping. Customer route scopes enforce `requireFlist` independently of the UI.
 4. The client hydrates state and resolves authentication and `/me` before deciding whether to show onboarding or Home.
 
-`services/flist.ts`, `routes/flist.ts`, `routes/auth.ts`, `auth.ts` and `packages/app/src/lib/bootRoute.ts` are the main entry points. Admin and partner routes have separate authorization. The spoofable `x-dev-user-id` fallback is local-only and requires Privy to be unconfigured.
+`services/flist.ts`, `routes/flist.ts`, `routes/auth.ts`, `auth.ts` and `packages/app/src/lib/bootRoute.ts` are the main entry points. Admin and partner routes have separate authorization. The spoofable `x-dev-user-id` fallback is local-only and requires Dynamic to be unconfigured.
 
 Membership currently grants three onward invitations. Invite-only therefore does not mean a fixed-size cohort. `PAYMENT_PILOT_USERS` restricts merchant payments and card funding, but does not cap all wallet users or all P2P transfers.
 
@@ -108,7 +108,7 @@ Singapore PayNow payouts remain unavailable; StraitsX is sandbox-only. The older
 
 There are 35 SQL migrations under `apps/backend/src/db/migrations`, ending in `0035_campaign_identity_provider.sql`. Main domains include users and wallets, invite codes and waitlist, transfers and orders, merchants and stake, groups and expenses, merchant payments, and retained campaign data.
 
-Production uses bare backend environment names. Stage reads `STAGE_` names; local reads `LOCAL_` with stage fallback. Privy credentials are the deliberate unprefixed exception across tiers. A local invocation can therefore inherit the stage database: use isolated fixtures for tests and inspect the selected tier before any database command.
+Production uses bare backend environment names. Stage reads `STAGE_` names; local reads `LOCAL_` with stage fallback. A local invocation can therefore inherit the stage database: use isolated fixtures for tests and inspect the selected tier before any database command.
 
 The deployment runs migrations before starting the API. Database tier stamping rejects a database stamped for another tier, but an unstamped database is accepted and claimed during deployment. Verify the database target independently. Session-level advisory locks require a direct/session PostgreSQL connection rather than a transaction pooler.
 

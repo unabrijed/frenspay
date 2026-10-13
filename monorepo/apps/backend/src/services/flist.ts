@@ -2,7 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { findUserById } from '../db/queries';
 import { getPool } from '../db/pool';
 import { config } from '../envConfig';
-import { getLinkedEmail, privyConfigured } from './privy';
+import { dynamicConfigured } from './dynamic';
 
 export async function isFlistMember(email: string): Promise<boolean> {
   const { rows } = await getPool().query<{ member: boolean }>(
@@ -16,8 +16,7 @@ export async function isFlistMember(email: string): Promise<boolean> {
 
 export async function verifiedEmail(req: FastifyRequest): Promise<string | null> {
   if (req.campaignIdentity) return req.campaignIdentity.email;
-  if (req.privyDid) return getLinkedEmail(req.privyDid);
-  if (config.isLocal && !privyConfigured() && req.userId)
+  if (config.isLocal && !dynamicConfigured() && req.userId)
     return (await findUserById(req.userId))?.email ?? null;
   return null;
 }

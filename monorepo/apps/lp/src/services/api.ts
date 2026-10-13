@@ -1,6 +1,6 @@
 // api.ts — typed fetch client for the backend, LP-console flavoured.
 //
-// Same shape as apps/web's and apps/admin's: a module-scoped bearer token the Privy bridge
+// Same shape as apps/web's and apps/admin's: a module-scoped bearer token the Dynamic bridge
 // registers, one transparent refresh-and-retry on 401, and a structured ApiError so callers branch
 // on `code` rather than parsing a string.
 //
@@ -13,13 +13,13 @@
 import { API_URL, DEV_USER_ID } from './envConfig';
 
 let authToken: string | null = null;
-/** Set by the Privy bridge after login. Until then requests fall back to the dev header. */
+/** Set by the Dynamic bridge after login. Until then requests fall back to the dev header. */
 export function setAuthToken(token: string | null): void {
   authToken = token;
 }
 
 let refreshToken: (() => Promise<string | null>) | null = null;
-/** Registered by the Privy bridge so a 401 (expired access token) refreshes once and retries. */
+/** Registered by the Dynamic bridge so a 401 (expired access token) refreshes once and retries. */
 export function setTokenRefresher(fn: (() => Promise<string | null>) | null): void {
   refreshToken = fn;
 }
@@ -28,7 +28,7 @@ let onSessionRevoked: (() => void) | null = null;
 /**
  * Fires only when the server CONFIRMS this session has no account — distinct from an expired token,
  * which the refresh-and-retry below already handles. One hook at the API layer beats a catch in
- * every caller, because the Privy session outlives our row: without it every poll and every action
+ * every caller, because the Dynamic session outlives our row: without it every poll and every action
  * would keep running against a dead account. The handler's answer is AuthGate's FinishSetup — the
  * account gets made or adopted through /auth/sync — not a sign-out.
  */
@@ -55,7 +55,7 @@ export async function req<T>(path: string, init?: RequestInit, retried = false):
 
   const res = await fetch(`${API_URL}${path}`, { ...init, headers });
 
-  // Expired Privy access token → refresh once and retry transparently.
+  // Expired Dynamic access token → refresh once and retry transparently.
   if (res.status === 401 && !retried && refreshToken) {
     const fresh = await refreshToken().catch(() => null);
     if (fresh) {

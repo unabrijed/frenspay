@@ -13,14 +13,16 @@
     "check:invites:browser": "node scripts/check-invite-browser.mjs",
     "check:expenses:browser": "node scripts/check-expenses-browser.mjs",
     "check:payments:browser": "node scripts/check-merchant-payments-browser.mjs",
-    "check:campaign:browser": "node scripts/check-campaign-browser.mjs"
+    "check:campaign:browser": "node scripts/check-campaign-browser.mjs",
+    "check:code-input": "node scripts/check-code-input-browser.mjs"
   },
   "dependencies": {
+    "@dynamic-labs-sdk/client": "1.37.0",
     "@dynamic-labs/ethereum": "5.10.0",
     "@dynamic-labs/sdk-react-core": "5.10.0",
+    "@dynamic-labs/solana": "5.10.0",
     "@fpay/shared": "*",
     "@fpay/ui": "*",
-    "@privy-io/react-auth": "^3.32.1",
     "@solana-program/memo": "^0.11.2",
     "@solana-program/system": "^0.12.2",
     "@solana-program/token": "^0.14.0",
@@ -36,8 +38,7 @@
     "qrcode.react": "^4.2.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "zustand": "^5.0.14",
-    "@dynamic-labs-sdk/client": "1.37.0"
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@playwright/test": "1.64.0",

@@ -8,9 +8,9 @@ import type { StateStorage } from 'zustand/middleware';
 export interface PlatformEnv {
   apiUrl: string;
   solanaRpcUrl: string;
-  privyAppId: string;
-  privyClientId: string;
-  usePrivy: boolean;
+  dynamicEnvironmentId: string;
+  authClientId: string;
+  useDynamic: boolean;
   landingUrl: string;
   /** Dev signing path (no Privy) — '' on production tiers by construction. */
   devUserId: string;

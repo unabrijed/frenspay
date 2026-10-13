@@ -10,8 +10,9 @@
     "check:api": "tsx scripts/check-api-headers.ts"
   },
   "dependencies": {
+    "@dynamic-labs-sdk/client": "1.37.0",
+    "@dynamic-labs/sdk-react-core": "5.10.0",
     "@fpay/shared": "*",
-    "@privy-io/react-auth": "^3.32.1",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
     "bignumber.js": "^9.3.1",

@@ -1,6 +1,6 @@
 'use client';
 
-// Auth step (Privy): email-OTP login → embedded Solana wallet is created → handle.
+// Auth step (Dynamic): email-OTP login → embedded Solana wallet is created → handle.
 import { useRouter } from 'next/navigation';
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
@@ -53,7 +53,7 @@ function EmailOtp() {
     setSubmitting(false);
   }, [authStatus, authError]);
 
-  // After the code verifies, Privy creates the embedded Solana wallet and we pull the account —
+  // After the code verifies, Dynamic creates the embedded Solana wallet and we pull the account —
   // show a dedicated "setting up" state (no inputs, no progress gap) until routing kicks in.
   if (signedIn) {
     return (
@@ -129,7 +129,7 @@ function EmailOtp() {
             pending={submitting}
             onPress={() => {
               setSubmitting(true);
-              // One spelling per mailbox: what Privy sees is what the backend stores (0025).
+              // One spelling per mailbox: what Dynamic sees is what the backend stores (0025).
               requestOtp(normalizeEmail(email));
             }}
           />

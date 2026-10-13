@@ -1,8 +1,8 @@
 // middleware.ts — deploy access gate. Each gated project (the wallet app in apps/web; this console) sets
 // its own random key per tier (STAGE_ACCESS_KEY / ACCESS_KEY — see DEPLOY.stage.md); until a device
 // presents it, every route serves the key form (lib/gateHtml.ts) instead of the app. This is a
-// door-lock for unreleased deploys, not auth — Privy is the real auth inside. The form is hand-written
-// HTML on purpose: a normal page would boot the whole provider tree (Privy included) for strangers
+// door-lock for unreleased deploys, not auth — Dynamic is the real auth inside. The form is hand-written
+// HTML on purpose: a normal page would boot the whole provider tree (Dynamic included) for strangers
 // via the root layout. This file, lib/gate.ts, lib/gateHtml.ts and app/gate/route.ts are byte-for-byte
 // copies of apps/web's — change them together.
 import { type NextRequest, NextResponse } from 'next/server';

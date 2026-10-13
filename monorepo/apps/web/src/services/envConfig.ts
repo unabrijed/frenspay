@@ -5,8 +5,8 @@
 //   stage (a stage deploy sets APP_ENV)   → NEXT_PUBLIC_STAGE_<KEY>
 //   production (default in a build)       → NEXT_PUBLIC_<KEY>
 // Bare NEXT_PUBLIC_* names exist ONLY in production builds/hosts — dev tiers never read them. ONE
-// exception: the Privy app is not tiered (exactly one app, every tier mounts it), so its two names are
-// read bare on every tier — see the PRIVY_APP_ID export below.
+// exception: the Dynamic app is not tiered (exactly one app, every tier mounts it), so its two names are
+// read bare on every tier — see the DYNAMIC_ENVIRONMENT_ID export below.
 //
 // This file is the REFERENCE implementation of the tier block. apps/admin and apps/landing carry a
 // byte-identical copy of it, asserted by `yarn check:env`. It deliberately is NOT imported from
@@ -23,7 +23,7 @@ const APP_ENV = (process.env.NEXT_PUBLIC_APP_ENV || (isProduction ? 'production'
 const isProdEnv = APP_ENV === 'production';
 const isStageEnv = APP_ENV === 'stage';
 // An unrecognised tier used to fall out of pick() into the STAGE chain — a production build quietly
-// signing in against the stage Privy app while its own bare vars sat there unread. NEXT_PUBLIC_* is
+// signing in against the stage Dynamic app while its own bare vars sat there unread. NEXT_PUBLIC_* is
 // inlined, so this folds at build time: a mistyped tier fails the build instead of shipping.
 if (!isProdEnv && !isStageEnv && APP_ENV !== 'local') {
   throw new Error(`NEXT_PUBLIC_APP_ENV must be local | stage | production: got ${JSON.stringify(APP_ENV)}`);
@@ -63,7 +63,7 @@ export const PRELAUNCH_ENABLED = false;
 // Every tier is mainnet — there is no testnet (2026-08-30). The var only picks the RPC provider.
 export const SOLANA_RPC_URL = E.solanaRpcUrl || 'https://api.mainnet-beta.solana.com';
 
-// Dev signing path (no Privy): a seeded user id + secret key from apps/backend/.devnet/keys.json.
+// Dev signing path (no Dynamic): a seeded user id + secret key from apps/backend/.devnet/keys.json.
 //
 // SECURITY — read this before touching the shape below. `DEV_SECRET_KEY` is a RAW SOLANA PRIVATE
 // KEY, and every NEXT_PUBLIC_* read is inlined into the browser bundle as a literal. Two rules make
@@ -86,18 +86,6 @@ export const DEV_SECRET_KEY = isProduction
   ? ''
   : process.env.NEXT_PUBLIC_LOCAL_DEV_SECRET_KEY || process.env.NEXT_PUBLIC_STAGE_DEV_SECRET_KEY || '';
 
-// Privy. When the app id is set the app mounts Privy and uses email-OTP + the embedded Solana wallet.
-//
-// ONE Privy app, every tier — deliberately NOT routed through pick(): there is exactly one app, so
-// tiering it would mean two variable names holding one value, and a stale STAGE_ twin silently
-// winning over the bare name is exactly how stage kept mailing OTPs from a retired app (2026-08-31).
-// Same reasoning apps/admin/src/services/envConfig.ts gives. Empty is a supported, LOUD state
-// (USE_PRIVY false); there is no fallback to a prefixed name — missing beats wrong.
-export const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID || '';
-/** Optional Privy app-client. Belongs to the app id above and to no other. */
-export const PRIVY_CLIENT_ID = process.env.NEXT_PUBLIC_PRIVY_CLIENT_ID || '';
-export const USE_PRIVY = PRIVY_APP_ID.length > 0;
-
 // The marketing site. Invite links point HERE, not at the app origin: the landing page reads `?ref=`,
 // attributes the f-list signup, and relays the handle on to the app — so a fren who isn't ready to
 // sign up still lands somewhere that explains what fpay is. Also the f-list exit from the invite gate.
@@ -114,19 +102,16 @@ export const CUSTOMER_PAYMENT_MODE = pick(
   process.env.NEXT_PUBLIC_LOCAL_CUSTOMER_PAYMENT_MODE,
   process.env.NEXT_PUBLIC_STAGE_CUSTOMER_PAYMENT_MODE,
   process.env.NEXT_PUBLIC_CUSTOMER_PAYMENT_MODE,
-) || 'live';
+) || 'simulation';
 if (!['live', 'simulation'].includes(CUSTOMER_PAYMENT_MODE)) throw new Error('Invalid CUSTOMER_PAYMENT_MODE');
 export const SIMULATION_MODE = CUSTOMER_PAYMENT_MODE === 'simulation';
 
-// Provider selection applies to the Monad web beta. Privy configuration stays intact.
-export const CAMPAIGN_AUTH_PROVIDER = pick(
-  process.env.NEXT_PUBLIC_LOCAL_CAMPAIGN_AUTH_PROVIDER,
-  process.env.NEXT_PUBLIC_STAGE_CAMPAIGN_AUTH_PROVIDER,
-  process.env.NEXT_PUBLIC_CAMPAIGN_AUTH_PROVIDER,
-) || 'privy';
+// Dynamic is the customer wallet provider.
+export const CAMPAIGN_AUTH_PROVIDER = 'dynamic' as const;
 export const DYNAMIC_ENVIRONMENT_ID = pick(
   process.env.NEXT_PUBLIC_LOCAL_DYNAMIC_ENVIRONMENT_ID,
   process.env.NEXT_PUBLIC_STAGE_DYNAMIC_ENVIRONMENT_ID,
   process.env.NEXT_PUBLIC_DYNAMIC_ENVIRONMENT_ID,
-) || '';
-if (!['privy', 'dynamic'].includes(CAMPAIGN_AUTH_PROVIDER)) throw new Error('Invalid campaign wallet provider');
+) || '4fc2a73c-1662-45eb-9257-8baa567066a6';
+export const USE_DYNAMIC = Boolean(DYNAMIC_ENVIRONMENT_ID);
+export const DYNAMIC_CLIENT_ID = ''; // Shared platform compatibility; Dynamic uses the environment ID.

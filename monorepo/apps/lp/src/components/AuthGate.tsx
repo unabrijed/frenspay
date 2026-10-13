@@ -3,8 +3,8 @@
 // AuthGate — the door. Four states, and the third is the one worth building carefully.
 //
 // This console finishes account setup itself. A verified email with no users row on this
-// environment — a brand-new partner, or an existing one whose Privy DID rotated with the app
-// (DEPLOY.stage.md §One Privy app) — lands on FinishSetup, which calls the same POST /auth/sync the
+// environment — a brand-new partner, or an existing one whose Dynamic DID rotated with the app
+// (DEPLOY.stage.md §One Dynamic app) — lands on FinishSetup, which calls the same POST /auth/sync the
 // wallet app does. Its first move is a sync with NO handle: the server adopts whatever this email
 // already owns (moving a partner's release address to the new wallet) and answers
 // `handle_required` only when there is nothing to adopt. So a returning partner is never asked to
@@ -12,6 +12,7 @@
 // only when the server insists (inviteRequired). Until 2026-09-01 this was a dead end that sent
 // people to the wallet app first; after the DID rotation that locked out every existing partner,
 // and the workaround was handing them the payer app's gate key.
+import {CodeInput} from '@fpay/ui/CodeInput';
 import type { CSSProperties, ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 
@@ -87,15 +88,7 @@ function SignIn() {
           <>
             <Txt style={[type.inst, { marginBottom: 8 }]}>We sent a 6-digit code to {email}.</Txt>
             <Field>
-              <input
-                style={{ ...inputStyle, letterSpacing: 6 }}
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                maxLength={6}
-                placeholder="······"
-                value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-              />
+              <CodeInput value={code} onChange={setCode} disabled={busy}/>
             </Field>
             <Spacer />
             <Btn
@@ -122,11 +115,11 @@ const GATE_CODES = new Set(['invite_required', 'invalid_invite']);
 
 /**
  * The third state: signed in, no account here. Two moves. First a POST /auth/sync with no handle —
- * the server adopts the account this email already owns (a DID that rotated with the Privy app) and
+ * the server adopts the account this email already owns (a DID that rotated with the Dynamic app) and
  * we are done, "welcome back"; or it answers `handle_required`, meaning nothing to adopt, and only
  * THEN is the form shown. The handle is asked for rather than derived from the email: it is
  * immutable and every payer can resolve it, so deriving would publish the email's local part
- * forever. If a Privy read hiccups the server cannot see the email and falls back to asking, and a
+ * forever. If a Dynamic read hiccups the server cannot see the email and falls back to asking, and a
  * typed name is still discarded on adoption — hence the "welcome back" on a mismatch.
  */
 function FinishSetup() {
@@ -136,7 +129,7 @@ function FinishSetup() {
   const auth = useLpStore((s) => s.auth);
   const [handle, setHandle] = useState('');
   const [code, setCode] = useState('');
-  // Hidden until the server asks: the common case after a Privy-app migration is an existing
+  // Hidden until the server asks: the common case after a Dynamic-app migration is an existing
   // partner, and an invite box would tell them they are signing up fresh.
   const [needsCode, setNeedsCode] = useState(false);
   // Hidden until the probe says there is nothing to adopt — the same shape as needsCode.

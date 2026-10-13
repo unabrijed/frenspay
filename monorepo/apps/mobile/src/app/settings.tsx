@@ -43,6 +43,7 @@ export default function Settings() {
         <InviteCard used={invitesUsed} total={invitesTotal} />
 
         <List>
+          <SettingsRow k="Export wallet" onPress={()=>router.push('/wallet-export')} />
           <SettingsRow k="Recovery" v={recoveryPasskey ? 'Passkey set' : 'Email'} onPress={() => open('recovery')} />
           <SettingsRow k="Pay by phone" v={phone ? 'On' : 'Off'} onPress={() => open('payByPhone')} />
           <SettingsRow

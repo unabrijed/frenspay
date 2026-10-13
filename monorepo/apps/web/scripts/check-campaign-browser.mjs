@@ -97,11 +97,11 @@ createRoot(document.getElementById('root')).render(<CampaignApp/>);`;
 await writeFile(join(scratch,'entry.tsx'),entry);
 await build({entryPoints:[join(scratch,'entry.tsx')],outfile:join(scratch,'app.js'),bundle:true,jsx:'automatic',nodePaths:[join(root,'node_modules'),join(root,'apps/web/node_modules')],loader:{'.css':'local-css'},define:{'process.env.NODE_ENV':'"development"'},plugins:[{
   name:'fixtures',setup(b){
-    b.onResolve({filter:/^\.\/CampaignWallet$/},()=>({path:'privy',namespace:'fixture'}));
+    b.onResolve({filter:/^\.\/CampaignWallet$/},()=>({path:'wallet',namespace:'fixture'}));
     b.onResolve({filter:/^next\/link$/},()=>({path:'link',namespace:'fixture'}));
     b.onResolve({filter:/^@\/components\//},args=>({path:join(root,'apps/web/src',args.path.slice(2)+'.tsx')}));
     b.onResolve({filter:/^\.\.\/store$/},args=>args.importer.endsWith('/BottomNav.tsx')?({path:'store',namespace:'fixture'}):undefined);
-    b.onLoad({filter:/.*/,namespace:'fixture'},args=>({loader:'tsx',resolveDir:join(root,'apps/web'),contents:args.path==='privy'?`
+    b.onLoad({filter:/.*/,namespace:'fixture'},args=>({loader:'tsx',resolveDir:join(root,'apps/web'),contents:args.path==='wallet'?`
       const token=async()=>'fixture';const logout=async()=>{};const exportWallet=async()=>{window.exports++};
       export function useExportWallet(){return{exportWallet};}
       export function useCampaignWallet(){return{provider:'dynamic',fundFromWallet:async(address)=>{if(address!=='0x'+'1'.repeat(40))throw Error('wrong funding address');window.fundingCalls++},user:{id:'alice',linkedAccounts:[]},getAccessToken:token,logout,exportWallet,linkTwitter:async()=>{},sendTransaction:async()=>{window.signs++;return{hash:'0x'+'a'.repeat(64)}}};}
