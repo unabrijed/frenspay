@@ -12,13 +12,13 @@ export interface CampaignQuote {
 }
 export interface CampaignSpend {
   id: string; recipientName: string; payeeVpa: string; amountInr: string; credits: string;
-  points: string; createdAt: string; receiptStatus: 'pending' | 'submitted' | 'confirmed' | 'review';
+  points: string; createdAt: string; receiptStatus: 'simulated' | 'pending' | 'submitted' | 'confirmed' | 'review';
   receiptHash: string | null; commitment: string;
 }
 export interface CampaignCapabilities {
   authProvider?: 'privy' | 'dynamic';
   mode: 'live' | 'simulation'; campaignId: 'monad-upi-2026'; spendingEnabled: boolean;
-  fundingEnabled: boolean; receiptChainId: 10143; fundingChainId: 143;
+  fundingEnabled: boolean; receiptChainId: 10143 | null; fundingChainId: 143;
 }
 export interface CampaignAnalytics {
   summary: Record<string, string>;

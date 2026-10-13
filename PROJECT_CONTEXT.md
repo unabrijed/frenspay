@@ -2,7 +2,7 @@
 
 The active release direction is an **invite-only Monad UPI simulation beta**, selected on 13 October 2026 for the Metropolis Consumer Products & Payments submission. Real UPI settlement is deferred until an eligible provider arrangement exists.
 
-Users hold real native USDC in their own embedded wallet on Monad mainnet (Dynamic). A verified peak balance unlocks test spending credits. Scanning an Indian UPI QR spends only those credits and awards in-app points and badges: **the merchant receives no payment**. Receipt attestations use Monad testnet. There are no free starting credits or issued reward tokens.
+Users hold real native USDC in their own embedded wallet on Monad mainnet (Dynamic). A verified peak balance unlocks test spending credits. Scanning an Indian UPI QR spends only those credits and awards in-app points and badges: **the merchant receives no payment**. Simulated payments and their records stay offchain; no testnet MON is required. There are no free starting credits or issued reward tokens.
 
 Start with [the simulation beta runbook](monorepo/docs/simulation-beta.md) for the flow, implementation, activation gates and demo. The code is implemented locally; production activation has not been verified. The older [production audit](monorepo/docs/production-pilot.md) and [provider selection](monorepo/docs/upi-provider-selection.md) remain references for deferred real settlement.
 
@@ -121,3 +121,7 @@ The root `.github/workflows/backend-image.yml` uploads backend builds to Railway
 Vercel serves four separate projects. Web uses `monorepo/vercel.json`; admin, LP and landing have app-local configuration. Their actual production branch, domains and environment variables live in Vercel and must match the release. Public frontend environment values are compiled into the bundle, so changing them requires a rebuild.
 
 Backend and frontend deployment timing is independent. Preserve API compatibility across a release and verify the backend before promoting a frontend that requires new routes.
+
+### Current simulation policy — 2026-10-14
+
+Verified native USDC held on Monad mainnet unlocks a flat 10× simulation-credit allowance. Real funds, simulation credits and points are separate balances. QR payments update the database only; both testnet receipt workers are disabled at server startup. No testnet MON is required. Mainnet funding and withdrawals remain real transfers. Migration 0037 raises existing entitlements to 10× while preserving prior spending and preventing repeated grants.

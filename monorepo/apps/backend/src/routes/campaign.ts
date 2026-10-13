@@ -14,7 +14,7 @@ export function campaignCapabilities(): CampaignCapabilities {
   return { mode: config.customerPaymentMode, campaignId: 'monad-upi-2026', authProvider: config.campaignAuthProvider,
     spendingEnabled: config.customerPaymentMode === 'simulation' && config.campaignSpendingEnabled,
     fundingEnabled: config.campaignFundingEnabled && !!config.monadRpcUrl,
-    receiptChainId: 10143, fundingChainId: 143 };
+    receiptChainId: null, fundingChainId: 143 };
 }
 export async function registerCampaignRoutes(app: FastifyInstance) {
   app.get('/campaign/capabilities', async () => campaignCapabilities());
