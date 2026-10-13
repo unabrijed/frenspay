@@ -12,7 +12,12 @@ const scratch = await mkdtemp(join(tmpdir(), 'fpay-session-browser-'));
 const fixtures = {
   '@dynamic-labs/sdk-react-core': `
     export const DynamicContextProvider=({children})=>children;
-    export const useDynamicContext=()=>({...window.session,setShowAuthFlow:()=>{},handleLogOut:async()=>{window.change({sdkHasLoaded:true})}});
+    export const useDynamicContext=()=>({...window.session,setShowAuthFlow:()=>{throw Error("Dynamic popup must not open")},handleLogOut:async()=>{window.change({sdkHasLoaded:true})}});
+    export const useConnectWithOtp=()=>({
+      connectWithEmail:async email=>{window.sentEmail=email;if(window.failSend)throw Error('send failed')},
+      verifyOneTimePassword:async code=>{if(code!=='123456')throw Error('wrong code');window.change({sdkHasLoaded:true,user:{userId:'otp-user',verifiedCredentials:[{walletProvider:'embeddedWallet',address:'0x123'}]}})},
+      retryOneTimePassword:async()=>{window.resent=true},
+    });
     export const useUserWallets=()=>window.session.user?[{id:'wallet',address:'0x123'}]:[];
     export const useEmbeddedReveal=()=>({initExportProcess:async()=>{}});
     export const useSocialAccounts=()=>({linkSocialAccount:async()=>{}});
@@ -57,6 +62,7 @@ let browser;
 try {
   browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL??'chrome',headless:true});
   const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.clock.install();
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   await expect(page.getByRole('status')).toHaveText('Restoring your session…');
   await expect(page.getByRole('button',{name:'Continue with email'})).toHaveCount(0);
@@ -94,7 +100,7 @@ try {
   // The welcome must remain usable inside the app's fixed-width, scrollable frame.
   for (const width of [320, 390, 1280]) {
     await page.setViewportSize({width,height:740});
-    await expect(page.getByRole('heading',{name:'Welcome, fren.'})).toBeVisible();
+    await expect(page.getByRole('heading',{name:'Welcome to fpay'})).toBeVisible();
     await page.getByRole('button',{name:'Continue with email'}).scrollIntoViewIfNeeded();
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'welcome must not overflow horizontally');
     if (process.env.WELCOME_SCREENSHOT_DIR) {
@@ -102,6 +108,28 @@ try {
       await page.screenshot({path:join(process.env.WELCOME_SCREENSHOT_DIR,`welcome-${width}.png`)});
     }
   }
+  await page.getByLabel('Email', {exact:true}).fill('fren@example.test');
+  await page.evaluate(()=>window.failSend=true);
+  await page.getByRole('button',{name:'Continue with email'}).click();
+  await expect(page.getByRole('alert')).toContainText('Could not send');
+  await page.evaluate(()=>window.failSend=false);
+  await page.getByRole('button',{name:'Continue with email'}).click();
+  await expect(page.getByRole('heading',{name:'Check your email'})).toBeVisible();
+  assert.equal(await page.evaluate(()=>window.sentEmail),'fren@example.test');
+  await page.getByLabel('Verification code').fill('000000');
+  await page.getByRole('button',{name:'Verify code'}).click();
+  await expect(page.getByRole('alert')).toContainText('could not be verified');
+  await page.getByRole('button',{name:'Change email'}).click();
+  await expect(page.getByLabel('Email',{exact:true})).toHaveValue('fren@example.test');
+  await page.getByRole('button',{name:'Continue with email'}).click();
+  await page.clock.runFor(31_000);
+  await page.getByRole('button',{name:'Resend code',exact:true}).click();
+  await expect(page.getByRole('status')).toHaveText('New code sent.');
+  assert.equal(await page.evaluate(()=>window.resent),true);
+  await page.getByLabel('Verification code').fill('123456');
+  await page.getByRole('button',{name:'Verify code'}).click();
+  await respond(true);
+  await expect(page.getByLabel('Wallet draft')).toBeVisible();
   assert.deepEqual(errors,[]);
   console.log('check-session-browser: restoration, membership, navigation, account isolation, retry and revocation passed');
 } finally {await browser?.close();await new Promise(resolve=>server.close(resolve));}

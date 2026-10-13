@@ -34,6 +34,7 @@ const mocks={
   sdk:`import React,{useState}from'react';export function DynamicContextProvider({children}){return children;}
     const identity={userId:'fixture-user',verifiedCredentials:[{walletProvider:'embeddedWallet',address:'0x123'}]};
     export function useDynamicContext(){const[user,setUser]=useState(identity);return{sdkHasLoaded:true,user,setShowAuthFlow(){},handleLogOut:async()=>setUser(undefined)}};
+    export const useConnectWithOtp=()=>({});
     export const useUserWallets=()=>[{id:'wallet',address:'0x123'}],useEmbeddedReveal=()=>({initExportProcess:async()=>{}}),useSocialAccounts=()=>({linkSocialAccount:async()=>{}}),useFundWithWallet=()=>({externalWalletFundingEnabled:false});`,
   ethereum:'export const EthereumWalletConnectors=[],isEthereumWallet=()=>true;',
   solana:'export const SolanaWalletConnectors=[];',
@@ -56,9 +57,9 @@ try{
   const page=await browser.newPage({viewport:{width:390,height:844}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(origin+'?invite=FREN-ABCD-1234');
   await expect(page.getByLabel('Invite code')).toHaveValue('ABCD1234');
-  await page.getByLabel('Invite code').fill('WRONG123');await page.getByRole('button',{name:'Join',exact:true}).click();
+  await page.getByLabel('Invite code').fill('WRONG123');await page.getByRole('button',{name:'Join the f-list',exact:true}).click();
   await expect(page.getByRole('alert')).toContainText('Could not redeem');
-  await page.getByLabel('Invite code').fill('fren-abcd-1234');await page.getByRole('button',{name:'Join',exact:true}).click();
+  await page.getByLabel('Invite code').fill('fren-abcd-1234');await page.getByRole('button',{name:'Join the f-list',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Simulation home'})).toBeVisible();
   await page.reload();await expect(page.getByRole('heading',{name:'Simulation home'})).toBeVisible();
   unavailable=true;await page.reload();await expect(page.getByRole('alert')).toContainText('Could not restore');
