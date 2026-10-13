@@ -136,6 +136,12 @@ const personaApiKeyValue = env('PERSONA_API_KEY');
 const personaTemplateIdValue = env('PERSONA_TEMPLATE_ID');
 
 export const config = {
+  campaignAuthProvider: env('CAMPAIGN_AUTH_PROVIDER', 'privy') as 'privy' | 'dynamic',
+  dynamicEnvironmentId: env('DYNAMIC_ENVIRONMENT_ID', ''),
+  dynamicAudience: env('DYNAMIC_AUDIENCE', ''),
+  customerPaymentMode: env('CUSTOMER_PAYMENT_MODE', 'live') as 'live' | 'simulation',
+  campaignSpendingEnabled: env('CAMPAIGN_SPENDING_ENABLED', 'false') === 'true',
+  campaignFundingEnabled: env('CAMPAIGN_FUNDING_ENABLED', 'false') === 'true',
   prelaunchEnabled: env('PRELAUNCH_ENABLED', 'false') === 'true',
   merchantPayEnabled: env('MERCHANT_PAY_ENABLED', 'false') === 'true',
   cardFundingEnabled: env('CARD_FUNDING_ENABLED', 'false') === 'true',
@@ -408,3 +414,7 @@ if (config.resendApiKey && !config.waitlistSecret) {
       'stay disabled (a token minted with no secret could be forged). Set both to enable them.',
   );
 }
+
+if (!['live', 'simulation'].includes(config.customerPaymentMode)) throw new Error('CUSTOMER_PAYMENT_MODE must be live or simulation');
+
+if (!['privy', 'dynamic'].includes(config.campaignAuthProvider)) throw new Error('CAMPAIGN_AUTH_PROVIDER must be privy or dynamic');

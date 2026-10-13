@@ -6,7 +6,7 @@ export const PAYMENT_USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 export function paymentCapabilities(userId: string): PaymentCapabilities {
   const supported = config.paymentChain === 'solana' && config.usdcMint === PAYMENT_USDC_MINT;
   const eligible =
-    supported &&
+    config.customerPaymentMode !== 'simulation' && supported &&
     config.paymentPilotUsers
       .split(',')
       .map((v) => v.trim())

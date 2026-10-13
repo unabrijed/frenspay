@@ -18,6 +18,7 @@ import { metrics } from './services/metrics';
 import { assertPayoutConfig } from './services/payout/provider';
 import { assertPhoneOtpConfig } from './services/phoneOtp';
 import { startRateLimitSweeper } from './services/rateLimit';
+import { startCampaignReceipts } from './services/campaign/receipts';
 import { startPrelaunchReceipts } from './services/prelaunch/receipts';
 import { assertTelegramConfig } from './services/telegram/assert';
 
@@ -88,6 +89,7 @@ async function start() {
   // M6: sweep stale rate-limit windows independently of the confirmer (which no-ops without a mint).
   startRateLimitSweeper();
   startPrelaunchReceipts(m=>app.log.info(m));
+  startCampaignReceipts(m=>app.log.info(m));
 
   // M7: prime + refresh the live FX rate in the background (quoting reads the cache; falls back safely).
   startFxRefresher(config.fxRefreshMs, (m) => app.log.info(m));

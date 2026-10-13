@@ -15,6 +15,7 @@ export async function isFlistMember(email: string): Promise<boolean> {
 }
 
 export async function verifiedEmail(req: FastifyRequest): Promise<string | null> {
+  if (req.campaignIdentity) return req.campaignIdentity.email;
   if (req.privyDid) return getLinkedEmail(req.privyDid);
   if (config.isLocal && !privyConfigured() && req.userId)
     return (await findUserById(req.userId))?.email ?? null;
@@ -23,7 +24,7 @@ export async function verifiedEmail(req: FastifyRequest): Promise<string | null>
 
 /** Attached only to customer route scopes; partner/admin APIs retain their own authorization. */
 export async function requireFlist(req: FastifyRequest, reply: FastifyReply) {
-  if (!req.privyDid && !req.userId) return reply.code(401).send({ error: 'unauthorized' });
+  if (!req.privyDid && !req.userId && !req.campaignIdentity) return reply.code(401).send({ error: 'unauthorized' });
   try {
     const email = await verifiedEmail(req);
     if (!email) return reply.code(403).send({ error: 'verified_email_required' });

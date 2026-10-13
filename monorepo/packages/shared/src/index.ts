@@ -18,3 +18,6 @@ export * from './expenses';
 export * from './sms';
 export * from './merchantPayments';
 export type { PrelaunchAccount, PrelaunchQuote, PrelaunchSpend, PrelaunchTransaction } from './prelaunch';
+
+export * from './campaign';
+export * from './upi';

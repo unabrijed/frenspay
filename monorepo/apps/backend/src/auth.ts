@@ -5,6 +5,8 @@
 // Dev mode (Privy not configured): fall back to the `x-dev-user-id` header.
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
+import { authenticateDynamic, dynamicConfigured, type CampaignIdentity } from './services/dynamic';
+import { decodeJwt } from 'jose';
 import { config } from './envConfig';
 import { findUserById, findUserByPrivyDid, getMerchantForUser, touchMerchantSeen, type MerchantRow } from './db/queries';
 import { privyConfigured, verifyAccessToken } from './services/privy';
@@ -13,6 +15,7 @@ declare module 'fastify' {
   interface FastifyRequest {
     userId?: string;
     privyDid?: string;
+    campaignIdentity?: CampaignIdentity;
   }
 }
 
@@ -26,6 +29,18 @@ declare module 'fastify' {
  *  defeating the ADMIN_EMAILS recovery bootstrap below. */
 export async function authPreHandler(req: FastifyRequest, reply: FastifyReply): Promise<unknown> {
   const authz = req.headers.authorization;
+  if (dynamicConfigured() && typeof authz === 'string' && authz.startsWith('Bearer ')) {
+    // Unverified issuer is only a routing hint. authenticateDynamic verifies signature and claims.
+    let issuer = '';
+    try { issuer = String(decodeJwt(authz.slice(7)).iss ?? ''); } catch {}
+    if (issuer === `app.dynamicauth.com/${config.dynamicEnvironmentId}` ||
+        issuer === `app.dynamic.xyz/${config.dynamicEnvironmentId}`) {
+      try { req.campaignIdentity = await authenticateDynamic(authz.slice(7)); }
+      catch { return reply.code(401).send({ error: 'unauthorized' }); }
+      return;
+    }
+  }
+
   if (privyConfigured() && typeof authz === 'string' && authz.startsWith('Bearer ')) {
     try {
       const { privyDid } = await verifyAccessToken(authz.slice(7));
@@ -52,7 +67,7 @@ export async function authPreHandler(req: FastifyRequest, reply: FastifyReply): 
   // a no-token impersonation endpoint, silently, on a server that boots healthy. Blanking a variable
   // to switch a vendor off is a normal gesture here (docs/14), which is exactly why this can't key on
   // a flag that includes a deployed tier. rateLimit.ts already keys the same header on isLocal.
-  if (config.isLocal && !privyConfigured()) {
+  if (config.isLocal && !privyConfigured() && !dynamicConfigured()) {
     const hdr = req.headers['x-dev-user-id'];
     if (typeof hdr === 'string' && hdr.length > 0) {
       // The header names a row directly, so fetch it for the same suspension gate as the Privy

@@ -77,8 +77,9 @@ try {
   assert.equal(await q.inviteCodeStatus(spare), 'unused');
   assert.deepEqual((await readFlist('alice@example.test')).invites, first.invites);
   result = await call('POST', '/prelaunch/session', 'alice');
-  assert.equal(result.statusCode, 200, result.body);
-  assert.equal(result.json().practiceCredits, '25.000000');
+  // Membership passes the customer gate, but the retired campaign stays unavailable.
+  assert.equal(result.statusCode, 410, result.body);
+  assert.equal(result.json().error, 'campaign_retired');
 
   // Body/query email cannot read or enroll somebody else's account.
   result = await call('GET', '/flist/me?email=alice@example.test', 'bob');
@@ -105,6 +106,8 @@ try {
   // A web account adopts the same three, even after acknowledgement. No second allowance.
   result = await call('POST', '/auth/sync', 'alice', { handle: '@alice', walletAddress: 'alice-wallet' });
   assert.equal(result.statusCode, 200, result.body);
+  assert.equal((await call('GET', '/me', 'alice')).statusCode, 200);
+  assert.equal((await call('GET', '/payments/capabilities', 'alice')).statusCode, 200);
   const alice = (await q.findUserByEmail('alice@example.test'))!;
   await q.markInvitesRevealed(alice.id);
   assert.equal((await readFlist('alice@example.test')).invites.length, 3);

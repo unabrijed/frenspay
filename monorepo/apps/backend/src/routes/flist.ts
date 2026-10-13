@@ -19,7 +19,7 @@ export async function readFlist(email: string): Promise<FlistResponse> {
 
 export async function registerFlistRoutes(app: FastifyInstance) {
   const identity = async (req: FastifyRequest) => {
-    if (!req.privyDid && !req.userId)
+    if (!req.privyDid && !req.userId && !req.campaignIdentity)
       throw Object.assign(new Error('unauthorized'), { statusCode: 401 });
     const email = await verifiedEmail(req);
     if (!email) throw Object.assign(new Error('verified_email_required'), { statusCode: 403 });

@@ -26,6 +26,8 @@ import { registerStraitsxSandboxWebhook } from './straitsxSandboxWebhook';
 import { registerPrelaunchRoutes, registerPrelaunchAdminRoutes } from './prelaunch';
 import { registerFlistRoutes } from './flist';
 import { requireFlist } from '../services/flist';
+import { registerCampaignRoutes, registerCampaignAdminRoutes } from './campaign';
+import { enforceSimulationMode } from '../services/campaign/policy';
 
 export async function registerRoutes(app: FastifyInstance) {
   // M6: rate-limit the sensitive routes (money movement + faucet + auth + directory) first.
@@ -33,6 +35,7 @@ export async function registerRoutes(app: FastifyInstance) {
 
   // Identity: Privy bearer token in prod; x-dev-user-id shim when Privy is unconfigured.
   app.addHook('preHandler', authPreHandler);
+  app.addHook('preHandler', enforceSimulationMode);
 
   await registerSystemRoutes(app);
   await registerAuthRoutes(app);
@@ -40,6 +43,7 @@ export async function registerRoutes(app: FastifyInstance) {
   // Encapsulation keeps customer access checks off LP, admin, webhooks and public signup.
   await app.register(async (customer) => {
     customer.addHook('preHandler', requireFlist);
+    await registerCampaignRoutes(customer);
     await registerPrelaunchRoutes(customer);
     await registerMoneyRoutes(customer);
     await registerMerchantPaymentRoutes(customer);
@@ -59,4 +63,5 @@ export async function registerRoutes(app: FastifyInstance) {
   await registerWaitlistRoutes(app);
   await registerAdminRoutes(app);
   await registerPrelaunchAdminRoutes(app);
+  await registerCampaignAdminRoutes(app);
 }
