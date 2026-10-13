@@ -27,8 +27,10 @@ COPY monorepo/apps/web/package.json apps/web/
 COPY monorepo/apps/admin/package.json apps/admin/
 COPY monorepo/apps/landing/package.json apps/landing/
 COPY monorepo/apps/lp/package.json apps/lp/
+COPY monorepo/apps/mobile/package.json apps/mobile/
 COPY monorepo/packages/shared/package.json packages/shared/
 COPY monorepo/packages/ui/package.json packages/ui/
+COPY monorepo/packages/app/package.json packages/app/
 # devDeps included — esbuild lives there and the build below needs it.
 RUN yarn install --frozen-lockfile --network-timeout 300000
 

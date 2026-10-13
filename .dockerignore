@@ -1,6 +1,11 @@
 # Secrets — these exist on disk with real values and must NEVER enter the image.
 **/.env*
 **/.devnet
+**/*-escrow.json
+**/*-feepayer.json
+**/*-platform-fee.json
+**/*-stake-treasury.json
+**/*keypair*.json
 
 # Bulk that the backend never reads at runtime (IDLs are vendored into apps/backend/src).
 .git
@@ -8,6 +13,9 @@
 **/.next
 monorepo/anchor
 monorepo/apps/mobile
+!monorepo/apps/mobile/
+monorepo/apps/mobile/*
+!monorepo/apps/mobile/package.json
 monorepo/brand
 monorepo/design-reference
 monorepo/docs
