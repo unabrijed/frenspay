@@ -125,6 +125,40 @@ try{
   const page=await browser.newPage({viewport:{width:430,height:900}});
   const failures=[];page.on('pageerror',e=>failures.push(e.message));
   await page.goto(origin);await expect(page.getByText('Your first test starts here.')).toBeVisible();
+  // Card exploration must stay local: no API writes, wallet signing or funding.
+  const cardWrites=[];
+  const recordCardWrite=request=>{if(request.method()!=='GET')cardWrites.push(request.url());};
+  page.on('request',recordCardWrite);
+  const beforeCards=await page.evaluate(()=>({signs:window.signs,funding:window.fundingCalls}));
+  await page.getByRole('button',{name:'Explore card preview'}).click();
+  const cardsDialog=page.getByRole('dialog',{name:'Your cards'});
+  await expect(cardsDialog).toBeVisible();
+  await page.getByRole('button',{name:'Travel sample card'}).click();
+  await expect(page.getByRole('button',{name:'Travel sample card'})).toHaveAttribute('aria-pressed','true');
+  await page.getByRole('button',{name:'Freeze card',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Try tap to pay'})).toBeDisabled();
+  await page.getByRole('button',{name:'Unfreeze card',exact:true}).click();
+  await page.getByRole('button',{name:'Add card',exact:false}).click();
+  await page.getByLabel('Card nickname').fill('Weekend');
+  await page.getByRole('button',{name:'Add sample card',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Weekend sample card'})).toHaveAttribute('aria-pressed','true');
+  await page.getByRole('button',{name:'Try tap to pay'}).click();
+  await page.getByRole('button',{name:'Cancel payment'}).click();
+  await expect(page.getByRole('region',{name:'Preview payment review'})).toHaveCount(0);
+  await page.getByRole('button',{name:'Try tap to pay'}).click();
+  await page.getByRole('button',{name:'Simulate tap',exact:true}).click();
+  await expect(page.getByText('No money moved and the merchant was not paid.',{exact:false})).toBeVisible();
+  for(const width of [320,390,430,1280]) {
+    await page.setViewportSize({width,height:844});
+    assert.equal(await cardsDialog.evaluate(el=>el.scrollWidth>el.clientWidth),false);
+  }
+  await page.screenshot({path:join(tmpdir(),'fpay-card-preview.png')});
+  await page.keyboard.press('Escape');
+  await expect(cardsDialog).not.toBeVisible();
+  await expect(page.getByRole('button',{name:'Explore card preview'})).toBeFocused();
+  page.off('request',recordCardWrite);
+  assert.deepEqual(cardWrites,[]);
+  assert.deepEqual(await page.evaluate(()=>({signs:window.signs,funding:window.fundingCalls})),beforeCards);
   // A functional fixture must also carry the real app's visual dependencies.
   // These catch the previously white, full-width page with Times and icon words.
   for (const viewport of [{width:390,height:844},{width:430,height:900},{width:1280,height:960}]) {
@@ -191,7 +225,7 @@ try{
   });
   await page.reload();
   await expect(page.getByText('Recent activity')).toBeVisible();
-  await expect(page.getByText('Loading activity…')).toBeVisible();
+  await expect(page.getByRole('status',{name:'Loading activity',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Wallet',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Your wallet',exact:true})).toBeVisible();
   await expect(page.getByText('Checking pending withdrawals…')).toBeVisible();

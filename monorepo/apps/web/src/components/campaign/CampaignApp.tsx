@@ -1,6 +1,7 @@
 'use client';
 
 import { useCampaignWallet } from './CampaignWallet';
+import { CardWallet } from '../cards/CardWallet';
 
 import Link from 'next/link';
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -215,6 +216,7 @@ function CampaignSession({visible}: {visible: boolean}) {
           {Number(account.peakUsdc) === 0 && <div className={s.card}><h2>Your first test starts here.</h2><p>Add real USDC to your wallet to unlock credits. Simulating a payment leaves your USDC untouched.</p></div>}
           <button className={s.row} onClick={() => go('wallet')}><span>Real USDC balance<small>Monad · Your funds</small></span><b>{account.realUsdc === null ? 'Not checked' : display(account.realUsdc,6)}</b></button>
           <Link className={s.link} href="/invites">Invite a fren ↗</Link>
+          <CardWallet />
           <h2>Recent activity</h2>{history.slice(0,4).map(item => <Activity key={item.id} item={item} open={() => {setResult(item);go('scan');}} />)}
           {historyState === 'loading' && !history.length && <TxListSkeleton rows={3} />}{historyState === 'error' && <InlineFailure>We couldn’t load your recent activity.<button onClick={() => void loadHistory()}>Retry activity</button></InlineFailure>}{historyState === 'ready' && !history.length && <p className={s.muted}>Your simulations will appear here.</p>}
         </>}

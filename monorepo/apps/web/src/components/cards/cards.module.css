@@ -1,0 +1,40 @@
+.entry { margin: 24px 0; padding: 22px; border: 1px solid var(--hair); border-radius: 24px; background: var(--surface); }
+.entry h2, .dialog h2 { font-family: var(--font-display), sans-serif; font-size: 26px; line-height: 1.15; margin: 8px 0; }
+.entry p, .dialog p { font-size: 13px; line-height: 1.6; color: var(--muted); margin: 8px 0 16px; }
+.eyebrow { font-size: 10px; font-weight: 700; letter-spacing: .12em; color: var(--accent); }
+.dialog { padding: 0; margin: auto; width: min(100% - 20px, 430px); max-height: calc(100dvh - 24px); border: 1px solid var(--hair); border-radius: 28px; background: var(--canvas); color: var(--ink); overflow-y: auto; overscroll-behavior: contain; box-shadow: 0 24px 80px #162f3350; }
+.dialog::backdrop { background: #102b3580; backdrop-filter: blur(6px); }
+.header { position: sticky; top: 0; z-index: 2; background: var(--canvas); display: flex; justify-content: space-between; align-items: center; padding: 22px 22px 12px; }
+.body { padding: 0 20px 20px; }
+.close { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--hair); background: var(--surface); font-size: 28px; }
+.dialog .disclaimer { padding: 12px; background: var(--surface); border-radius: 12px; font-size: 12px; }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 0; }
+.heading p, .heading span { margin: 0; font-size: 11px; }
+.textButton { background: transparent; color: var(--accent); border: 0; min-height: 44px; font-weight: 700; white-space: nowrap; }
+.deck { display: grid; gap: 14px; height: 290px; overflow-y: auto; scroll-snap-type: y proximity; scroll-behavior: smooth; padding: 5px 8px 35px 5px; border-radius: 22px; }
+.card { display: flex; flex-direction: column; flex-shrink: 0; width: 100%; min-height: 208px; border: 1px solid #ffffff40; border-radius: 21px; padding: 20px; text-align: left; color: #fff5e4; background: radial-gradient(ellipse at top right, #ffffff25, transparent 65%), #16434a; scroll-snap-align: start; transition: transform 180ms ease, box-shadow 180ms ease; cursor: pointer; }
+.card[data-tone='rust'] { background-color: #8c3e27; }
+.card[data-tone='sage'] { background-color: #425e4c; }
+.card[aria-pressed='true'] { box-shadow: 0 0 0 3px var(--canvas), 0 0 0 5px var(--accent); }
+.card:active { transform: scale(.985); }
+.cardTop, .cardBottom { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.cardTop b { font-family: var(--font-display), sans-serif; font-size: 22px; }
+.cardTop > span { font-size: 10px; border: 1px solid #ffffff50; padding: 5px 8px; border-radius: 20px; }
+.chip { font-size: 30px; margin: 16px 0 8px; color: #e3c899; }
+.chip span { font-size: 17px; margin-left: 8px; }
+.cardName { font-size: 19px; font-weight: 600; margin-bottom: 12px; overflow-wrap: anywhere; }
+.cardBottom { margin-top: auto; font-size: 11px; letter-spacing: .06em; }
+.controls { padding-top: 12px; }
+.dialog h3 { margin: 6px 0; font-size: 17px; overflow-wrap: anywhere; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.primary, .secondary { min-height: 46px; padding: 12px 16px; border-radius: 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.primary { background: var(--accent); color: #fff8ee; border: 1px solid transparent; }
+.secondary { background: var(--surface); color: var(--ink); border: 1px solid var(--hair); }
+.panel { padding: 16px; background: var(--surface); border: 1px solid var(--hair); border-radius: 18px; margin: 12px 0; }
+.panel label { display: block; font-size: 12px; margin: 12px 0; }
+.panel input, .panel select { display: block; width: 100%; margin-top: 6px; padding: 12px; min-height: 44px; border: 1px solid var(--hair); border-radius: 10px; background: var(--canvas); color: var(--ink); font: inherit; font-size: 16px; }
+.entry button:focus-visible, .dialog button:focus-visible, .panel input:focus-visible, .panel select:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.dialog button:disabled { opacity: .5; cursor: not-allowed; }
+.dialog .notice { margin: 8px 0; }
+.dialog .footnote { font-size: 11px; margin-bottom: 0; }
+@media (prefers-reduced-motion: reduce) { .deck { scroll-behavior: auto; } .card { transition: none; } }

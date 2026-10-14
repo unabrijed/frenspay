@@ -24,6 +24,7 @@ import { useBalanceDisplay } from '@/hooks/useBalanceDisplay';
 import { colors, GUTTER, shadows, type } from '@/lib/theme';
 import type { Txn } from '@/services/wallet';
 import { usePayStore } from '@/store/usePayStore';
+import { CardWallet } from '@/components/cards/CardWallet';
 
 export default function Home() {
   const router = useRouter();
@@ -120,6 +121,7 @@ export default function Home() {
           <Txt style={type.seeAll}>Invite a fren ↗</Txt>
         </Pressable>
 
+        <CardWallet />
         {/* recent activity */}
         <View style={styles.recent}>
           <View style={styles.rh}>
