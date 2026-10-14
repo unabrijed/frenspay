@@ -1,0 +1,10 @@
+{
+  "stage": {
+    "apiUrl": "https://stage.api.frenspay.xyz",
+    "dynamicEnvironmentId": "4fc2a73c-1662-45eb-9257-8baa567066a6"
+  },
+  "production": {
+    "apiUrl": "https://stage.api.frenspay.xyz",
+    "dynamicEnvironmentId": "4fc2a73c-1662-45eb-9257-8baa567066a6"
+  }
+}
