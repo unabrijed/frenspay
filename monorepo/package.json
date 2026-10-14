@@ -16,6 +16,8 @@
     "dev": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/web dev & yarn workspace @fpay/admin dev & yarn workspace @fpay/lp dev & yarn workspace @fpay/landing dev & wait",
     "dev:web": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/web dev & wait",
     "dev:fpay": "yarn dev:web",
+    "preview:web:stage": "node scripts/preview-web.mjs stage",
+    "preview:web:prod": "node scripts/preview-web.mjs production",
     "dev:admin": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/admin dev & wait",
     "dev:landing": "trap 'kill 0' EXIT; yarn dev:backend & yarn workspace @fpay/landing dev & wait",
     "dev:backend": "yarn workspace @fpay/backend dev",

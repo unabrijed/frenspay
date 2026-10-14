@@ -34,9 +34,9 @@ export function setAuthToken(token: string | null): void {
   authToken = token;
 }
 
-let refreshToken: (() => Promise<string | null>) | null = null;
+let refreshToken: ((force?: boolean) => Promise<string | null>) | null = null;
 /** Registered by Providers so a 401 (expired access token) refreshes once and retries. */
-export function setTokenRefresher(fn: (() => Promise<string | null>) | null): void {
+export function setTokenRefresher(fn: ((force?: boolean) => Promise<string | null>) | null): void {
   refreshToken = fn;
 }
 
@@ -60,7 +60,7 @@ export async function req<T>(path: string, init?: RequestInit, retried = false):
 
   // Expired Dynamic access token → refresh once and retry transparently.
   if (res.status === 401 && !retried && refreshToken) {
-    const fresh = await refreshToken().catch(() => null);
+    const fresh = await refreshToken(true).catch(() => null);
     if (fresh) {
       authToken = fresh;
       return req<T>(path, init, true);

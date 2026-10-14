@@ -21,7 +21,7 @@ const APP_ENV = (process.env.NEXT_PUBLIC_APP_ENV || (isProduction ? 'production'
 const isProdEnv = APP_ENV === 'production';
 const isStageEnv = APP_ENV === 'stage';
 // An unrecognised tier used to fall out of pick() into the STAGE chain — a production build quietly
-// signing in against the stage Privy app while its own bare vars sat there unread. NEXT_PUBLIC_* is
+// signing in against the stage Dynamic app while its own bare vars sat there unread. NEXT_PUBLIC_* is
 // inlined, so this folds at build time: a mistyped tier fails the build instead of shipping.
 if (!isProdEnv && !isStageEnv && APP_ENV !== 'local') {
   throw new Error(`NEXT_PUBLIC_APP_ENV must be local | stage | production: got ${JSON.stringify(APP_ENV)}`);

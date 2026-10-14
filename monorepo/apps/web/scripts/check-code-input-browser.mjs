@@ -18,9 +18,32 @@ try{
  await otp.press('Backspace');assert.equal(await page.locator('#otp').textContent(),'12345');
  await otp.fill('98a7654');assert.equal(await page.locator('#otp').textContent(),'987654');
  await otp.press('ArrowLeft');await otp.press('Backspace');assert.equal(await page.locator('#otp').textContent(),'98764');
- const invite=page.getByLabel('Invite code');await invite.fill('fren-abcd-1234');assert.equal(await page.locator('#invite').textContent(),'ABCD1234');
- await invite.fill('abcd1234extra');assert.equal(await page.locator('#invite').textContent(),'ABCD1234');
- assert.equal(await page.locator('span[aria-hidden="true"]').count(),14);
+ // Clicking a populated OTP box selects that character for replacement/deletion.
+ await otp.fill('123456');
+ await page.locator('span[aria-hidden="true"]').nth(2).click();
+ await page.keyboard.press('Backspace');assert.equal(await page.locator('#otp').textContent(),'12456');
+ await otp.fill('123456');await page.locator('span[aria-hidden="true"]').nth(2).click();
+ await page.keyboard.type('9');assert.equal(await page.locator('#otp').textContent(),'129456');
+ const invite=page.getByLabel('Invite code');
+ await invite.fill('');await invite.pressSequentially('FREN-Y1WY-0GTX');
+ assert.equal(await invite.inputValue(),'FREN-Y1WY-0GTX');
+ await invite.press('Backspace');assert.equal(await invite.inputValue(),'FREN-Y1WY-0GT');
+ await invite.pressSequentially('X');
+ // A visible caret gives native Backspace, forward Delete, and selection semantics.
+ await invite.evaluate(el=>el.setSelectionRange(6,6));await invite.press('Backspace');
+ assert.equal(await invite.inputValue(),'FREN-1WY-0GTX');
+ await invite.evaluate(el=>el.setSelectionRange(5,5));await invite.press('Delete');
+ assert.equal(await invite.inputValue(),'FREN-WY-0GTX');
+ await invite.evaluate(el=>el.setSelectionRange(0,4));await invite.pressSequentially('fren');
+ assert.equal(await invite.inputValue(),'fren-WY-0GTX');
+ // Paste through the browser's clipboard, including lowercase and separators.
+ await page.context().grantPermissions(['clipboard-read','clipboard-write']);
+ await page.evaluate(()=>navigator.clipboard.writeText('fren-abcd-1234'));
+ await invite.evaluate(el=>el.select());await invite.press(process.platform==='darwin'?'Meta+V':'Control+V');
+ assert.equal(await invite.inputValue(),'fren-abcd-1234');
+ await invite.fill('FREN-FREN-1234');assert.equal(await invite.inputValue(),'FREN-FREN-1234');
+ await invite.evaluate(el=>el.select());await invite.press('Backspace');assert.equal(await invite.inputValue(),'');
+ assert.equal(await page.locator('span[aria-hidden="true"]').count(),6);
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
- console.log('code-input: boxes, typing, deletion, cursor editing, pasted invite normalization, autofill input and mobile width passed');
+ console.log('code-input: full invite typing/paste, caret editing, selection deletion, OTP box replacement and mobile width passed');
 }finally{await browser.close();await new Promise(r=>server.close(r));}

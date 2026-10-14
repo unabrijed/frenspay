@@ -2,6 +2,9 @@ import {useRef,useState} from 'react';
 import {TextInput,View,Text,Pressable} from 'react-native';
 export function CodeInput({value,onChange,length=6,label='Verification code',numeric=true,disabled=false,invite=false}:{value:string;onChange:(value:string)=>void;length?:number;label?:string;numeric?:boolean;disabled?:boolean;invite?:boolean}) {
   const input=useRef<TextInput>(null);const [focused,setFocused]=useState(false);
+  if(invite) return <TextInput accessibilityLabel={label} value={value} onChangeText={onChange}
+    placeholder="FREN-XXXX-XXXX" editable={!disabled} autoComplete="off" autoCapitalize="characters" autoCorrect={false}
+    style={{width:'100%',height:52,borderWidth:1,borderColor:'#555',borderRadius:10,paddingHorizontal:14,fontSize:18,color:'#171717'}}/>;
   const clean=(raw:string)=>{let s=raw.toUpperCase().replace(numeric?/[^0-9]/g:/[^A-Z0-9]/g,'');if(invite&&s.startsWith('FREN'))s=s.slice(4);return s.slice(0,length);};
   const text=clean(value);
   return <Pressable onPress={()=>input.current?.focus()} style={{width:'100%',minHeight:52}}>

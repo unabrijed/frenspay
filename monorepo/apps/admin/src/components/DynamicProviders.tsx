@@ -15,7 +15,7 @@
 // ONE Dynamic app for both targets (envConfig.DYNAMIC_ENVIRONMENT_ID), so the session survives the env switch
 // and the provider never has to swap app ids under a live tree.
 import { DynamicContextProvider, useDynamicContext } from '@dynamic-labs/sdk-react-core';
-import { getDefaultClient } from '@dynamic-labs-sdk/client';
+import { getDefaultClient, refreshAuth } from '@dynamic-labs-sdk/client';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { EnvSwitch } from '@/components/EnvSwitch';
@@ -166,7 +166,7 @@ function NoAccess({ kind }: { kind: Exclude<Access, 'checking' | 'admin'> }) {
     // the session and not the account, and the two used to print the same sentence.
     refused: {
       title: 'Session refused',
-      copy: 'This backend would not verify the session, usually an expired login. Sign out and back in. If it repeats, this backend is configured with a different Dynamic app than the console signs into.',
+      copy: 'This backend could not verify your session. Sign out and back in. If it repeats, check the backend authentication logs and confirm that the console and backend use the same Dynamic environment.',
     },
     error: {
       title: 'Backend unreachable',
@@ -239,7 +239,14 @@ export function Providers({ children }: { children: ReactNode }) {
   </DynamicContextProvider>;
 }
 
-const getAccessToken = async () => getDefaultClient().token;
+let refreshing: Promise<void> | null = null;
+const getAccessToken = async (force = false): Promise<string | null> => {
+  if (force && !refreshing) {
+    refreshing = refreshAuth().then(() => {}).finally(() => { refreshing = null; });
+  }
+  if (refreshing) await refreshing;
+  return getDefaultClient().token;
+};
 function useSession() {
   const {sdkHasLoaded, user, setShowAuthFlow, handleLogOut} = useDynamicContext();
   return {ready:sdkHasLoaded, authenticated:Boolean(user), login:() => setShowAuthFlow(true),

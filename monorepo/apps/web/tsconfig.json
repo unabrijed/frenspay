@@ -24,6 +24,6 @@
       "@fpay/app/*": ["../../packages/app/src/*"]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next-preview/types/**/*.ts"],
   "exclude": ["node_modules"]
 }

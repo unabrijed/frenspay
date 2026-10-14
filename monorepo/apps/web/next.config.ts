@@ -1,6 +1,13 @@
 import path from 'node:path';
 
 import type { NextConfig } from 'next';
+import previewTargets from '../../scripts/preview-targets.json';
+
+const previewTarget = process.env.FPAY_PREVIEW_TARGET;
+if (previewTarget && previewTarget !== 'stage' && previewTarget !== 'production') {
+  throw new Error('FPAY_PREVIEW_TARGET must be stage or production');
+}
+const preview = previewTarget ? previewTargets[previewTarget as keyof typeof previewTargets] : undefined;
 
 // Dynamic production checklist: strict CSP (protects the embedded-wallet iframe) + X-Frame-Options.
 // Built from a scan of every origin the app actually touches — if a flow breaks with a CSP
@@ -38,6 +45,10 @@ const CSP = [
 ].join('; ');
 
 const nextConfig: NextConfig = {
+  ...(preview ? { distDir: '.next-preview' } : {}),
+  async rewrites() {
+    return preview ? [{ source: '/__preview_api/:path*', destination: `${preview.apiUrl}/:path*` }] : [];
+  },
   reactStrictMode: true,
   // Our aliases opt out of Next's build worker by default. They are worker-safe;
   // keep compilation isolated so the wallet SDK graph doesn't retain its heap

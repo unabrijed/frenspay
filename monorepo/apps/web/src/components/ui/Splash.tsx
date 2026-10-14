@@ -11,7 +11,6 @@ import { LogoXl } from '@/components/ui/primitives';
 import { Screen } from '@/components/ui/Screen';
 import { View } from '@/components/ui/rn';
 import { bootRecoverReload, SPLASH_WATCHDOG_MS } from '@/lib/boot';
-import { LoadingStatus } from './LoadingStatus';
 
 export function Splash() {
   const [slow, setSlow] = useState(false);
@@ -22,12 +21,13 @@ export function Splash() {
 
   return (
     <Screen edges={['top']}>
-      {/* Pair the brand animation with a readable, announced loading state. */}
+      {/* The animated mark is the only visual loading indicator. */}
       <View
         style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+        role="status" aria-label={slow ? 'Taking a little longer' : 'Loading'}
       >
         <LogoXl state="joining" />
-        <LoadingStatus label={slow ? 'Taking a little longer…' : 'Loading…'} />
+        {slow && <p>Taking a little longer…</p>}
         {slow && <button type="button" onClick={() => bootRecoverReload('user-retry')}>Try again</button>}
       </View>
     </Screen>

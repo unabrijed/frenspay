@@ -4,6 +4,20 @@
 
 Decision: 13 October 2026. Target Metropolis, Consumer Products & Payments. This is an invite-only web beta using the current Frenspay visual language. Real UPI settlement remains deferred. No hackathon submission has been sent by this implementation.
 
+## Local testing and stage admin access
+
+Run these commands from `monorepo`:
+
+- `yarn dev:web` runs the customer app and local API in development mode. The API's dev command explicitly selects `NODE_ENV=development`, so a production value in `.env` cannot silently switch the local API to production settings.
+- `yarn preview:web:stage` builds and serves the customer app with the stage frontend configuration.
+- `yarn preview:web:prod` builds and serves the customer app with the production frontend configuration, while deliberately using **stage API data and Dynamic sandbox authentication**. This exercises an optimized build, production CSP, and production frontend flags without selecting live accounts.
+
+Stop the customer dev server on port 3000 before starting either preview, then open `http://localhost:3000`. Both previews rebuild before serving and use `.next-preview`, separate from the normal `.next` output. Add `--build-only` to validate a build without starting the server. No local backend workers or migrations are started by either preview.
+
+The local Next server forwards `/__preview_api/*` to the fixed stage API host; the normal deployed app has no preview proxy. Allow `http://localhost:3000` in the **sandbox** Dynamic environment (`4fc2a73c-1662-45eb-9257-8baa567066a6`). No live Dynamic CORS change is needed. Stage still uses mainnet wallets: the preview is not an isolated money simulator. It does not reproduce production account data, live Dynamic settings, or differences in deployed backend versions.
+
+`STAGE_ADMIN_EMAILS` already includes `unabrijed@gmail.com` locally and on Railway stage. The stage account is active and the API's `effectiveRole` check returns `admin`; this email allowlist overrides its stored `user` role. Sign in to the local admin console with the sandbox identity and select the stage target to manage access.
+
 ## Product contract
 
 1. Redeem an invitation and sign in with Dynamic email authentication. The backend verifies membership and binds the verified identity to its verified embedded EVM wallet.

@@ -132,7 +132,10 @@ const { verifySponsoredReceipt } = await import('../src/services/campaign/receip
 const { BN } = await import('../src/lib/units');
 const qr = (payee='cafe@upi') => `upi://pay?pa=${payee}&pn=Cafe&cu=INR&mc=5812`;
 const app=Fastify();
-app.addHook('preHandler',async(req)=>{req.privyDid=req.headers['x-fixture-user'] as string|undefined;});
+app.addHook('preHandler',async(req)=>{
+  req.privyDid=req.headers['x-fixture-user'] as string|undefined;
+  req.campaignIdentity=req.privyDid ? users[req.privyDid] : undefined;
+});
 app.addHook('preHandler',enforceSimulationMode);
 const { requireFlist } = await import('../src/services/flist');
 await app.register(async customer => {customer.addHook('preHandler',requireFlist);await registerCampaignRoutes(customer);});
@@ -161,6 +164,20 @@ try {
   assert.equal(verifySponsoredReceipt({to:entry,input},[log(true)],sender,target,'0x9999'),false);
   assert.equal(verifySponsoredReceipt({to:sender,input},[log(true)],sender,target,commitment),false);
 
+  config.customerPaymentMode='live';
+  const session = () => app.inject({method:'POST',url:'/campaign/session',headers:{'x-fixture-user':'alice'}});
+  assert.equal((await session()).json().error,'campaign_paused');
+  config.customerPaymentMode='simulation';
+  config.campaignSpendingEnabled=false;
+  const firstSession=await session();
+  assert.equal(firstSession.statusCode,200,firstSession.body);
+  assert.equal(firstSession.json().rewardCredits,'0.000000');
+  assert.equal((await session()).json().id,firstSession.json().id);
+  assert.equal((await app.inject({method:'POST',url:'/campaign/quotes',headers:{'x-fixture-user':'alice'},payload:{qr:qr(),amountInr:'10'}})).json().error,'campaign_paused');
+  await db.query('update campaign_accounts set suspended=true where id=$1',[firstSession.json().id]);
+  assert.equal((await session()).json().suspended,true,'Paused sessions preserve suspended account recovery');
+  await db.query('update campaign_accounts set suspended=false where id=$1',[firstSession.json().id]);
+  config.campaignSpendingEnabled=true;
   for(const id of Object.keys(users)) await ledger.syncIdentity(id,undefined,users[id]);
   assert.equal((await app.inject({method:'GET',url:'/campaign/account',headers:{'x-fixture-user':'bob'}})).statusCode,403);
   const initial=await ledger.account('alice');

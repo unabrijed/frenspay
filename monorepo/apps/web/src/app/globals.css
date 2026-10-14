@@ -6,7 +6,11 @@
    They only style the app-frame + body chrome; component styling is shared via lib/theme.ts.
    Theme: frenspay v2 — the palette sampled from the four scene paintings. */
 :root {
+  --font-display: var(--font-sans);
+  --font-body: var(--font-sans);
+  --font-mono: var(--font-sans);
   --font-display-weight: 700;
+  --font-display-heavy-weight: 800;
   --sage: #718479;
   --water: #4e6d6a;
   --petrol: #0e3d45;
