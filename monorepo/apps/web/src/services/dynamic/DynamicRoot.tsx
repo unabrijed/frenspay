@@ -136,7 +136,7 @@ function DynamicAccount({ ready, userId, logout, children }: {
       {access && !access.member && <form onSubmit={e => {e.preventDefault(); if(busy)return; setBusy(true);setError('');
         void (async () => {const next = await requestFlist(token, invite.trim());if(active.current)setAccess(next);})()
           .catch(()=>setError('Could not redeem that invitation. Check the code and try again.')).finally(()=>setBusy(false));}}>
-        <p className={s.inviteIntro}>Enter your invite code to join.</p><div className={s.fieldLabel}>Your invite code <span>FREN + 8 characters</span></div><CodeInput label="Invite code" value={invite} onChange={setInvite} length={8} numeric={false} invite disabled={busy}/>
+        <p className={s.inviteIntro}>Type or paste your full invite code, including FREN.</p><div className={s.fieldLabel}>Your invite code <span>FREN-XXXX-XXXX</span></div><CodeInput label="Invite code" value={invite} onChange={setInvite} numeric={false} invite disabled={busy}/>
         <button className={s.primary} disabled={busy}>{busy ? 'Joining…' : 'Join the f-list'}</button></form>}
       {userId && access?.member && !embedded && <WalletSetup userId={userId} />}
       {error && <button className={s.link} onClick={() => {setError('');void refresh().catch(error=>setError(friendlyError(error, 'Please try again shortly.')));}}>Try again</button>}

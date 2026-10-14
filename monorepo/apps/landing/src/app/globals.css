@@ -1370,8 +1370,32 @@ button:not(:disabled),
   }
 }
 
-/* A quiet, persistent route back for people already on the f-list. */
+/* Keep the primary app entry prominent against every scene's pale sky. */
 .things-launch {
-  display: inline-flex; align-items: center; min-height: 44px; margin-top: 6px;
-  color: var(--color-ink); font-size: 14px; text-underline-offset: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  margin-top: 12px;
+  padding: 12px 24px;
+  border: 2px solid var(--color-ink);
+  border-radius: 999px;
+  background: var(--color-ink);
+  color: var(--color-canvas);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-decoration: none;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgb(43 49 49 / 18%);
+}
+
+.things-launch:hover {
+  background: var(--color-petrol);
+  border-color: var(--color-petrol);
+}
+
+.things-launch:focus-visible {
+  outline: 3px solid var(--color-petrol);
+  outline-offset: 4px;
 }

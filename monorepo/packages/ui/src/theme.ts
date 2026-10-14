@@ -18,7 +18,7 @@ const MARK = 'var(--font-mono)';
 const TAB = { fontVariantNumeric: 'tabular-nums' } as const;
 const F: Record<FontRole, CSSProperties> = {
   disp700: { fontFamily: DISPLAY, fontWeight: 'var(--font-display-weight, 300)' as CSSProperties['fontWeight'] },
-  disp800: { fontFamily: DISPLAY, fontWeight: 'var(--font-display-weight, 300)' as CSSProperties['fontWeight'] },
+  disp800: { fontFamily: DISPLAY, fontWeight: 'var(--font-display-heavy-weight, var(--font-display-weight, 300))' as CSSProperties['fontWeight'] },
   body400: { fontFamily: BODY, fontWeight: 400 },
   body500: { fontFamily: BODY, fontWeight: 500 },
   body600: { fontFamily: BODY, fontWeight: 600 },

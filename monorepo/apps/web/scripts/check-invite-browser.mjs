@@ -17,7 +17,7 @@ const server=createServer(async(req,res)=>{
     assert.equal(req.headers.authorization,'Bearer fixture-token');
     if(unavailable)return reply(503,{error:'unavailable'});
     if(url.pathname==='/flist/join'){
-      if(JSON.parse(raw).code!=='ABCD1234')return reply(400,{error:'invalid_invite'});
+      if(JSON.parse(raw).code.toUpperCase()!=='FREN-ABCD-1234')return reply(400,{error:'invalid_invite'});
       member=true;
     }
     return reply(200,{email:'fren@example.test',member,invites:[]});
@@ -68,7 +68,7 @@ const browser=await chromium.launch({channel:'chrome',headless:true});
 try{
   const page=await browser.newPage({viewport:{width:390,height:844}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(origin+'?invite=FREN-ABCD-1234');
-  await expect(page.getByLabel('Invite code')).toHaveValue('ABCD1234');
+  await expect(page.getByLabel('Invite code')).toHaveValue('FREN-ABCD-1234');
   await page.getByLabel('Invite code').fill('WRONG123');await page.getByRole('button',{name:'Join the f-list',exact:true}).click();
   await expect(page.getByRole('alert')).toContainText('Could not redeem');
   await page.getByLabel('Invite code').fill('fren-abcd-1234');await page.getByRole('button',{name:'Join the f-list',exact:true}).click();
@@ -77,6 +77,7 @@ try{
   unavailable=true;await page.reload();await expect(page.getByRole('alert')).toContainText('Could not restore');
   unavailable=false;await page.getByRole('button',{name:'Try again'}).click();
   await expect(page.getByRole('heading',{name:'Simulation home'})).toBeVisible();assert.deepEqual(errors,[]);
+  if (!process.argv.includes('--invite-only')) {
   await page.goto(origin+'?wallet=disabled');
   await expect(page.getByRole('alert')).toContainText('Wallet setup is temporarily unavailable');
   await expect(page.getByText('Getting your wallet ready…')).toHaveCount(0);
@@ -111,6 +112,7 @@ try{
       assert.equal(await page.evaluate(()=>window.creationCount||0),mode==='changed'?0:1);
     }
   }
+  }
   assert.deepEqual(errors,[]);
-  console.log('Dynamic invite gate: invitations, membership, timeout, reload, EVM-only recovery, existing-wallet reuse, session isolation, failure and hung-request guards passed');
+  console.log(process.argv.includes('--invite-only') ? 'Dynamic invite gate: full code prefill, invalid code, redemption, membership and access recovery passed' : 'Dynamic invite gate: invitations, membership, timeout, reload, EVM-only recovery, existing-wallet reuse, session isolation, failure and hung-request guards passed');
 }finally{await browser.close();await new Promise(r=>server.close(r));}

@@ -1,22 +1,11 @@
-// Main app: expressive headings, clear UI copy, and tabular money/technical details.
-import { Bricolage_Grotesque, Inter, JetBrains_Mono } from 'next/font/google';
+// One family for headings, body copy, and tabular numbers, as in the earlier FPay design.
+import { Hanken_Grotesk } from 'next/font/google';
 
-export const display = Bricolage_Grotesque({
+export const sans = Hanken_Grotesk({
   subsets: ['latin'],
-  variable: '--font-display',
+  weight: ['400', '500', '600', '700', '800'],
+  variable: '--font-sans',
   display: 'swap',
 });
 
-export const body = Inter({
-  subsets: ['latin'],
-  variable: '--font-body',
-  display: 'swap',
-});
-
-export const mark = JetBrains_Mono({
-  subsets: ['latin'],
-  variable: '--font-mono',
-  display: 'swap',
-});
-
-export const fontVars = `${display.variable} ${body.variable} ${mark.variable}`;
+export const fontVars = sans.variable;

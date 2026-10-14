@@ -41,8 +41,16 @@ export async function registerCampaignRoutes(app: FastifyInstance) {
     }});
   };
   route('POST', 'session', async (did, _body, identity) => {
-    if (config.customerPaymentMode !== 'simulation' || !config.campaignSpendingEnabled)
-      return ledger.view(await ledger.account(did, true));
+    if (config.customerPaymentMode !== 'simulation' || !config.campaignSpendingEnabled) {
+      try {
+        return ledger.view(await ledger.account(did, true));
+      } catch (error) {
+        if ((error as Error).message !== 'campaign_account_missing') throw error;
+        // Recovery remains available in live mode, but new simulation accounts need
+        // a simulation backend. Pausing spending must not prevent first login.
+        if (config.customerPaymentMode !== 'simulation') ledger.fail('campaign_paused', 409);
+      }
+    }
     return ledger.syncIdentity(did, undefined, identity);
   });
   route('GET', 'account', async did => ledger.view(await ledger.account(did, true)));
